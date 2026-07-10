@@ -56,7 +56,7 @@ public sealed class SeedLinkCommand(
             {
                 Console.Error.WriteLine(fmt.FormatError(
                     $"Link rejected: seed #{sourceId} cannot be its own parent."));
-                return 1;
+                return 2;
             }
 
             var childSeed = await workItemRepo.GetByIdAsync(sourceId, ct);

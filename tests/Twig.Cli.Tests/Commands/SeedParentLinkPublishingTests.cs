@@ -45,7 +45,7 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
         adoService.CreateAsync(Arg.Do<CreateWorkItemRequest>(request => createRequest = request), Arg.Any<CancellationToken>())
             .Returns(500);
         adoService.FetchAsync(500, Arg.Any<CancellationToken>())
-            .Returns(new WorkItemBuilder(500, "Child seed").AsTask().Build());
+            .Returns(new WorkItemBuilder(500, "Child seed").AsTask().WithParent(100).Build());
 
         var orchestrator = new SeedPublishOrchestrator(
             workItemRepo,

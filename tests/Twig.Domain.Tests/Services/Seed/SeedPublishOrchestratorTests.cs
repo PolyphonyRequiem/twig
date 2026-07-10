@@ -281,7 +281,7 @@ public class SeedPublishOrchestratorTests
             {
                 new SeedLink(-1, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
             });
-        SetupSuccessfulAdoFlow(-1, 500);
+        SetupSuccessfulAdoFlow(-1, 500, parentId: 100);
 
         var result = await _orchestrator.PublishAsync(-1);
 
@@ -312,6 +312,31 @@ public class SeedPublishOrchestratorTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task PublishAsync_ParentChildLinkMissingAfterCreate_ReturnsErrorWithNewId()
+    {
+        var seed = new WorkItemBuilder(-1, "Child seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(500, "Child seed").Build());
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.Error);
+        result.IsSuccess.ShouldBeFalse();
+        result.NewId.ShouldBe(500);
+        result.ErrorMessage!.ShouldContain("did not persist intended parent #100");
+        await _publishIdMapRepo.Received(1).RecordMappingAsync(-1, 500, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Force + Dry run → dry run wins (no API calls)
     // ═══════════════════════════════════════════════════════════════
@@ -330,9 +355,15 @@ public class SeedPublishOrchestratorTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private void SetupSuccessfulAdoFlow(int seedId, int newId)
+    private void SetupSuccessfulAdoFlow(int seedId, int newId, int? parentId = null)
     {
-        var fetchedItem = new WorkItemBuilder(newId, "Fetched").Build();
+        var fetchedItemBuilder = new WorkItemBuilder(newId, "Fetched");
+        if (parentId.HasValue)
+        {
+            fetchedItemBuilder.WithParent(parentId.Value);
+        }
+
+        var fetchedItem = fetchedItemBuilder.Build();
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(newId);
         _adoService.FetchAsync(newId, Arg.Any<CancellationToken>()).Returns(fetchedItem);
     }

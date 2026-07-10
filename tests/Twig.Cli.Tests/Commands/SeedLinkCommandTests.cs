@@ -162,6 +162,20 @@ public class SeedLinkCommandTests
     }
 
     [Fact]
+    public async Task Link_ParentChildFromSeed_ToItself_ReturnsUsageError()
+    {
+        var result = await _cmd.LinkAsync(-1, -1, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(2);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Link_ParentChildFromSeed_WithDifferentParent_IsRejected()
     {
         var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(50).Build();

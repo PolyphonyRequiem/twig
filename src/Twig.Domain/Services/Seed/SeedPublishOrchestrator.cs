@@ -85,6 +85,9 @@ public sealed class SeedPublishOrchestrator
         }
 
         var parentLinks = await _seedLinkRepo.GetLinksForItemAsync(seedId, ct);
+        var hasParentLinkIntent = parentLinks.Any(link =>
+            link.LinkType == SeedLinkTypes.ParentChild &&
+            link.SourceId == seedId);
         var (resolvedSeed, parentLinkError) = ResolveParentLink(seed, parentLinks);
         if (parentLinkError is not null)
         {
@@ -148,6 +151,9 @@ public sealed class SeedPublishOrchestrator
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);
+        var parentPersistenceError = hasParentLinkIntent && fetchedItem.ParentId != seed.ParentId
+            ? $"Work item #{newId} was created, but ADO did not persist intended parent #{seed.ParentId}."
+            : null;
 
         // Step 9: Clear seed flag — item is now a published ADO work item.
         // Provenance is tracked via publish_id_map (old negative ID → new positive ID).
@@ -187,6 +193,19 @@ public sealed class SeedPublishOrchestrator
 
         // Step 11: Promote seed links to ADO relations
         var linkWarnings = await _linkPromoter.PromoteLinksAsync(newId, ct);
+
+        if (parentPersistenceError is not null)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                NewId = newId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.Error,
+                ErrorMessage = parentPersistenceError,
+                LinkWarnings = linkWarnings,
+            };
+        }
 
         // Step 12: Best-effort backlog ordering
         await _backlogOrderer.TryOrderAsync(newId, seed.ParentId, ct);

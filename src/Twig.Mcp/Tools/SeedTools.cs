@@ -641,7 +641,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             }, verbose, ct);
 
         // Build the updated seed — use WithSeedFields for title/fields, then WithParentId if needed
-        var updated = seed.WithSeedFields(newTitle, fields);
+        var updateResult = seed.TryWithSeedFields(newTitle, fields);
+        if (!updateResult.IsSuccess)
+            return await EnvelopeBuilder.ErrorAsync(
+                McpErrorCode.InvalidInput, updateResult.Error, ctx, ct);
+
+        var updated = updateResult.Value;
 
         // Apply type change if needed
         if (type is not null && newType != seed.Type)

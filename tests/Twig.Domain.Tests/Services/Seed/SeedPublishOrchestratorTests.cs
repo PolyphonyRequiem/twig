@@ -371,6 +371,26 @@ public class SeedPublishOrchestratorTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task PublishAsync_CanonicalFieldDiffersFromField_ForceStillReturnsValidationFailed()
+    {
+        var seed = new WorkItemBuilder(-1, "Seed")
+            .AsSeed()
+            .WithIterationPath(@"Project\Old")
+            .WithField("System.IterationPath", @"Project\Edited")
+            .Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        SetupSuccessfulAdoFlow(-1, 500);
+
+        var result = await _orchestrator.PublishAsync(-1, force: true);
+
+        result.Status.ShouldBe(SeedPublishStatus.ValidationFailed);
+        result.ValidationFailures.ShouldContain(failure => failure.Rule == "System.IterationPath");
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Force + Dry run → dry run wins (no API calls)
     // ═══════════════════════════════════════════════════════════════

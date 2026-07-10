@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Domain.Aggregates.WorkItem.TryWithSeedFields(string! title, System.Collections.Generic.IReadOnlyDictionary<string!, string?>! fields) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
 Twig.Domain.Services.Mutation.StateTransitionOutcome
 Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState
 Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.AlreadyInState(string! ResolvedState, Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, string! Input) -> void

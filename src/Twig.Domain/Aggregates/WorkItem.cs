@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Twig.Domain.Common;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Aggregates;
@@ -123,19 +124,45 @@ public sealed class WorkItem
         string title,
         IReadOnlyDictionary<string, string?> fields)
     {
+        var result = TryWithSeedFields(title, fields);
+        return result.IsSuccess
+            ? result.Value
+            : WorkItemCopier.Copy(
+                this,
+                titleOverride: title,
+                preserveExistingFields: false,
+                fieldsOverride: fields);
+    }
+
+    /// <summary>
+    /// Returns a new <see cref="WorkItem"/> with updated seed fields and synchronized
+    /// canonical properties, or a validation error when a canonical path is invalid.
+    /// </summary>
+    public Result<WorkItem> TryWithSeedFields(
+        string title,
+        IReadOnlyDictionary<string, string?> fields)
+    {
         var overrideAreaPath = fields.TryGetValue("System.AreaPath", out var areaPathValue);
         var overrideIterationPath = fields.TryGetValue("System.IterationPath", out var iterationPathValue);
         var overrideAssignedTo = fields.TryGetValue("System.AssignedTo", out var assignedToValue);
 
-        return WorkItemCopier.Copy(
+        var areaPathResult = ParseAreaPath(areaPathValue, overrideAreaPath);
+        if (!areaPathResult.IsSuccess)
+            return Result.Fail<WorkItem>(areaPathResult.Error);
+
+        var iterationPathResult = ParseIterationPath(iterationPathValue, overrideIterationPath);
+        if (!iterationPathResult.IsSuccess)
+            return Result.Fail<WorkItem>(iterationPathResult.Error);
+
+        return Result.Ok(WorkItemCopier.Copy(
             this,
             titleOverride: title,
             overrideAssignedTo: overrideAssignedTo,
             assignedToValue: assignedToValue,
-            areaPathOverride: overrideAreaPath ? ParseAreaPath(areaPathValue) : null,
-            iterationPathOverride: overrideIterationPath ? ParseIterationPath(iterationPathValue) : null,
+            areaPathOverride: areaPathResult.Value,
+            iterationPathOverride: iterationPathResult.Value,
             preserveExistingFields: false,
-            fieldsOverride: fields);
+            fieldsOverride: fields));
     }
 
     /// <summary>
@@ -160,25 +187,31 @@ public sealed class WorkItem
     public WorkItem WithType(WorkItemType newType) =>
         WorkItemCopier.Copy(this, typeOverride: newType, preserveDirty: true);
 
-    private static AreaPath ParseAreaPath(string? value)
+    private static Result<AreaPath?> ParseAreaPath(string? value, bool shouldOverride)
     {
+        if (!shouldOverride)
+            return Result.Ok<AreaPath?>(null);
+
         if (string.IsNullOrWhiteSpace(value))
-            return default;
+            return Result.Ok<AreaPath?>(default(AreaPath));
 
         var result = AreaPath.Parse(value);
         return result.IsSuccess
-            ? result.Value
-            : throw new ArgumentException(result.Error, nameof(value));
+            ? Result.Ok<AreaPath?>(result.Value)
+            : Result.Fail<AreaPath?>(result.Error);
     }
 
-    private static IterationPath ParseIterationPath(string? value)
+    private static Result<IterationPath?> ParseIterationPath(string? value, bool shouldOverride)
     {
+        if (!shouldOverride)
+            return Result.Ok<IterationPath?>(null);
+
         if (string.IsNullOrWhiteSpace(value))
-            return default;
+            return Result.Ok<IterationPath?>(default(IterationPath));
 
         var result = IterationPath.Parse(value);
         return result.IsSuccess
-            ? result.Value
-            : throw new ArgumentException(result.Error, nameof(value));
+            ? Result.Ok<IterationPath?>(result.Value)
+            : Result.Fail<IterationPath?>(result.Error);
     }
 }

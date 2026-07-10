@@ -83,7 +83,14 @@ public sealed class SeedEditCommand(
             return 0;
         }
 
-        var updated = seed.WithSeedFields(newTitle, parsedFields);
+        var updateResult = seed.TryWithSeedFields(newTitle, parsedFields);
+        if (!updateResult.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError(updateResult.Error));
+            return 1;
+        }
+
+        var updated = updateResult.Value;
         await workItemRepo.SaveAsync(updated, ct);
 
         var message = $"Updated seed #{id} {updated.Title} ({changedCount} field(s) changed)";

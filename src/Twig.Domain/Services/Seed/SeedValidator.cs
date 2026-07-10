@@ -36,9 +36,7 @@ public static class SeedValidator
             failures.Add(new SeedValidationFailure("RequireParent", "A parent work item is required but not set."));
         }
 
-        ValidateCanonicalField(failures, seed, "System.AreaPath", seed.AreaPath.Value);
-        ValidateCanonicalField(failures, seed, "System.IterationPath", seed.IterationPath.Value);
-        ValidateCanonicalField(failures, seed, "System.AssignedTo", seed.AssignedTo);
+        failures.AddRange(ValidateCanonicalFields(seed));
 
         return new SeedValidationResult
         {
@@ -46,6 +44,15 @@ public static class SeedValidator
             Title = seed.Title,
             Failures = failures,
         };
+    }
+
+    internal static IReadOnlyList<SeedValidationFailure> ValidateCanonicalFields(WorkItem seed)
+    {
+        var failures = new List<SeedValidationFailure>();
+        ValidateCanonicalField(failures, seed, "System.AreaPath", seed.AreaPath.Value);
+        ValidateCanonicalField(failures, seed, "System.IterationPath", seed.IterationPath.Value);
+        ValidateCanonicalField(failures, seed, "System.AssignedTo", seed.AssignedTo);
+        return failures;
     }
 
     private static void ValidateCanonicalField(

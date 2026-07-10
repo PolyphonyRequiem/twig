@@ -175,6 +175,28 @@ public class SeedEditCommandTests
     }
 
     [Fact]
+    public async Task SeedEdit_InvalidAreaPath_ReturnsErrorWithoutSaving()
+    {
+        _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>
+            {
+                new("System.Title", "Title", "String", false),
+                new("System.AreaPath", "Area Path", "String", false),
+            });
+        var seed = CreateSeed(-2, "My Seed");
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("# Title\nMy Seed\n\n# Area Path\nProject\\\\Invalid\n");
+
+        var result = await _cmd.ExecuteAsync(-2);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task SeedEdit_PreservesAllSeedProperties()
     {
         var seed = CreateSeed(-5, "Seed Title");

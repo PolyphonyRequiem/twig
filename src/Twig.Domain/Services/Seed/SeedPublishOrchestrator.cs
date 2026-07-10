@@ -116,6 +116,18 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
+        var canonicalFieldFailures = SeedValidator.ValidateCanonicalFields(seed);
+        if (canonicalFieldFailures.Count > 0)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.ValidationFailed,
+                ValidationFailures = canonicalFieldFailures,
+            };
+        }
+
         // Step 5: Validate unless force
         if (!force)
         {

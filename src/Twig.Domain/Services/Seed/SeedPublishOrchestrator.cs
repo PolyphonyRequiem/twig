@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
@@ -85,24 +86,21 @@ public sealed class SeedPublishOrchestrator
         }
 
         var parentLinks = await _seedLinkRepo.GetLinksForItemAsync(seedId, ct);
-        var hasParentLinkIntent = parentLinks.Any(link =>
-            link.LinkType == SeedLinkTypes.ParentChild &&
-            link.SourceId == seedId);
-        var (resolvedSeed, parentLinkError) = ResolveParentLink(seed, parentLinks);
-        if (parentLinkError is not null)
+        var resolvedSeed = ResolveParentLink(seed, parentLinks);
+        if (!resolvedSeed.IsSuccess)
         {
             return new SeedPublishResult
             {
                 OldId = seedId,
                 Title = seed.Title,
                 Status = SeedPublishStatus.Error,
-                ErrorMessage = parentLinkError,
+                ErrorMessage = resolvedSeed.Error,
             };
         }
 
-        if (resolvedSeed.ParentId != seed.ParentId)
+        if (resolvedSeed.Value.ParentId != seed.ParentId)
         {
-            seed = resolvedSeed;
+            seed = resolvedSeed.Value;
             await _workItemRepo.SaveAsync(seed, ct);
         }
 
@@ -151,7 +149,7 @@ public sealed class SeedPublishOrchestrator
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);
-        var parentPersistenceError = hasParentLinkIntent && fetchedItem.ParentId != seed.ParentId
+        var parentPersistenceError = seed.ParentId.HasValue && fetchedItem.ParentId != seed.ParentId
             ? $"Work item #{newId} was created, but ADO did not persist intended parent #{seed.ParentId}."
             : null;
 
@@ -260,17 +258,17 @@ public sealed class SeedPublishOrchestrator
         var parentLinkErrors = new List<string>();
         foreach (var seed in seeds)
         {
-            var (resolvedSeed, error) = ResolveParentLink(seed, links);
-            if (error is not null)
+            var resolvedSeed = ResolveParentLink(seed, links);
+            if (!resolvedSeed.IsSuccess)
             {
-                parentLinkErrors.Add(error);
+                parentLinkErrors.Add(resolvedSeed.Error);
                 continue;
             }
 
-            if (resolvedSeed.ParentId != seed.ParentId)
-                await _workItemRepo.SaveAsync(resolvedSeed, ct);
+            if (resolvedSeed.Value.ParentId != seed.ParentId)
+                await _workItemRepo.SaveAsync(resolvedSeed.Value, ct);
 
-            resolvedSeeds.Add(resolvedSeed);
+            resolvedSeeds.Add(resolvedSeed.Value);
         }
 
         if (parentLinkErrors.Count > 0)
@@ -371,7 +369,7 @@ public sealed class SeedPublishOrchestrator
         };
     }
 
-    private static (WorkItem Seed, string? Error) ResolveParentLink(
+    private static Result<WorkItem> ResolveParentLink(
         WorkItem seed,
         IReadOnlyList<SeedLink> links)
     {
@@ -384,23 +382,23 @@ public sealed class SeedPublishOrchestrator
             .ToArray();
 
         if (parentTargets.Length == 0)
-            return (seed, null);
+            return Result.Ok(seed);
 
         if (parentTargets.Length > 1)
         {
-            return (seed,
+            return Result.Fail<WorkItem>(
                 $"Seed {seed.Id} ('{seed.Title}') has multiple parent-child links. Remove the extra parent links before publishing.");
         }
 
         var linkedParentId = parentTargets[0];
         if (seed.ParentId.HasValue && seed.ParentId.Value != linkedParentId)
         {
-            return (seed,
+            return Result.Fail<WorkItem>(
                 $"Seed {seed.Id} ('{seed.Title}') has conflicting parents: ParentId is {seed.ParentId.Value}, but its parent-child link targets {linkedParentId}.");
         }
 
         return seed.ParentId == linkedParentId
-            ? (seed, null)
-            : (seed.WithParentId(linkedParentId), null);
+            ? Result.Ok(seed)
+            : Result.Ok(seed.WithParentId(linkedParentId));
     }
 }

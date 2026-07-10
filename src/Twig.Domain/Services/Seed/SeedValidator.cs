@@ -36,11 +36,30 @@ public static class SeedValidator
             failures.Add(new SeedValidationFailure("RequireParent", "A parent work item is required but not set."));
         }
 
+        ValidateCanonicalField(failures, seed, "System.AreaPath", seed.AreaPath.Value);
+        ValidateCanonicalField(failures, seed, "System.IterationPath", seed.IterationPath.Value);
+        ValidateCanonicalField(failures, seed, "System.AssignedTo", seed.AssignedTo);
+
         return new SeedValidationResult
         {
             SeedId = seed.Id,
             Title = seed.Title,
             Failures = failures,
         };
+    }
+
+    private static void ValidateCanonicalField(
+        List<SeedValidationFailure> failures,
+        WorkItem seed,
+        string fieldName,
+        string? canonicalValue)
+    {
+        if (seed.Fields.TryGetValue(fieldName, out var fieldValue) &&
+            !string.Equals(fieldValue, canonicalValue, StringComparison.Ordinal))
+        {
+            failures.Add(new SeedValidationFailure(
+                fieldName,
+                $"Canonical value does not match '{fieldName}' in the seed fields."));
+        }
     }
 }

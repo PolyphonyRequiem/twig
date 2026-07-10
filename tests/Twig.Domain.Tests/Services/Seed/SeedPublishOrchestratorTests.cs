@@ -176,7 +176,7 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "My seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-        SetupSuccessfulAdoFlow(-1, 500);
+        SetupSuccessfulAdoFlow(-1, 500, parentId: 100);
 
         var result = await _orchestrator.PublishAsync(-1);
 
@@ -264,11 +264,26 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "Child seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-        SetupSuccessfulAdoFlow(-1, 500);
+        SetupSuccessfulAdoFlow(-1, 500, parentId: 100);
 
         var result = await _orchestrator.PublishAsync(-1);
 
         result.Status.ShouldBe(SeedPublishStatus.Created);
+    }
+
+    [Fact]
+    public async Task PublishAsync_ParentIdMissingAfterCreate_ReturnsErrorWithNewId()
+    {
+        var seed = new WorkItemBuilder(-1, "Child seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        SetupSuccessfulAdoFlow(-1, 500);
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.Error);
+        result.NewId.ShouldBe(500);
+        result.ErrorMessage!.ShouldContain("did not persist intended parent #100");
+        await _publishIdMapRepo.Received(1).RecordMappingAsync(-1, 500, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -337,6 +352,25 @@ public class SeedPublishOrchestratorTests
         await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task PublishAsync_CanonicalFieldDiffersFromField_ReturnsValidationFailedWithoutCreating()
+    {
+        var seed = new WorkItemBuilder(-1, "Seed")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old")
+            .WithField("System.AreaPath", @"Project\Edited")
+            .Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.ValidationFailed);
+        result.ValidationFailures.ShouldContain(failure => failure.Rule == "System.AreaPath");
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Force + Dry run → dry run wins (no API calls)
     // ═══════════════════════════════════════════════════════════════
@@ -377,7 +411,7 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "Linked seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-        SetupSuccessfulAdoFlow(-1, 500);
+        SetupSuccessfulAdoFlow(-1, 500, parentId: 100);
 
         // After remap, link between 500 and 200 is eligible
         var links = new[]
@@ -459,7 +493,7 @@ public class SeedPublishOrchestratorTests
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent"), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(200, "Parent").Build());
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child"), Arg.Any<CancellationToken>()).Returns(201);
-        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(201, "Child").Build());
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(201, "Child").WithParent(200).Build());
 
         // No links to promote
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
@@ -505,7 +539,7 @@ public class SeedPublishOrchestratorTests
                 Arg.Any<CancellationToken>())
             .Returns(201);
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
-            .Returns(new WorkItemBuilder(201, "Child").Build());
+            .Returns(new WorkItemBuilder(201, "Child").WithParent(200).Build());
 
         var result = await _orchestrator.PublishAllAsync();
 
@@ -865,7 +899,7 @@ public class SeedPublishOrchestratorTests
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Published").Build());
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Published").WithParent(100).Build());
 
         var result = await _orchestrator.PublishAllAsync();
 
@@ -892,7 +926,7 @@ public class SeedPublishOrchestratorTests
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent"), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(200, "Parent").Build());
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child"), Arg.Any<CancellationToken>()).Returns(201);
-        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(201, "Child").Build());
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(201, "Child").WithParent(200).Build());
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
 
         var result = await _orchestrator.PublishAllAsync();
@@ -1039,7 +1073,7 @@ public class SeedPublishOrchestratorTests
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent"), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Parent").Build());
         _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child"), Arg.Any<CancellationToken>()).Returns(501);
-        _adoService.FetchAsync(501, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(501, "Child").Build());
+        _adoService.FetchAsync(501, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(501, "Child").WithParent(500).Build());
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
 
         var result = await _orchestrator.PublishAllAsync();

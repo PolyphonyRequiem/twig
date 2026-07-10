@@ -130,13 +130,13 @@ internal static class CommandExamples
         ],
         ["seed link"] =
         [
-            "twig seed link 1234 5678   Link seed #1234 as a child of #5678",
-            "twig seed link 1234        Link the seed #1234 under the active item",
+            "twig seed link -42 5678 --type parent-child  Link seed #-42 as a child of #5678",
+            "twig seed link -42 -43 --type blocked-by     Make seed #-42 depend on seed #-43",
         ],
         ["seed unlink"] =
         [
-            "twig seed unlink 1234      Remove the parent link from seed #1234",
-            "twig seed unlink           Remove the parent link from the active seed",
+            "twig seed unlink -42 5678 --type parent-child  Remove seed #-42's parent link to #5678",
+            "twig seed unlink -42 -43 --type blocked-by     Remove the dependency between two seeds",
         ],
         ["seed links"] =
         [

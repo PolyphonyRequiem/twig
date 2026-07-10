@@ -135,6 +135,37 @@ public class SeedValidatorTests
         result.Failures[0].Rule.ShouldBe("System.Description");
     }
 
+    [Theory]
+    [InlineData("System.AreaPath")]
+    [InlineData("System.IterationPath")]
+    [InlineData("System.AssignedTo")]
+    public void Validate_CanonicalFieldDiffersFromField_Fails(string fieldName)
+    {
+        var builder = new WorkItemBuilder(-7, "Seed")
+            .AsSeed()
+            .WithField(fieldName, "Edited");
+
+        switch (fieldName)
+        {
+            case "System.AreaPath":
+                builder.WithAreaPath("Canonical");
+                break;
+            case "System.IterationPath":
+                builder.WithIterationPath("Canonical");
+                break;
+            case "System.AssignedTo":
+                builder.AssignedTo("Canonical");
+                break;
+        }
+
+        var result = SeedValidator.Validate(builder.Build(), SeedPublishRules.Default);
+
+        result.Passed.ShouldBeFalse();
+        result.Failures.ShouldContain(failure =>
+            failure.Rule == fieldName &&
+            failure.Message.Contains("does not match", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Validate_MultipleRequiredFieldsMissing_ReportsAll()
     {

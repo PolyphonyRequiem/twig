@@ -56,7 +56,7 @@ public sealed class TreeRenderingService(
 
         var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
 
-        // Resolve active item with auto-fetch on cache miss
+        // Root resolution preserves the G-3 auto-fetch contract; --no-refresh skips enrichment sync.
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
         if (!resolveResult.TryGetWorkItem(out var resolvedItem, out _, out _))
         {
@@ -89,7 +89,7 @@ public sealed class TreeRenderingService(
                 activeId: activeId,
                 ct: ct,
                 getSiblingCount: getSiblingCount,
-                getLinks: async () =>
+                getLinks: noRefresh ? null : async () =>
                 {
                     try { return await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
@@ -120,16 +120,16 @@ public sealed class TreeRenderingService(
                             getSiblingCount,
                             cachedLinks,
                             ctx.Config.Display.CacheStaleMinutes),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
+                        performSync: () => RefreshTreeAsync(resolvedItem, workingSet, ct),
                         buildRevisedView: async _ =>
                         {
-                            var freshItem = await workItemRepo.GetByIdAsync(resolvedItem.Id, CancellationToken.None);
+                            var freshItem = await workItemRepo.GetByIdAsync(resolvedItem.Id, ct);
                             if (freshItem is null) return null;
 
                             var freshParentChain = freshItem.ParentId is null
                                 ? Array.Empty<Domain.Aggregates.WorkItem>()
-                                : await workItemRepo.GetParentChainAsync(freshItem.ParentId.Value, CancellationToken.None);
-                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
+                                : await workItemRepo.GetParentChainAsync(freshItem.ParentId.Value, ct);
+                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
 
                             return await spectreRenderer.BuildTreeViewAsync(
                                 freshItem,
@@ -137,11 +137,11 @@ public sealed class TreeRenderingService(
                                 freshChildren,
                                 maxDepth,
                                 activeId,
-                                MakeSiblingCounter(freshItem, CancellationToken.None),
+                                MakeSiblingCounter(freshItem, ct),
                                 cachedLinks,
                                 ctx.Config.Display.CacheStaleMinutes);
                         },
-                        CancellationToken.None);
+                        ct);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception)
@@ -160,11 +160,18 @@ public sealed class TreeRenderingService(
         // Non-TTY path: JSON, minimal, piped output
         var item = resolvedItem;
 
+        if (!noRefresh)
+        {
+            var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
+            await RefreshTreeAsync(item, workingSet, ct);
+            item = await workItemRepo.GetByIdAsync(item.Id, ct) ?? item;
+        }
+
         var parentChain = item.ParentId.HasValue
-            ? await workItemRepo.GetParentChainAsync(item.ParentId.Value)
+            ? await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
-        var children = await workItemRepo.GetChildrenAsync(item.Id);
+        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
 
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>();
         await WorkTreeFetcher.FetchDescendantsAsync(workItemRepo, children, maxDepth - 1, descendantsByParentId, ct);
@@ -174,7 +181,7 @@ public sealed class TreeRenderingService(
         {
             if (node.ParentId.HasValue)
             {
-                var siblings = await workItemRepo.GetChildrenAsync(node.ParentId.Value);
+                var siblings = await workItemRepo.GetChildrenAsync(node.ParentId.Value, ct);
                 siblingCounts[node.Id] = siblings.Count;
             }
             else
@@ -184,7 +191,7 @@ public sealed class TreeRenderingService(
         }
         if (item.ParentId.HasValue)
         {
-            var focusedSiblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value);
+            var focusedSiblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value, ct);
             siblingCounts[item.Id] = focusedSiblings.Count;
         }
         else
@@ -193,29 +200,69 @@ public sealed class TreeRenderingService(
         }
 
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
-        try
+        if (!noRefresh)
         {
-            links = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
+            try
+            {
+                links = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
         RenderWorkTree(tree, outputFormat);
 
-        // Sync working set silently after output — best-effort; skip if --no-refresh
-        if (!noRefresh)
+        return 0;
+    }
+
+    private async Task<SyncResult> RefreshTreeAsync(
+        Domain.Aggregates.WorkItem item,
+        WorkingSet workingSet,
+        CancellationToken ct)
+    {
+        var workingSetResult = await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet, ct);
+        var childrenResult = await syncCoordinatorFactory.ReadOnly.SyncChildrenAsync(item.Id, ct);
+        return CombineSyncResults((item.Id, workingSetResult), (item.Id, childrenResult));
+    }
+
+    private static SyncResult CombineSyncResults(params (int ItemId, SyncResult Result)[] results)
+    {
+        var changedCount = 0;
+        var failures = new List<SyncItemFailure>();
+        string? skippedReason = null;
+
+        foreach (var (itemId, result) in results)
         {
-            try
+            switch (result)
             {
-                var syncWorkingSet = await workingSetService.ComputeAsync([item.IterationPath]);
-                await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
+                case Updated updated:
+                    changedCount += updated.ChangedCount;
+                    break;
+                case PartiallyUpdated partial:
+                    changedCount += partial.SavedCount;
+                    failures.AddRange(partial.Failures);
+                    break;
+                case SyncFailed failed:
+                    failures.Add(new SyncItemFailure(itemId, failed.Reason));
+                    break;
+                case Skipped skipped:
+                    skippedReason ??= skipped.Reason;
+                    break;
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception) { /* sync is best-effort */ }
         }
 
-        return 0;
+        if (failures.Count > 0)
+        {
+            return changedCount > 0
+                ? new PartiallyUpdated(changedCount, failures)
+                : new SyncFailed(string.Join("; ", failures.Select(failure => $"#{failure.Id}: {failure.Error}")));
+        }
+
+        if (changedCount > 0)
+            return new Updated(changedCount);
+
+        return skippedReason is not null ? new Skipped(skippedReason) : new UpToDate();
     }
 
     /// <summary>

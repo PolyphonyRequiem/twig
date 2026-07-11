@@ -163,6 +163,10 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
 
         await _adoService.DidNotReceive().FetchAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchChildrenAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchWithLinksAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -220,6 +224,36 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         var output = _testConsole.Output;
         output.ShouldContain("#1");
         output.ShouldContain("Two Pass Tree Item");
+    }
+
+    [Fact]
+    public async Task Default_TwoPassRendering_ColdCacheHydratesChildren()
+    {
+        var parent = new WorkItemBuilder(1, "Cold Cache Parent").Build();
+        var child = new WorkItemBuilder(2, "ADO Child").WithParent(1).Build();
+        var childrenCached = false;
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => childrenCached ? new[] { child } : Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _workItemRepo.SaveBatchAsync(
+                Arg.Is<IEnumerable<WorkItem>>(items => items.Any(item => item.Id == child.Id)),
+                Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                childrenCached = true;
+                return Task.CompletedTask;
+            });
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+
+        result.ShouldBe(0);
+        _testConsole.Output.ShouldContain("ADO Child");
+        await _adoService.Received(1).FetchChildrenAsync(1, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -412,6 +446,39 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         output.ShouldNotBeEmpty();
     }
 
+    [Fact]
+    public async Task NonTty_DefaultRefresh_ColdCacheHydratesChildrenBeforeRendering()
+    {
+        var parent = new WorkItemBuilder(1, "Cold Cache Parent").Build();
+        var child = new WorkItemBuilder(2, "ADO Child").WithParent(1).Build();
+        var childrenCached = false;
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => childrenCached ? new[] { child } : Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _workItemRepo.SaveBatchAsync(
+                Arg.Is<IEnumerable<WorkItem>>(items => items.Any(item => item.Id == child.Id)),
+                Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                childrenCached = true;
+                return Task.CompletedTask;
+            });
+
+        var cmd = CreateCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", tree: true));
+
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        document.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(1);
+        document.RootElement.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(2);
+        await _adoService.Received(1).FetchChildrenAsync(1, Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData("json")]
     [InlineData("minimal")]
@@ -427,6 +494,10 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
 
         output.ShouldNotBeEmpty();
         await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchChildrenAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchWithLinksAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

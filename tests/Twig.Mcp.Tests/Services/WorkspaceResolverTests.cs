@@ -442,6 +442,7 @@ public sealed class WorkspaceResolverTests
             paths: null!,
             cacheStore: null!,
             workItemRepo: workItemRepo,
+            workItemLinkRepo: Substitute.For<IWorkItemLinkRepository>(),
             contextStore: null!,
             pendingChangeStore: null!,
             adoService: adoService,

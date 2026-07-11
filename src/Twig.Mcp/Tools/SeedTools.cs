@@ -202,6 +202,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             ctx.WorkItemRepo,
             ctx.AdoService,
             ctx.SeedLinkRepo,
+            ctx.WorkItemLinkRepo,
             ctx.PublishIdMapRepo,
             ctx.SeedPublishRulesProvider,
             ctx.UnitOfWork,

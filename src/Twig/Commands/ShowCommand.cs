@@ -176,13 +176,67 @@ public sealed class ShowCommand(
             ? () => _pendingChangeStore.GetChangesAsync(item.Id)
             : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
 
+        async Task<SyncResult> RefreshItemAndLinksAsync(CancellationToken refreshCt)
+        {
+            var changedCount = 0;
+            var failures = new List<SyncItemFailure>();
+
+            void RecordResult(SyncResult result, int itemId)
+            {
+                switch (result)
+                {
+                    case Updated updated:
+                        changedCount += updated.ChangedCount;
+                        break;
+                    case PartiallyUpdated partial:
+                        changedCount += partial.SavedCount;
+                        failures.AddRange(partial.Failures);
+                        break;
+                    case SyncFailed failed:
+                        var prefix = $"#{itemId}: ";
+                        var error = failed.Reason.StartsWith(prefix, StringComparison.Ordinal)
+                            ? failed.Reason[prefix.Length..]
+                            : failed.Reason;
+                        failures.Add(new SyncItemFailure(itemId, error));
+                        break;
+                }
+            }
+
+            var linkSync = await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, refreshCt);
+            RecordResult(linkSync, resolvedId);
+            if (linkSync is SyncFailed)
+            {
+                var itemSync = await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId], refreshCt);
+                RecordResult(itemSync, resolvedId);
+            }
+
+            var refreshedItem = await workItemRepo.GetByIdAsync(resolvedId, refreshCt);
+            if (refreshedItem?.ParentId is > 0)
+            {
+                var parentSync = await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync(
+                    [refreshedItem.ParentId.Value],
+                    refreshCt);
+                RecordResult(parentSync, refreshedItem.ParentId.Value);
+            }
+
+            if (failures.Count > 0)
+            {
+                return changedCount > 0
+                    ? new PartiallyUpdated(changedCount, failures)
+                    : new SyncFailed(string.Join("; ", failures.Select(failure => $"#{failure.Id}: {failure.Error}")));
+            }
+
+            // Link refresh always fetches the root item, so rebuild the TTY view even when targets were current.
+            return new Updated(Math.Max(changedCount, 1));
+        }
+
         // Non-TTY machine output: sync synchronously before emitting so consumers get fresh data.
         // The TTY path handles sync via RenderWithSyncAsync (two-pass: cached → sync → revised).
         if (renderer is null && !noRefresh)
         {
             try
             {
-                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]);
+                await RefreshItemAndLinksAsync(ct);
 
                 // Reload data from cache after sync
                 var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
@@ -239,19 +293,19 @@ public sealed class ShowCommand(
                 {
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => BuildView(item, parent, children, childProgress),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]),
+                        performSync: () => RefreshItemAndLinksAsync(ct),
                         buildRevisedView: async _ =>
                         {
-                            var freshItem = await workItemRepo.GetByIdAsync(resolvedId, CancellationToken.None);
+                            var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
                             if (freshItem is null) return null;
 
-                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
+                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
                             var freshParent = freshItem.ParentId.HasValue
-                                ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, CancellationToken.None)
+                                ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, ct)
                                 : null;
 
                             IReadOnlyList<WorkItemLink> freshLinks = [];
-                            try { freshLinks = await linkRepo.GetLinksAsync(freshItem.Id, CancellationToken.None); }
+                            try { freshLinks = await linkRepo.GetLinksAsync(freshItem.Id, ct); }
                             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
                             return await spectreRenderer.BuildStatusViewAsync(freshItem,
@@ -265,7 +319,7 @@ public sealed class ShowCommand(
                                 cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
                                 gitContext: gitContext);
                         },
-                        CancellationToken.None);
+                        ct);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception)

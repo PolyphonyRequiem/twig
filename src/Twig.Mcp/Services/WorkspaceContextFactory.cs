@@ -231,6 +231,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             paths,
             cacheStore,
             workItemRepo,
+            linkRepo,
             contextStore,
             pendingChangeStore,
             adoService,

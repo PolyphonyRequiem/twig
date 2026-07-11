@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -12,6 +13,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
@@ -287,6 +289,172 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json"));
 
         output.ShouldContain("Fresh Title");
+    }
+
+    [Fact]
+    public async Task NonTty_Json_RefreshesParentAndDependencyRelationships()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var workItemRepo = new SqliteWorkItemRepository(store, new WorkItemMapper());
+        var linkRepo = new SqliteWorkItemLinkRepository(store);
+        var pendingChangeStore = new SqlitePendingChangeStore(store);
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        var freshItem = Item(1, "Published child").WithParent(100).Build();
+        var parent = Item(100, "Current parent").Build();
+        var predecessor = Item(99, "Current predecessor").Build();
+        var links = new[] { new WorkItemLink(1, 99, "Predecessor") };
+
+        await workItemRepo.SaveAsync(Item(1, "Published child").Build());
+
+        adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
+        adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(predecessor);
+        adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>())
+            .Returns((freshItem, links));
+
+        var protectedCacheWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            workItemRepo,
+            adoService,
+            protectedCacheWriter,
+            pendingChangeStore,
+            linkRepo,
+            readOnlyStaleMinutes: 0,
+            readWriteStaleMinutes: 0);
+        var pipeline = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(
+            pipeline,
+            _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration());
+        var cmd = new ShowCommand(
+            ctx,
+            workItemRepo,
+            linkRepo,
+            syncCoordinatorFactory,
+            _statusFieldReader,
+            fieldDefinitionStore: _fieldDefinitionStore,
+            processConfigProvider: _processConfigProvider,
+            pendingChangeStore: pendingChangeStore);
+
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json"));
+
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        var root = document.RootElement;
+        root.GetProperty("parent").GetProperty("id").GetInt32().ShouldBe(100);
+        var relation = root.GetProperty("relations").EnumerateArray().ShouldHaveSingleItem();
+        relation.GetProperty("id").GetInt32().ShouldBe(99);
+        relation.GetProperty("attributes").GetProperty("name").GetString().ShouldBe("Predecessor");
+    }
+
+    [Fact]
+    public async Task Tty_RefreshesParentWhenItemAndLinksAreUpToDate()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var workItemRepo = new SqliteWorkItemRepository(store, new WorkItemMapper());
+        var linkRepo = new SqliteWorkItemLinkRepository(store);
+        var pendingChangeStore = new SqlitePendingChangeStore(store);
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var console = new TestConsole();
+        var spectreRenderer = new SpectreRenderer(console, new SpectreTheme(new DisplayConfig()))
+        {
+            SyncStatusDelay = TimeSpan.Zero,
+        };
+
+        var freshItem = Item(1, "Published child").WithParent(100).Build();
+        var parent = Item(100, "Current parent").Build();
+
+        await workItemRepo.SaveAsync(Item(1, "Published child").Build());
+
+        adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>())
+            .Returns((freshItem, Array.Empty<WorkItemLink>()));
+        adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var protectedCacheWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            workItemRepo,
+            adoService,
+            protectedCacheWriter,
+            pendingChangeStore,
+            linkRepo,
+            readOnlyStaleMinutes: 30,
+            readWriteStaleMinutes: 30);
+        var pipeline = new RenderingPipelineFactory(_formatterFactory, spectreRenderer, isOutputRedirected: () => false);
+        var ctx = new CommandContext(
+            pipeline,
+            _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration());
+        var cmd = new ShowCommand(
+            ctx,
+            workItemRepo,
+            linkRepo,
+            syncCoordinatorFactory,
+            _statusFieldReader,
+            fieldDefinitionStore: _fieldDefinitionStore,
+            processConfigProvider: _processConfigProvider,
+            pendingChangeStore: pendingChangeStore);
+
+        var result = await cmd.ExecuteAsync(1, "human");
+
+        result.ShouldBe(0);
+        console.Output.ShouldContain("Current parent");
+    }
+
+    [Fact]
+    public async Task Tty_SurfacesParentRefreshFailure()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var workItemRepo = new SqliteWorkItemRepository(store, new WorkItemMapper());
+        var linkRepo = new SqliteWorkItemLinkRepository(store);
+        var pendingChangeStore = new SqlitePendingChangeStore(store);
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+        var spectreRenderer = new SpectreRenderer(console, new SpectreTheme(new DisplayConfig()))
+        {
+            SyncStatusDelay = TimeSpan.Zero,
+        };
+
+        var freshItem = Item(1, "Published child").WithParent(100).Build();
+        await workItemRepo.SaveAsync(Item(1, "Published child").Build());
+
+        adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>())
+            .Returns((freshItem, Array.Empty<WorkItemLink>()));
+        adoService.FetchAsync(100, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("parent unavailable")));
+
+        var protectedCacheWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            workItemRepo,
+            adoService,
+            protectedCacheWriter,
+            pendingChangeStore,
+            linkRepo,
+            readOnlyStaleMinutes: 30,
+            readWriteStaleMinutes: 30);
+        var pipeline = new RenderingPipelineFactory(_formatterFactory, spectreRenderer, isOutputRedirected: () => false);
+        var ctx = new CommandContext(
+            pipeline,
+            _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration());
+        var cmd = new ShowCommand(
+            ctx,
+            workItemRepo,
+            linkRepo,
+            syncCoordinatorFactory,
+            _statusFieldReader,
+            fieldDefinitionStore: _fieldDefinitionStore,
+            processConfigProvider: _processConfigProvider,
+            pendingChangeStore: pendingChangeStore);
+
+        var result = await cmd.ExecuteAsync(1, "human");
+
+        result.ShouldBe(0);
+        console.Output.ShouldContain("sync failed");
+        console.Output.ShouldContain("parent unavailable");
     }
 
     [Fact]

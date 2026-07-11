@@ -1,5 +1,6 @@
 #nullable enable
 Twig.Domain.Aggregates.WorkItem.TryWithSeedFields(string! title, System.Collections.Generic.IReadOnlyDictionary<string!, string?>! fields) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer) -> void
 Twig.Domain.Services.Mutation.StateTransitionOutcome
 Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState
 Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.AlreadyInState(string! ResolvedState, Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, string! Input) -> void

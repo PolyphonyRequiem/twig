@@ -99,6 +99,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<IPublishIdMapRepository>(),
             sp.GetRequiredService<ISeedPublishRulesProvider>(),
             sp.GetRequiredService<IUnitOfWork>(),

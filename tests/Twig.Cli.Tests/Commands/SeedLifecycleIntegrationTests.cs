@@ -32,6 +32,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
     private readonly IEditorLauncher _editorLauncher;
     private readonly IConsoleInput _consoleInput;
     private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
@@ -58,6 +59,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
         _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
         _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
         _unitOfWork = Substitute.For<IUnitOfWork>();
@@ -315,7 +317,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
+            _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
         var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
@@ -374,7 +376,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
+            _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
         var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
@@ -397,4 +399,3 @@ public class SeedLifecycleIntegrationTests : IDisposable
         ((CreateWorkItemRequest)createCalls[1].GetArguments()[0]!).Title.ShouldBe("Child Seed");
     }
 }
-

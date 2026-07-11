@@ -19,12 +19,14 @@ public sealed class SeedPublishOrchestrator
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
     private readonly SeedLinkPromoter _linkPromoter;
     private readonly BacklogOrderer _backlogOrderer;
 
+    [Obsolete("Use the overload that accepts IWorkItemLinkRepository to refresh published relationships.")]
     public SeedPublishOrchestrator(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
@@ -33,10 +35,32 @@ public sealed class SeedPublishOrchestrator
         ISeedPublishRulesProvider rulesProvider,
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer)
+        : this(
+            workItemRepo,
+            adoService,
+            seedLinkRepo,
+            NoOpWorkItemLinkRepository.Instance,
+            publishIdMapRepo,
+            rulesProvider,
+            unitOfWork,
+            backlogOrderer)
+    {
+    }
+
+    public SeedPublishOrchestrator(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ISeedLinkRepository seedLinkRepo,
+        IWorkItemLinkRepository workItemLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider rulesProvider,
+        IUnitOfWork unitOfWork,
+        BacklogOrderer backlogOrderer)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
         _seedLinkRepo = seedLinkRepo;
+        _workItemLinkRepo = workItemLinkRepo;
         _publishIdMapRepo = publishIdMapRepo;
         _rulesProvider = rulesProvider;
         _unitOfWork = unitOfWork;
@@ -223,14 +247,22 @@ public sealed class SeedPublishOrchestrator
         // Step 12b: Post-publish cache refresh — replace Rev 1 cached item with current server revision
         try
         {
-            var refreshed = await _adoService.FetchAsync(newId, ct);
+            var (refreshed, refreshedLinks) = await _adoService.FetchWithLinksAsync(newId, ct);
             refreshed = refreshed.WithIsSeed(false);
             await _workItemRepo.SaveAsync(refreshed, ct);
+            await _workItemLinkRepo.SaveLinksAsync(newId, refreshedLinks, ct);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            // Non-fatal: the item was published successfully.
-            // Stale cache is tolerable — the conflict retry helper covers it on next update.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            linkWarnings =
+            [
+                .. linkWarnings,
+                $"Work item #{newId} was published, but relationship cache refresh failed: {ex.Message}",
+            ];
         }
 
         // Step 13: Return success result
@@ -412,5 +444,21 @@ public sealed class SeedPublishOrchestrator
         return seed.ParentId == linkedParentId
             ? Result.Ok(seed)
             : Result.Ok(seed.WithParentId(linkedParentId));
+    }
+
+    private sealed class NoOpWorkItemLinkRepository : IWorkItemLinkRepository
+    {
+        public static readonly NoOpWorkItemLinkRepository Instance = new();
+
+        public Task<IReadOnlyList<WorkItemLink>> GetLinksAsync(
+            int workItemId,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<WorkItemLink>>([]);
+
+        public Task SaveLinksAsync(
+            int workItemId,
+            IReadOnlyList<WorkItemLink> links,
+            CancellationToken ct = default) =>
+            Task.CompletedTask;
     }
 }

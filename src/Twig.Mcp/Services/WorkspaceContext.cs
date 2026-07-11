@@ -22,6 +22,7 @@ public sealed class WorkspaceContext : IDisposable
     public TwigConfiguration Config { get; }
     public TwigPaths Paths { get; }
     public IWorkItemRepository WorkItemRepo { get; }
+    public IWorkItemLinkRepository WorkItemLinkRepo { get; }
     public IContextStore ContextStore { get; }
     public IPendingChangeStore PendingChangeStore { get; }
     public IAdoWorkItemService AdoService { get; }
@@ -82,6 +83,7 @@ public sealed class WorkspaceContext : IDisposable
         TwigPaths paths,
         SqliteCacheStore cacheStore,
         IWorkItemRepository workItemRepo,
+        IWorkItemLinkRepository workItemLinkRepo,
         IContextStore contextStore,
         IPendingChangeStore pendingChangeStore,
         IAdoWorkItemService adoService,
@@ -115,6 +117,7 @@ public sealed class WorkspaceContext : IDisposable
         Paths = paths;
         CacheStore = cacheStore;
         WorkItemRepo = workItemRepo;
+        WorkItemLinkRepo = workItemLinkRepo;
         ContextStore = contextStore;
         PendingChangeStore = pendingChangeStore;
         AdoService = adoService;

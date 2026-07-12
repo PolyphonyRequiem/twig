@@ -147,6 +147,10 @@ public sealed class InitCommandProductionCliTests : IDisposable
             {
                 // Listener shutdown interrupts the pending accept.
             }
+            catch (ObjectDisposedException)
+            {
+                // Linux reports listener shutdown as disposal instead.
+            }
             _listener.Close();
         }
 

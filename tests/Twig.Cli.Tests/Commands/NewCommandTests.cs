@@ -440,6 +440,27 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task New_CustomParentAndChildTypes_PassesThroughToAdo()
+    {
+        var parent = new WorkItemBuilder(63065984, "Acceptance Flight Plan")
+            .AsType(WorkItemType.Parse("Flight Plan").Value)
+            .WithAreaPath("Project\\Area")
+            .WithIterationPath("Project\\Sprint 1")
+            .Build();
+        _workItemRepo.GetByIdAsync(parent.Id, Arg.Any<CancellationToken>()).Returns(parent);
+        ArrangeCreateSuccess(63065986, "[PROBE] child", parent.Id);
+
+        var result = await _cmd.ExecuteAsync("[PROBE] child", "Experiment", parent: parent.Id);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(request =>
+                request.TypeName == "Experiment" &&
+                request.ParentId == parent.Id),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task New_WithParent_AndEditor_ParentIdPreservedInPayload()
     {
         // WithSeedFields must preserve ParentId set before the editor flow.

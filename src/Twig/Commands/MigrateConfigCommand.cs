@@ -55,40 +55,38 @@ public sealed class MigrateConfigCommand(
         var didWork = false;
         var changes = new List<string>();
 
-        if (dryRun)
+        var repoBefore = File.Exists(paths.RepoConfigPath)
+            ? await File.ReadAllBytesAsync(paths.RepoConfigPath, ct)
+            : null;
+        var repoAfter = await config.GetRepoBytesAsync(ct);
+        var repoChanged = repoBefore is null || !repoBefore.AsSpan().SequenceEqual(repoAfter);
+        if (repoChanged)
         {
-            changes.Add($"  would write {paths.RepoConfigPath}");
-        }
-        else
-        {
-            var before = File.Exists(paths.RepoConfigPath) ? File.ReadAllBytes(paths.RepoConfigPath) : null;
-            await config.SaveRepoAsync(paths.RepoConfigPath, ct);
-            var after = File.ReadAllBytes(paths.RepoConfigPath);
-            if (before is null || !before.AsSpan().SequenceEqual(after))
-            {
-                changes.Add(hasRepoManifest
+            changes.Add(dryRun
+                ? $"  would write {paths.RepoConfigPath}"
+                : hasRepoManifest
                     ? $"  updated {RelativeTo(paths.RepoConfigPath, paths.RepoRoot)}"
                     : $"  created {RelativeTo(paths.RepoConfigPath, paths.RepoRoot)}");
-                didWork = true;
-            }
+            didWork = true;
+            if (!dryRun)
+                await config.SaveRepoAsync(paths.RepoConfigPath, ct);
         }
 
-        if (dryRun)
+        var userBefore = File.Exists(paths.ConfigPath)
+            ? await File.ReadAllBytesAsync(paths.ConfigPath, ct)
+            : null;
+        var userAfter = await config.GetUserBytesAsync(ct);
+        var userChanged = userBefore is null || !userBefore.AsSpan().SequenceEqual(userAfter);
+        if (userChanged)
         {
-            changes.Add($"  would rewrite {paths.ConfigPath} as user-prefs-only");
-        }
-        else
-        {
-            var before = File.Exists(paths.ConfigPath) ? File.ReadAllBytes(paths.ConfigPath) : null;
-            await config.SaveUserAsync(paths.ConfigPath, ct);
-            var after = File.Exists(paths.ConfigPath) ? File.ReadAllBytes(paths.ConfigPath) : null;
-            if (after is not null && (before is null || !before.AsSpan().SequenceEqual(after.AsSpan())))
-            {
-                changes.Add(hasLegacyConfig
+            changes.Add(dryRun
+                ? $"  would rewrite {paths.ConfigPath} as user-prefs-only"
+                : hasLegacyConfig
                     ? $"  rewrote {RelativeTo(paths.ConfigPath, paths.RepoRoot)} as user-prefs-only"
                     : $"  created {RelativeTo(paths.ConfigPath, paths.RepoRoot)}");
-                didWork = true;
-            }
+            didWork = true;
+            if (!dryRun)
+                await config.SaveUserAsync(paths.ConfigPath, ct);
         }
 
         var gitignorePath = Path.Combine(paths.RepoRoot, ".gitignore");

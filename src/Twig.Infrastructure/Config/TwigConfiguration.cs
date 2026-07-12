@@ -330,16 +330,14 @@ public sealed class TwigConfiguration
             Directory.CreateDirectory(directory);
         }
 
-        using var buffer = new MemoryStream();
-        await JsonSerializer.SerializeAsync(buffer, RepoCoords, TwigRepoJsonContext.Default.TwigRepoConfig, ct);
-        var newBytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
+        var newBytes = await GetRepoBytesAsync(ct);
 
         if (File.Exists(repoPath))
         {
             try
             {
                 var existing = await File.ReadAllBytesAsync(repoPath, ct);
-                if (existing.AsSpan().SequenceEqual(newBytes.Span))
+                if (existing.AsSpan().SequenceEqual(newBytes))
                     return;
             }
             catch (IOException)
@@ -348,7 +346,14 @@ public sealed class TwigConfiguration
             }
         }
 
-        await File.WriteAllBytesAsync(repoPath, newBytes.ToArray(), ct);
+        await File.WriteAllBytesAsync(repoPath, newBytes, ct);
+    }
+
+    internal async Task<byte[]> GetRepoBytesAsync(CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        await JsonSerializer.SerializeAsync(buffer, RepoCoords, TwigRepoJsonContext.Default.TwigRepoConfig, ct);
+        return buffer.ToArray();
     }
 
     /// <summary>
@@ -365,16 +370,14 @@ public sealed class TwigConfiguration
             Directory.CreateDirectory(directory);
         }
 
-        using var buffer = new MemoryStream();
-        await JsonSerializer.SerializeAsync(buffer, UserPrefs, TwigJsonContext.Default.TwigUserConfig, ct);
-        var newBytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
+        var newBytes = await GetUserBytesAsync(ct);
 
         if (File.Exists(userPath))
         {
             try
             {
                 var existing = await File.ReadAllBytesAsync(userPath, ct);
-                if (existing.AsSpan().SequenceEqual(newBytes.Span))
+                if (existing.AsSpan().SequenceEqual(newBytes))
                     return;
             }
             catch (IOException)
@@ -383,7 +386,14 @@ public sealed class TwigConfiguration
             }
         }
 
-        await File.WriteAllBytesAsync(userPath, newBytes.ToArray(), ct);
+        await File.WriteAllBytesAsync(userPath, newBytes, ct);
+    }
+
+    internal async Task<byte[]> GetUserBytesAsync(CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        await JsonSerializer.SerializeAsync(buffer, UserPrefs, TwigJsonContext.Default.TwigUserConfig, ct);
+        return buffer.ToArray();
     }
 
     /// <summary>

@@ -77,13 +77,14 @@ public static class TwigServiceRegistration
         });
 
         // SQLite persistence — registered unconditionally. SqliteCacheStore is
-        // created lazily (on first resolution) and throws a descriptive error
-        // if .twig/ hasn't been initialized yet.
+        // created lazily (on first resolution) for any discovered workspace.
         services.AddSingleton(sp =>
         {
             var paths = sp.GetRequiredService<TwigPaths>();
-            if (!Directory.Exists(paths.TwigDir) || !File.Exists(paths.DbPath))
+            if (!WorkspaceDiscovery.IsWorkspaceDirectory(paths.TwigDir))
                 throw new WorkspaceNotFoundException();
+
+            Directory.CreateDirectory(Path.GetDirectoryName(paths.DbPath)!);
             return new SqliteCacheStore($"Data Source={paths.DbPath}");
         });
 

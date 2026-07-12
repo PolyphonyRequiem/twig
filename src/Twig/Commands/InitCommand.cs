@@ -115,7 +115,7 @@ public sealed class InitCommand
         // Derive context-specific paths from the supplied org/project args
         var contextPaths = TwigPaths.ForContext(twigDir, org, project, _paths.StartDir);
 
-        if (Directory.Exists(twigDir) && !force)
+        if (File.Exists(contextPaths.DbPath) && !force)
         {
             Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
             return (1, false, 0);

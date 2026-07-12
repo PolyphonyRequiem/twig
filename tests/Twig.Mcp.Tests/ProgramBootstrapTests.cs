@@ -108,6 +108,30 @@ public sealed class ProgramBootstrapTests
     // --- WorkspaceGuard.CheckWorkspaceAmbient (multi-workspace) ---
 
     [Fact]
+    public void Ambient_WithPerWorkspaceDatabase_ReturnsValid()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            var wsDir = Path.Combine(twigDir, "myorg", "myproject");
+            Directory.CreateDirectory(wsDir);
+            File.WriteAllText(Path.Combine(wsDir, "twig.db"), "");
+
+            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
+
+            isValid.ShouldBeTrue();
+            error.ShouldBeNull();
+            resultTwigDir.ShouldBe(twigDir);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Ambient_WithPerWorkspaceConfig_ReturnsValid()
     {
         // FR-7: Ambient mode succeeds when .twig/{org}/{project}/config exists,

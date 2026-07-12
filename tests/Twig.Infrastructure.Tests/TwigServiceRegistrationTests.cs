@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests;
@@ -11,6 +12,62 @@ namespace Twig.Infrastructure.Tests;
 /// </summary>
 public sealed class TwigServiceRegistrationTests
 {
+    [Fact]
+    public void AddTwigCoreServices_RepoManifestOnly_CreatesMissingContextDatabase()
+    {
+        var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        var twigDir = Path.Combine(repoRoot, ".twig");
+        Directory.CreateDirectory(repoRoot);
+        File.WriteAllText(Path.Combine(repoRoot, WorkspaceDiscovery.RepoManifestFileName), "{}");
+
+        try
+        {
+            var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
+            var paths = TwigPaths.ForContext(twigDir, config.Organization, config.Project, repoRoot);
+            var services = new ServiceCollection();
+            services.AddTwigCoreServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+
+            using var provider = services.BuildServiceProvider();
+            provider.GetRequiredService<SqliteCacheStore>();
+
+            File.Exists(paths.DbPath).ShouldBeTrue();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AddTwigCoreServices_ConfigOnlyWorkspace_CreatesMissingContextDatabase()
+    {
+        var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        var twigDir = Path.Combine(repoRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+
+        try
+        {
+            var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
+            var paths = TwigPaths.ForContext(twigDir, config.Organization, config.Project, repoRoot);
+            var services = new ServiceCollection();
+            services.AddTwigCoreServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+
+            using var provider = services.BuildServiceProvider();
+            provider.GetRequiredService<SqliteCacheStore>();
+
+            File.Exists(paths.DbPath).ShouldBeTrue();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public void AddTwigCoreServices_WithTwigDir_UsesTwigDirForPaths()
     {

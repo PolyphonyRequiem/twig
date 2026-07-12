@@ -36,7 +36,7 @@ public static class CommandServiceModule
             var display = sp.GetRequiredService<TwigConfiguration>().Display;
             IProcessConfigurationProvider? provider = null;
             var paths = sp.GetRequiredService<TwigPaths>();
-            if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
+            if (WorkspaceDiscovery.IsWorkspaceDirectory(paths.TwigDir))
             {
                 try
                 {

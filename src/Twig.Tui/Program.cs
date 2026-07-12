@@ -29,31 +29,28 @@ var tempPaths = (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNu
     ? TwigPaths.ForContext(twigDir, config.Organization, config.Project)
     : new TwigPaths(twigDir, configPath, Path.Combine(twigDir, "twig.db"));
 
-if (!File.Exists(tempPaths.DbPath))
-{
-    Console.Error.WriteLine("Twig database not found. Run 'twig init' first.");
-    return 1;
-}
-
 // AB#3296 PR-3: hydrate type appearances from the SQLite cache instead of
 // reading them from .twig/config. Cache is the source of truth.
-try
+if (File.Exists(tempPaths.DbPath))
 {
-    using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore($"Data Source={tempPaths.DbPath}");
-    var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
-    var records = await processTypeStore.GetAllAsync();
-    config.TypeAppearances = records
-        .Select(r => new TypeAppearanceConfig
-        {
-            Name = r.TypeName,
-            Color = r.ColorHex ?? string.Empty,
-            IconId = r.IconId,
-        })
-        .ToList();
-}
-catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
-{
-    // SQLite cache uninitialized; fall through with null TypeAppearances.
+    try
+    {
+        using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore($"Data Source={tempPaths.DbPath}");
+        var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
+        var records = await processTypeStore.GetAllAsync();
+        config.TypeAppearances = records
+            .Select(r => new TypeAppearanceConfig
+            {
+                Name = r.TypeName,
+                Color = r.ColorHex ?? string.Empty,
+                IconId = r.IconId,
+            })
+            .ToList();
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+    {
+        // SQLite cache uninitialized; fall through with null TypeAppearances.
+    }
 }
 
 // Build DI container using shared registration

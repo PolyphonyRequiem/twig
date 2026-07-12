@@ -244,13 +244,37 @@ public class InitCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Init_ReturnsError_WhenAlreadyInitialized()
+    public async Task Init_WithoutForce_CompletesPartialWorkspace()
     {
-        Directory.CreateDirectory(_twigDir);
+        const string org = "https://dev.azure.com/org";
+        const string project = "MyProject";
+        var contextPaths = TwigPaths.ForContext(_twigDir, org, project, _testDir);
+        var partialConfig = new TwigConfiguration
+        {
+            Organization = org,
+            Project = project,
+        };
+        await partialConfig.SaveSplitAsync(contextPaths);
+        File.Exists(contextPaths.DbPath).ShouldBeFalse();
+
         var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync(org, project);
+
+        result.ShouldBe(0);
+        File.Exists(contextPaths.DbPath).ShouldBeTrue();
+        File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Init_ReturnsError_WhenContextAlreadyInitialized()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var firstResult = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
+        firstResult.ShouldBe(0);
         result.ShouldBe(1);
     }
 

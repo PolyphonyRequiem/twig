@@ -6,14 +6,8 @@ namespace Twig.Mcp;
 internal static class WorkspaceGuard
 {
     /// <summary>
-    /// Ambient-mode guard for MCP multi-workspace: walks up from <paramref name="cwd"/>
-    /// to find <c>.twig/</c>, then succeeds if any <c>.twig/{org}/{project}/config</c>
-    /// exists OR the legacy <c>.twig/config</c> exists.
-    /// <para>
-    /// AB#3296: also succeeds if the repo root contains a committed <c>twig.json</c>
-    /// manifest — that proves the repo is a twig workspace even before any local
-    /// <c>.twig/</c> exists (fresh clone case).
-    /// </para>
+    /// Ambient-mode guard for MCP multi-workspace. Uses the shared workspace
+    /// discovery predicate so MCP agrees with CLI and TUI bootstrap.
     /// </summary>
     internal static (bool IsValid, string? Error, string? TwigDir) CheckWorkspaceAmbient(string cwd)
     {
@@ -22,38 +16,6 @@ internal static class WorkspaceGuard
             return (false, "No twig workspace found. Run 'twig init' in your project root.", null);
 
         var twigDir = Path.Combine(workspaceRoot, ".twig");
-
-        // AB#3296: committed twig.json at repo root is a first-class workspace marker.
-        if (File.Exists(Path.Combine(workspaceRoot, WorkspaceDiscovery.RepoManifestFileName)))
-            return (true, null, twigDir);
-
-        // Legacy single-workspace: .twig/config
-        if (File.Exists(Path.Combine(twigDir, "config")))
-            return (true, null, twigDir);
-
-        // Multi-workspace: .twig/{org}/{project}/config
-        if (HasAnyWorkspaceConfig(twigDir))
-            return (true, null, twigDir);
-
-        return (false, "Twig workspace not initialized. Run 'twig init' first.", null);
-    }
-
-    private static bool HasAnyWorkspaceConfig(string twigDir)
-    {
-        try
-        {
-            foreach (var orgDir in Directory.GetDirectories(twigDir))
-            {
-                foreach (var projectDir in Directory.GetDirectories(orgDir))
-                {
-                    if (File.Exists(Path.Combine(projectDir, "config")))
-                        return true;
-                }
-            }
-        }
-        catch (UnauthorizedAccessException) { }
-        catch (IOException) { }
-
-        return false;
+        return (true, null, twigDir);
     }
 }

@@ -66,17 +66,17 @@ public static class WorkspaceDiscovery
     }
 
     /// <summary>
-    /// Determines whether a <c>.twig/</c> directory is an actual workspace
+    /// Determines whether a <c>.twig/</c> path belongs to an actual workspace
     /// (as opposed to the global home). A workspace contains either:
     /// <list type="bullet">
+    /// <item>A sibling repo-root <c>twig.json</c> manifest, OR</item>
     /// <item>A <c>config</c> file (legacy or current workspace config), OR</item>
     /// <item>A nested <c>{org}/{project}/twig.db</c> database file, OR</item>
     /// <item>A nested <c>{org}/{project}/config</c> file (multi-workspace layout).</item>
     /// </list>
     /// The global home at <c>~/.twig/</c> is always excluded regardless of contents.
-    /// AB#3296: presence of a sibling <c>twig.json</c> at the parent (repo root)
-    /// also qualifies — but that check is made by <see cref="FindWorkspaceRoot"/>
-    /// directly to keep this method's contract focused on the <c>.twig/</c> dir.
+    /// The <c>.twig/</c> directory itself does not need to exist when the committed
+    /// manifest is present; commands create local workspace state on demand.
     /// </summary>
     public static bool IsWorkspaceDirectory(string twigDirPath)
     {
@@ -87,6 +87,10 @@ public static class WorkspaceDiscovery
 
         if (string.Equals(normalizedCandidate, normalizedHome, StringComparison.OrdinalIgnoreCase))
             return false;
+
+        var repoRoot = Path.GetDirectoryName(normalizedCandidate);
+        if (repoRoot is not null && File.Exists(Path.Combine(repoRoot, RepoManifestFileName)))
+            return true;
 
         // A valid workspace has a config file at its root
         if (File.Exists(Path.Combine(twigDirPath, "config")))

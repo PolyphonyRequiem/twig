@@ -40,7 +40,11 @@ public sealed class DynamicProcessConfigProvider : IProcessConfigurationProvider
                 "ADO authentication has expired. Try: twig sync (to refresh from ADO), " +
                 "or: az login / set TWIG_PAT (to fix auth).");
 
-        _cachedConfig = ProcessConfiguration.FromRecords(records);
+        var processConfigurationData = _processTypeStore.GetProcessConfigurationDataAsync()
+            .GetAwaiter().GetResult();
+        _cachedConfig = processConfigurationData is null
+            ? ProcessConfiguration.FromRecords(records)
+            : ProcessConfiguration.FromRecords(records, processConfigurationData);
         return _cachedConfig;
     }
 }

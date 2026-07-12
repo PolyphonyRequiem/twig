@@ -1,4 +1,5 @@
 using Twig.Domain.Enums;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Aggregates;
 
@@ -43,9 +44,14 @@ public sealed class ProcessConfiguration
     /// <summary>Per-type configuration (states, child types, transition rules).</summary>
     public IReadOnlyDictionary<WorkItemType, TypeConfig> TypeConfigs { get; }
 
-    private ProcessConfiguration(IReadOnlyDictionary<WorkItemType, TypeConfig> typeConfigs)
+    private readonly IReadOnlySet<WorkItemType> _hierarchyConstrainedTypes;
+
+    private ProcessConfiguration(
+        IReadOnlyDictionary<WorkItemType, TypeConfig> typeConfigs,
+        IReadOnlySet<WorkItemType> hierarchyConstrainedTypes)
     {
         TypeConfigs = typeConfigs;
+        _hierarchyConstrainedTypes = hierarchyConstrainedTypes;
     }
 
     /// <summary>
@@ -74,10 +80,47 @@ public sealed class ProcessConfiguration
     }
 
     /// <summary>
+    /// Returns whether the process metadata permits <paramref name="childType"/> under
+    /// <paramref name="parentType"/>. Backlog types are constrained to their adjacent
+    /// hierarchy level. Relationships involving a process type outside the backlog
+    /// hierarchy are accepted when both types exist because ADO does not publish
+    /// hierarchy constraints for those types.
+    /// </summary>
+    internal bool IsChildTypeAllowed(WorkItemType parentType, WorkItemType childType)
+    {
+        if (!TypeConfigs.ContainsKey(parentType))
+            return false;
+
+        if (!_hierarchyConstrainedTypes.Contains(parentType))
+            return TypeConfigs.ContainsKey(childType);
+
+        if (TypeConfigs.ContainsKey(childType) &&
+            !_hierarchyConstrainedTypes.Contains(childType))
+            return true;
+
+        return GetAllowedChildTypes(parentType).Contains(childType);
+    }
+
+    /// <summary>
     /// Builds a ProcessConfiguration from stored process type records.
     /// Records with empty type names or no states are skipped.
     /// </summary>
-    public static ProcessConfiguration FromRecords(IReadOnlyList<ProcessTypeRecord> typeRecords)
+    public static ProcessConfiguration FromRecords(IReadOnlyList<ProcessTypeRecord> typeRecords) =>
+        FromRecordsCore(typeRecords, processConfigurationData: null);
+
+    /// <summary>
+    /// Builds a ProcessConfiguration from stored type records and the full ADO backlog
+    /// hierarchy metadata. Types omitted from the backlog hierarchy remain valid process
+    /// types, but their parent-child constraints are deferred to ADO.
+    /// </summary>
+    internal static ProcessConfiguration FromRecords(
+        IReadOnlyList<ProcessTypeRecord> typeRecords,
+        ProcessConfigurationData processConfigurationData) =>
+        FromRecordsCore(typeRecords, processConfigurationData);
+
+    private static ProcessConfiguration FromRecordsCore(
+        IReadOnlyList<ProcessTypeRecord> typeRecords,
+        ProcessConfigurationData? processConfigurationData)
     {
         var configs = new Dictionary<WorkItemType, TypeConfig>();
         foreach (var record in typeRecords)
@@ -101,7 +144,23 @@ public sealed class ProcessConfiguration
                 record.States.ToArray(),
                 childTypes);
         }
-        return new ProcessConfiguration(configs);
+
+        IReadOnlySet<WorkItemType> constrainedTypes;
+        if (processConfigurationData is null)
+        {
+            constrainedTypes = configs.Keys.ToHashSet();
+        }
+        else
+        {
+            constrainedTypes = BacklogHierarchyService.GetTypeLevelMap(processConfigurationData)
+                .Keys
+                .Select(WorkItemType.Parse)
+                .Where(result => result.IsSuccess)
+                .Select(result => result.Value)
+                .ToHashSet();
+        }
+
+        return new ProcessConfiguration(configs, constrainedTypes);
     }
 
     /// <summary>

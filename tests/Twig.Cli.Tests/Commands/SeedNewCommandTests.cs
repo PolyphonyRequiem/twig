@@ -2,8 +2,10 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -48,12 +50,7 @@ public class SeedNewCommandTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var seedIdCounter = new SeedIdCounter();
-        _cmd = new SeedNewCommand(
-            _resolver, _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter);
+        _cmd = CreateCommand(_processConfigProvider, formatterFactory, hintEngine);
     }
 
     [Fact]
@@ -104,6 +101,58 @@ public class SeedNewCommandTests
         var result = await _cmd.ExecuteAsync("Child Feature", type: "Feature");
 
         result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task SeedNew_CustomTypesOutsideBacklogHierarchy_CreatesSeed()
+    {
+        var parentType = WorkItemType.Parse("Flight Plan").Value;
+        var childType = WorkItemType.Parse("Experiment").Value;
+        var parent = CreateWorkItem(63065984, "Acceptance Flight Plan", parentType);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(parent.Id);
+        _workItemRepo.GetByIdAsync(parent.Id, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var processTypeStore = Substitute.For<IProcessTypeStore>();
+        processTypeStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                CreateProcessTypeRecord("Scenario", "Deliverable"),
+                CreateProcessTypeRecord("Deliverable"),
+                CreateProcessTypeRecord("Flight Plan"),
+                CreateProcessTypeRecord("Experiment"),
+            });
+        processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
+            .Returns(new ProcessConfigurationData
+            {
+                PortfolioBacklogs =
+                [
+                    new BacklogLevelConfiguration
+                    {
+                        Name = "Scenarios",
+                        WorkItemTypeNames = ["Scenario"],
+                    },
+                ],
+                RequirementBacklog = new BacklogLevelConfiguration
+                {
+                    Name = "Deliverables",
+                    WorkItemTypeNames = ["Deliverable"],
+                },
+            });
+
+        var command = CreateCommand(
+            new DynamicProcessConfigProvider(processTypeStore),
+            new OutputFormatterFactory(new HumanOutputFormatter()),
+            new HintEngine(new DisplayConfig { Hints = false }));
+
+        var result = await command.ExecuteAsync("[PROBE] child", type: childType.Value, outputFormat: "json");
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w =>
+                w.IsSeed &&
+                w.ParentId == parent.Id &&
+                w.Type == childType),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -299,4 +348,25 @@ public class SeedNewCommandTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    private SeedNewCommand CreateCommand(
+        IProcessConfigurationProvider processConfigProvider,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine)
+    {
+        var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
+        var seedIdCounter = new SeedIdCounter();
+        return new SeedNewCommand(
+            _resolver, _workItemRepo, processConfigProvider,
+            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
+            new SeedFactory(seedIdCounter), seedIdCounter);
+    }
+
+    private static ProcessTypeRecord CreateProcessTypeRecord(string typeName, params string[] childTypes) =>
+        new()
+        {
+            TypeName = typeName,
+            States = [new StateEntry("New", StateCategory.Proposed, null)],
+            ValidChildTypes = childTypes,
+        };
 }

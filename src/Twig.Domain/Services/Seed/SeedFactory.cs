@@ -55,7 +55,7 @@ public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
             if (typeOverride is not null)
             {
                 // Validate explicit override is allowed
-                if (!allowedChildren.Contains(typeOverride.Value))
+                if (!processConfig.IsChildTypeAllowed(parentContext.Type, typeOverride.Value))
                     return Result.Fail<WorkItem>(
                         $"Type '{typeOverride.Value}' is not an allowed child of '{parentContext.Type}'.");
 

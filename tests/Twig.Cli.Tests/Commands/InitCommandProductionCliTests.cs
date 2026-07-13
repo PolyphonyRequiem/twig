@@ -17,7 +17,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (Directory.Exists(_repoRoot))
+        {
+            foreach (var file in Directory.EnumerateFiles(_repoRoot, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(_repoRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -34,7 +38,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
             Auth = new AuthConfig { Method = "pat" },
         };
 
-        Directory.CreateDirectory(Path.Combine(_repoRoot, ".git"));
+        await RunGitAsync("init", "--quiet");
         await File.WriteAllTextAsync(
             Path.Combine(_repoRoot, ".gitignore"),
             $".twig/{Environment.NewLine}");
@@ -51,6 +55,163 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stderr.ShouldNotContain("already initialized");
         File.Exists(contextPaths.DbPath).ShouldBeTrue();
         File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
+        (await TwigConfiguration.LoadSplitAsync(contextPaths)).ProcessTemplate.ShouldBe("Basic");
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_CreatesLocalStateWithoutChangingTrackedManifest()
+    {
+        var organization = InitAdoServer.GetUnusedBaseUrl();
+        const string project = "TestProject";
+        const string team = "CloudVault";
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        var contextPaths = TwigPaths.ForContext(twigDir, organization, project, _repoRoot);
+        var manifestBytes = CreateManifestBytes(organization, project, team);
+        var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
+        Directory.Exists(twigDir).ShouldBeFalse();
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init",
+            "--org", organization,
+            "--project", project,
+            "--team", team);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        File.Exists(contextPaths.ConfigPath).ShouldBeTrue();
+        Directory.Exists(Path.GetDirectoryName(contextPaths.DbPath)).ShouldBeTrue();
+        File.Exists(contextPaths.DbPath).ShouldBeFalse();
+        (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+    }
+
+    [Theory]
+    [InlineData("organization")]
+    [InlineData("project")]
+    [InlineData("team")]
+    public async Task Init_ThroughProductionCli_RejectsCoordinatesThatConflictWithTrackedManifest(
+        string conflictingCoordinate)
+    {
+        var organization = InitAdoServer.GetUnusedBaseUrl();
+        const string project = "TestProject";
+        const string team = "CloudVault";
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        var manifestBytes = CreateManifestBytes(organization, project, team);
+        var suppliedOrg = conflictingCoordinate == "organization"
+            ? $"{organization}/other"
+            : organization;
+        var suppliedProject = conflictingCoordinate == "project" ? "OtherProject" : project;
+        var suppliedTeam = conflictingCoordinate == "team" ? "OtherTeam" : team;
+
+        var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init",
+            "--org", suppliedOrg,
+            "--project", suppliedProject,
+            "--team", suppliedTeam);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stderr.ShouldContain("conflicts with existing twig.json");
+        Directory.Exists(twigDir).ShouldBeFalse();
+        (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+    }
+
+    [Theory]
+    [InlineData("--git-project", "OtherProject")]
+    [InlineData("--sprint", "@current")]
+    [InlineData("--area", "TestProject\\OtherTeam")]
+    public async Task Init_ThroughProductionCli_RejectsRepoOverridesForTrackedManifest(
+        string option,
+        string value)
+    {
+        var organization = InitAdoServer.GetUnusedBaseUrl();
+        const string project = "TestProject";
+        const string team = "CloudVault";
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        var manifestBytes = CreateManifestBytes(organization, project, team);
+        var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init",
+            "--org", organization,
+            "--project", project,
+            "--team", team,
+            option, value);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stderr.ShouldContain("cannot override existing tracked twig.json");
+        Directory.Exists(twigDir).ShouldBeFalse();
+        (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+    }
+
+    private static byte[] CreateManifestBytes(string organization, string project, string team) =>
+        Encoding.UTF8.GetBytes($$"""
+            {
+              "organization": "{{organization}}",
+              "project": "{{project}}",
+              "team": "{{team}}",
+              "processTemplate": "Basic",
+              "defaults": {
+                "areaPaths": [
+                  "TestProject\\CloudVault"
+                ],
+                "areaPathEntries": [
+                  {
+                    "path": "TestProject\\CloudVault",
+                    "includeChildren": true
+                  }
+                ],
+                "mode": "sprint",
+                "inheritParentArea": true,
+                "inheritParentIteration": true
+              },
+              "seed": {
+                "staleDays": 14
+              },
+              "git": {
+                "branchPattern": "(?:^|/)(?<id>\\d{3,})(?:-|/|$)"
+              },
+              "workspace": {},
+              "areas": {}
+            }
+            """);
+
+    private async Task<string> WriteTrackedManifestAsync(byte[] manifestBytes)
+    {
+        await RunGitAsync("init", "--quiet");
+        await RunGitAsync("config", "user.email", "twig-tests@example.com");
+        await RunGitAsync("config", "user.name", "Twig Tests");
+
+        var manifestPath = Path.Combine(_repoRoot, WorkspaceDiscovery.RepoManifestFileName);
+        await File.WriteAllBytesAsync(manifestPath, manifestBytes);
+        await RunGitAsync("add", "--", WorkspaceDiscovery.RepoManifestFileName);
+        await RunGitAsync("commit", "--quiet", "-m", "Add tracked manifest");
+        return manifestPath;
+    }
+
+    private async Task RunGitAsync(params string[] args)
+    {
+        Directory.CreateDirectory(_repoRoot);
+        var startInfo = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = _repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args)
+            startInfo.ArgumentList.Add(arg);
+
+        using var process = Process.Start(startInfo);
+        process.ShouldNotBeNull();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        process.ExitCode.ShouldBe(
+            0,
+            $"git {string.Join(' ', args)} failed:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
     }
 
     private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(params string[] args)
@@ -125,6 +286,8 @@ public sealed class InitCommandProductionCliTests : IDisposable
         }
 
         internal string BaseUrl { get; }
+
+        internal static string GetUnusedBaseUrl() => $"http://127.0.0.1:{PickFreePort()}";
 
         internal static InitAdoServer Start()
         {

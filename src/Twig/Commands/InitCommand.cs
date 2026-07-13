@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
@@ -32,8 +33,8 @@ public sealed class InitCommand
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
-    /// <see cref="AdoIterationService"/> with the org/project from command args
-    /// (not from the potentially-empty config loaded at DI time).
+    /// <see cref="AdoIterationService"/> with the effective init coordinates
+    /// instead of the potentially-empty config loaded at DI time.
     /// </summary>
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
@@ -110,14 +111,53 @@ public sealed class InitCommand
         // init always targets CWD, not the walked-up .twig/ ancestor.
         // This prevents ~/projects/repo from reusing ~/.twig when repos live under ~.
         var twigDir = Path.Combine(_paths.StartDir, ".twig");
-        var configPath = Path.Combine(twigDir, "config");
 
         // Derive context-specific paths from the supplied org/project args
-        var contextPaths = TwigPaths.ForContext(twigDir, org, project, _paths.StartDir);
+        var requestedContextPaths = TwigPaths.ForContext(twigDir, org, project, _paths.StartDir);
+        var preserveRepoManifest = false;
+        if (File.Exists(requestedContextPaths.RepoConfigPath))
+        {
+            try
+            {
+                preserveRepoManifest = await IsRepoManifestTrackedAsync(_paths.StartDir, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(fmt.FormatError(ex.Message));
+                return (1, false, 0);
+            }
+        }
+
+        var config = preserveRepoManifest
+            ? await TwigConfiguration.LoadSplitAsync(requestedContextPaths, ct)
+            : new TwigConfiguration
+            {
+                Organization = org,
+                Project = project,
+                Team = team ?? string.Empty,
+            };
+
+        var contextPaths = preserveRepoManifest
+            ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, _paths.StartDir)
+            : requestedContextPaths;
 
         if (File.Exists(contextPaths.DbPath) && !force)
         {
             Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
+            return (1, false, 0);
+        }
+
+        if (preserveRepoManifest
+            && GetManifestCoordinateConflict(config, org, project, team) is { } coordinateConflict)
+        {
+            Console.Error.WriteLine(fmt.FormatError(coordinateConflict));
+            return (1, false, 0);
+        }
+
+        if (preserveRepoManifest
+            && GetManifestOverrideConflict(gitProject, sprint, area) is { } overrideConflict)
+        {
+            Console.Error.WriteLine(fmt.FormatError(overrideConflict));
             return (1, false, 0);
         }
 
@@ -178,14 +218,6 @@ public sealed class InitCommand
         var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
         Directory.CreateDirectory(contextDir);
 
-        // Detect process template and current iteration
-        var config = new TwigConfiguration
-        {
-            Organization = org,
-            Project = project,
-            Team = team ?? string.Empty,
-        };
-
         // Set git.project if explicitly provided
         if (!string.IsNullOrWhiteSpace(gitProject))
         {
@@ -196,17 +228,22 @@ public sealed class InitCommand
         // AB#3296: write the new split shape — twig.json (committed manifest) at
         // repo root and .twig/config (gitignored user prefs). Fresh init always
         // produces the new shape; migration handles legacy upgrades.
-        await config.SaveSplitAsync(contextPaths);
+        if (preserveRepoManifest)
+            await config.SaveUserAsync(contextPaths.ConfigPath, ct);
+        else
+            await config.SaveSplitAsync(contextPaths, ct);
 
-        // Build iteration service with the supplied org/project (not from DI config)
-        var effectiveTeam = string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
+        var effectiveOrg = config.Organization;
+        var effectiveProject = config.Project;
+        var effectiveTeam = string.IsNullOrWhiteSpace(config.Team) ? $"{effectiveProject} Team" : config.Team;
         var iterationService = _iterationService
-            ?? new AdoIterationService(_httpClient!, _authProvider!, org, project, effectiveTeam);
+            ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam);
 
         var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
 
         var template = await iterationService.DetectTemplateNameAsync();
-        config.ProcessTemplate = template ?? string.Empty;
+        if (!preserveRepoManifest)
+            config.ProcessTemplate = template ?? string.Empty;
 
         // AB#3296 PR-3: type appearances are sourced from the SQLite cache
         // (process_types table, populated below by ProcessTypeSyncService).
@@ -216,7 +253,7 @@ public sealed class InitCommand
 
         // DD-8/FR-17: Only auto-detect area paths in interactive mode.
         // Non-interactive init starts empty; use --area flag for explicit config.
-        if (isInteractive)
+        if (isInteractive && !preserveRepoManifest)
         {
             Console.WriteLine("Fetching team area paths...");
             try
@@ -277,7 +314,7 @@ public sealed class InitCommand
         }
 
         // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
-        if (isInteractive)
+        if (isInteractive && !preserveRepoManifest)
         {
             Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
             var modeResponse = _consoleInput!.ReadLine()?.Trim().ToLowerInvariant();
@@ -287,6 +324,7 @@ public sealed class InitCommand
 
         // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
         if (isInteractive
+            && !preserveRepoManifest
             && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
         {
             Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
@@ -375,7 +413,10 @@ public sealed class InitCommand
                 Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
         }
 
-        await config.SaveSplitAsync(contextPaths);
+        if (preserveRepoManifest)
+            await config.SaveUserAsync(contextPaths.ConfigPath, ct);
+        else
+            await config.SaveSplitAsync(contextPaths, ct);
 
         // Initialize SQLite cache in context-specific path and persist process type data
         using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
@@ -413,7 +454,7 @@ public sealed class InitCommand
         {
             if (_globalProfileStore is not null && template is not null)
             {
-                var metadata = await _globalProfileStore.LoadMetadataAsync(org, template, ct);
+                var metadata = await _globalProfileStore.LoadMetadataAsync(effectiveOrg, template, ct);
                 if (metadata is not null)
                 {
                     telemetryHadGlobalProfile = true;
@@ -421,28 +462,28 @@ public sealed class InitCommand
                     if (fieldDefs.Count > 0)
                     {
                         var currentHash = FieldDefinitionHasher.ComputeFieldHash(fieldDefs);
-                        var profileContent = await _globalProfileStore.LoadStatusFieldsAsync(org, template, ct);
+                        var profileContent = await _globalProfileStore.LoadStatusFieldsAsync(effectiveOrg, template, ct);
                         if (profileContent is not null)
                         {
                             if (metadata.FieldDefinitionHash == currentHash)
                             {
                                 // Hash match → copy profile status-fields verbatim (DD-05: workspace layer)
                                 await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, profileContent, ct);
-                                Console.WriteLine($"✓ Applied existing field configuration for {org}/{template}");
+                                Console.WriteLine($"✓ Applied existing field configuration for {effectiveOrg}/{template}");
                             }
                             else
                             {
                                 // Hash mismatch → merge with existing preferences
                                 var mergedContent = StatusFieldsConfig.Generate(fieldDefs, profileContent);
                                 await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, mergedContent, ct);
-                                await _globalProfileStore.SaveStatusFieldsAsync(org, template, mergedContent, ct);
+                                await _globalProfileStore.SaveStatusFieldsAsync(effectiveOrg, template, mergedContent, ct);
                                 var updatedMetadata = metadata with
                                 {
                                     FieldDefinitionHash = currentHash,
                                     LastSyncedAt = DateTimeOffset.UtcNow,
                                     FieldCount = fieldDefs.Count
                                 };
-                                await _globalProfileStore.SaveMetadataAsync(org, template, updatedMetadata, ct);
+                                await _globalProfileStore.SaveMetadataAsync(effectiveOrg, template, updatedMetadata, ct);
                                 Console.WriteLine("⚠ Process fields changed — merged with existing preferences");
                                 Console.WriteLine("Run 'twig config status-fields' to review");
                             }
@@ -473,7 +514,12 @@ public sealed class InitCommand
             try
             {
                 Console.WriteLine("Refreshing sprint items...");
-                var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project, new WorkItemMapper());
+                var adoClient = new AdoRestClient(
+                    _httpClient,
+                    _authProvider,
+                    effectiveOrg,
+                    effectiveProject,
+                    new WorkItemMapper());
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 
@@ -586,6 +632,87 @@ public sealed class InitCommand
         }
 
         return (0, telemetryHadGlobalProfile, telemetryFieldCount);
+    }
+
+    private static string? GetManifestCoordinateConflict(
+        TwigConfiguration config,
+        string org,
+        string project,
+        string? team)
+    {
+        if (!string.Equals(config.Organization, org, StringComparison.OrdinalIgnoreCase))
+            return $"--org '{org}' conflicts with existing twig.json value '{config.Organization}'. The manifest is authoritative.";
+
+        if (!string.Equals(config.Project, project, StringComparison.OrdinalIgnoreCase))
+            return $"--project '{project}' conflicts with existing twig.json value '{config.Project}'. The manifest is authoritative.";
+
+        if (!string.IsNullOrWhiteSpace(team)
+            && !string.Equals(config.Team, team, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"--team '{team}' conflicts with existing twig.json value '{config.Team}'. The manifest is authoritative.";
+        }
+
+        return null;
+    }
+
+    private static string? GetManifestOverrideConflict(string? gitProject, string? sprint, string? area)
+    {
+        if (!string.IsNullOrWhiteSpace(gitProject))
+            return "--git-project cannot override existing tracked twig.json. The manifest is authoritative.";
+        if (!string.IsNullOrWhiteSpace(sprint))
+            return "--sprint cannot override existing tracked twig.json. The manifest is authoritative.";
+        if (!string.IsNullOrWhiteSpace(area))
+            return "--area cannot override existing tracked twig.json. The manifest is authoritative.";
+
+        return null;
+    }
+
+    private static async Task<bool> IsRepoManifestTrackedAsync(string repoRoot, CancellationToken ct)
+    {
+        var startInfo = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add("ls-files");
+        startInfo.ArgumentList.Add("--error-unmatch");
+        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add(WorkspaceDiscovery.RepoManifestFileName);
+
+        try
+        {
+            using var process = Process.Start(startInfo);
+            if (process is null)
+                throw new InvalidOperationException("Cannot determine whether twig.json is tracked because Git did not start.");
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync(ct);
+            await Task.WhenAll(stdoutTask, stderrTask);
+            if (process.ExitCode == 0)
+                return true;
+            if (process.ExitCode == 1)
+                return false;
+
+            var stderr = await stderrTask;
+            if (process.ExitCode == 128
+                && stderr.Contains("not a git repository", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            throw new InvalidOperationException(
+                $"Cannot determine whether twig.json is tracked because 'git ls-files' exited with code {process.ExitCode}: {stderr.Trim()}");
+        }
+        catch (Win32Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Cannot determine whether twig.json is tracked because Git is unavailable. Refusing to overwrite the existing manifest.",
+                ex);
+        }
     }
 
     private void AppendToGitignore()

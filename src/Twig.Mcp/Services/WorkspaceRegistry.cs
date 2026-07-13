@@ -16,7 +16,7 @@ public interface IWorkspaceRegistry
 }
 
 /// <summary>
-/// Discovers available workspaces by scanning <c>.twig/{org}/{project}/config</c> on disk.
+/// Discovers available workspaces from split config or legacy per-workspace configs on disk.
 /// Immutable after construction — scanned once at startup (DD-5).
 /// </summary>
 public sealed class WorkspaceRegistry : IWorkspaceRegistry
@@ -65,7 +65,8 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
 
             throw new KeyNotFoundException(
                 $"Workspace '{key}' is not registered. Found '.twig/' at '{_twigRoot}' but it " +
-                $"contains no valid workspace configs ('.twig/{{org}}/{{project}}/config'). " +
+                $"contains no valid workspace configs ('twig.json' + '.twig/config', or " +
+                $"'.twig/{{org}}/{{project}}/config'). " +
                 $"Run 'twig init' to register a workspace.");
         }
 
@@ -75,7 +76,8 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
     }
 
     /// <summary>
-    /// Creates a registry by scanning the given <c>.twig/</c> directory for workspace configs.
+    /// Creates a registry by loading split config and scanning the given <c>.twig/</c>
+    /// directory for legacy per-workspace configs.
     /// </summary>
     /// <param name="twigRoot">
     /// The <c>.twig/</c> directory to scan (e.g., <c>/repo/.twig</c>).
@@ -90,6 +92,9 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
         _launchCwd = launchCwd;
         var discovered = new Dictionary<WorkspaceKey, TwigConfiguration>();
 
+        // Current split layout: twig.json + optional .twig/config.
+        TryRegisterSplit(twigRoot, discovered);
+
         if (Directory.Exists(twigRoot))
         {
             // Multi-workspace discovery: .twig/{org}/{project}/config
@@ -97,14 +102,15 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
             {
                 foreach (var projectDir in GetDirectories(orgDir))
                 {
-                    TryRegister(projectDir, discovered);
+                    TryRegisterLegacy(projectDir, discovered);
                 }
             }
 
-            // Legacy fallback: .twig/config (top-level config, single workspace)
-            if (discovered.Count == 0)
+            // Legacy fallback: .twig/config as a complete single-workspace config.
+            if (discovered.Count == 0 &&
+                !File.Exists(Path.Combine(Path.GetDirectoryName(twigRoot) ?? twigRoot, WorkspaceDiscovery.RepoManifestFileName)))
             {
-                TryRegister(twigRoot, discovered);
+                TryRegisterLegacy(twigRoot, discovered);
             }
         }
 
@@ -112,7 +118,33 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
         Workspaces = discovered.Keys.ToList().AsReadOnly();
     }
 
-    private static void TryRegister(string directory, Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+    private static void TryRegisterSplit(
+        string twigRoot,
+        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+    {
+        var paths = new TwigPaths(
+            twigRoot,
+            Path.Combine(twigRoot, "config"),
+            Path.Combine(twigRoot, "twig.db"));
+        if (!File.Exists(paths.RepoConfigPath))
+            return;
+
+        TwigConfiguration config;
+        try
+        {
+            config = TwigConfiguration.LoadSplit(paths);
+        }
+        catch (TwigConfigurationException)
+        {
+            return;
+        }
+
+        TryAddConfig(config, discovered);
+    }
+
+    private static void TryRegisterLegacy(
+        string directory,
+        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
     {
         var configPath = Path.Combine(directory, "config");
         if (!File.Exists(configPath))
@@ -129,6 +161,13 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
             return;
         }
 
+        TryAddConfig(config, discovered);
+    }
+
+    private static void TryAddConfig(
+        TwigConfiguration config,
+        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+    {
         if (string.IsNullOrWhiteSpace(config.Organization) || string.IsNullOrWhiteSpace(config.Project))
             return;
 

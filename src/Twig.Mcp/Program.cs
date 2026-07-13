@@ -11,9 +11,7 @@ using Twig.Mcp.Tools;
 
 SQLitePCL.Batteries.Init();
 
-// FR-7: Ambient-mode workspace guard — succeeds when any .twig/{org}/{project}/config
-// exists, even without top-level .twig/config. Must run before host build to provide
-// clear error messages when no workspaces are found.
+// Ambient-mode workspace guard uses shared split-aware discovery.
 var (isValid, guardError, discoveredTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(Directory.GetCurrentDirectory());
 
 // When no workspace is found, start the server anyway with zero workspaces.
@@ -22,7 +20,7 @@ var (isValid, guardError, discoveredTwigDir) = WorkspaceGuard.CheckWorkspaceAmbi
 string? twigRoot = discoveredTwigDir;
 
 // Workspace infrastructure — replaces single-workspace singleton registrations.
-// WorkspaceRegistry scans .twig/{org}/{project}/config on disk (DD-5).
+// WorkspaceRegistry loads split config and scans legacy per-workspace configs (DD-5).
 // WorkspaceContextFactory lazily creates per-workspace service bundles.
 // WorkspaceResolver routes per-tool-call workspace selection.
 var launchCwd = Directory.GetCurrentDirectory();

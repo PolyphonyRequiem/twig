@@ -86,6 +86,42 @@ public sealed class WorkspaceRegistryTests : IDisposable
         registry.Workspaces[0].ShouldBe(new WorkspaceKey("org1", "proj1"));
     }
 
+    [Fact]
+    public void Split_Config_Workspace_Is_Discovered()
+    {
+        var twigRoot = Path.Combine(_tempDir, ".twig");
+        var contextDir = Path.Combine(twigRoot, "microsoft", "OS");
+        Directory.CreateDirectory(contextDir);
+        File.WriteAllText(
+            Path.Combine(_tempDir, "twig.json"),
+            """{"organization":"microsoft","project":"OS"}""");
+        File.WriteAllText(
+            Path.Combine(twigRoot, "config"),
+            """{"auth":{"method":"azcli"}}""");
+        File.WriteAllText(Path.Combine(contextDir, "twig.db"), "");
+
+        var registry = new WorkspaceRegistry(twigRoot, _tempDir);
+
+        registry.Workspaces.ShouldBe([new WorkspaceKey("microsoft", "OS")]);
+        var config = registry.GetConfig(new WorkspaceKey("microsoft", "OS"));
+        config.Organization.ShouldBe("microsoft");
+        config.Project.ShouldBe("OS");
+        config.Auth.Method.ShouldBe("azcli");
+    }
+
+    [Fact]
+    public void Split_Config_Without_Local_Twig_Directory_Is_Discovered()
+    {
+        var twigRoot = Path.Combine(_tempDir, ".twig");
+        File.WriteAllText(
+            Path.Combine(_tempDir, "twig.json"),
+            """{"organization":"microsoft","project":"OS"}""");
+
+        var registry = new WorkspaceRegistry(twigRoot, _tempDir);
+
+        registry.Workspaces.ShouldBe([new WorkspaceKey("microsoft", "OS")]);
+    }
+
     // ── Single-workspace fast-path ──────────────────────────────────
 
     [Fact]

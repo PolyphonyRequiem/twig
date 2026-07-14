@@ -73,6 +73,18 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
             outcome = await ctx.StateTransitionWorkflow.ExecuteAsync(item, stateName, remote.Revision, ct);
         }
+        catch (AdoBadRequestException ex)
+        {
+            return await EnvelopeBuilder.ErrorAsync(
+                McpErrorCode.AdoValidationFailed,
+                ex.Message,
+                ctx,
+                ct,
+                new Dictionary<string, string>
+                {
+                    ["remediation"] = "Update System.State and any dependent fields together with twig_patch.",
+                });
+        }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);

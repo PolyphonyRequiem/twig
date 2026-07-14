@@ -84,6 +84,7 @@ Codes follow UPPER_SNAKE_CASE convention.
 | `INVALID_INPUT` | Caller provided invalid input (missing field, bad format, etc.). |
 | `NO_CONTEXT` | No active work item set — caller must use `twig_set` first. |
 | `ADO_UNREACHABLE` | ADO API is unreachable (network error, auth failure, timeout). |
+| `ADO_VALIDATION_FAILED` | ADO rejected the request because one or more field values failed validation. |
 | `CACHE_STALE` | The local cache is stale and a sync is required. |
 | `INVALID_STATE_TRANSITION` | The requested state transition is not valid. |
 | `WORKSPACE_NOT_FOUND` | The workspace could not be resolved (ambiguous, unknown, etc.). |

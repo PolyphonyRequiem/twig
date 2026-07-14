@@ -376,6 +376,32 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             .Text.ShouldContain("503");
     }
 
+    [Fact]
+    public async Task State_PatchFailsFieldValidation_ReturnsActionableValidationError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _processConfigProvider.GetConfiguration().Returns(BuildTaskProcessConfig());
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+                Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException(
+                "The field 'Substate' contains the value 'Proposed' that is not in the list of supported values."));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBe(true);
+        var error = ParseResult(result).GetProperty("error");
+        error.GetProperty("code").GetString().ShouldBe("ADO_VALIDATION_FAILED");
+        var message = error.GetProperty("message").GetString();
+        message.ShouldNotBeNull();
+        message.ShouldContain("Substate");
+        var remediation = error.GetProperty("details").GetProperty("remediation").GetString();
+        remediation.ShouldNotBeNull();
+        remediation.ShouldContain("twig_patch");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  AdoRateLimitException — returns structured error with detail
     // ═══════════════════════════════════════════════════════════════

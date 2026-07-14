@@ -283,10 +283,14 @@ internal static class ExceptionHandler
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoBadRequestException badReqEx)
         {
             stderr.WriteLine($"error: {badReqEx.Message}");
-            if (badReqEx.Message.Contains("transition", StringComparison.OrdinalIgnoreCase)
-                || badReqEx.Message.Contains("state", StringComparison.OrdinalIgnoreCase))
+            if (AdoErrorClassifier.IsTransitionError(badReqEx.Message))
             {
                 stderr.WriteLine("Transition not allowed. Run 'twig sync' to update process configuration.");
+            }
+            else
+            {
+                stderr.WriteLine(
+                    "hint: This change may require updating dependent fields in the same atomic 'twig patch' request.");
             }
             Environment.ExitCode = 1;
             return 1;

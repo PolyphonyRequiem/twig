@@ -18,6 +18,9 @@ public static class McpErrorCode
     /// <summary>ADO API is unreachable (network error, auth failure, timeout).</summary>
     public const string AdoUnreachable = "ADO_UNREACHABLE";
 
+    /// <summary>ADO rejected the request because one or more field values failed validation.</summary>
+    public const string AdoValidationFailed = "ADO_VALIDATION_FAILED";
+
     /// <summary>The local cache is stale and a sync is required.</summary>
     public const string CacheStale = "CACHE_STALE";
 

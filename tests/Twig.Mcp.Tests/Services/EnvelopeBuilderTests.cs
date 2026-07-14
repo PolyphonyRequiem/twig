@@ -324,6 +324,7 @@ public sealed class EnvelopeBuilderTests
         McpErrorCode.InvalidInput.ShouldNotBeNullOrEmpty();
         McpErrorCode.NoContext.ShouldNotBeNullOrEmpty();
         McpErrorCode.AdoUnreachable.ShouldNotBeNullOrEmpty();
+        McpErrorCode.AdoValidationFailed.ShouldNotBeNullOrEmpty();
         McpErrorCode.CacheStale.ShouldNotBeNullOrEmpty();
         McpErrorCode.InvalidStateTransition.ShouldNotBeNullOrEmpty();
         McpErrorCode.WorkspaceNotFound.ShouldNotBeNullOrEmpty();
@@ -341,6 +342,7 @@ public sealed class EnvelopeBuilderTests
             McpErrorCode.InvalidInput,
             McpErrorCode.NoContext,
             McpErrorCode.AdoUnreachable,
+            McpErrorCode.AdoValidationFailed,
             McpErrorCode.CacheStale,
             McpErrorCode.InvalidStateTransition,
             McpErrorCode.WorkspaceNotFound,

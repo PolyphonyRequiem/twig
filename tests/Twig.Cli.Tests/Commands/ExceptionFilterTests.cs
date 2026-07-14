@@ -58,6 +58,26 @@ public class ExceptionFilterTests
         });
 
     [Fact]
+    public void Handle_AdoFieldValidationFailure_ReturnsActionablePatchHint() =>
+        WithExitCodeRestored(() =>
+        {
+            var stderr = new StringWriter();
+            var exception = new AdoBadRequestException(
+                "The field 'Substate' contains the value 'Proposed' that is not in the list of supported values.");
+
+            var code = ExceptionHandler.Handle(exception, stderr);
+
+            code.ShouldBe(1);
+            var output = stderr.ToString();
+            output.ShouldContain("The field 'Substate'");
+            output.ShouldContain("hint:");
+            output.ShouldContain("twig patch");
+            output.ShouldNotContain("Transition not allowed");
+            output.ShouldNotContain("twig sync");
+            output.ShouldNotContain("unreachable");
+        });
+
+    [Fact]
     public void Handle_EditorNotFoundException_SetsExitCode1AndWritesMessageToStderr() =>
         WithExitCodeRestored(() =>
         {

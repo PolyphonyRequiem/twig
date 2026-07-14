@@ -79,7 +79,7 @@ public sealed class StateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        var outcome = await stateTransitionWorkflow.ExecuteAsync(item, stateName, remote.Revision, ct);
+        var outcome = await stateTransitionWorkflow.ExecuteAsync(remote, stateName, remote.Revision, ct);
         return RenderOutcome(outcome, item, fmt, outputFormat);
     }
 

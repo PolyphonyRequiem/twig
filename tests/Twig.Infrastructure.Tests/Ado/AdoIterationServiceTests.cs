@@ -230,6 +230,57 @@ public class AdoIterationServiceTests
         dto.Capabilities.ProcessTemplate!.TemplateName.ShouldBe("MyCustomProcess");
     }
 
+    [Fact]
+    public async Task GetRulesAsync_ResolvesActiveProcessAndWorkItemType()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse(
+            "/_apis/projects/",
+            """{"capabilities":{"processTemplate":{"templateName":"Custom","templateTypeId":"process-guid"}}}""");
+        handler.SetRawResponse(
+            "/_apis/wit/workitemtypes",
+            """{"count":1,"value":[{"name":"Issue","referenceName":"System.Issue","isDisabled":false}]}""");
+        handler.SetRawResponse(
+            "/_apis/work/processes/process-guid/workItemTypes/System.Issue/rules",
+            """
+            {"count":1,"value":[{
+              "conditions":[{"conditionType":"$when","field":"System.State","value":"Doing"}],
+              "actions":[{"actionType":"$disallowValue","targetField":"Custom.Substate","value":"Ready"}],
+              "isDisabled":false
+            }]}
+            """);
+        var service = CreateService(handler);
+
+        var result = await service.GetRulesAsync("Issue");
+
+        result.Count.ShouldBe(1);
+        result[0].IsDisabled.ShouldBeFalse();
+        result[0].Conditions.ShouldHaveSingleItem()
+            .ShouldBe(new RuleCondition("$when", "System.State", "Doing"));
+        result[0].Actions.ShouldHaveSingleItem()
+            .ShouldBe(new RuleAction("$disallowValue", "Custom.Substate", "Ready"));
+    }
+
+    [Fact]
+    public async Task GetRulesAsync_OrdinaryTypeWithoutRules_ReturnsEmptyList()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse(
+            "/_apis/projects/",
+            """{"capabilities":{"processTemplate":{"templateTypeId":"process-guid"}}}""");
+        handler.SetRawResponse(
+            "/_apis/wit/workitemtypes",
+            """{"count":1,"value":[{"name":"Task","referenceName":"System.Task","isDisabled":false}]}""");
+        handler.SetRawResponse(
+            "/_apis/work/processes/process-guid/workItemTypes/System.Task/rules",
+            """{"count":0,"value":[]}""");
+        var service = CreateService(handler);
+
+        var result = await service.GetRulesAsync("Task");
+
+        result.ShouldBeEmpty();
+    }
+
     // ── GetCurrentIterationAsync ────────────────────────────────────
 
     [Fact]

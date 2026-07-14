@@ -145,6 +145,28 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task State_RemoteAlreadyInTargetState_DoesNotPatchStaleCachedItem()
+    {
+        var cached = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        var remote = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(cached);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remote);
+        _processConfigProvider.GetConfiguration().Returns(BuildTaskProcessConfig());
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("Already in state");
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(),
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Forward transition — happy path
     // ═══════════════════════════════════════════════════════════════

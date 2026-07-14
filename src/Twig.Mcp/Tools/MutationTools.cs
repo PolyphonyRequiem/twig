@@ -71,7 +71,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            outcome = await ctx.StateTransitionWorkflow.ExecuteAsync(item, stateName, remote.Revision, ct);
+            outcome = await ctx.StateTransitionWorkflow.ExecuteAsync(remote, stateName, remote.Revision, ct);
         }
         catch (AdoBadRequestException ex)
         {

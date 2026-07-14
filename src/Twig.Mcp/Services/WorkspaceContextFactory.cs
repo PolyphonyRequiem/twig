@@ -166,7 +166,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             pendingChangeStore,
             processConfigProvider,
             parentPropagation: parentPropagationService,
-            promptStateWriter: promptStateWriter);
+            promptStateWriter: promptStateWriter,
+            processRuleProvider: iterationService);
 
         var fieldUpdateWorkflow = new FieldUpdateWorkflow(
             workItemRepo,

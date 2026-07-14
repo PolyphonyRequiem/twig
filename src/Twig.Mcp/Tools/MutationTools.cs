@@ -82,7 +82,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
                 ct,
                 new Dictionary<string, string>
                 {
-                    ["remediation"] = "Update System.State and any dependent fields together with twig_patch.",
+                    ["remediation"] = "Update the state and any dependent fields together with twig_patch.",
                 });
         }
         catch (AdoException ex)

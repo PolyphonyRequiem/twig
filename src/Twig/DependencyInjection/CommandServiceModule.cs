@@ -126,7 +126,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetService<ParentStatePropagationService>(),
-            sp.GetService<IPromptStateWriter>()));
+            sp.GetService<IPromptStateWriter>(),
+            sp.GetService<IProcessRuleProvider>()));
 
         services.AddSingleton<Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow>(sp => new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
             sp.GetRequiredService<IWorkItemRepository>(),

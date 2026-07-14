@@ -37,14 +37,38 @@ public static class StateTransitionExecutor
         string targetState,
         TypeConfig typeConfig,
         int expectedRevision,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        await ExecuteAsync(
+            adoService,
+            item,
+            targetState,
+            typeConfig,
+            expectedRevision,
+            ct,
+            directAdditionalChanges: null);
+
+    internal static async Task<StateTransitionResult> ExecuteAsync(
+        IAdoWorkItemService adoService,
+        WorkItem item,
+        string targetState,
+        TypeConfig typeConfig,
+        int expectedRevision,
+        CancellationToken ct,
+        IReadOnlyList<FieldChange>? directAdditionalChanges)
     {
         var path = new List<string> { item.State };
         var currentState = item.State;
         var currentRevision = expectedRevision;
 
         // Direct attempt first — covers every single-hop case with no extra round trips.
-        var direct = await TryPatchStateAsync(adoService, item.Id, currentState, targetState, currentRevision, ct);
+        var direct = await TryPatchStateAsync(
+            adoService,
+            item.Id,
+            currentState,
+            targetState,
+            currentRevision,
+            ct,
+            directAdditionalChanges);
         if (direct.IsSuccess)
         {
             path.Add(targetState);
@@ -111,9 +135,16 @@ public static class StateTransitionExecutor
         string fromState,
         string toState,
         int expectedRevision,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<FieldChange>? additionalChanges = null)
     {
-        var changes = new[] { new FieldChange("System.State", fromState, toState) };
+        var changes = new List<FieldChange>(1 + (additionalChanges?.Count ?? 0))
+        {
+            new("System.State", fromState, toState),
+        };
+        if (additionalChanges is not null)
+            changes.AddRange(additionalChanges);
+
         try
         {
             var newRev = await ConflictRetryHelper.PatchWithRetryAsync(

@@ -11,7 +11,7 @@ namespace Twig.Infrastructure.Ado;
 /// Implements <see cref="IIterationService"/> via ADO REST API.
 /// Provides current iteration detection and process template inference.
 /// </summary>
-internal sealed class AdoIterationService : IIterationService
+internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider
 {
     private const string ApiVersion = "7.1";
 
@@ -23,9 +23,12 @@ internal sealed class AdoIterationService : IIterationService
 
     // Lazy-initialized caches — safe because CLI is single-threaded
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
+    private Task<AdoProcessTemplate?>? _processTemplateCache;
     private Task<ProcessConfigurationData>? _processConfigCache;
     private Task<IReadOnlyList<FieldDefinition>>? _fieldDefinitionsCache;
     private Task<IReadOnlyList<TeamIteration>>? _teamIterationsCache;
+    private readonly Dictionary<string, Task<IReadOnlyList<ProcessRule>>> _processRulesCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public AdoIterationService(
         HttpClient httpClient,
@@ -85,11 +88,17 @@ internal sealed class AdoIterationService : IIterationService
 
     private async Task<string?> DetectTemplateNameByApiAsync(CancellationToken ct)
     {
+        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        return processTemplate?.TemplateName;
+    }
+
+    private async Task<AdoProcessTemplate?> FetchProcessTemplateAsync(CancellationToken ct)
+    {
         var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={ApiVersion}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse, ct);
-        return adoResponse?.Capabilities?.ProcessTemplate?.TemplateName;
+        return adoResponse?.Capabilities?.ProcessTemplate;
     }
 
     private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)
@@ -179,6 +188,19 @@ internal sealed class AdoIterationService : IIterationService
 
     public Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default) =>
         _teamIterationsCache ??= FetchTeamIterationsAsync(ct);
+
+    public Task<IReadOnlyList<ProcessRule>> GetRulesAsync(
+        string workItemTypeName,
+        CancellationToken ct = default)
+    {
+        if (!_processRulesCache.TryGetValue(workItemTypeName, out var rulesTask))
+        {
+            rulesTask = FetchProcessRulesAsync(workItemTypeName, ct);
+            _processRulesCache[workItemTypeName] = rulesTask;
+        }
+
+        return rulesTask;
+    }
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
@@ -276,6 +298,46 @@ internal sealed class AdoIterationService : IIterationService
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoWorkItemTypeListResponse, ct);
+    }
+
+    private async Task<IReadOnlyList<ProcessRule>> FetchProcessRulesAsync(
+        string workItemTypeName,
+        CancellationToken ct)
+    {
+        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
+        var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
+            !type.IsDisabled &&
+            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId) ||
+            string.IsNullOrWhiteSpace(workItemType?.ReferenceName))
+        {
+            return Array.Empty<ProcessRule>();
+        }
+
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
+            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/rules?api-version={ApiVersion}";
+        using var response = await SendAsync(url, ct);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var result = await JsonSerializer.DeserializeAsync(
+            stream,
+            TwigJsonContext.Default.AdoProcessRuleListResponse,
+            ct);
+
+        if (result?.Value is null)
+            return Array.Empty<ProcessRule>();
+
+        return result.Value.Select(rule => new ProcessRule(
+            rule.Conditions?.Select(condition => new RuleCondition(
+                condition.ConditionType ?? string.Empty,
+                condition.Field ?? string.Empty,
+                condition.Value)).ToList() ?? [],
+            rule.Actions?.Select(action => new RuleAction(
+                action.ActionType ?? string.Empty,
+                action.TargetField ?? string.Empty,
+                action.Value)).ToList() ?? [],
+            rule.IsDisabled)).ToList();
     }
 
     private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct)

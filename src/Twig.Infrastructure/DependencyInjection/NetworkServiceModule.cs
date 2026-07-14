@@ -68,7 +68,7 @@ public static class NetworkServiceModule
                     sp.GetRequiredService<TwigConfiguration>().Project));
         }
 
-        services.AddSingleton<IIterationService>(sp =>
+        services.AddSingleton(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
             var team = string.IsNullOrWhiteSpace(cfg.Team) ? $"{cfg.Project} Team" : cfg.Team;
@@ -79,6 +79,8 @@ public static class NetworkServiceModule
                 cfg.Project,
                 team);
         });
+        services.AddSingleton<IIterationService>(sp => sp.GetRequiredService<AdoIterationService>());
+        services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
 
         return services;
     }

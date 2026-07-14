@@ -22,4 +22,7 @@ internal sealed class AdoProcessTemplate
 {
     [JsonPropertyName("templateName")]
     public string? TemplateName { get; set; }
+
+    [JsonPropertyName("templateTypeId")]
+    public string? TemplateTypeId { get; set; }
 }

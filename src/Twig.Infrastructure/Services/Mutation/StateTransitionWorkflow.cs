@@ -35,14 +35,52 @@ namespace Twig.Infrastructure.Services.Mutation;
 /// so adapters can surface them without changing exit codes.
 /// </para>
 /// </remarks>
-public sealed class StateTransitionWorkflow(
-    IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
-    IPendingChangeStore pendingChangeStore,
-    IProcessConfigurationProvider processConfigProvider,
-    ParentStatePropagationService? parentPropagation = null,
-    IPromptStateWriter? promptStateWriter = null)
+public sealed class StateTransitionWorkflow
 {
+    private readonly IWorkItemRepository workItemRepo;
+    private readonly IAdoWorkItemService adoService;
+    private readonly IPendingChangeStore pendingChangeStore;
+    private readonly IProcessConfigurationProvider processConfigProvider;
+    private readonly ParentStatePropagationService? parentPropagation;
+    private readonly IPromptStateWriter? promptStateWriter;
+    private readonly IProcessRuleProvider? processRuleProvider;
+
+    public StateTransitionWorkflow(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        IPendingChangeStore pendingChangeStore,
+        IProcessConfigurationProvider processConfigProvider,
+        ParentStatePropagationService? parentPropagation = null,
+        IPromptStateWriter? promptStateWriter = null)
+        : this(
+            workItemRepo,
+            adoService,
+            pendingChangeStore,
+            processConfigProvider,
+            parentPropagation,
+            promptStateWriter,
+            processRuleProvider: null)
+    {
+    }
+
+    internal StateTransitionWorkflow(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        IPendingChangeStore pendingChangeStore,
+        IProcessConfigurationProvider processConfigProvider,
+        ParentStatePropagationService? parentPropagation,
+        IPromptStateWriter? promptStateWriter,
+        IProcessRuleProvider? processRuleProvider)
+    {
+        this.workItemRepo = workItemRepo;
+        this.adoService = adoService;
+        this.pendingChangeStore = pendingChangeStore;
+        this.processConfigProvider = processConfigProvider;
+        this.parentPropagation = parentPropagation;
+        this.promptStateWriter = promptStateWriter;
+        this.processRuleProvider = processRuleProvider;
+    }
+
     /// <summary>
     /// Pure pre-flight validation. Returns the terminal outcome (InvalidStateName,
     /// ProcessConfigNotFound, AlreadyInState, TransitionNotAllowed) if the transition
@@ -100,8 +138,25 @@ public sealed class StateTransitionWorkflow(
         if (!transition.IsAllowed)
             return new StateTransitionOutcome.TransitionNotAllowed(item.State, newState);
 
+        IReadOnlyList<FieldChange> dependentFieldClears = Array.Empty<FieldChange>();
+        if (processRuleProvider is not null)
+        {
+            var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
+            dependentFieldClears = DependentFieldReconciler.GetSafeClears(
+                rules,
+                item.State,
+                newState,
+                item.Fields);
+        }
+
         var execution = await StateTransitionExecutor.ExecuteAsync(
-            adoService, item, newState, typeConfig, expectedRevision, ct);
+            adoService,
+            item,
+            newState,
+            typeConfig,
+            expectedRevision,
+            ct,
+            dependentFieldClears);
 
         if (!execution.IsSuccess)
         {

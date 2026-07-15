@@ -124,7 +124,23 @@ public sealed class MutationTools(WorkspaceResolver resolver)
                 var failureMsg = x.Path.Count > 1
                     ? $"chain stopped at '{x.FinalState}'. Reached: {pathRendered}. ADO: {x.AdoError}"
                     : $"transition rejected. ADO: {x.AdoError}";
-                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, failureMsg, ctx, ct);
+                if (!AdoErrorClassifier.IsTransitionError(x.AdoError))
+                {
+                    return await EnvelopeBuilder.ErrorAsync(
+                        McpErrorCode.AdoValidationFailed,
+                        failureMsg,
+                        ctx,
+                        ct,
+                        new Dictionary<string, string>
+                        {
+                            ["remediation"] = "Update the state and any dependent fields together with twig_patch.",
+                        });
+                }
+                return await EnvelopeBuilder.ErrorAsync(
+                    McpErrorCode.InvalidStateTransition,
+                    failureMsg,
+                    ctx,
+                    ct);
 
             case StateTransitionOutcome.Succeeded x:
                 return await EnvelopeBuilder.WrapAsync(ctx,

@@ -103,6 +103,41 @@ public sealed class MutationToolsStateChainTests : MutationToolsTestBase
     }
 
     [Fact]
+    public async Task State_ChainFieldValidation_ReturnsValidationCodeAndReachedState()
+    {
+        var item = new WorkItemBuilder(42, "story").AsUserStory().InState("New").Build();
+        var active = new WorkItemBuilder(42, "story").AsUserStory().InState("Active").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _processConfigProvider.GetConfiguration().Returns(BuildChainConfig());
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item, active);
+
+        _adoService.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "New" && c.Single().NewValue == "Closed"),
+                0, Arg.Any<CancellationToken>())
+            .ThrowsAsync(TransitionError("New", "Closed"));
+        _adoService.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "New" && c.Single().NewValue == "Active"),
+                0, Arg.Any<CancellationToken>())
+            .Returns(1);
+        _adoService.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "Active" && c.Single().NewValue == "Resolved"),
+                1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException(
+                "Rule Error for field Substate. Value Ready is not allowed."));
+
+        var result = await CreateMutationSut().State("Closed");
+
+        result.IsError.ShouldBe(true);
+        var error = ParseResult(result).GetProperty("error");
+        error.GetProperty("code").GetString().ShouldBe("ADO_VALIDATION_FAILED");
+        var message = error.GetProperty("message").GetString();
+        message.ShouldNotBeNull();
+        message.ShouldContain("chain stopped at 'Active'");
+        message.ShouldContain("Substate");
+    }
+
+    [Fact]
     public async Task State_SingleHop_OmitsPathFromJson()
     {
         var item = new WorkItemBuilder(42, "story").AsUserStory().InState("New").Build();

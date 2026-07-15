@@ -142,6 +142,35 @@ public sealed class StateTransitionExecutorTests
     }
 
     [Fact]
+    public async Task MidChainFieldValidation_ReportsReachedStateAndValidationReason()
+    {
+        var item = new WorkItemBuilder(42, "story").AsUserStory().InState("New").Build();
+        var typeConfig = AgileUserStoryConfig();
+        const string validationError =
+            "Rule Error for field Substate. Value Ready is not allowed.";
+
+        _ado.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "New" && c.Single().NewValue == "Closed"),
+                10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(TransitionError("New", "Closed"));
+        _ado.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "New" && c.Single().NewValue == "Active"),
+                10, Arg.Any<CancellationToken>())
+            .Returns(11);
+        _ado.PatchAsync(42,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().OldValue == "Active" && c.Single().NewValue == "Resolved"),
+                11, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException(validationError));
+
+        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Path.ShouldBe(["New", "Active"]);
+        result.FinalState.ShouldBe("Active");
+        result.ErrorMessage.ShouldBe(validationError);
+    }
+
+    [Fact]
     public async Task NonTransitionError_OnDirectAttempt_RethrowsImmediately()
     {
         var item = new WorkItemBuilder(42, "story").AsUserStory().InState("New").Build();

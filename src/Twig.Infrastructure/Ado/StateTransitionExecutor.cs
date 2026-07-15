@@ -45,7 +45,7 @@ public static class StateTransitionExecutor
             typeConfig,
             expectedRevision,
             ct,
-            directAdditionalChanges: null);
+            additionalChangesFactory: null);
 
     internal static async Task<StateTransitionResult> ExecuteAsync(
         IAdoWorkItemService adoService,
@@ -54,21 +54,22 @@ public static class StateTransitionExecutor
         TypeConfig typeConfig,
         int expectedRevision,
         CancellationToken ct,
-        IReadOnlyList<FieldChange>? directAdditionalChanges)
+        Func<WorkItem, string, IReadOnlyList<FieldChange>>? additionalChangesFactory)
     {
         var path = new List<string> { item.State };
+        var currentItem = item;
         var currentState = item.State;
         var currentRevision = expectedRevision;
 
         // Direct attempt first — covers every single-hop case with no extra round trips.
         var direct = await TryPatchStateAsync(
             adoService,
-            item.Id,
+            currentItem,
             currentState,
             targetState,
             currentRevision,
             ct,
-            directAdditionalChanges);
+            additionalChangesFactory);
         if (direct.IsSuccess)
         {
             path.Add(targetState);
@@ -94,13 +95,31 @@ public static class StateTransitionExecutor
 
         foreach (var intermediate in intermediates)
         {
-            var step = await TryPatchStateAsync(adoService, item.Id, currentState, intermediate, currentRevision, ct);
+            var step = await TryPatchStateAsync(
+                adoService,
+                currentItem,
+                currentState,
+                intermediate,
+                currentRevision,
+                ct,
+                additionalChangesFactory);
             if (step.IsSuccess)
             {
                 currentState = intermediate;
                 currentRevision = step.NewRevision;
                 path.Add(intermediate);
+                if (additionalChangesFactory is not null)
+                    currentItem = await adoService.FetchAsync(item.Id, ct);
                 continue;
+            }
+
+            if (step.IsValidationError)
+            {
+                return StateTransitionResult.Failure(
+                    path,
+                    currentState,
+                    currentRevision,
+                    step.ErrorMessage ?? "state-dependent field validation failed");
             }
 
             if (!step.IsTransitionError)
@@ -112,11 +131,27 @@ public static class StateTransitionExecutor
         }
 
         // After walking intermediates, retry the original target.
-        var final = await TryPatchStateAsync(adoService, item.Id, currentState, targetState, currentRevision, ct);
+        var final = await TryPatchStateAsync(
+            adoService,
+            currentItem,
+            currentState,
+            targetState,
+            currentRevision,
+            ct,
+            additionalChangesFactory);
         if (final.IsSuccess)
         {
             path.Add(targetState);
             return StateTransitionResult.Success(path, targetState, final.NewRevision);
+        }
+
+        if (final.IsValidationError)
+        {
+            return StateTransitionResult.Failure(
+                path,
+                currentState,
+                currentRevision,
+                final.ErrorMessage ?? "state-dependent field validation failed");
         }
 
         if (!final.IsTransitionError)
@@ -131,29 +166,43 @@ public static class StateTransitionExecutor
 
     private static async Task<PatchAttempt> TryPatchStateAsync(
         IAdoWorkItemService adoService,
-        int itemId,
+        WorkItem currentItem,
         string fromState,
         string toState,
         int expectedRevision,
         CancellationToken ct,
-        IReadOnlyList<FieldChange>? additionalChanges = null)
+        Func<WorkItem, string, IReadOnlyList<FieldChange>>? additionalChangesFactory = null)
     {
-        var changes = new List<FieldChange>(1 + (additionalChanges?.Count ?? 0))
+        IReadOnlyList<FieldChange> BuildChanges(WorkItem sourceItem)
         {
-            new("System.State", fromState, toState),
-        };
-        if (additionalChanges is not null)
-            changes.AddRange(additionalChanges);
+            var additionalChanges = additionalChangesFactory?.Invoke(sourceItem, toState);
+            var sourceState = additionalChangesFactory is null ? fromState : sourceItem.State;
+            var changes = new List<FieldChange>(1 + (additionalChanges?.Count ?? 0))
+            {
+                new("System.State", sourceState, toState),
+            };
+            if (additionalChanges is not null)
+                changes.AddRange(additionalChanges);
+            return changes;
+        }
 
         try
         {
             var newRev = await ConflictRetryHelper.PatchWithRetryAsync(
-                adoService, itemId, changes, expectedRevision, ct);
+                adoService,
+                currentItem,
+                BuildChanges,
+                expectedRevision,
+                ct);
             return PatchAttempt.Success(newRev);
         }
         catch (AdoBadRequestException ex) when (AdoErrorClassifier.IsTransitionError(ex.Message))
         {
             return PatchAttempt.TransitionRejected(ex.Message);
+        }
+        catch (AdoBadRequestException ex)
+        {
+            return PatchAttempt.ValidationRejected(ex);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -205,17 +254,21 @@ public static class StateTransitionExecutor
         bool IsSuccess,
         int NewRevision,
         bool IsTransitionError,
+        bool IsValidationError,
         string? ErrorMessage,
         Exception? UnhandledException)
     {
         public static PatchAttempt Success(int newRev)
-            => new(true, newRev, false, null, null);
+            => new(true, newRev, false, false, null, null);
 
         public static PatchAttempt TransitionRejected(string message)
-            => new(false, 0, true, message, null);
+            => new(false, 0, true, false, message, null);
+
+        public static PatchAttempt ValidationRejected(AdoBadRequestException ex)
+            => new(false, 0, false, true, ex.Message, ex);
 
         public static PatchAttempt Unhandled(Exception ex)
-            => new(false, 0, false, ex.Message, ex);
+            => new(false, 0, false, false, ex.Message, ex);
     }
 }
 

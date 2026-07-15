@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -17,19 +18,54 @@ public static class ConflictRetryHelper
         int itemId,
         IReadOnlyList<FieldChange> changes,
         int expectedRevision,
+        CancellationToken ct) =>
+        await PatchWithRetryCoreAsync(
+            adoService,
+            itemId,
+            () => changes,
+            _ => changes,
+            expectedRevision,
+            ct);
+
+    internal static async Task<int> PatchWithRetryAsync(
+        IAdoWorkItemService adoService,
+        WorkItem currentItem,
+        Func<WorkItem, IReadOnlyList<FieldChange>> changesFactory,
+        int expectedRevision,
+        CancellationToken ct) =>
+        await PatchWithRetryCoreAsync(
+            adoService,
+            currentItem.Id,
+            () => changesFactory(currentItem),
+            changesFactory,
+            expectedRevision,
+            ct);
+
+    private static async Task<int> PatchWithRetryCoreAsync(
+        IAdoWorkItemService adoService,
+        int itemId,
+        Func<IReadOnlyList<FieldChange>> initialChangesFactory,
+        Func<WorkItem, IReadOnlyList<FieldChange>> retryChangesFactory,
+        int expectedRevision,
         CancellationToken ct)
     {
         try
         {
-            return await adoService.PatchAsync(itemId, changes, expectedRevision, ct);
+            return await adoService.PatchAsync(
+                itemId,
+                initialChangesFactory(),
+                expectedRevision,
+                ct);
         }
         catch (AdoConflictException)
         {
         }
 
         var freshItem = await adoService.FetchAsync(itemId, ct);
-
-        // Attempt 2 — let any exception (including AdoConflictException) propagate
-        return await adoService.PatchAsync(itemId, changes, freshItem.Revision, ct);
+        return await adoService.PatchAsync(
+            freshItem.Id,
+            retryChangesFactory(freshItem),
+            freshItem.Revision,
+            ct);
     }
 }

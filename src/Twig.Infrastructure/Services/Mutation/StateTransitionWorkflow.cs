@@ -138,15 +138,16 @@ public sealed class StateTransitionWorkflow
         if (!transition.IsAllowed)
             return new StateTransitionOutcome.TransitionNotAllowed(item.State, newState);
 
-        IReadOnlyList<FieldChange> dependentFieldClears = Array.Empty<FieldChange>();
+        Func<WorkItem, string, IReadOnlyList<FieldChange>>? dependentFieldPlanner = null;
         if (processRuleProvider is not null)
         {
             var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
-            dependentFieldClears = DependentFieldReconciler.GetSafeClears(
-                rules,
-                item.State,
-                newState,
-                item.Fields);
+            dependentFieldPlanner = (currentItem, targetState) =>
+                DependentFieldReconciler.GetSafeClears(
+                    rules,
+                    currentItem.State,
+                    targetState,
+                    currentItem.Fields);
         }
 
         var execution = await StateTransitionExecutor.ExecuteAsync(
@@ -156,7 +157,7 @@ public sealed class StateTransitionWorkflow
             typeConfig,
             expectedRevision,
             ct,
-            dependentFieldClears);
+            dependentFieldPlanner);
 
         if (!execution.IsSuccess)
         {

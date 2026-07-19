@@ -15,11 +15,34 @@ internal static class McpResultBuilder
 {
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 
-    public static CallToolResult ToResult(string json) =>
-        new() { Content = [new TextContentBlock { Text = json }] };
+    public static CallToolResult ToResult(string json)
+    {
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = TryParseStructuredContent(json),
+        };
+    }
 
     public static CallToolResult ToError(string message) =>
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
+
+    private static JsonElement? TryParseStructuredContent(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                ? document.RootElement.Clone()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public static CallToolResult FormatWorkItemWithWorkingSet(
         WorkItem item, int parentChainCount, int childCount, string? workspace = null) =>

@@ -137,6 +137,18 @@ internal static class BatchGraphParser
                 $"references tool '{BatchConstants.BatchToolName}'.");
         }
 
+        if (!McpToolCatalog.AllToolNames.Contains(toolName))
+        {
+            return Result<BatchNode>.Fail(
+                $"Unknown tool '{toolName}' at step index {stepIndex}.");
+        }
+
+        if (!McpToolCatalog.BatchableToolNames.Contains(toolName))
+        {
+            return Result<BatchNode>.Fail(
+                $"Tool '{toolName}' is not batchable at step index {stepIndex}.");
+        }
+
         var arguments = new Dictionary<string, object?>();
 
         if (element.TryGetProperty(ArgsProperty, out var argsProp))

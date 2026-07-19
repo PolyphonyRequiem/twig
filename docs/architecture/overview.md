@@ -70,7 +70,7 @@ Entry points compose the full object graph via dependency injection.
 | `Twig` | `twig` | CLI entry point. ConsoleAppFramework commands, Spectre.Console rendering, output formatters, hint engine. AOT-compiled. |
 | `Twig.Domain` | (class library) | Core business logic. Aggregates (`WorkItem`, `ProcessConfiguration`), domain services, interfaces, value objects, enums. No external dependencies. |
 | `Twig.Infrastructure` | (class library) | SQLite persistence, ADO REST clients, authentication providers, git CLI wrapper, JSON serialization (`TwigJsonContext`), configuration, telemetry. |
-| `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport, 8 tools across 3 tool classes (`ContextTools`, `ReadTools`, `MutationTools`). AOT-compiled. |
+| `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport with a compact 10-tool default profile and a 40-tool full profile. AOT-compiled. |
 | `Twig.Tui` | `twig-tui` | Terminal.Gui interactive viewer. Three-pane layout (menu, tree navigator, form). Published as self-contained single-file (non-AOT). |
 
 ### Test Projects (`tests/`)

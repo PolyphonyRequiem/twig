@@ -38,6 +38,9 @@ var authProvider = AuthProviderFactory.Create(authMethod);
 
 var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(launchCwd, ".twig"));
 var resolver = new WorkspaceResolver(registry, factory);
+var toolProfile = McpToolCatalog.ResolveProfile(
+    args,
+    Environment.GetEnvironmentVariable(McpToolCatalog.ProfileEnvironmentVariable));
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -77,12 +80,31 @@ builder.Services.AddHostedService<ParentProcessWatchdog>();
 
 // MCP server — WithTools<T>() is the AOT-safe generic registration
 // (not WithToolsFromAssembly which uses reflection-based discovery).
-builder.Services
+var mcpBuilder = builder.Services
     .AddMcpServer(o =>
     {
         o.ServerInfo = new() { Name = "twig-mcp", Version = GetVersion() };
     })
     .WithStdioServerTransport()
+    .WithRequestFilters(filters =>
+    {
+        filters.AddListToolsFilter(next => async (request, ct) =>
+        {
+            var result = await next(request, ct);
+            return McpToolCatalog.FilterList(
+                result,
+                toolProfile,
+                exposeWorkspaceOverride: !registry.IsSingleWorkspace);
+        });
+
+        filters.AddCallToolFilter(next => async (request, ct) =>
+        {
+            McpToolCatalog.RewriteStructuredArguments(request.Params);
+            return await next(request, ct);
+        });
+    });
+
+mcpBuilder
     .WithTools<ContextTools>()
     .WithTools<ReadTools>()
     .WithTools<MutationTools>()

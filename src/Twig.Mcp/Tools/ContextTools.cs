@@ -17,7 +17,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_set"), Description("Set the active work item by ID or title pattern")]
     public async Task<CallToolResult> Set(
         [Description("Work item ID (numeric) or title pattern (text)")] string idOrPattern,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

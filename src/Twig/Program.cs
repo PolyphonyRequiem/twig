@@ -996,9 +996,13 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>
-    public Task<int> Mcp()
+    /// <param name="toolProfile">Advertised tool profile: compact (default) or full.</param>
+    public Task<int> Mcp(string? toolProfile = null)
     {
-        return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp"));
+        var arguments = toolProfile is null
+            ? Array.Empty<string>()
+            : ["--tool-profile", toolProfile];
+        return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp", arguments: arguments));
     }
 }
 
@@ -1333,7 +1337,11 @@ Run 'twig <command> --help' for detailed usage of any command.
 /// </summary>
 internal static class BinaryLauncher
 {
-    internal static int Launch(string binaryName, string projectName, TextWriter? stderr = null)
+    internal static int Launch(
+        string binaryName,
+        string projectName,
+        TextWriter? stderr = null,
+        IReadOnlyList<string>? arguments = null)
     {
         stderr ??= Console.Error;
         var exeName = OperatingSystem.IsWindows() ? $"{binaryName}.exe" : binaryName;
@@ -1353,6 +1361,12 @@ internal static class BinaryLauncher
                 FileName = binaryPath,
                 UseShellExecute = false,
             };
+
+            if (arguments is not null)
+            {
+                foreach (var argument in arguments)
+                    psi.ArgumentList.Add(argument);
+            }
 
             using var process = System.Diagnostics.Process.Start(psi);
             if (process is null)

@@ -55,7 +55,7 @@ public sealed class WorkspaceResolver(
         if (!string.IsNullOrWhiteSpace(workspace))
         {
             var key = WorkspaceKey.Parse(workspace);
-            return factory.GetOrCreate(key);
+            return ResolveExplicit(key);
         }
 
         // 2. Single-workspace default (backward compat)
@@ -89,7 +89,7 @@ public sealed class WorkspaceResolver(
         if (!string.IsNullOrWhiteSpace(workspace))
         {
             var key = WorkspaceKey.Parse(workspace);
-            var ctx = factory.GetOrCreate(key);
+            var ctx = ResolveExplicit(key);
             _activeWorkspace = key;
             return ctx;
         }
@@ -134,6 +134,40 @@ public sealed class WorkspaceResolver(
 
         // Not found in any workspace
         throw new WorkItemNotFoundException(id, registry.Workspaces);
+    }
+
+    private WorkspaceContext ResolveExplicit(WorkspaceKey key)
+    {
+        try
+        {
+            return factory.GetOrCreate(key);
+        }
+        catch (KeyNotFoundException ex) when (TryGetInferredWorkspace(out var inferred))
+        {
+            throw new KeyNotFoundException(
+                $"{ex.Message} Retry without the 'workspace' parameter to use the inferred " +
+                $"workspace '{inferred}'.",
+                ex);
+        }
+    }
+
+    private bool TryGetInferredWorkspace(out WorkspaceKey workspace)
+    {
+        if (registry.IsSingleWorkspace)
+        {
+            workspace = registry.Workspaces[0];
+            return true;
+        }
+
+        var active = _activeWorkspace;
+        if (active is not null)
+        {
+            workspace = active;
+            return true;
+        }
+
+        workspace = null!;
+        return false;
     }
 
     private async Task<List<WorkspaceKey>> ProbeCachesAsync(int id, CancellationToken ct)

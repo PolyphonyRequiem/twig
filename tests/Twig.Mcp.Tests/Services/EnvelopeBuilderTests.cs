@@ -40,6 +40,9 @@ public sealed class EnvelopeBuilderTests
         var root = ParseJson(result);
         root.GetProperty("success").GetBoolean().ShouldBeTrue();
         root.GetProperty("data").GetProperty("message").GetString().ShouldBe("hello");
+        result.StructuredContent.ShouldNotBeNull();
+        result.StructuredContent.Value.GetProperty("data")
+            .GetProperty("message").GetString().ShouldBe("hello");
     }
 
     [Fact]
@@ -215,6 +218,9 @@ public sealed class EnvelopeBuilderTests
         error.GetProperty("code").GetString().ShouldBe("ITEM_NOT_FOUND");
         error.GetProperty("message").GetString().ShouldBe("Work item 9999 not found.");
         error.GetProperty("details").EnumerateObject().Count().ShouldBe(0);
+        result.StructuredContent.ShouldNotBeNull();
+        result.StructuredContent.Value.GetProperty("error")
+            .GetProperty("code").GetString().ShouldBe("ITEM_NOT_FOUND");
     }
 
     [Fact]

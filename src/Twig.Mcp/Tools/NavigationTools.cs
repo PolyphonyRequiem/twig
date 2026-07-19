@@ -24,7 +24,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Work item ID to retrieve")] int id,
         [Description("When true, display item hierarchy as a tree instead of detail card")] bool tree = false,
         [Description("Max child depth to display (only used when tree=true)")] int? depth = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -97,7 +97,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Only items created within this many days")] int? createdSince = null,
         [Description("Only items changed within this many days")] int? changedSince = null,
         [Description("Maximum results to return (default: 25)")] int top = 25,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -149,7 +149,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_children"), Description("List the direct children of a work item by ID")]
     public async Task<CallToolResult> Children(
         [Description("Parent work item ID")] int id,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -163,7 +163,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_parent"), Description("Get the parent of a work item by ID")]
     public async Task<CallToolResult> Parent(
         [Description("Child work item ID")] int id,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -189,7 +189,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> VerifyDescendants(
         [Description("Root work item ID")] int id,
         [Description("Maximum depth to traverse (default: 2)")] int maxDepth = 2,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -206,7 +206,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_sprint"), Description("Get the current sprint iteration info, optionally listing sprint items")]
     public async Task<CallToolResult> Sprint(
         [Description("When true, includes work items assigned to the current sprint")] bool items = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

@@ -22,7 +22,7 @@ public sealed class AdminTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_config"), Description("Read workspace configuration. When key is provided, returns a single config value. When key is omitted, returns the full configuration object. Read-only — use the CLI to modify settings.")]
     public async Task<CallToolResult> Config(
         [Description("Dot-separated config key (e.g. \"display.hints\", \"defaults.areapath\", \"seed.staledays\"). When omitted, returns all configuration.")] string? key = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -57,7 +57,7 @@ public sealed class AdminTools(WorkspaceResolver resolver)
 
     [McpServerTool(Name = "twig_area"), Description("Show the project area path classification tree. Cached locally; refreshes from ADO when stale (>1 hour). Read-only — does not modify area paths.")]
     public async Task<CallToolResult> Area(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

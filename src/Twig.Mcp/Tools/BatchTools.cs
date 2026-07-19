@@ -30,7 +30,7 @@ public sealed class BatchTools(IToolDispatcher dispatcher)
             "Containers have 'type': 'sequence'|'parallel' and 'steps': [<children>]."
         )] string graph,
         [Description("Per-batch timeout in seconds (default: 120, max: 300).")] int? timeoutSeconds = null,
-        [Description("Target workspace (format: \"org/project\"). Applied to steps without explicit workspace arg.")] string? workspace = null,
+        [Description(McpToolDescriptions.BatchWorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

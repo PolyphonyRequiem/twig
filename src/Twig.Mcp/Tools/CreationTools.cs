@@ -27,7 +27,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Parent work item ID (optional — used for path inheritance and child type validation)")] int? parentId = null,
         [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true and parentId is provided, skips the duplicate title+type check. Default is false (dedup enabled).")] bool skipDuplicateCheck = false,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
@@ -124,7 +124,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Parent work item ID — required for scoped dedup check")] int parentId,
         [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -137,7 +137,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Source work item ID")] int sourceId,
         [Description("Target work item ID")] int targetId,
         [Description("Relationship type (parent, child, related, predecessor, successor)")] string linkType,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -188,7 +188,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
     public async Task<CallToolResult> LinkBranch(
         [Description("Work item ID to link the branch to")] int workItemId,
         [Description("Branch name (e.g. feature/123-fix-login)")] string branchName,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -213,7 +213,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Work item ID to link the artifact to")] int workItemId,
         [Description("Artifact URL (http/https) or vstfs:// URI")] string url,
         [Description("Display name for the link (optional)")] string? name = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

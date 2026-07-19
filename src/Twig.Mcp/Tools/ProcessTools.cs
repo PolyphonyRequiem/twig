@@ -15,7 +15,7 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_process"), Description("Show process configuration: list types (no args) or type details (with type name)")]
     public async Task<CallToolResult> Process(
         [Description("Work item type name to show details for (omit to list all types)")] string? type = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

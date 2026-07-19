@@ -46,7 +46,33 @@ public sealed class WorkspaceResolverTests
     {
         var (resolver, _) = CreateResolver(KeyA);
 
-        Should.Throw<KeyNotFoundException>(() => resolver.Resolve("unknown/missing"));
+        var ex = Should.Throw<KeyNotFoundException>(() => resolver.Resolve("unknown/missing"));
+
+        ex.Message.ShouldContain("Retry without the 'workspace' parameter");
+        ex.Message.ShouldContain("orgA/proj1");
+    }
+
+    [Fact]
+    public void TryResolve_ExplicitWorkspace_UnknownKey_ReturnsInferenceHint()
+    {
+        var (resolver, _) = CreateResolver(KeyA);
+
+        var success = resolver.TryResolve("unknown/missing", out _, out var error);
+
+        success.ShouldBeFalse();
+        error.ShouldNotBeNull();
+        error!.ShouldContain("Retry without the 'workspace' parameter");
+        error.ShouldContain("orgA/proj1");
+    }
+
+    [Fact]
+    public void Resolve_ExplicitWorkspace_UnknownKeyWithoutInference_DoesNotSuggestOmission()
+    {
+        var (resolver, _) = CreateResolver(KeyA, KeyB);
+
+        var ex = Should.Throw<KeyNotFoundException>(() => resolver.Resolve("unknown/missing"));
+
+        ex.Message.ShouldNotContain("Retry without the 'workspace' parameter");
     }
 
     [Fact]
@@ -163,8 +189,11 @@ public sealed class WorkspaceResolverTests
     {
         var (resolver, _) = CreateResolver(KeyA);
 
-        await Should.ThrowAsync<KeyNotFoundException>(
+        var ex = await Should.ThrowAsync<KeyNotFoundException>(
             () => resolver.ResolveForSetAsync(12345, "unknown/missing"));
+
+        ex.Message.ShouldContain("Retry without the 'workspace' parameter");
+        ex.Message.ShouldContain("orgA/proj1");
     }
 
     // ── ResolveForSetAsync — single workspace ───────────────────────

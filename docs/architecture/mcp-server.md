@@ -16,29 +16,33 @@ Stdout is reserved for MCP JSON-RPC messages; all logging goes to stderr.
 Host.CreateApplicationBuilder(args)
     .AddMcpServer(o => o.ServerInfo = new() { Name = "twig-mcp", Version = … })
     .WithStdioServerTransport()
+    .WithRequestFilters(/* catalog visibility + schema normalization */)
     .WithTools<ContextTools>()
     .WithTools<ReadTools>()
     .WithTools<MutationTools>()
+    // …all tool families remain callable; tools/list is profile-filtered
 ```
 
 ### AOT compatibility
 
-All service registrations use explicit `sp => new …()` factory lambdas — no
-reflection-based discovery. Tools are registered with `WithTools<T>()` rather
-than assembly scanning. This keeps the server compatible with
-`PublishAot=true` and `TrimMode=full`.
+Tools are registered with the SDK's generic `WithTools<T>()` API rather than
+assembly scanning. Catalog normalization uses `JsonDocument`/`JsonNode` and
+explicit protocol models; it does not introduce reflection-based serialization.
+This keeps the server compatible with `PublishAot=true` and `TrimMode=full`.
 
 ### Startup sequence
 
-1. **Workspace guard** — `WorkspaceGuard.CheckWorkspace()` runs before the
-   host is built, failing fast if no `.twig/` directory or config file exists.
-2. **Configuration load** — `TwigConfiguration.Load()` reads `.twig/config`.
-3. **Infrastructure registration** — `TwigServiceRegistration.AddTwigInfrastructure()`
-   wires SQLite stores, HTTP client, auth provider, and ADO services.
-4. **Domain service registration** — orchestrators, resolvers, and the
-   MCP-specific `McpPendingChangeFlusher` are registered in `Program.cs`.
-5. **Host build & run** — the generic host enters its event loop, reading MCP
-   requests from stdin and writing responses to stdout.
+1. **Workspace discovery** — `WorkspaceRegistry.DiscoverFromCwd()` walks up
+   from the launch directory and registers a repo-local split configuration
+   when one exists. Starting with zero workspaces is valid.
+2. **Authentication selection** — registered workspace configurations choose
+   PAT or the MSAL-cache-first ADO token provider.
+3. **Tool profile resolution** — `--tool-profile` overrides
+   `TWIG_MCP_TOOL_PROFILE`; the default is `compact`.
+4. **Service registration** — the registry, workspace context factory,
+   resolver, tool families, and batch dispatcher are registered as singletons.
+5. **Host build & run** — the generic host reads MCP requests from stdin and
+   writes protocol responses to stdout.
 
 ### Version resolution
 
@@ -48,119 +52,96 @@ see a clean semver string.
 
 ---
 
-## 2. Workspace Guard
+## 2. Workspace Resolution
 
-`WorkspaceGuard.CheckWorkspace(cwd)` returns a `(bool IsValid, string? Error,
-string? TwigDir)` tuple.
+The server can start without a workspace so clients can initialize and inspect
+the catalog from any directory. `WorkspaceRegistry` discovers the nearest
+repo-local `.twig/config`, loads the tracked split configuration, and registers
+that workspace when present.
 
-Validation steps:
+Every workspace-aware tool accepts an internal optional `workspace` override in
+`org/project` form. The normal path is to omit it:
 
-1. Walk from `cwd` upward looking for a `.twig/` directory
-   (`WorkspaceDiscovery.FindTwigDir`).
-2. Verify `.twig/config` exists inside it.
+1. use the repo-local workspace when it is registered;
+2. otherwise use the only registered workspace;
+3. otherwise require an explicit override.
 
-If either check fails, the server writes a diagnostic to stderr and exits
-before the host starts. This prevents confusing downstream errors from
-`TwigConfiguration.Load()` silently returning defaults.
-
-The guard is extracted into its own class for unit testability.
+An explicit override remains authoritative. If it is unknown but omission would
+resolve unambiguously, the error suggests retrying without `workspace`; it never
+silently targets a different workspace.
 
 ---
 
 ## 3. Tool Catalog
 
-twig-mcp exposes **8 tools** across three tool classes:
+Forty tool methods remain registered and callable. `McpToolCatalog` owns the
+canonical names, visibility profiles, batch eligibility, safety annotations,
+and wire-schema normalization.
 
-| Tool | Class | Description |
-|------|-------|-------------|
-| `twig_set` | `ContextTools` | Set active work item by ID or title pattern |
-| `twig_status` | `ContextTools` | Show active item status and pending changes |
-| `twig_tree` | `ReadTools` | Render focused item's parent chain + children |
-| `twig_workspace` | `ReadTools` | Sprint backlog, seeds, dirty count |
-| `twig_state` | `MutationTools` | Change active item state |
-| `twig_update` | `MutationTools` | Update a field and push to ADO |
-| `twig_note` | `MutationTools` | Add a comment (falls back to local staging) |
-| `twig_sync` | `MutationTools` | Flush pending changes, then refresh cache |
+### Visibility profiles
 
-All tool classes use the `[McpServerToolType]` attribute and primary
-constructors for dependency injection.
+The default **compact** profile advertises ten high-frequency tools:
 
-### Context tools
+| Tool | Purpose |
+|------|---------|
+| `twig_set` | Set active context by ID or title pattern |
+| `twig_show` | Read a specific work item |
+| `twig_query` | Search with structured filters |
+| `twig_workspace` | Read sprint/context workspace |
+| `twig_cache_status` | Poll local cache health |
+| `twig_find_or_create` | Deduplicating create path |
+| `twig_state` | Change workflow state |
+| `twig_update` | Update one field |
+| `twig_note` | Add or stage a comment |
+| `twig_sync` | Flush pending changes and refresh context |
 
-**`twig_set(idOrPattern: string)`**
+Use `--tool-profile full` or `TWIG_MCP_TOOL_PROFILE=full` to advertise all
+forty tools. `core` aliases `compact`; `all` aliases `full`. Profile filtering
+affects discovery only: hidden tools remain callable by name so cached clients
+and explicit integrations continue to work.
 
-Resolves by numeric ID (cache → ADO auto-fetch) or by title pattern match
-in the local cache. On success:
+The compact profile intentionally hides specialized seed, tracking, process,
+admin, batch, destructive, and compatibility-alias tools. The full catalog is
+grouped across `ContextTools`, `ReadTools`, `MutationTools`, `NavigationTools`,
+`CreationTools`, `WorkspaceTools`, `ProcessTools`, `AdminTools`, `TrackingTools`,
+`BatchTools`, and `SeedTools`.
 
-- Stores active ID in `IContextStore`.
-- Extends working set (parent chain, 2 levels of children, links) via
-  `ContextChangeService.ExtendWorkingSetAsync()` — best-effort, failures
-  never fail the tool.
-- Writes prompt state for shell integration.
+### Catalog normalization
 
-**`twig_status()`**
+The `tools/list` filter:
 
-Delegates to `StatusOrchestrator.GetSnapshotAsync()` which gathers the
-active item, pending changes, and seeds into a single snapshot. Returns
-an error if no context is set.
+- removes the universal `verbose` property while legacy callers may still pass it;
+- omits `workspace` when exactly one repo-local workspace makes it redundant;
+- models optional parameters by omission rather than repeated `null` defaults;
+- adds `additionalProperties: false`;
+- publishes typed objects/arrays for batch graphs, patch fields, and tracking IDs;
+- adds reviewed read-only, destructive, idempotent, and open-world annotations;
+- preserves SDK task-support metadata while cloning each discovery record.
 
-### Read tools
+A matching `tools/call` filter adapts the typed wire arguments to the legacy
+method parameters, preserving direct and cached callers without duplicating
+tool implementations.
 
-**`twig_tree(depth?: int)`**
+Successful and structured error envelopes are returned both as text content and
+as MCP `structuredContent`. Twig intentionally does not publish forty separate
+output schemas; every tool shares the documented response envelope.
 
-Builds a hierarchical view:
+### Batch contract
 
-1. Resolve active item via `ActiveItemResolver`.
-2. Walk parent chain upward to root.
-3. Fetch children (capped by `depth` or `config.Display.TreeDepth`).
-4. Compute sibling counts for every node in the tree.
-5. Best-effort link sync via `SyncCoordinator.SyncLinksAsync()`.
-6. Format via `WorkTree.Build()`.
+`twig_batch` accepts sequence, parallel, and step nodes with a maximum of fifty
+operations and three nesting levels. Every registered non-batch tool is listed
+in `McpToolCatalog.BatchableToolNames` and has an AOT-safe dispatcher case;
+recursive batch calls are rejected. A catalog regression test fails if tool
+registration and batch dispatch drift apart.
 
-**`twig_workspace(all?: bool)`**
+### Metadata budgets
 
-Returns the sprint workspace projection:
-
-- **Context item** (nullable — no error if absent).
-- **Sprint items** — filtered to current user unless `all=true`.
-- **Seeds** — locally-created items not yet published.
-- Iteration resolved via `IIterationService.GetCurrentIterationAsync()`.
-
-### Mutation tools
-
-**`twig_state(stateName: string)`**
-
-1. Look up process configuration for the item's type.
-2. Resolve target state via `StateResolver.ResolveByName()` (supports
-   partial, case-insensitive matching).
-3. Evaluate transition legality (`StateTransitionService.Evaluate()`).
-4. Fetch remote item, apply patch with `ConflictRetryHelper`.
-5. Auto-push any staged notes via `AutoPushNotesHelper`.
-6. Resync cache (best-effort).
-
-**`twig_update(field: string, value: string, format?: string)`**
-
-- If `format == "markdown"`, the value is converted to HTML via
-  `MarkdownConverter.ToHtml()` before patching.
-- Fetches the remote item, patches with conflict retry, auto-pushes
-  staged notes, and resyncs the cache.
-- On double conflict, returns an error suggesting `twig.sync`.
-
-**`twig_note(text: string)`**
-
-Attempts to push the comment to ADO immediately. On any failure (network,
-auth, server error), the note is staged locally in `IPendingChangeStore`
-for later flushing. The response includes `isPending: boolean` so the
-caller knows whether the note reached ADO.
-
-**`twig_sync()`**
-
-Two-phase operation:
-
-1. **Push** — `McpPendingChangeFlusher.FlushAllAsync()` processes every
-   dirty item (see §5).
-2. **Pull** — Resyncs the active item, its parent chain, and its children
-   from ADO via `SyncCoordinator.SyncItemSetAsync()`.
+Tests generate the real SDK protocol models and enforce both count and byte
+budgets. The normal single-workspace compact profile is limited to ten tools /
+8.5 KB; the fidelity-first full profile is limited to forty tools / 37 KB.
+This measures serialized metadata rather than C# source text. Zero-workspace
+startup retains workspace parameters for diagnosis, so its compact catalog is
+slightly larger but remains below 10 KB.
 
 ---
 
@@ -183,7 +164,7 @@ Registered once; shared with CLI:
 | `IProcessTypeStore` | `SqliteProcessTypeStore` |
 | `INavigationHistoryStore` | `SqliteNavigationHistoryStore` |
 | `IUnitOfWork` | `SqliteUnitOfWork` |
-| `IAuthenticationProvider` | `AzCliAuthProvider` or `PatAuthProvider` |
+| `IAuthenticationProvider` | `AdoAccessTokenProvider` or `PatAuthProvider` |
 | `IAdoWorkItemService` | `AdoRestClient` |
 | `IIterationService` | `AdoIterationService` |
 
@@ -199,7 +180,6 @@ All backed by the same SQLite database at `.twig/{org}/{project}/twig.db`.
 | `ContextChangeService` | Extend working set on context change |
 | `WorkingSetService` | Compute sprint items, parent chain, children |
 | `RefreshOrchestrator` | Full cache refresh |
-| `StatusOrchestrator` | Gather complete status snapshot |
 | `McpPendingChangeFlusher` | Flush pending changes (MCP-specific) |
 
 ### Services NOT registered in MCP
@@ -264,7 +244,6 @@ Key formatters:
 | Method | Used by |
 |--------|---------|
 | `FormatWorkItemWithWorkingSet` | `twig_set` |
-| `FormatStatus` | `twig_status` |
 | `FormatTree` | `twig_tree` |
 | `FormatWorkspace` | `twig_workspace` |
 | `FormatStateChange` | `twig_state` |
@@ -282,12 +261,8 @@ custom prompt) can read to display the active work item context.
 
 ## 6. Concurrency & Threading Model
 
-twig-mcp runs as a single-process event loop. The MCP SDK reads requests
-from stdin sequentially, dispatches tool calls, and writes responses to
-stdout. There is no request parallelism — this matches the single-writer
-design of the underlying SQLite database (WAL mode, but only one
-connection).
-
-Domain services like `ActiveItemResolver` and field definition caches use
-lazy-initialised tasks. These are explicitly **not thread-safe** — this is
-acceptable because the MCP event loop serialises all tool invocations.
+twig-mcp is a single stdio server process, but `twig_batch` parallel nodes may
+invoke several tool workflows concurrently. Individual stores and workflows
+therefore own their transaction boundaries; callers must not assume all MCP
+work is globally serialized. Sequence nodes remain ordered and fail fast unless
+the step opts into `onError: "continue"`.

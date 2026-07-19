@@ -42,6 +42,7 @@ public sealed class ToolDispatcherTests
             new WorkspaceTools(registry, resolver),
             new TrackingTools(resolver),
             new AdminTools(resolver),
+            new ProcessTools(resolver),
             new SeedTools(resolver, new SeedFactory(new SeedIdCounter())));
     }
 
@@ -73,6 +74,27 @@ public sealed class ToolDispatcherTests
 
         result.IsError.ShouldBe(true);
         GetText(result).ShouldContain("Unknown tool");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EveryCatalogedBatchTool_HasDispatcherCase()
+    {
+        foreach (var toolName in McpToolCatalog.BatchableToolNames)
+        {
+            try
+            {
+                var result = await _dispatcher.DispatchAsync(
+                    toolName,
+                    Args(),
+                    null,
+                    CancellationToken.None);
+                GetText(result).ShouldNotContain("Unknown tool");
+            }
+            catch (ArgumentException)
+            {
+                // Required-argument validation proves the dispatcher case was reached.
+            }
+        }
     }
 
     // ── Routing tests: required arg validation proves correct branch ──
@@ -432,6 +454,28 @@ public sealed class ToolDispatcherTests
     {
         var args = Args(("key", "77"));
         ToolDispatcher.GetNullableInt(args, "key").ShouldBe(77);
+    }
+
+    [Fact]
+    public void GetRequiredStringArray_RawJsonArray_ReturnsStrings()
+    {
+        var args = Args(("titles", "[\"First\",\"Second\"]"));
+
+        ToolDispatcher.GetRequiredStringArray(args, "titles")
+            .ShouldBe(["First", "Second"]);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("{}")]
+    [InlineData("[1,2]")]
+    public void GetRequiredStringArray_InvalidValue_Throws(object? value)
+    {
+        var error = Should.Throw<ArgumentException>(() =>
+            ToolDispatcher.GetRequiredStringArray(Args(("titles", value)), "titles"));
+
+        error.Message.ShouldContain("titles");
     }
 
     // ── Multi-arg coercion in routing ───────────────────────────────

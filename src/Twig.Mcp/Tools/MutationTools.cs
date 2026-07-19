@@ -28,7 +28,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -158,7 +158,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Convert the input value before sending to ADO. Supported: \"markdown\" (force-convert), \"raw\" (pass through unchanged). Default: auto — converts only when the destination field is HTML-typed in ADO (e.g. System.Description).")] string? format = null,
         [Description("When true, append the value to the existing field content instead of replacing it")] bool append = false,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -231,7 +231,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
         [Description("Convert values before sending. Supported: \"markdown\" (force-convert all fields), \"raw\" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.")] string? format = null,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -313,7 +313,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert the note text before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -349,7 +349,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Delete(
         [Description("The work item ID to delete")] int id,
         [Description("Set to true to confirm and execute the deletion. Omit or set false for the confirmation prompt.")] bool confirmed = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -405,7 +405,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]
     public async Task<CallToolResult> Discard(
         [Description("Work item ID (optional — defaults to the active work item)")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -451,7 +451,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, skip the flush phase and only pull (refresh) from ADO.")] bool pull_only = false,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)

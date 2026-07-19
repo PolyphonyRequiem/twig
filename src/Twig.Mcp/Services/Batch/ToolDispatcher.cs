@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using Twig.Mcp.Tools;
 
@@ -18,6 +20,7 @@ internal sealed class ToolDispatcher(
     WorkspaceTools workspaceTools,
     TrackingTools trackingTools,
     AdminTools adminTools,
+    ProcessTools processTools,
     SeedTools seedTools) : IToolDispatcher
 {
     /// <summary>
@@ -34,6 +37,13 @@ internal sealed class ToolDispatcher(
         string? workspaceOverride,
         CancellationToken ct)
     {
+        if (!McpToolCatalog.BatchableToolNames.Contains(toolName))
+        {
+            return Task.FromResult(EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                $"Unknown tool '{toolName}' or tool is not batchable."));
+        }
+
         var workspace = GetString(args, "workspace") ?? workspaceOverride;
 
         return toolName switch
@@ -75,6 +85,21 @@ internal sealed class ToolDispatcher(
                 GetString(args, "format"),
                 verbose: false, ct),
 
+            "twig_patch" => mutationTools.Patch(
+                GetRequiredString(args, "fields"),
+                GetString(args, "format"),
+                GetNullableInt(args, "id"),
+                workspace, verbose: false, ct),
+
+            "twig_delete" => mutationTools.Delete(
+                GetRequiredInt(args, "id"),
+                GetBool(args, "confirmed"),
+                workspace, verbose: false, ct),
+
+            "twig_discard" => mutationTools.Discard(
+                GetNullableInt(args, "id"),
+                workspace, verbose: false, ct),
+
             "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),
 
             "twig_refresh" => readTools.Refresh(GetNullableInt(args, "id"), workspace, verbose: false, ct),
@@ -110,6 +135,17 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "linkType"),
                 workspace, verbose: false, ct),
 
+            "twig_link_branch" => creationTools.LinkBranch(
+                GetRequiredInt(args, "workItemId"),
+                GetRequiredString(args, "branchName"),
+                workspace, verbose: false, ct),
+
+            "twig_link_artifact" => creationTools.LinkArtifact(
+                GetRequiredInt(args, "workItemId"),
+                GetRequiredString(args, "url"),
+                GetString(args, "name"),
+                workspace, verbose: false, ct),
+
             // Navigation tools
             "twig_show" => navigationTools.Show(
                 GetRequiredInt(args, "id"),
@@ -138,6 +174,11 @@ internal sealed class ToolDispatcher(
                 GetRequiredInt(args, "id"),
                 workspace, verbose: false, ct),
 
+            "twig_verify_descendants" => navigationTools.VerifyDescendants(
+                GetRequiredInt(args, "id"),
+                GetInt(args, "maxDepth", defaultValue: 2),
+                workspace, verbose: false, ct),
+
             "twig_sprint" => navigationTools.Sprint(
                 GetBool(args, "items"),
                 workspace, verbose: false, ct),
@@ -163,6 +204,11 @@ internal sealed class ToolDispatcher(
 
             "twig_area" => adminTools.Area(workspace, verbose: false, ct),
 
+            // Process tools
+            "twig_process" => processTools.Process(
+                GetString(args, "type"),
+                workspace, verbose: false, ct),
+
             // Seed tools
             "twig_seed_new" => seedTools.SeedNew(
                 GetRequiredString(args, "title"),
@@ -183,7 +229,43 @@ internal sealed class ToolDispatcher(
                 GetBool(args, "dryRun"),
                 workspace, verbose: false, ct),
 
-            _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))
+            "twig_seed_validate" => seedTools.SeedValidate(
+                GetNullableInt(args, "id"),
+                GetBool(args, "all"),
+                workspace, verbose: false, ct),
+
+            "twig_seed_discard" => seedTools.SeedDiscard(
+                GetRequiredInt(args, "id"),
+                workspace, verbose: false, ct),
+
+            "twig_seed_chain" => seedTools.SeedChain(
+                GetRequiredInt(args, "parentId"),
+                GetRequiredStringArray(args, "titles"),
+                GetString(args, "type"),
+                GetString(args, "assignedTo"),
+                workspace, verbose: false, ct),
+
+            "twig_seed_reconcile" => seedTools.SeedReconcile(
+                workspace, verbose: false, ct),
+
+            "twig_seed_edit" => seedTools.SeedEdit(
+                GetRequiredInt(args, "id"),
+                GetString(args, "title"),
+                GetString(args, "description"),
+                GetString(args, "type"),
+                GetNullableInt(args, "parentId"),
+                workspace,
+                GetString(args, "format"),
+                verbose: false, ct),
+
+            "twig_seed_link" => seedTools.SeedLink(
+                GetRequiredInt(args, "sourceId"),
+                GetRequiredInt(args, "targetId"),
+                GetString(args, "type"),
+                workspace, verbose: false, ct),
+
+            _ => throw new UnreachableException(
+                $"Cataloged tool '{toolName}' has no batch dispatcher case.")
         };
     }
 
@@ -261,5 +343,39 @@ internal sealed class ToolDispatcher(
             string s when int.TryParse(s, out var i) => i,
             _ => null
         };
+    }
+
+    internal static string[] GetRequiredStringArray(
+        IReadOnlyDictionary<string, object?> args,
+        string key)
+    {
+        if (!args.TryGetValue(key, out var value) || value is null)
+            throw new ArgumentException($"Required argument '{key}' is missing.");
+
+        if (value is string[] values) return values;
+        if (value is IEnumerable<string> strings) return strings.ToArray();
+
+        if (value is string json)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    return document.RootElement.EnumerateArray()
+                        .Select(element => element.ValueKind == JsonValueKind.String
+                            ? element.GetString()!
+                            : throw new ArgumentException(
+                                $"Argument '{key}' must contain only strings."))
+                        .ToArray();
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the consistent argument error below.
+            }
+        }
+
+        throw new ArgumentException($"Argument '{key}' must be an array of strings.");
     }
 }

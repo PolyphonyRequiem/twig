@@ -18,7 +18,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Track(
         [Description("Work item ID (integer) or JSON array of IDs (e.g. [1,2,3])")] string id,
         [Description("When true, also tracks all descendant work items")] bool recursive = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -72,7 +72,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_untrack"), Description("Stop tracking one or more work items by ID. No error if the item is not currently tracked.")]
     public async Task<CallToolResult> Untrack(
         [Description("Work item ID (integer) or JSON array of IDs (e.g. [1,2,3])")] string id,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -110,7 +110,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
 
     [McpServerTool(Name = "twig_tracking_status"), Description("List all currently tracked work items with their title, type, tracking mode, and last refreshed time. No network call — reads from local cache only.")]
     public async Task<CallToolResult> TrackingStatus(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

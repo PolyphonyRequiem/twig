@@ -38,7 +38,7 @@ public sealed class BatchToolsTests
         var graph = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {}
         }
         """;
@@ -49,7 +49,7 @@ public sealed class BatchToolsTests
 
         var root = ParseResult(result);
         root.GetProperty("steps").GetArrayLength().ShouldBe(1);
-        root.GetProperty("steps")[0].GetProperty("tool").GetString().ShouldBe("twig_status");
+        root.GetProperty("steps")[0].GetProperty("tool").GetString().ShouldBe("twig_cache_status");
         root.GetProperty("steps")[0].GetProperty("status").GetString().ShouldBe("succeeded");
         root.GetProperty("summary").GetProperty("total").GetInt32().ShouldBe(1);
         root.GetProperty("summary").GetProperty("succeeded").GetInt32().ShouldBe(1);
@@ -165,7 +165,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         // Should not throw — default timeout is applied internally
         var result = await tools.Batch(graph, timeoutSeconds: null, ct: CancellationToken.None);
@@ -178,7 +178,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         var result = await tools.Batch(graph, timeoutSeconds: -5, ct: CancellationToken.None);
         result.IsError.ShouldNotBe(true);
@@ -192,7 +192,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         var result = await tools.Batch(graph, timeoutSeconds: 9999, ct: CancellationToken.None);
         result.IsError.ShouldNotBe(true);
@@ -206,7 +206,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         await tools.Batch(graph, workspace: "myorg/myproject", ct: CancellationToken.None);
 
@@ -219,7 +219,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         await tools.Batch(graph, workspace: null, ct: CancellationToken.None);
 
@@ -670,7 +670,7 @@ public sealed class BatchToolsTests
         var dispatcher = CreateDispatcher();
         var tools = new BatchTools(dispatcher);
 
-        var graph = """{ "type": "step", "tool": "twig_status", "args": {} }""";
+        var graph = """{ "type": "step", "tool": "twig_cache_status", "args": {} }""";
 
         var result = await tools.Batch(graph, ct: CancellationToken.None);
         var root = ParseResult(result);

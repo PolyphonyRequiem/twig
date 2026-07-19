@@ -27,7 +27,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("Parent work item ID (positive for ADO items, negative for other seeds). Used for type inference and path inheritance.")] int? parentId = null,
         [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -122,7 +122,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
     [McpServerTool(Name = "twig_seed_view"), Description("List all local seed work items grouped by parent. No network call — reads from local cache only.")]
     public async Task<CallToolResult> SeedView(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -180,7 +180,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("When true, publishes all seeds in topological order. Mutually exclusive with id.")] bool all = false,
         [Description("When true, bypasses validation rules.")] bool force = false,
         [Description("When true, returns a plan without making any API calls.")] bool dryRun = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -364,7 +364,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     public async Task<CallToolResult> SeedValidate(
         [Description("Seed ID to validate (negative integer). Mutually exclusive with all=true.")] int? id = null,
         [Description("When true, validates all seeds. Mutually exclusive with id.")] bool all = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -423,7 +423,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     [McpServerTool(Name = "twig_seed_discard"), Description("Remove a seed from local store with cascade deletion of child seeds. No ADO interaction — local only.")]
     public async Task<CallToolResult> SeedDiscard(
         [Description("Seed ID to discard (negative integer).")] int id,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -462,7 +462,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("Ordered list of titles for the seed chain.")] string[] titles,
         [Description("Work item type (e.g. Task, Issue). When omitted, inferred from parent's allowed child types.")] string? type = null,
         [Description("Assignee display name applied to all seeds (optional)")] string? assignedTo = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -535,7 +535,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
     [McpServerTool(Name = "twig_seed_reconcile"), Description("Repair orphaned and stale seed links and parent references after partial publishes. Uses the publish_id_map to remap stale negative IDs to their published ADO IDs and removes orphaned links.")]
     public async Task<CallToolResult> SeedReconcile(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -566,7 +566,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("New description (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("New work item type (e.g. Task, Issue, Bug). Optional — unchanged if omitted.")] string? type = null,
         [Description("New parent work item ID (positive for ADO items, negative for other seeds). Pass 0 to clear the parent.")] int? parentId = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -684,7 +684,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("Source work item ID (positive for ADO items, negative for seeds).")] int sourceId,
         [Description("Target work item ID (positive for ADO items, negative for seeds).")] int targetId,
         [Description("Link type: blocks, blocked-by, depends-on, depended-on-by, successor, predecessor, related, parent-child. Defaults to 'related'.")] string? type = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

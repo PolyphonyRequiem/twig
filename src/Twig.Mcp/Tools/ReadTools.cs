@@ -22,7 +22,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
     public async Task<CallToolResult> Tree(
         [Description("Work item ID to display. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Max child depth to display")] int? depth = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -38,7 +38,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
     public async Task<CallToolResult> Workspace(
         [Description("Show all team items instead of just the current user")] bool all = false,
         [Description("When true, returns a tree-structured JSON response showing the full backlog hierarchy instead of the flat workspace view")] bool tree = false,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -143,7 +143,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
     [McpServerTool(Name = "twig_refresh"), Description("Pull-only cache refresh from ADO — no pending changes are pushed. When id is omitted, refreshes the full active context (active item, parent chain, children). When id is provided, refreshes only that single work item.")]
     public async Task<CallToolResult> Refresh(
         [Description("Work item ID to refresh. When omitted, refreshes the full active context.")] int? id = null,
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -219,7 +219,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
 
     [McpServerTool(Name = "twig_cache_status"), Description("Report local cache freshness: last sync time, pending change count, tracked item count, oldest item age. No network call — safe for polling.")]
     public async Task<CallToolResult> CacheStatus(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {

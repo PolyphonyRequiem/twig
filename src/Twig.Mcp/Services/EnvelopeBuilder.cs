@@ -110,9 +110,12 @@ internal sealed class EnvelopeBuilder
         writer.WriteEndObject(); // root
         writer.Flush();
 
+        var json = Encoding.UTF8.GetString(stream.ToArray());
+        using var document = JsonDocument.Parse(json);
         return new CallToolResult
         {
-            Content = [new TextContentBlock { Text = Encoding.UTF8.GetString(stream.ToArray()) }],
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = document.RootElement.Clone(),
             IsError = true,
         };
     }
@@ -144,9 +147,12 @@ internal sealed class EnvelopeBuilder
         writer.WriteEndObject();
         writer.Flush();
 
+        var json = Encoding.UTF8.GetString(stream.ToArray());
+        using var document = JsonDocument.Parse(json);
         return new CallToolResult
         {
-            Content = [new TextContentBlock { Text = Encoding.UTF8.GetString(stream.ToArray()) }],
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = document.RootElement.Clone(),
             IsError = true,
         };
     }

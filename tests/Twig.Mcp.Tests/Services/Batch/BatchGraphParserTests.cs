@@ -15,7 +15,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {}
         }
         """;
@@ -27,7 +27,7 @@ public sealed class BatchGraphParserTests
 
         var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.GlobalIndex.ShouldBe(0);
-        step.ToolName.ShouldBe("twig_status");
+        step.ToolName.ShouldBe("twig_cache_status");
         step.Arguments.ShouldBeEmpty();
     }
 
@@ -81,7 +81,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status"
+            "tool": "twig_cache_status"
         }
         """;
 
@@ -101,7 +101,7 @@ public sealed class BatchGraphParserTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_status", "args": {} },
+                { "type": "step", "tool": "twig_cache_status", "args": {} },
                 {
                     "type": "step",
                     "tool": "twig_state",
@@ -126,7 +126,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {}
         }
         """;
@@ -144,7 +144,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "when": "  "
         }
@@ -163,7 +163,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "when": 42
         }
@@ -228,7 +228,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {}
         }
         """;
@@ -246,7 +246,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "onError": "  "
         }
@@ -265,7 +265,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "onError": true
         }
@@ -284,7 +284,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "onError": "abort"
         }
@@ -304,7 +304,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {},
             "onError": "Continue"
         }
@@ -557,7 +557,7 @@ public sealed class BatchGraphParserTests
     {
         var json = """
         {
-            "tool": "twig_status"
+            "tool": "twig_cache_status"
         }
         """;
 
@@ -699,7 +699,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": "not-an-object"
         }
         """;
@@ -834,6 +834,25 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldContain("Recursive batch");
+    }
+
+    [Fact]
+    public void Parse_UnknownTool_ReturnsFailBeforeExecution()
+    {
+        var json = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_show", "args": { "id": 1 } },
+                { "type": "step", "tool": "twig_not_real", "args": {} }
+            ]
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Unknown tool 'twig_not_real'");
     }
 
     // ── Validation: Child node in container is not an object ────────
@@ -1011,7 +1030,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_status",
+            "tool": "twig_cache_status",
             "args": {}
         }
         """;

@@ -54,6 +54,11 @@ public sealed class SyncCommand(
         var exitCode = hasFlushFailures || refreshExitCode != 0 ? 1 : 0;
 
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        // #252: staged-but-not-pushed is data loss (#251) and must never render as
+        // "nothing to flush". Compare what was staged against what actually went out.
+        var droppedFieldChanges = flushResult is null ? 0 : Math.Max(0, flushResult.FieldChangesStaged - flushResult.FieldChangesPushed);
+        var droppedNotes = flushResult is null ? 0 : Math.Max(0, flushResult.NotesStaged - flushResult.NotesPushed);
+        var hasDrops = droppedFieldChanges > 0 || droppedNotes > 0;
         if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
             RenderSyncJson(flushResult, refreshExitCode, pullOnly, outputFormat ?? string.Empty);
@@ -64,7 +69,9 @@ public sealed class SyncCommand(
             {
                 var msg = flushResult!.ItemsFlushed > 0 || hasFlushFailures
                     ? $"flushed: {flushResult.ItemsFlushed}, failed: {flushResult.Failures.Count}"
-                    : "nothing to flush";
+                    : hasDrops
+                        ? $"nothing flushed, dropped: {droppedFieldChanges + droppedNotes}"
+                        : "nothing to flush";
                 _rendererFactory.GetRenderer(outputFormat ?? string.Empty).Render(new RenderTree.RenderTree(new[]
                 {
                     (RenderNode)new RenderNode.Text(msg),
@@ -77,10 +84,23 @@ public sealed class SyncCommand(
             {
                 Console.WriteLine($"Sync push: {flushResult.ItemsFlushed} flushed, {flushResult.Failures.Count} failed.");
             }
+            else if (hasDrops)
+            {
+                Console.WriteLine("Sync push: nothing flushed.");
+            }
             else
             {
                 Console.WriteLine("Sync push: nothing to flush.");
             }
+        }
+
+        if (hasDrops)
+        {
+            var parts = new List<string>(2);
+            if (droppedNotes > 0) parts.Add($"{droppedNotes} note(s)");
+            if (droppedFieldChanges > 0) parts.Add($"{droppedFieldChanges} field change(s)");
+            _stderr.WriteLine(fmt.FormatError(
+                $"{string.Join(" and ", parts)} were staged but not pushed to Azure DevOps. Staged content was not preserved — see 'twig sync' output."));
         }
 
         return exitCode;
@@ -88,13 +108,35 @@ public sealed class SyncCommand(
 
     private void RenderSyncJson(FlushResult? flush, int refreshExitCode, bool pullOnly, string outputFormat)
     {
+        // #252: a bare `0` meant two opposite things — "nothing was staged" (benign) and
+        // "something was staged but never pushed" (data loss, #251). Counters are now emitted
+        // only for classes that actually had something staged, so a *present* zero is
+        // meaningful, and `notesDropped` / `fieldChangesDropped` name the loss explicitly.
         var flushFields = new List<DocumentField>
         {
             new("flushed", new RenderNode.KeyValue("flushed", RenderCell.Integer(flush?.ItemsFlushed ?? 0))),
-            new("fieldChangesPushed", new RenderNode.KeyValue("fieldChangesPushed", RenderCell.Integer(flush?.FieldChangesPushed ?? 0))),
-            new("notesPushed", new RenderNode.KeyValue("notesPushed", RenderCell.Integer(flush?.NotesPushed ?? 0))),
-            new("failed", new RenderNode.KeyValue("failed", RenderCell.Integer(flush?.Failures.Count ?? 0))),
         };
+
+        if (flush is not null && flush.FieldChangesStaged > 0)
+        {
+            flushFields.Add(new("fieldChangesStaged", new RenderNode.KeyValue("fieldChangesStaged", RenderCell.Integer(flush.FieldChangesStaged))));
+            flushFields.Add(new("fieldChangesPushed", new RenderNode.KeyValue("fieldChangesPushed", RenderCell.Integer(flush.FieldChangesPushed))));
+            var dropped = flush.FieldChangesStaged - flush.FieldChangesPushed;
+            if (dropped > 0)
+                flushFields.Add(new("fieldChangesDropped", new RenderNode.KeyValue("fieldChangesDropped", RenderCell.Integer(dropped))));
+        }
+
+        if (flush is not null && flush.NotesStaged > 0)
+        {
+            flushFields.Add(new("notesStaged", new RenderNode.KeyValue("notesStaged", RenderCell.Integer(flush.NotesStaged))));
+            flushFields.Add(new("notesPushed", new RenderNode.KeyValue("notesPushed", RenderCell.Integer(flush.NotesPushed))));
+            var dropped = flush.NotesStaged - flush.NotesPushed;
+            if (dropped > 0)
+                flushFields.Add(new("notesDropped", new RenderNode.KeyValue("notesDropped", RenderCell.Integer(dropped))));
+        }
+
+        flushFields.Add(new("failed", new RenderNode.KeyValue("failed", RenderCell.Integer(flush?.Failures.Count ?? 0))));
+
         if (flush?.Failures.Count > 0)
         {
             var failuresTable = new RenderNode.Table(null,

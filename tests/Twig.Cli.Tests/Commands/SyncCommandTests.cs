@@ -187,7 +187,7 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     {
         var failures = new List<FlushItemFailure> { new(42, "Test error") };
         _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FlushResult(3, 5, 2, failures));
+            .Returns(new FlushResult(3, 5, 2, failures, FieldChangesStaged: 5, NotesStaged: 2));
 
         var cmd = CreateSyncCommand();
 
@@ -207,7 +207,7 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     public async Task Sync_JsonFormat_NoFailures_OmitsFailuresArray()
     {
         _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FlushResult(1, 2, 0, []));
+            .Returns(new FlushResult(1, 2, 0, [], FieldChangesStaged: 2));
 
         var cmd = CreateSyncCommand();
 
@@ -489,7 +489,7 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Sync_PullOnly_JsonFormat_EmitsZeroFlushStats()
+    public async Task Sync_PullOnly_JsonFormat_OmitsPushCounters()
     {
         var cmd = CreateSyncCommand();
 
@@ -497,8 +497,11 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
 
         output.ShouldContain("\"pullOnly\": true");
         output.ShouldContain("\"flushed\": 0");
-        output.ShouldContain("\"fieldChangesPushed\": 0");
-        output.ShouldContain("\"notesPushed\": 0");
+        // #252: pull-only skips the flush phase entirely, so nothing was ever staged.
+        // Emitting "fieldChangesPushed": 0 / "notesPushed": 0 here is the ambiguous zero —
+        // indistinguishable from a staged write that was dropped. Absence is the honest signal.
+        output.ShouldNotContain("\"fieldChangesPushed\"");
+        output.ShouldNotContain("\"notesPushed\"");
         output.ShouldContain("\"failed\": 0");
         output.ShouldContain("\"refresh\"");
         output.ShouldNotContain("\"failures\"");

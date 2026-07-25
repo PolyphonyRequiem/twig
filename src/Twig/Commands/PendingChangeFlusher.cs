@@ -6,11 +6,26 @@ using Twig.Infrastructure.Ado;
 namespace Twig.Commands;
 
 /// <summary>Structured result of a flush operation.</summary>
+/// <param name="ItemsFlushed">Number of items successfully pushed and resynced.</param>
+/// <param name="FieldChangesPushed">Number of individual field changes pushed to ADO.</param>
+/// <param name="NotesPushed">Number of notes pushed to ADO.</param>
+/// <param name="Failures">Per-item failures encountered during the flush.</param>
+/// <param name="FieldChangesStaged">
+/// Number of field changes that were staged locally when the flush began. Lets callers
+/// distinguish "nothing was pending" (staged == 0) from "something was pending but did not
+/// get pushed" (staged &gt; 0 while pushed == 0) — see PolyphonyRequiem/twig#252.
+/// </param>
+/// <param name="NotesStaged">
+/// Number of notes that were staged locally when the flush began. Same disambiguation as
+/// <paramref name="FieldChangesStaged"/>.
+/// </param>
 public sealed record FlushResult(
     int ItemsFlushed,
     int FieldChangesPushed,
     int NotesPushed,
-    IReadOnlyList<FlushItemFailure> Failures);
+    IReadOnlyList<FlushItemFailure> Failures,
+    int FieldChangesStaged = 0,
+    int NotesStaged = 0);
 
 /// <summary>Per-item failure detail for callers to render.</summary>
 public sealed record FlushItemFailure(int ItemId, string Error);
@@ -46,6 +61,8 @@ public sealed class PendingChangeFlusher(
         var failures = new List<FlushItemFailure>();
         var totalFieldChanges = 0;
         var totalNotes = 0;
+        var stagedFieldChanges = 0;
+        var stagedNotes = 0;
         var itemsFlushed = 0;
 
         foreach (var itemId in itemIds)
@@ -78,6 +95,11 @@ public sealed class PendingChangeFlusher(
                         fieldChanges.Add(new FieldChange(change.FieldName, change.OldValue, change.NewValue));
                     }
                 }
+
+                // Record what was staged before attempting any push, so callers can tell
+                // "nothing was pending" apart from "was pending but never pushed" (#252).
+                stagedFieldChanges += fieldChanges.Count;
+                stagedNotes += notes.Count;
 
                 // FR-9: Notes-only items skip conflict resolution.
                 // Notes are additive (ADO comments) and cannot conflict with field-level
@@ -123,7 +145,7 @@ public sealed class PendingChangeFlusher(
             }
         }
 
-        return new FlushResult(itemsFlushed, totalFieldChanges, totalNotes, failures);
+        return new FlushResult(itemsFlushed, totalFieldChanges, totalNotes, failures, stagedFieldChanges, stagedNotes);
     }
 
     /// <summary>

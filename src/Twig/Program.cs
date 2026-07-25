@@ -699,10 +699,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
     /// <param name="stdin">Read JSON from standard input instead of --json.</param>
     /// <param name="format">Convert values before sending. Supported: "markdown" (force-convert all fields), "raw" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.</param>
-    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    /// <param name="workItemId">Work item ID as a positional argument (e.g. 'twig patch 1234 --json ...'), matching 'twig show'/'set'/'state'. Omit to use --id or the active work item.</param>
+    /// <param name="id">Work item ID to target; equivalent to the positional form. Omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Patch(string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id, output, format, ct);
+    public async Task<int> Patch([Argument] int? workItemId = null, string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>

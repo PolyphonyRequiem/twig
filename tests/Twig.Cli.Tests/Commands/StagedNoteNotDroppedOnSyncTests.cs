@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Xunit;
@@ -42,6 +43,11 @@ public sealed class StagedNoteNotDroppedOnSyncTests
         var local = CreateWorkItem(id, title: "Local title");
         var remote = CreateWorkItem(id, title: "Remote title");
 
+        // ConflictResolver.Resolve short-circuits to NoConflict when revisions match, so
+        // the remote MUST be advanced or the conflict branch never runs and this whole
+        // fixture silently degrades into the happy path.
+        remote.MarkSynced(5);
+
         _workItemRepo.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(local);
         _adoService.FetchAsync(id, Arg.Any<CancellationToken>()).Returns(remote);
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns([id]);
@@ -50,6 +56,25 @@ public sealed class StagedNoteNotDroppedOnSyncTests
             new PendingChangeRecord(id, "note", null, null, noteText),
             new PendingChangeRecord(id, "field", "System.Title", "Old title", "New title"),
         });
+    }
+
+    /// <summary>
+    /// Guard for the fixture itself: proves the conflict branch actually fires. Without
+    /// this, a setup regression (e.g. matching revisions) would make every test in this
+    /// class pass vacuously against the very bug they exist to pin.
+    /// </summary>
+    [Fact]
+    public void Fixture_ActuallyProducesAConflict()
+    {
+        var local = CreateWorkItem(1, "Local title");
+        var remote = CreateWorkItem(1, "Remote title");
+        remote.MarkSynced(5);
+
+        // MergeResult is a `union`, so the concrete case must be pattern-matched out —
+        // ShouldBeOfType<HasConflicts>() fails on the wrapper. This mirrors exactly how
+        // ConflictResolutionFlow tests the result in production.
+        (ConflictResolver.Resolve(local, remote) is HasConflicts)
+            .ShouldBeTrue("the fixture must actually drive the conflict branch");
     }
 
     [Fact]

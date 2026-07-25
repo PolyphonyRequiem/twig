@@ -1503,4 +1503,32 @@ public sealed class SeedToolsTests : CreationToolsTestBase
             Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task SeedLink_ParentChildFromSeed_WhenAddLinkFails_LeavesOldParentIntact()
+    {
+        // twig#259: mirrors SeedLinkCommandTests. The reparent must not tear down the old
+        // parent until the new link is safely written.
+        var seed = new WorkItemBuilder(-1, "Child").AsTask().AsSeed().WithParent(50).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 50, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+        _seedLinkRepo.AddLinkAsync(Arg.Any<SeedLink>(), Arg.Any<CancellationToken>())
+            .Throws(new Microsoft.Data.Sqlite.SqliteException("UNIQUE constraint failed", 19));
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(
+            sourceId: -1,
+            targetId: 100,
+            type: SeedLinkTypes.ParentChild);
+
+        result.IsError.ShouldBe(true);
+        await _seedLinkRepo.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
 }

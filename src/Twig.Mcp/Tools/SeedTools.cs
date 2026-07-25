@@ -705,6 +705,10 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         int? reparentedFrom = null;
 
+        // Set once the parent-child link has already been written by the reparent path
+        // below, so the shared add further down is not attempted twice.
+        var parentChildLinkAdded = false;
+
         if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
         {
             if (sourceId == targetId)
@@ -726,14 +730,24 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
                     link.TargetId != targetId)
                 .ToList();
 
-            foreach (var stale in staleParentLinks)
-                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
-
             reparentedFrom = childSeed.ParentId ?? staleParentLinks
                 .Select(link => (int?)link.TargetId)
                 .FirstOrDefault();
             if (reparentedFrom == targetId)
                 reparentedFrom = null;
+
+            // Write the new link BEFORE tearing down the old parent (twig#259). If this
+            // fails, nothing has been mutated yet and the seed keeps its original parent,
+            // rather than being left with a ParentId and no link row — the disagreeing-
+            // stores state twig#254 exists to prevent.
+            if (!await TryAddSeedLinkAsync(ctx, sourceId, targetId, linkType, ct))
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"A '{linkType}' link from #{sourceId} to #{targetId} already exists.", ctx, ct);
+
+            parentChildLinkAdded = true;
+
+            foreach (var stale in staleParentLinks)
+                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
 
             if (childSeed.ParentId != targetId)
                 await ctx.WorkItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
@@ -760,15 +774,9 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             }
         }
 
-        try
-        {
-            await ctx.SeedLinkRepo.AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
-        }
-        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
-        {
+        if (!parentChildLinkAdded && !await TryAddSeedLinkAsync(ctx, sourceId, targetId, linkType, ct))
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 $"A '{linkType}' link from #{sourceId} to #{targetId} already exists.", ctx, ct);
-        }
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
@@ -779,6 +787,28 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             if (reparentedFrom.HasValue)
                 writer.WriteNumber("reparentedFrom", reparentedFrom.Value);
         }, verbose, ct);
+    }
+
+    /// <summary>
+    /// Adds a seed link. Returns <c>false</c> when the link already exists, so the caller
+    /// can surface the duplicate-link error without duplicating the catch.
+    /// </summary>
+    private static async Task<bool> TryAddSeedLinkAsync(
+        WorkspaceContext ctx,
+        int sourceId,
+        int targetId,
+        string linkType,
+        CancellationToken ct)
+    {
+        try
+        {
+            await ctx.SeedLinkRepo.AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
+            return true;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return false;
+        }
     }
 
     private static string? NormalizeLinkType(string type)

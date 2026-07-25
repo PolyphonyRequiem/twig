@@ -1386,6 +1386,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                     sb.AppendLine($"      {Red}•{Reset} [{f.Rule}] {f.Message}");
                 }
             }
+
+            // Advisory — shown for passing and failing seeds alike (twig#260).
+            foreach (var w in result.Warnings)
+            {
+                sb.AppendLine($"      {Yellow}!{Reset} [{w.Rule}] {w.Message}");
+            }
         }
 
         // Remove trailing newline

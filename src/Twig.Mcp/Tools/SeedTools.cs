@@ -102,6 +102,14 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         // Persist locally — no ADO interaction
         await ctx.WorkItemRepo.SaveAsync(seed, ct);
 
+        // An explicit parentId is recorded in BOTH stores so validate can tell a chosen
+        // parent from an inferred one (twig#260). Mirrors CLI `seed new --parent`.
+        if (seed.ParentId.HasValue)
+        {
+            await ctx.SeedLinkRepo.AddLinkAsync(
+                new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
+        }
+
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
             writer.WriteNumber("id", seed.Id);
@@ -513,6 +521,14 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
             var seed = seedResult.Value;
             await ctx.WorkItemRepo.SaveAsync(seed, ct);
+
+            // Explicit parentId — record in both stores (twig#260).
+            if (seed.ParentId.HasValue)
+            {
+                await ctx.SeedLinkRepo.AddLinkAsync(
+                    new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
+            }
+
             createdSeeds.Add(seed);
         }
 
@@ -660,6 +676,28 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             updated = updated.WithParentId(newParentId);
 
         await ctx.WorkItemRepo.SaveAsync(updated, ct);
+
+        // Setting a parent through seed edit is an explicit choice, so it must reconcile
+        // both stores (twig#260) — and drop stale rows so the resolver never sees an
+        // ambiguous multi-parent state (same invariant as the reparent path, twig#259).
+        if (parentId.HasValue && newParentId != seed.ParentId)
+        {
+            var staleParentLinks = (await ctx.SeedLinkRepo.GetLinksForItemAsync(id, ct))
+                .Where(link =>
+                    link.LinkType == SeedLinkTypes.ParentChild &&
+                    link.SourceId == id &&
+                    link.TargetId != newParentId)
+                .ToList();
+
+            if (newParentId.HasValue)
+            {
+                await ctx.SeedLinkRepo.AddLinkAsync(
+                    new SeedLink(id, newParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
+            }
+
+            foreach (var stale in staleParentLinks)
+                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
+        }
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
@@ -831,6 +869,17 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             writer.WriteStartObject();
             writer.WriteString("rule", failure.Rule);
             writer.WriteString("message", failure.Message);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        // Advisory findings — do not affect `passed` (twig#260).
+        writer.WriteStartArray("warnings");
+        foreach (var warning in result.Warnings)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("rule", warning.Rule);
+            writer.WriteString("message", warning.Message);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

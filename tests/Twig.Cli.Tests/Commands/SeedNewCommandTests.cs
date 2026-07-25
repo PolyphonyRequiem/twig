@@ -24,6 +24,7 @@ public class SeedNewCommandTests
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
+    private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly ActiveItemResolver _resolver;
     private readonly SeedNewCommand _cmd;
 
@@ -35,6 +36,7 @@ public class SeedNewCommandTests
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
 
         _processConfigProvider.GetConfiguration()
             .Returns(ProcessConfigBuilder.Agile());
@@ -430,6 +432,58 @@ public class SeedNewCommandTests
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
+    // ── twig#260: explicit vs inferred parent is recorded in the link table ──
+    // These lock in the signal `seed validate` keys on. See SeedValidatorInferredParentTests
+    // for the validate-side behaviour.
+
+    [Fact]
+    public async Task SeedNew_InferredParent_DoesNotWriteParentChildLinkRow()
+    {
+        // twig#254 repro: parent inherited from the active item, never chosen.
+        // The ABSENCE of the link row is the signal validate uses.
+        var parent = CreateWorkItem(1, "Active Feature", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _cmd.ExecuteAsync("Inherited seed");
+
+        result.ShouldBe(0);
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_ExplicitParent_WritesParentChildLinkRow()
+    {
+        var parent = CreateWorkItem(2, "Chosen Feature", WorkItemType.Feature);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _cmd.ExecuteAsync("Deliberate seed", parent: 2);
+
+        result.ShouldBe(0);
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l =>
+                l.SourceId < 0 &&
+                l.TargetId == 2 &&
+                l.LinkType == SeedLinkTypes.ParentChild),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_NoParent_WritesNoParentChildLinkRow()
+    {
+        // twig#258: no parent at all, so there is nothing to link.
+        var active = CreateWorkItem(1, "Active Item", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+
+        var result = await _cmd.ExecuteAsync("Orphan seed", type: "Task", noParent: true);
+
+        result.ShouldBe(0);
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, WorkItemType type)
     {
         return new WorkItem
@@ -453,7 +507,7 @@ public class SeedNewCommandTests
         return new SeedNewCommand(
             _resolver, _workItemRepo, processConfigProvider,
             _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter);
+            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
     }
 
     private static ProcessTypeRecord CreateProcessTypeRecord(string typeName, params string[] childTypes) =>

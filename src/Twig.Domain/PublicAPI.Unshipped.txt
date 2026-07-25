@@ -437,4 +437,8 @@ Twig.Domain.Services.Seed.SeedParentResolver
 const Twig.Domain.Services.Seed.SeedParentResolver.RuleName = "ParentLink" -> string!
 static Twig.Domain.Services.Seed.SeedParentResolver.Resolve(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
 static Twig.Domain.Services.Seed.SeedParentResolver.CheckParentAgreement(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.ValueObjects.SeedValidationFailure?
+const Twig.Domain.Services.Seed.SeedParentResolver.InferredParentRuleName = "InferredParent" -> string!
+static Twig.Domain.Services.Seed.SeedParentResolver.CheckInferredParent(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.ValueObjects.SeedValidationFailure?
+Twig.Domain.ValueObjects.SeedValidationResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedValidationFailure>!
+Twig.Domain.ValueObjects.SeedValidationResult.Warnings.init -> void
 static Twig.Domain.Services.Seed.SeedValidator.Validate(Twig.Domain.Aggregates.WorkItem! seed, Twig.Domain.ValueObjects.SeedPublishRules! rules, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>? links) -> Twig.Domain.ValueObjects.SeedValidationResult!

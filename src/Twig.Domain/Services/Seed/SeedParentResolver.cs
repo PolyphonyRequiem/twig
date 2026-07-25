@@ -19,6 +19,43 @@ public static class SeedParentResolver
     /// <summary>Rule name reported on parent-agreement validation failures.</summary>
     public const string RuleName = "ParentLink";
 
+    /// <summary>Rule name reported on the advisory inferred-parent warning (twig#260).</summary>
+    public const string InferredParentRuleName = "InferredParent";
+
+    /// <summary>
+    /// Advisory check for a parent that was never explicitly chosen (twig#260).
+    /// </summary>
+    /// <remarks>
+    /// Every path that sets a parent deliberately — <c>seed new --parent</c>,
+    /// <c>seed link --type parent-child</c>, and the MCP equivalents — writes BOTH the
+    /// denormalized <see cref="WorkItem.ParentId"/> and a parent-child link row. The
+    /// inference fallback in <c>seed new</c> writes only <c>ParentId</c>. So a seed with
+    /// <c>ParentId</c> set and zero parent-child rows is one whose parent was inherited
+    /// from the active item rather than chosen — the twig#254 case.
+    /// <para>
+    /// This is advisory, never a failure: an inferred parent is frequently the right one,
+    /// and <c>seed validate</c> must still exit 0. Seeds created before this convention
+    /// landed will also warn; that is accepted rather than version-gated.
+    /// </para>
+    /// </remarks>
+    public static SeedValidationFailure? CheckInferredParent(
+        WorkItem seed,
+        IReadOnlyList<SeedLink> links)
+    {
+        if (!seed.ParentId.HasValue)
+            return null;
+
+        if (GetParentTargets(seed, links).Length > 0)
+            return null;
+
+        return new SeedValidationFailure(
+            InferredParentRuleName,
+            $"Seed {seed.Id} ('{seed.Title}') has parent #{seed.ParentId.Value}, but it was never " +
+            "explicitly chosen — it was inherited from the active work item at creation time. " +
+            $"Confirm it with 'twig seed link {seed.Id} {seed.ParentId.Value} --type parent-child', " +
+            "or change it with 'twig seed link' to a different parent.");
+    }
+
     /// <summary>
     /// Reconciles the seed's <see cref="WorkItem.ParentId"/> against its parent-child links.
     /// Returns the seed (possibly with an adopted ParentId), or a failure when the two stores

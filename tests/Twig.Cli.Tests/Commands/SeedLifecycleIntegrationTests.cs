@@ -109,7 +109,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter);
+            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("My Lifecycle Seed");
@@ -219,7 +219,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter2), seedIdCounter2);
+            new SeedFactory(seedIdCounter2), seedIdCounter2, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         await Should.ThrowAsync<InvalidOperationException>(
@@ -287,7 +287,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter);
+            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("Publishable Seed");

@@ -22,6 +22,7 @@ public static class SeedValidator
         IReadOnlyList<SeedLink>? links)
     {
         var failures = new List<SeedValidationFailure>();
+        var warnings = new List<SeedValidationFailure>();
 
         foreach (var field in rules.RequiredFields)
         {
@@ -54,6 +55,12 @@ public static class SeedValidator
             var parentFailure = SeedParentResolver.CheckParentAgreement(seed, links);
             if (parentFailure.HasValue)
                 failures.Add(parentFailure.Value);
+
+            // Advisory only (twig#260): a parent that was inherited rather than chosen.
+            // Must not affect Passed — an inferred parent is often the right one.
+            var inferredParent = SeedParentResolver.CheckInferredParent(seed, links);
+            if (inferredParent.HasValue)
+                warnings.Add(inferredParent.Value);
         }
 
         failures.AddRange(ValidateCanonicalFields(seed));
@@ -63,6 +70,7 @@ public static class SeedValidator
             SeedId = seed.Id,
             Title = seed.Title,
             Failures = failures,
+            Warnings = warnings,
         };
     }
 

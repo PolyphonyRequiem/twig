@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
@@ -42,6 +43,7 @@ public sealed class SeedNewCommand(
         string? type = null,
         bool editor = false,
         int? parent = null,
+        bool noParent = false,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
@@ -50,7 +52,22 @@ public sealed class SeedNewCommand(
         // Title is required unless --editor is used (editor can supply it)
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new --title \"title\" [--type <type>] [--parent <id>]"));
+            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new --title \"title\" [--type <type>] [--parent <id> | --no-parent]"));
+            return 2;
+        }
+
+        if (noParent && parent.HasValue)
+        {
+            Console.Error.WriteLine(fmt.FormatError("--no-parent and --parent are mutually exclusive."));
+            return 2;
+        }
+
+        // With no parent there is nothing to infer the child type from, so --no-parent
+        // requires --type. SeedFactory enforces this; caught here for a clearer message.
+        if (noParent && type is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                "--no-parent requires --type, since there is no parent to infer the work item type from."));
             return 2;
         }
 
@@ -59,7 +76,11 @@ public sealed class SeedNewCommand(
         WorkItem? parentContext;
         var parentWasInferred = false;
 
-        if (parent.HasValue)
+        if (noParent)
+        {
+            parentContext = null;
+        }
+        else if (parent.HasValue)
         {
             parentContext = await workItemRepo.GetByIdAsync(parent.Value, ct);
             if (parentContext is null)
@@ -104,8 +125,18 @@ public sealed class SeedNewCommand(
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        var seedResult = seedFactory.Create(seedTitle, parentContext, processConfig, typeOverride,
-            config.User.DisplayName);
+        // With --no-parent there is no context to inherit area/iteration from, so fall back
+        // to configured defaults — the same resolution the MCP twig_seed_new path uses for
+        // its unparented case, keeping the two surfaces at parity.
+        var seedResult = noParent
+            ? seedFactory.CreateUnparented(
+                seedTitle,
+                typeOverride!.Value,
+                ResolveDefaultPath(config.Defaults?.AreaPath, config.Project, AreaPath.Parse),
+                ResolveDefaultPath(config.Defaults?.IterationPath, config.Project, IterationPath.Parse),
+                config.User.DisplayName)
+            : seedFactory.Create(seedTitle, parentContext, processConfig, typeOverride,
+                config.User.DisplayName);
         if (!seedResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(seedResult.Error));
@@ -260,5 +291,29 @@ public sealed class SeedNewCommand(
             ["message"] = new RenderCell(message, new RenderValue.String(message)),
         };
         return new RenderNode.Record("seedCreationCancelled", fields);
+    }
+
+    /// <summary>
+    /// Resolves a configured default area/iteration path, falling back to the project name
+    /// and finally to <c>default</c>. Mirrors the MCP <c>SeedTools.ResolveDefaultPath</c>
+    /// used for unparented seeds.
+    /// </summary>
+    private static T ResolveDefaultPath<T>(
+        string? configPath,
+        string? projectName,
+        Func<string?, Result<T>> parse)
+        where T : struct
+    {
+        if (!string.IsNullOrWhiteSpace(configPath))
+        {
+            var r = parse(configPath);
+            if (r.IsSuccess) return r.Value;
+        }
+        if (!string.IsNullOrWhiteSpace(projectName))
+        {
+            var r = parse(projectName);
+            if (r.IsSuccess) return r.Value;
+        }
+        return default;
     }
 }

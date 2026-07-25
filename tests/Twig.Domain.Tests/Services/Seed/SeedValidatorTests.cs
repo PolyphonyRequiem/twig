@@ -281,4 +281,67 @@ public class SeedValidatorTests
         result.Passed.ShouldBeFalse();
         result.Failures.Count.ShouldBe(2);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent agreement (twig#254) — presence is not agreement
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Validate_ParentIdConflictsWithLink_Fails()
+    {
+        // Before twig#254 this passed: validate only checked ParentId presence and never
+        // read the link table, so publish was the first thing that could catch it.
+        var seed = new WorkItemBuilder(-20, "Child").AsSeed().WithParent(50).Build();
+        var links = new[]
+        {
+            new SeedLink(-20, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+        };
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default, links);
+
+        result.Passed.ShouldBeFalse();
+        result.Failures.ShouldContain(f => f.Rule == SeedParentResolver.RuleName);
+    }
+
+    [Fact]
+    public void Validate_MultipleParentLinks_Fails()
+    {
+        var seed = new WorkItemBuilder(-21, "Child").AsSeed().Build();
+        var links = new[]
+        {
+            new SeedLink(-21, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            new SeedLink(-21, 200, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+        };
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default, links);
+
+        result.Passed.ShouldBeFalse();
+        result.Failures.ShouldContain(f => f.Rule == SeedParentResolver.RuleName);
+    }
+
+    [Fact]
+    public void Validate_ParentIdAgreesWithLink_Passes()
+    {
+        var seed = new WorkItemBuilder(-22, "Child").AsSeed().WithParent(100).Build();
+        var links = new[]
+        {
+            new SeedLink(-22, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+        };
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default, links);
+
+        result.Passed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Validate_ParentIdWithNoLinks_Passes()
+    {
+        // The `seed new` shape: ParentId set, no link row. Agreement is vacuous here —
+        // this must NOT become a failure, or every freshly created seed fails validate.
+        var seed = new WorkItemBuilder(-23, "Child").AsSeed().WithParent(100).Build();
+
+        var result = SeedValidator.Validate(seed, SeedPublishRules.Default, Array.Empty<SeedLink>());
+
+        result.Passed.ShouldBeTrue();
+    }
 }

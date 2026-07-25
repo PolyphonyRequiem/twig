@@ -336,6 +336,63 @@ public class SeedNewCommandTests
         stdout.ShouldContain("Created local seed:");
     }
 
+    // ── Parent transparency and explicit --parent (twig#254) ────────
+
+    [Fact]
+    public async Task SeedNew_InferredParent_IsAnnouncedInOutput()
+    {
+        // twig#254: the inferred parent must never be applied silently.
+        var parent = CreateWorkItem(1, "Parent Feature", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var originalOut = Console.Out;
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+        try
+        {
+            var result = await _cmd.ExecuteAsync("New Story");
+            result.ShouldBe(0);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+
+        var stdout = writer.ToString();
+        stdout.ShouldContain("Parent: #1");
+        stdout.ShouldContain("from active item");
+    }
+
+    [Fact]
+    public async Task SeedNew_ExplicitParent_OverridesActiveItem()
+    {
+        var active = CreateWorkItem(1, "Wrong Parent", WorkItemType.Feature);
+        var intended = CreateWorkItem(2, "Intended Parent", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(intended);
+
+        var result = await _cmd.ExecuteAsync("New Story", parent: 2);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.ParentId == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_ExplicitParentNotInCache_Errors()
+    {
+        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var result = await _cmd.ExecuteAsync("New Story", parent: 999);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, WorkItemType type)
     {
         return new WorkItem

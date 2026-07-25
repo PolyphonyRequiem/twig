@@ -300,7 +300,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         // ── Step 2: twig seed validate ─────────────────────────────────
         _workItemRepo.GetByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>()).Returns(savedSeed);
 
-        var validateCmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _formatterFactory);
+        var validateCmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _seedLinkRepo, _formatterFactory);
         var validateWriter = new StringWriter();
         Console.SetOut(validateWriter);
 

@@ -25,6 +25,7 @@ namespace Twig.Commands;
 public sealed class SeedValidateCommand(
     IWorkItemRepository workItemRepo,
     ISeedPublishRulesProvider rulesProvider,
+    ISeedLinkRepository seedLinkRepo,
     OutputFormatterFactory formatterFactory,
     RendererFactory? rendererFactory = null)
 {
@@ -48,7 +49,8 @@ public sealed class SeedValidateCommand(
                 return 1;
             }
 
-            var result = SeedValidator.Validate(seed, rules);
+            var seedLinks = await seedLinkRepo.GetLinksForItemAsync(id.Value, ct);
+            var result = SeedValidator.Validate(seed, rules, seedLinks);
             Render(new[] { result }, outputFormat);
             return result.Passed ? 0 : 1;
         }
@@ -60,9 +62,10 @@ public sealed class SeedValidateCommand(
             return 0;
         }
 
+        var allLinks = await seedLinkRepo.GetAllSeedLinksAsync(ct);
         var results = new List<SeedValidationResult>(seeds.Count);
         foreach (var seed in seeds)
-            results.Add(SeedValidator.Validate(seed, rules));
+            results.Add(SeedValidator.Validate(seed, rules, allLinks));
 
         Render(results, outputFormat);
         return results.Exists(r => !r.Passed) ? 1 : 0;

@@ -1453,8 +1453,10 @@ public sealed class SeedToolsTests : CreationToolsTestBase
     }
 
     [Fact]
-    public async Task SeedLink_ParentChildFromSeed_WithDifferentParent_ReturnsError()
+    public async Task SeedLink_ParentChildFromSeed_WithDifferentParent_Reparents()
     {
+        // twig#254: mirrors SeedLinkCommandTests — the MCP surface carries the same guards,
+        // so a CLI-only fix would ship half a fix.
         var seed = new WorkItemBuilder(-1, "Child")
             .AsTask()
             .AsSeed()
@@ -1468,15 +1470,17 @@ public sealed class SeedToolsTests : CreationToolsTestBase
             targetId: 100,
             type: SeedLinkTypes.ParentChild);
 
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("already has parent #50");
-        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
-            Arg.Any<SeedLink>(),
+        result.IsError.ShouldBeNull();
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == 100),
+            Arg.Any<CancellationToken>());
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task SeedLink_ParentChildFromSeed_WithDifferentExistingLink_ReturnsError()
+    public async Task SeedLink_ParentChildFromSeed_WithDifferentExistingLink_ReparentsAndRemovesStaleLink()
     {
         var seed = new WorkItemBuilder(-1, "Child").AsTask().AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
@@ -1492,10 +1496,11 @@ public sealed class SeedToolsTests : CreationToolsTestBase
             targetId: 100,
             type: SeedLinkTypes.ParentChild);
 
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("already has parent #50");
-        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
-            Arg.Any<SeedLink>(),
+        result.IsError.ShouldBeNull();
+        await _seedLinkRepo.Received(1).RemoveLinkAsync(
+            -1, 50, SeedLinkTypes.ParentChild, Arg.Any<CancellationToken>());
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100),
             Arg.Any<CancellationToken>());
     }
 }

@@ -176,25 +176,29 @@ public class SeedLinkCommandTests
     }
 
     [Fact]
-    public async Task Link_ParentChildFromSeed_WithDifferentParent_IsRejected()
+    public async Task Link_ParentChildFromSeed_WithDifferentParent_Reparents()
     {
+        // twig#254: the documented parent-link command must be able to correct a wrong
+        // parent, not just error. Both stores move to the new target.
         var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(50).Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
 
         var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
 
-        result.ShouldBe(1);
-        await _workItemRepo.DidNotReceive().SaveAsync(
-            Arg.Any<WorkItem>(),
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == 100),
             Arg.Any<CancellationToken>());
-        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
-            Arg.Any<SeedLink>(),
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100 && l.LinkType == SeedLinkTypes.ParentChild),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Link_ParentChildFromSeed_WithDifferentExistingLink_IsRejected()
+    public async Task Link_ParentChildFromSeed_WithDifferentExistingLink_ReparentsAndRemovesStaleLink()
     {
+        // twig#254, second guard: the stale parent-child ROW must be removed too, so the
+        // seed never reaches SeedParentResolver with two parent links.
         var seed = new WorkItemBuilder(-1, "Child").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
         _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
@@ -205,12 +209,14 @@ public class SeedLinkCommandTests
 
         var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
 
-        result.ShouldBe(1);
-        await _workItemRepo.DidNotReceive().SaveAsync(
-            Arg.Any<WorkItem>(),
+        result.ShouldBe(0);
+        await _seedLinkRepo.Received(1).RemoveLinkAsync(
+            -1, 50, SeedLinkTypes.ParentChild, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == 100),
             Arg.Any<CancellationToken>());
-        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
-            Arg.Any<SeedLink>(),
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100),
             Arg.Any<CancellationToken>());
     }
 

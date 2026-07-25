@@ -433,3 +433,8 @@ Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Equals(Twig.Domain.
 Twig.Domain.Services.Mutation.PatchOutcome.Patched.Equals(Twig.Domain.Services.Mutation.PatchOutcome.Patched? other) -> bool
 Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.Equals(Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? other) -> bool
 Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Equals(Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? other) -> bool
+Twig.Domain.Services.Seed.SeedParentResolver
+const Twig.Domain.Services.Seed.SeedParentResolver.RuleName = "ParentLink" -> string!
+static Twig.Domain.Services.Seed.SeedParentResolver.Resolve(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+static Twig.Domain.Services.Seed.SeedParentResolver.CheckParentAgreement(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.ValueObjects.SeedValidationFailure?
+static Twig.Domain.Services.Seed.SeedValidator.Validate(Twig.Domain.Aggregates.WorkItem! seed, Twig.Domain.ValueObjects.SeedPublishRules! rules, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>? links) -> Twig.Domain.ValueObjects.SeedValidationResult!

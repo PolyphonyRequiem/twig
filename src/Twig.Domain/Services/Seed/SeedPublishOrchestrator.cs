@@ -413,38 +413,11 @@ public sealed class SeedPublishOrchestrator
         };
     }
 
+    // Delegates to the shared rule so publish and `seed validate` agree (see SeedParentResolver).
     private static Result<WorkItem> ResolveParentLink(
         WorkItem seed,
-        IReadOnlyList<SeedLink> links)
-    {
-        var parentTargets = links
-            .Where(link =>
-                link.LinkType == SeedLinkTypes.ParentChild &&
-                link.SourceId == seed.Id)
-            .Select(link => link.TargetId)
-            .Distinct()
-            .ToArray();
-
-        if (parentTargets.Length == 0)
-            return Result.Ok(seed);
-
-        if (parentTargets.Length > 1)
-        {
-            return Result.Fail<WorkItem>(
-                $"Seed {seed.Id} ('{seed.Title}') has multiple parent-child links. Remove the extra parent links before publishing.");
-        }
-
-        var linkedParentId = parentTargets[0];
-        if (seed.ParentId.HasValue && seed.ParentId.Value != linkedParentId)
-        {
-            return Result.Fail<WorkItem>(
-                $"Seed {seed.Id} ('{seed.Title}') has conflicting parents: ParentId is {seed.ParentId.Value}, but its parent-child link targets {linkedParentId}.");
-        }
-
-        return seed.ParentId == linkedParentId
-            ? Result.Ok(seed)
-            : Result.Ok(seed.WithParentId(linkedParentId));
-    }
+        IReadOnlyList<SeedLink> links) =>
+        SeedParentResolver.Resolve(seed, links);
 
     private sealed class NoOpWorkItemLinkRepository : IWorkItemLinkRepository
     {

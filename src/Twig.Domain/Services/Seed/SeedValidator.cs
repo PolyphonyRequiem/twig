@@ -8,7 +8,18 @@ namespace Twig.Domain.Services.Seed;
 /// </summary>
 public static class SeedValidator
 {
-    public static SeedValidationResult Validate(WorkItem seed, SeedPublishRules rules)
+    public static SeedValidationResult Validate(WorkItem seed, SeedPublishRules rules) =>
+        Validate(seed, rules, links: null);
+
+    /// <summary>
+    /// Validates a seed, additionally checking that <see cref="WorkItem.ParentId"/> agrees with
+    /// the seed's parent-child links. Pass the links so a wrong or ambiguous parent is caught
+    /// here rather than only at publish time.
+    /// </summary>
+    public static SeedValidationResult Validate(
+        WorkItem seed,
+        SeedPublishRules rules,
+        IReadOnlyList<SeedLink>? links)
     {
         var failures = new List<SeedValidationFailure>();
 
@@ -34,6 +45,15 @@ public static class SeedValidator
         if (rules.RequireParent && seed.ParentId is null)
         {
             failures.Add(new SeedValidationFailure("RequireParent", "A parent work item is required but not set."));
+        }
+
+        // Presence is not agreement: ParentId and the parent-child link table are two stores
+        // that can disagree. Surface the same failure publish would, before publish.
+        if (links is not null)
+        {
+            var parentFailure = SeedParentResolver.CheckParentAgreement(seed, links);
+            if (parentFailure.HasValue)
+                failures.Add(parentFailure.Value);
         }
 
         failures.AddRange(ValidateCanonicalFields(seed));

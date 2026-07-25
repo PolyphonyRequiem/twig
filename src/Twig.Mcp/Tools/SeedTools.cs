@@ -385,7 +385,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (all)
         {
             var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
-            var results = seeds.Select(s => SeedValidator.Validate(s, rules)).ToList();
+            var allLinks = await ctx.SeedLinkRepo.GetAllSeedLinksAsync(ct);
+            var results = seeds.Select(s => SeedValidator.Validate(s, rules, allLinks)).ToList();
             var passCount = results.Count(r => r.Passed);
             var failCount = results.Count - passCount;
 
@@ -412,7 +413,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
                 $"Seed {id.Value} not found.", ctx, ct);
 
-        var result = SeedValidator.Validate(seed, rules);
+        var seedLinks = await ctx.SeedLinkRepo.GetLinksForItemAsync(id.Value, ct);
+        var result = SeedValidator.Validate(seed, rules, seedLinks);
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
@@ -701,6 +703,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 $"Invalid link type '{rawType}'. Valid types: {string.Join(", ", SeedLinkTypes.All)}", ctx, ct);
 
+        int? reparentedFrom = null;
+
         if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
         {
             if (sourceId == targetId)
@@ -712,20 +716,24 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
                     $"Seed #{sourceId} not found.", ctx, ct);
 
-            if (childSeed.ParentId.HasValue && childSeed.ParentId.Value != targetId)
-                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
-                    $"Seed #{sourceId} already has parent #{childSeed.ParentId.Value}. Remove that parent link first.", ctx, ct);
-
-            var existingParentId = (await ctx.SeedLinkRepo.GetLinksForItemAsync(sourceId, ct))
+            // Reparenting is allowed — see SeedLinkCommand.LinkAsync (twig#254). Both stores
+            // move to the new target; stale parent-child rows are removed so the seed never
+            // reaches SeedParentResolver in an ambiguous multi-parent state.
+            var staleParentLinks = (await ctx.SeedLinkRepo.GetLinksForItemAsync(sourceId, ct))
                 .Where(link =>
                     link.LinkType == SeedLinkTypes.ParentChild &&
                     link.SourceId == sourceId &&
                     link.TargetId != targetId)
+                .ToList();
+
+            foreach (var stale in staleParentLinks)
+                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
+
+            reparentedFrom = childSeed.ParentId ?? staleParentLinks
                 .Select(link => (int?)link.TargetId)
                 .FirstOrDefault();
-            if (existingParentId.HasValue)
-                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
-                    $"Seed #{sourceId} already has parent #{existingParentId.Value}. Remove that parent link first.", ctx, ct);
+            if (reparentedFrom == targetId)
+                reparentedFrom = null;
 
             if (childSeed.ParentId != targetId)
                 await ctx.WorkItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
@@ -768,6 +776,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             writer.WriteNumber("targetId", targetId);
             writer.WriteString("linkType", linkType);
             writer.WriteBoolean("created", true);
+            if (reparentedFrom.HasValue)
+                writer.WriteNumber("reparentedFrom", reparentedFrom.Value);
         }, verbose, ct);
     }
 

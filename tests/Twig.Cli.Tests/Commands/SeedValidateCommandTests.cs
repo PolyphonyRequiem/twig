@@ -14,6 +14,7 @@ public class SeedValidateCommandTests : IDisposable
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly ISeedPublishRulesProvider _rulesProvider;
+    private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly SeedValidateCommand _cmd;
     private readonly TextWriter _originalOut;
@@ -28,9 +29,15 @@ public class SeedValidateCommandTests : IDisposable
         _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>())
             .Returns(SeedPublishRules.Default);
 
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
-        _cmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _formatterFactory);
+        _cmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _seedLinkRepo, _formatterFactory);
     }
 
     public void Dispose()

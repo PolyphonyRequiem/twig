@@ -540,17 +540,18 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     [Hidden]
-    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
+    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, output, ct);
 
     /// <summary>Create a new local seed work item.</summary>
     /// <param name="title">Title for the new seed work item.</param>
     /// <param name="type">Work item type for the seed (e.g., Task, Bug).</param>
     /// <param name="editor">Open an external editor to fill in seed fields.</param>
+    /// <param name="parent">Parent work item ID. Defaults to the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("seed new")]
-    public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
+    public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, output, ct);
 
     /// <summary>Edit seed fields in an external editor.</summary>
     /// <param name="id">Seed ID to edit.</param>
@@ -1294,6 +1295,7 @@ Work Items:
 
 Seeds:
   seed new <title>     Create a new local seed (child work item).
+  seed new --parent <id>  Create a seed under an explicit parent (default: active item).
   seed new --editor    Create a seed via editor with field template.
   seed edit <id>       Edit a local seed in an external editor.
   seed discard <id>    Delete a local seed (prompts for confirmation).

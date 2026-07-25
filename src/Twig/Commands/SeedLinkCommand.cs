@@ -67,29 +67,33 @@ public sealed class SeedLinkCommand(
                 return 1;
             }
 
-            if (childSeed.ParentId.HasValue && childSeed.ParentId.Value != targetId)
-            {
-                Console.Error.WriteLine(fmt.FormatError(
-                    $"Seed #{sourceId} already has parent #{childSeed.ParentId.Value}. Remove that parent link first."));
-                return 1;
-            }
-
-            var existingParentId = (await seedLinkRepo.GetLinksForItemAsync(sourceId, ct))
+            // Reparenting is allowed: a seed's parent lives in two stores (WorkItem.ParentId
+            // and parent-child link rows). Move BOTH to the new target rather than erroring,
+            // otherwise the documented parent-link command can never correct a wrong parent
+            // (twig#254). Stale parent-child rows to other targets are removed here so
+            // SeedParentResolver never sees an ambiguous multi-parent state.
+            var staleParentLinks = (await seedLinkRepo.GetLinksForItemAsync(sourceId, ct))
                 .Where(link =>
                     link.LinkType == SeedLinkTypes.ParentChild &&
                     link.SourceId == sourceId &&
                     link.TargetId != targetId)
+                .ToList();
+
+            foreach (var stale in staleParentLinks)
+                await seedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
+
+            var previousParentId = childSeed.ParentId ?? staleParentLinks
                 .Select(link => (int?)link.TargetId)
                 .FirstOrDefault();
-            if (existingParentId.HasValue)
-            {
-                Console.Error.WriteLine(fmt.FormatError(
-                    $"Seed #{sourceId} already has parent #{existingParentId.Value}. Remove that parent link first."));
-                return 1;
-            }
 
             if (childSeed.ParentId != targetId)
                 await workItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
+
+            if (previousParentId.HasValue && previousParentId.Value != targetId)
+            {
+                Console.Error.WriteLine(fmt.FormatInfo(
+                    $"Reparented seed #{sourceId}: #{previousParentId.Value} → #{targetId}."));
+            }
         }
 
         if (sourceId > 0 && !await workItemRepo.ExistsByIdAsync(sourceId, ct))

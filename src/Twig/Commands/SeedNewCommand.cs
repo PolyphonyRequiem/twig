@@ -41,6 +41,7 @@ public sealed class SeedNewCommand(
         string? title,
         string? type = null,
         bool editor = false,
+        int? parent = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
@@ -49,15 +50,36 @@ public sealed class SeedNewCommand(
         // Title is required unless --editor is used (editor can supply it)
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new --title \"title\" [--type <type>]"));
+            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new --title \"title\" [--type <type>] [--parent <id>]"));
             return 2;
         }
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
-        if (!resolved.TryGetWorkItem(out var parent, out var errorId, out var errorReason) && errorId is not null)
+        // An explicit --parent wins over the active item; otherwise the active item is
+        // inferred, and the inference is announced rather than applied silently (twig#254).
+        WorkItem? parentContext;
+        var parentWasInferred = false;
+
+        if (parent.HasValue)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{errorId} is unreachable: {errorReason}"));
-            return 1;
+            parentContext = await workItemRepo.GetByIdAsync(parent.Value, ct);
+            if (parentContext is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Parent work item #{parent.Value} not found in the local cache. Run 'twig show {parent.Value}' first."));
+                return 1;
+            }
+        }
+        else
+        {
+            var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+            if (!resolved.TryGetWorkItem(out var activeParent, out var errorId, out var errorReason) && errorId is not null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{errorId} is unreachable: {errorReason}"));
+                return 1;
+            }
+
+            parentContext = activeParent;
+            parentWasInferred = activeParent is not null;
         }
 
         var processConfig = processConfigProvider.GetConfiguration();
@@ -82,7 +104,7 @@ public sealed class SeedNewCommand(
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        var seedResult = seedFactory.Create(seedTitle, parent, processConfig, typeOverride,
+        var seedResult = seedFactory.Create(seedTitle, parentContext, processConfig, typeOverride,
             config.User.DisplayName);
         if (!seedResult.IsSuccess)
         {
@@ -126,14 +148,19 @@ public sealed class SeedNewCommand(
             outputFormat: outputFormat,
             createdId: seed.Id);
 
-        RenderCreated(seed, hints, outputFormat);
+        RenderCreated(seed, parentContext, parentWasInferred, hints, outputFormat);
         return 0;
     }
 
-    private void RenderCreated(WorkItem seed, IReadOnlyList<string> hints, string outputFormat)
+    private void RenderCreated(
+        WorkItem seed,
+        WorkItem? parentContext,
+        bool parentWasInferred,
+        IReadOnlyList<string> hints,
+        string outputFormat)
     {
         var message = $"Created local seed: #{seed.Id} {seed.Title} ({seed.Type})";
-        var tree = BuildCreatedTree(seed, message, hints, outputFormat);
+        var tree = BuildCreatedTree(seed, parentContext, parentWasInferred, message, hints, outputFormat);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
     }
 
@@ -145,18 +172,33 @@ public sealed class SeedNewCommand(
     }
 
     private static RenderTree.RenderTree BuildCreatedTree(
-        WorkItem seed, string message, IReadOnlyList<string> hints, string outputFormat)
+        WorkItem seed,
+        WorkItem? parentContext,
+        bool parentWasInferred,
+        string message,
+        IReadOnlyList<string> hints,
+        string outputFormat)
     {
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
         var isMachine = lower is "json" or "json-full" or "json-compact" or "minimal" or "ids";
-        var nodes = new List<RenderNode>(capacity: 1 + (isMachine ? 0 : hints.Count));
+        var nodes = new List<RenderNode>(capacity: 2 + (isMachine ? 0 : hints.Count));
 
         nodes.Add(lower switch
         {
             "minimal" => new RenderNode.Text(message),
-            "json" or "json-full" or "json-compact" or "ids" => BuildCreatedRecord(seed, message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildCreatedRecord(seed, parentContext, parentWasInferred, message),
             _ => new RenderNode.Text(message, Severity.Success),
         });
+
+        // Never assign a parent silently — an unnoticed inherited parent is the whole of
+        // twig#254. Human output states the parent and where it came from.
+        if (!isMachine && parentContext is not null)
+        {
+            var origin = parentWasInferred ? "from active item" : "from --parent";
+            nodes.Add(new RenderNode.Text(
+                $"  Parent: #{parentContext.Id} {parentContext.Title} ({origin})",
+                parentWasInferred ? Severity.Warning : Severity.Info));
+        }
 
         if (!isMachine)
         {
@@ -182,7 +224,11 @@ public sealed class SeedNewCommand(
         return new RenderTree.RenderTree(new[] { node });
     }
 
-    private static RenderNode BuildCreatedRecord(WorkItem seed, string message)
+    private static RenderNode BuildCreatedRecord(
+        WorkItem seed,
+        WorkItem? parentContext,
+        bool parentWasInferred,
+        string message)
     {
         var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
@@ -192,6 +238,17 @@ public sealed class SeedNewCommand(
             ["isSeed"] = new RenderCell("true", new RenderValue.Boolean(true)),
             ["message"] = new RenderCell(message, new RenderValue.String(message)),
         };
+
+        if (parentContext is not null)
+        {
+            fields["parentId"] = new RenderCell(
+                parentContext.Id.ToString(), new RenderValue.Integer(parentContext.Id));
+            fields["parentTitle"] = new RenderCell(
+                parentContext.Title, new RenderValue.String(parentContext.Title));
+            fields["parentInferred"] = new RenderCell(
+                parentWasInferred ? "true" : "false", new RenderValue.Boolean(parentWasInferred));
+        }
+
         return new RenderNode.Record("seedCreated", fields);
     }
 

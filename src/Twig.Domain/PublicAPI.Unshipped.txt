@@ -438,3 +438,131 @@ const Twig.Domain.Services.Seed.SeedParentResolver.RuleName = "ParentLink" -> st
 static Twig.Domain.Services.Seed.SeedParentResolver.Resolve(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
 static Twig.Domain.Services.Seed.SeedParentResolver.CheckParentAgreement(Twig.Domain.Aggregates.WorkItem! seed, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>! links) -> Twig.Domain.ValueObjects.SeedValidationFailure?
 static Twig.Domain.Services.Seed.SeedValidator.Validate(Twig.Domain.Aggregates.WorkItem! seed, Twig.Domain.ValueObjects.SeedPublishRules! rules, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>? links) -> Twig.Domain.ValueObjects.SeedValidationResult!
+
+const Twig.Domain.Services.WorkItemHistoryOptionsParser.DetailAllToken = "all" -> string!
+override Twig.Domain.ValueObjects.WorkItemFieldChange.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemFieldChange.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemFieldChange.ToString() -> string!
+override Twig.Domain.ValueObjects.WorkItemHistory.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemHistory.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemHistory.ToString() -> string!
+override Twig.Domain.ValueObjects.WorkItemHistoryEvent.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemHistoryEvent.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemHistoryEvent.ToString() -> string!
+override Twig.Domain.ValueObjects.WorkItemHistoryOptions.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemHistoryOptions.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemHistoryOptions.ToString() -> string!
+override Twig.Domain.ValueObjects.WorkItemRelationChange.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemRelationChange.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemRelationChange.ToString() -> string!
+override Twig.Domain.ValueObjects.WorkItemRelationTarget.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.WorkItemRelationTarget.GetHashCode() -> int
+override Twig.Domain.ValueObjects.WorkItemRelationTarget.ToString() -> string!
+static readonly Twig.Domain.ValueObjects.WorkItemHistoryOptions.Brief -> Twig.Domain.ValueObjects.WorkItemHistoryOptions!
+static Twig.Domain.Services.WorkItemHistoryJsonWriter.Write(Twig.Domain.ValueObjects.WorkItemHistory! history) -> string!
+static Twig.Domain.Services.WorkItemHistoryJsonWriter.WriteTo(System.Text.Json.Utf8JsonWriter! writer, Twig.Domain.ValueObjects.WorkItemHistory! history) -> void
+static Twig.Domain.Services.WorkItemHistoryOptionsParser.Parse(string? detail, string? fields) -> Twig.Domain.Common.Result<Twig.Domain.ValueObjects.WorkItemHistoryOptions!>
+static Twig.Domain.ValueObjects.WorkItemFieldChange.operator !=(Twig.Domain.ValueObjects.WorkItemFieldChange? left, Twig.Domain.ValueObjects.WorkItemFieldChange? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemFieldChange.operator ==(Twig.Domain.ValueObjects.WorkItemFieldChange? left, Twig.Domain.ValueObjects.WorkItemFieldChange? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistory.operator !=(Twig.Domain.ValueObjects.WorkItemHistory? left, Twig.Domain.ValueObjects.WorkItemHistory? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistory.operator ==(Twig.Domain.ValueObjects.WorkItemHistory? left, Twig.Domain.ValueObjects.WorkItemHistory? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistoryEvent.operator !=(Twig.Domain.ValueObjects.WorkItemHistoryEvent? left, Twig.Domain.ValueObjects.WorkItemHistoryEvent? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistoryEvent.operator ==(Twig.Domain.ValueObjects.WorkItemHistoryEvent? left, Twig.Domain.ValueObjects.WorkItemHistoryEvent? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistoryOptions.operator !=(Twig.Domain.ValueObjects.WorkItemHistoryOptions? left, Twig.Domain.ValueObjects.WorkItemHistoryOptions? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemHistoryOptions.operator ==(Twig.Domain.ValueObjects.WorkItemHistoryOptions? left, Twig.Domain.ValueObjects.WorkItemHistoryOptions? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemRelationChange.operator !=(Twig.Domain.ValueObjects.WorkItemRelationChange? left, Twig.Domain.ValueObjects.WorkItemRelationChange? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemRelationChange.operator ==(Twig.Domain.ValueObjects.WorkItemRelationChange? left, Twig.Domain.ValueObjects.WorkItemRelationChange? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemRelationTarget.operator !=(Twig.Domain.ValueObjects.WorkItemRelationTarget? left, Twig.Domain.ValueObjects.WorkItemRelationTarget? right) -> bool
+static Twig.Domain.ValueObjects.WorkItemRelationTarget.operator ==(Twig.Domain.ValueObjects.WorkItemRelationTarget? left, Twig.Domain.ValueObjects.WorkItemRelationTarget? right) -> bool
+Twig.Domain.Interfaces.IAdoWorkItemService.FetchHistoryAsync(int id, Twig.Domain.ValueObjects.WorkItemHistoryOptions! options, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.WorkItemHistory!>!
+Twig.Domain.Services.WorkItemHistoryJsonWriter
+Twig.Domain.Services.WorkItemHistoryOptionsParser
+Twig.Domain.ValueObjects.RelationChangeKind
+Twig.Domain.ValueObjects.RelationChangeKind.Added = 0 -> Twig.Domain.ValueObjects.RelationChangeKind
+Twig.Domain.ValueObjects.RelationChangeKind.Removed = 1 -> Twig.Domain.ValueObjects.RelationChangeKind
+Twig.Domain.ValueObjects.WorkItemFieldChange
+Twig.Domain.ValueObjects.WorkItemFieldChange.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemFieldChange!
+Twig.Domain.ValueObjects.WorkItemFieldChange.Deconstruct(out string! ReferenceName, out string? OldValue, out string? NewValue) -> void
+Twig.Domain.ValueObjects.WorkItemFieldChange.Equals(Twig.Domain.ValueObjects.WorkItemFieldChange? other) -> bool
+Twig.Domain.ValueObjects.WorkItemFieldChange.NewValue.get -> string?
+Twig.Domain.ValueObjects.WorkItemFieldChange.NewValue.init -> void
+Twig.Domain.ValueObjects.WorkItemFieldChange.OldValue.get -> string?
+Twig.Domain.ValueObjects.WorkItemFieldChange.OldValue.init -> void
+Twig.Domain.ValueObjects.WorkItemFieldChange.ReferenceName.get -> string!
+Twig.Domain.ValueObjects.WorkItemFieldChange.ReferenceName.init -> void
+Twig.Domain.ValueObjects.WorkItemFieldChange.WorkItemFieldChange(string! ReferenceName, string? OldValue, string? NewValue) -> void
+Twig.Domain.ValueObjects.WorkItemHistory
+Twig.Domain.ValueObjects.WorkItemHistory.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemHistory!
+Twig.Domain.ValueObjects.WorkItemHistory.Complete.get -> bool
+Twig.Domain.ValueObjects.WorkItemHistory.Complete.init -> void
+Twig.Domain.ValueObjects.WorkItemHistory.Deconstruct(out int WorkItemId, out bool Complete, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemHistoryEvent!>! Events) -> void
+Twig.Domain.ValueObjects.WorkItemHistory.Equals(Twig.Domain.ValueObjects.WorkItemHistory? other) -> bool
+Twig.Domain.ValueObjects.WorkItemHistory.Events.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemHistoryEvent!>!
+Twig.Domain.ValueObjects.WorkItemHistory.Events.init -> void
+Twig.Domain.ValueObjects.WorkItemHistory.WorkItemHistory(int WorkItemId, bool Complete, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemHistoryEvent!>! Events) -> void
+Twig.Domain.ValueObjects.WorkItemHistory.WorkItemId.get -> int
+Twig.Domain.ValueObjects.WorkItemHistory.WorkItemId.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemHistoryEvent!
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedAt.get -> System.DateTimeOffset?
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedAt.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedBy.get -> string?
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedBy.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedByIdentity.get -> string?
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedByIdentity.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedFields.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.ChangedFields.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Deconstruct(out int UpdateId, out int Revision, out System.DateTimeOffset? ChangedAt, out string? ChangedBy, out string? ChangedByIdentity, out System.Collections.Generic.IReadOnlyList<string!>! ChangedFields, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemFieldChange!>! Fields, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemRelationChange!>! Relations, out bool Detailed) -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Detailed.get -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Detailed.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Equals(Twig.Domain.ValueObjects.WorkItemHistoryEvent? other) -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Fields.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemFieldChange!>!
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Fields.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Relations.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemRelationChange!>!
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Relations.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Revision.get -> int
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.Revision.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.UpdateId.get -> int
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.UpdateId.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryEvent.WorkItemHistoryEvent(int UpdateId, int Revision, System.DateTimeOffset? ChangedAt, string? ChangedBy, string? ChangedByIdentity, System.Collections.Generic.IReadOnlyList<string!>! ChangedFields, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemFieldChange!>! Fields, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemRelationChange!>! Relations, bool Detailed) -> void
+Twig.Domain.ValueObjects.WorkItemHistoryOptions
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemHistoryOptions!
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.Deconstruct(out bool DetailAll, out System.Collections.Generic.IReadOnlySet<int>? DetailUpdateIds, out System.Collections.Generic.IReadOnlySet<string!>? Fields) -> void
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.DetailAll.get -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.DetailAll.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.DetailUpdateIds.get -> System.Collections.Generic.IReadOnlySet<int>?
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.DetailUpdateIds.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.Equals(Twig.Domain.ValueObjects.WorkItemHistoryOptions? other) -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.Fields.get -> System.Collections.Generic.IReadOnlySet<string!>?
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.Fields.init -> void
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.HasFieldFilter.get -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.IsDetailed(int updateId) -> bool
+Twig.Domain.ValueObjects.WorkItemHistoryOptions.WorkItemHistoryOptions(bool DetailAll = false, System.Collections.Generic.IReadOnlySet<int>? DetailUpdateIds = null, System.Collections.Generic.IReadOnlySet<string!>? Fields = null) -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange
+Twig.Domain.ValueObjects.WorkItemRelationChange.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemRelationChange!
+Twig.Domain.ValueObjects.WorkItemRelationChange.Deconstruct(out Twig.Domain.ValueObjects.RelationChangeKind Kind, out string! RelationType, out int TargetId, out Twig.Domain.ValueObjects.WorkItemRelationTarget? Target) -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange.Equals(Twig.Domain.ValueObjects.WorkItemRelationChange? other) -> bool
+Twig.Domain.ValueObjects.WorkItemRelationChange.Kind.get -> Twig.Domain.ValueObjects.RelationChangeKind
+Twig.Domain.ValueObjects.WorkItemRelationChange.Kind.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange.RelationType.get -> string!
+Twig.Domain.ValueObjects.WorkItemRelationChange.RelationType.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange.Target.get -> Twig.Domain.ValueObjects.WorkItemRelationTarget?
+Twig.Domain.ValueObjects.WorkItemRelationChange.Target.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange.TargetId.get -> int
+Twig.Domain.ValueObjects.WorkItemRelationChange.TargetId.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationChange.WorkItemRelationChange(Twig.Domain.ValueObjects.RelationChangeKind Kind, string! RelationType, int TargetId, Twig.Domain.ValueObjects.WorkItemRelationTarget? Target) -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget
+Twig.Domain.ValueObjects.WorkItemRelationTarget.<Clone>$() -> Twig.Domain.ValueObjects.WorkItemRelationTarget!
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Deconstruct(out int Id, out string? Title, out string? Type, out string? State, out bool Deleted) -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Deleted.get -> bool
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Deleted.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Equals(Twig.Domain.ValueObjects.WorkItemRelationTarget? other) -> bool
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Id.get -> int
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Id.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.State.get -> string?
+Twig.Domain.ValueObjects.WorkItemRelationTarget.State.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Title.get -> string?
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Title.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Type.get -> string?
+Twig.Domain.ValueObjects.WorkItemRelationTarget.Type.init -> void
+Twig.Domain.ValueObjects.WorkItemRelationTarget.WorkItemRelationTarget(int Id, string? Title, string? Type, string? State, bool Deleted) -> void

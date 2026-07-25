@@ -443,7 +443,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var orchestrator = new SeedDiscardOrchestrator(ctx.WorkItemRepo, ctx.SeedLinkRepo, ctx.ContextStore);
+        var orchestrator = new SeedDiscardOrchestrator(ctx.WorkItemRepo, ctx.SeedLinkRepo, ctx.ContextStore, ctx.PendingChangeStore);
         var plan = await orchestrator.BuildDiscardPlanAsync(id, ct);
 
         if (plan is null)

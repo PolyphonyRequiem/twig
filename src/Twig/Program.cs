@@ -527,10 +527,24 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Fore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
 
-    /// <summary>Display the navigation history (alias for nav history).</summary>
-    [Hidden]
-    public async Task<int> History(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
+    /// <summary>Show the revision history for a work item.</summary>
+    /// <param name="id">Work item ID whose history to display (required).</param>
+    /// <param name="detail">Comma-delimited update IDs, or 'all', to show full field deltas for.</param>
+    /// <param name="field">Comma-delimited ADO field reference names to restrict deltas to.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> History([Argument] int? id = null, string? detail = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        // The bare `history` verb was a hidden backward-compat alias for `nav history`.
+        // `twig history <id>` takes over the name; `nav history` is unchanged. Disambiguation
+        // is free — the new command takes a required positional ID, the old alias took none.
+        if (id is null)
+        {
+            Console.Error.WriteLine("error: 'twig history' requires a work item ID. For navigation history, use 'twig nav history'.");
+            return 1;
+        }
+
+        return await services.GetRequiredService<HistoryCommand>().ExecuteAsync(id.Value, detail, field, output, ct);
+    }
 
     /// <summary>Open the active work item in the browser.</summary>
     /// <param name="id">Work item ID to open; defaults to the active item.</param>
@@ -1127,6 +1141,7 @@ internal static class GroupedHelp
         "show-batch",
         "query",
         "web",
+        "history",
 
         // Navigation
         "nav",
@@ -1197,7 +1212,6 @@ internal static class GroupedHelp
         "prev",
         "back",
         "fore",
-        "history",
         "seed",
         "refresh",
         "area",
@@ -1263,6 +1277,7 @@ Context:
   show-batch --batch   Display multiple work items by ID (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
+  history <id>         Show a work item's revision history.  (--detail <ids|all>, --field <names>)
 
 Navigation:
   nav                  Launch the interactive tree navigator.

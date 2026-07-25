@@ -29,7 +29,11 @@ public interface IPendingChangeStore
 
     /// <summary>
     /// Returns counts of pending changes for the given work item, split by type:
-    /// Notes (<c>add_note</c>) and FieldEdits (<c>set_field</c>).
+    /// Notes (<c>note</c>, legacy <c>add_note</c>) and FieldEdits (<c>field</c>,
+    /// <c>state</c>, legacy <c>set_field</c>). The legacy aliases are still honoured so
+    /// rows written by older twig versions keep counting — see PolyphonyRequiem/twig#251,
+    /// where a staged note reported a summary of zero because production writes
+    /// <c>note</c> while this query only matched <c>add_note</c>.
     /// </summary>
     Task<(int Notes, int FieldEdits)> GetChangeSummaryAsync(int workItemId, CancellationToken ct = default);
 

@@ -101,10 +101,22 @@ public sealed class PendingChangeFlusher(
                 stagedFieldChanges += fieldChanges.Count;
                 stagedNotes += notes.Count;
 
-                // FR-9: Notes-only items skip conflict resolution.
-                // Notes are additive (ADO comments) and cannot conflict with field-level
-                // metadata drift. This prevents spurious conflict failures when the remote
-                // has unrelated metadata changes.
+                // FR-9 / #251: notes are additive (ADO comments) and cannot conflict with
+                // field-level metadata drift, so they are pushed FIRST — before the field
+                // conflict flow can take an early exit. Previously a conflict resolved as
+                // "accept remote" cleared every pending row for the item (notes included)
+                // and an "abort" skipped the note push entirely, so a staged note could be
+                // discarded, or left behind, without ever reaching ADO.
+                if (notes.Count > 0)
+                {
+                    foreach (var note in notes)
+                        await adoService.AddCommentAsync(item.Id, note, ct);
+
+                    // Clear only the note rows: field changes may still be unresolved below.
+                    await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
+                    totalNotes += notes.Count;
+                }
+
                 if (fieldChanges.Count > 0)
                 {
                     var remote = await adoService.FetchAsync(item.Id, ct);
@@ -126,11 +138,6 @@ public sealed class PendingChangeFlusher(
                     await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, fieldChanges, remote.Revision, ct);
                     totalFieldChanges += fieldChanges.Count;
                 }
-
-                foreach (var note in notes)
-                    await adoService.AddCommentAsync(item.Id, note, ct);
-
-                totalNotes += notes.Count;
 
                 // Post-push resync: clear local pending state and refresh from ADO.
                 await pendingChangeStore.ClearChangesAsync(item.Id, ct);

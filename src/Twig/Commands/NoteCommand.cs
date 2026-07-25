@@ -116,7 +116,7 @@ public sealed class NoteCommand(
                 throw new System.Diagnostics.UnreachableException($"Unhandled NoteOutcome: {outcome.GetType().Name}");
         }
 
-        var hints = hintEngine.GetHints("note", outputFormat: outputFormat);
+        var hints = hintEngine.GetHints("note", outputFormat: outputFormat, noteWasStaged: isPending);
         var tree = BuildSuccessTree(item.Id, isPending, successMessage, hints, outputFormat);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
 

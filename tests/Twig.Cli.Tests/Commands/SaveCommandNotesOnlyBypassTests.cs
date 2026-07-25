@@ -76,9 +76,13 @@ public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task MixedChanges_WithConflict_ConflictDetectionFires_UserAborts_NotesNotPushed()
+    public async Task MixedChanges_WithConflict_ConflictDetectionFires_NotesStillPushed()
     {
-        // Notes + field changes with metadata drift → conflict prompt shown
+        // Notes + field changes with metadata drift → conflict prompt shown.
+        // #251: the note must survive the abort. Notes are additive ADO comments and
+        // cannot conflict with field metadata, so they are pushed BEFORE the field
+        // conflict flow can take its `continue`. This assertion was previously inverted
+        // (DidNotReceive) — that inversion WAS the data-loss bug.
         var item = CreateWorkItem(1, "Title");
         var driftedRemote = CreateDriftedRemote(1);
         SetupDirtyItem(item);
@@ -98,17 +102,19 @@ public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
         var result = await cmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0); // Abort is not an error
-        // Conflict prompt WAS shown
+        // Conflict prompt WAS shown — the FIELD change is still abandoned.
         _consoleInput.Received().ReadLine();
-        // Notes NOT pushed because abort continues to next item
-        await _adoService.DidNotReceive().AddCommentAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // ...but the note reached ADO.
+        await _adoService.Received(1).AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task MixedChanges_JsonConflict_ReturnsErrorAndBlocksNotes()
+    public async Task MixedChanges_JsonConflict_ReturnsErrorButNotesStillPushed()
     {
-        // In JSON output mode, conflict emits JSON and returns error code 1
+        // In JSON output mode, conflict emits JSON and returns error code 1.
+        // #251: the unresolved FIELD conflict must not take the staged note down with it.
         var item = CreateWorkItem(1, "Title");
         var driftedRemote = CreateDriftedRemote(1);
         SetupDirtyItem(item);
@@ -125,9 +131,10 @@ public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
         var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
 
         result.ShouldBe(1);
-        // Notes should NOT be pushed — conflict JSON emitted, loop continued
-        await _adoService.DidNotReceive().AddCommentAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
+        // The note rows are cleared by type so the next sync cannot double-post them.
+        await _pendingChangeStore.Received(1)
+            .ClearChangesByTypeAsync(1, "note", Arg.Any<CancellationToken>());
     }
 
     [Fact]

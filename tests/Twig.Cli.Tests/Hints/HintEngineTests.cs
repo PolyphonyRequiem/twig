@@ -106,7 +106,7 @@ public sealed class HintEngineTests
         var hints= engine.GetHints("state", item: item, newStateName: "Closed");
 
         hints.ShouldContain(h => h.Contains("pending notes"));
-        hints.ShouldContain(h => h.Contains("twig save"));
+        hints.ShouldContain(h => h.Contains("twig sync"));
     }
 
     [Fact]
@@ -302,15 +302,41 @@ public sealed class HintEngineTests
     // ── note command ────────────────────────────────────────────────
 
     [Fact]
-    public void GetHints_Note_StagedMessage()
+    public void GetHints_Note_Staged_EmitsRecoveryHintNamingSync()
     {
         var engine = CreateEngine();
 
-        var hints = engine.GetHints("note");
+        var hints = engine.GetHints("note", noteWasStaged: true);
 
         hints.Count.ShouldBe(1);
         hints[0].ShouldContain("Note staged");
-        hints[0].ShouldContain("twig save");
+        hints[0].ShouldContain("twig sync");
+    }
+
+    /// <summary>
+    /// #251: the hint used to fire unconditionally, so a successfully PUSHED note was
+    /// reported as staged. Silence is the correct output when nothing was staged.
+    /// </summary>
+    [Fact]
+    public void GetHints_Note_Pushed_EmitsNoStagedHint()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("note", noteWasStaged: false);
+
+        hints.ShouldBeEmpty();
+    }
+
+    /// <summary>#251: the hint must not name a hidden, deprecated command.</summary>
+    [Fact]
+    public void GetHints_Note_Staged_DoesNotNameDeprecatedSaveOrFieldSetterUpdate()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("note", noteWasStaged: true);
+
+        hints[0].ShouldNotContain("twig save");
+        hints[0].ShouldNotContain("twig update");
     }
 
     // ── show command ──────────────────────────────────────────────

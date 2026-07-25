@@ -334,6 +334,138 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return items;
     }
 
+    // ── Work item history (twig#241) ────────────────────────────────
+
+    /// <summary>Page size for the offset-paged updates traversal.</summary>
+    internal const int HistoryPageSize = 100;
+
+    /// <summary>Hard cap on pages, guarding against a server that never returns a short page.</summary>
+    private const int MaxHistoryPages = 500;
+
+    /// <inheritdoc />
+    public async Task<WorkItemHistory> FetchHistoryAsync(
+        int id,
+        WorkItemHistoryOptions options,
+        CancellationToken ct = default)
+    {
+        using var activity = ActivityHelper.StartAdoOperation("fetch_history");
+
+        // Complete-or-error: any page failure propagates as a typed ADO exception and fails the
+        // whole operation. A partial timeline is never reported as success.
+        var updates = await FetchAllUpdatePagesAsync(id, ct);
+        ActivityHelper.SetItemCount(activity, updates.Count);
+
+        var enrichment = await EnrichRelationTargetsAsync(updates, ct);
+
+        return WorkItemHistoryProjector.Project(id, updates, options, enrichment);
+    }
+
+    /// <summary>
+    /// Traverses every page of the updates endpoint. ADO uses offset paging via
+    /// <c>$top</c>/<c>$skip</c> with no continuation token; termination keys on a SHORT PAGE.
+    /// The per-response <c>count</c> reflects the current page, not the total history, so it is
+    /// never used as a terminator.
+    /// </summary>
+    private async Task<List<AdoWorkItemUpdate>> FetchAllUpdatePagesAsync(int id, CancellationToken ct)
+    {
+        var all = new List<AdoWorkItemUpdate>();
+
+        for (var page = 0; page < MaxHistoryPages; page++)
+        {
+            var skip = page * HistoryPageSize;
+            var url = $"{_orgUrl}/{_project}/_apis/wit/workItems/{id}/updates" +
+                      $"?$top={HistoryPageSize}&$skip={skip}&api-version={ApiVersion}";
+
+            using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var dto = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoWorkItemUpdatesResponse, ct)
+                ?? throw new AdoException("Failed to deserialize ADO work item updates response.");
+
+            var value = dto.Value ?? [];
+            all.AddRange(value);
+
+            // Short page ⇒ traversal complete.
+            if (value.Count < HistoryPageSize) return all;
+        }
+
+        throw new AdoException(
+            $"Work item #{id} history exceeded {MaxHistoryPages} pages; refusing to report a truncated timeline.");
+    }
+
+    /// <summary>
+    /// Enriches work-item relation targets with title, type, and state via a single batch call.
+    /// </summary>
+    /// <remarks>
+    /// <c>errorPolicy=omit</c> is MANDATORY: without it a single deleted or unreadable target
+    /// causes the whole batch to return HTTP 404, taking down history for that item (verified
+    /// directly — the same request returns 404 plain and 200 with the policy).
+    /// Enrichment failure is swallowed: the traversal was complete regardless of whether
+    /// decoration succeeded, and conflating the two would fail the command on exactly the items
+    /// most worth reading.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<int, WorkItemRelationTarget>?> EnrichRelationTargetsAsync(
+        IReadOnlyList<AdoWorkItemUpdate> updates,
+        CancellationToken ct)
+    {
+        var targetIds = WorkItemHistoryProjector.CollectRelationTargetIds(updates);
+        if (targetIds.Count == 0) return null;
+
+        var resolved = new Dictionary<int, WorkItemRelationTarget>();
+
+        try
+        {
+            for (var offset = 0; offset < targetIds.Count; offset += MaxBatchSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                var chunk = targetIds.Skip(offset).Take(MaxBatchSize).ToList();
+                var idsCsv = string.Join(',', chunk);
+                var url = $"{_orgUrl}/{_project}/_apis/wit/workitems" +
+                          $"?ids={idsCsv}&errorPolicy=omit&api-version={ApiVersion}";
+
+                using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+                await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                var batch = await JsonSerializer.DeserializeAsync(
+                    stream, TwigJsonContext.Default.AdoBatchWorkItemResponse, ct);
+
+                foreach (var dto in batch?.Value ?? [])
+                {
+                    resolved[dto.Id] = new WorkItemRelationTarget(
+                        dto.Id,
+                        ReadField(dto, "System.Title"),
+                        ReadField(dto, "System.WorkItemType"),
+                        ReadField(dto, "System.State"),
+                        Deleted: false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Best-effort decoration only — never affects `complete`. Unresolved targets are
+            // reported as deleted by the projector.
+        }
+
+        return resolved;
+    }
+
+    private static string? ReadField(AdoWorkItemResponse dto, string referenceName)
+    {
+        if (dto.Fields is null) return null;
+        if (!dto.Fields.TryGetValue(referenceName, out var value) || value is null) return null;
+
+        return value switch
+        {
+            string s => s,
+            JsonElement e when e.ValueKind == JsonValueKind.String => e.GetString(),
+            JsonElement e => e.GetRawText(),
+            _ => value.ToString(),
+        };
+    }
+
     // ── Field definition lookup (lazy cache) ──────────────────────
 
     /// <summary>

@@ -86,17 +86,20 @@ public sealed class SeedValidateCommand(
                 new("title", "Title"),
                 new("passed", "Passed"),
                 new("failures", "Failures"),
+                new("warnings", "Warnings"),
             };
             var rows = new List<RenderRow>(results.Count);
             foreach (var r in results)
             {
                 var failuresText = string.Join("; ", r.Failures.Select(f => $"{f.Rule}: {f.Message}"));
+                var warningsText = string.Join("; ", r.Warnings.Select(w => $"{w.Rule}: {w.Message}"));
                 rows.Add(new RenderRow("seedValidation", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
                 {
                     ["seedId"] = RenderCell.Integer(r.SeedId),
                     ["title"] = RenderCell.String(r.Title),
                     ["passed"] = RenderCell.Boolean(r.Passed),
                     ["failures"] = RenderCell.String(failuresText),
+                    ["warnings"] = RenderCell.String(warningsText),
                 }));
             }
             var fields = new List<DocumentField>(3)
@@ -139,6 +142,8 @@ public sealed class SeedValidateCommand(
             humanNodes.Add(new RenderNode.Text($"  {icon} #{r.SeedId} {r.Title}", severity));
             foreach (var f in r.Failures)
                 humanNodes.Add(new RenderNode.Text($"      • {f.Rule}: {f.Message}", Severity.Error));
+            foreach (var w in r.Warnings)
+                humanNodes.Add(new RenderNode.Text($"      ! {w.Rule}: {w.Message}", Severity.Warning));
         }
         humanNodes.Add(new RenderNode.Text($"{passCount}/{results.Count} passed",
             passCount == results.Count ? Severity.Success : Severity.Warning));

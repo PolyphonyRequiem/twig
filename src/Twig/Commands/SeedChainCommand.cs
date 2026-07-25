@@ -124,6 +124,15 @@ public sealed class SeedChainCommand(
             var seed = seedResult.Value;
             await workItemRepo.SaveAsync(seed, ct);
 
+            // An explicit --parent is a chosen parent, so record it in both stores
+            // (twig#260). Falling back to the active item is inference — leave the link
+            // table empty there so `seed validate` can still spot it.
+            if (parentOverride.HasValue && seed.ParentId.HasValue)
+            {
+                await seedLinkRepo.AddLinkAsync(
+                    new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
+            }
+
             if (createdSeeds.Count > 0)
             {
                 var previousSeed = createdSeeds[^1];

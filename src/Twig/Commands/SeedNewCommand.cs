@@ -33,6 +33,7 @@ public sealed class SeedNewCommand(
     TwigConfiguration config,
     SeedFactory seedFactory,
     ISeedIdCounter seedIdCounter,
+    ISeedLinkRepository seedLinkRepo,
     RendererFactory? rendererFactory = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
@@ -174,6 +175,15 @@ public sealed class SeedNewCommand(
 
         // Persist locally — no ADO interaction
         await workItemRepo.SaveAsync(seed, ct);
+
+        // An explicitly chosen parent is recorded in BOTH stores, so that "ParentId set,
+        // no parent-child row" unambiguously means "inferred" at validate time (twig#260).
+        // The inferred path deliberately does not write the row — that absence is the signal.
+        if (!parentWasInferred && seed.ParentId.HasValue)
+        {
+            await seedLinkRepo.AddLinkAsync(
+                new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
+        }
 
         var hints = hintEngine.GetHints("seed",
             outputFormat: outputFormat,

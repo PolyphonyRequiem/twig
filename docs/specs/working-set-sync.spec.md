@@ -182,16 +182,32 @@ with first-mode-wins deduplication.
 ### 2.2 Push Phase (Flush)
 
 For each dirty item:
-1. Fetch remote item from ADO
-2. **Conflict detection**: if `remote.revision > local.revision` → conflict
-3. **Conflict resolution**: prompt user (accept remote / merge / abort)
-4. **Notes-only items skip conflict resolution** (notes are additive)
-5. PATCH to ADO with retry on concurrency conflict
-6. Push notes via AddComment API
-7. Clear pending changes + dirty flag
-8. Re-fetch item from ADO to update local revision
+1. **Push notes first** via AddComment API, then clear *only* the note rows
+   (type-scoped). Notes are additive ADO comments and cannot conflict with
+   field-level metadata, so they must not be sequenced behind field conflict
+   resolution — see step 3 and PolyphonyRequiem/twig#251.
+2. If the item has field changes, fetch the remote item from ADO.
+   **Conflict detection**: if `remote.revision > local.revision` → conflict.
+   Notes-only items skip this entirely — there is nothing to fetch or compare.
+3. **Conflict resolution**: prompt user (accept remote / merge / abort).
+   Every outcome here concerns *field* changes only. Because notes were already
+   pushed in step 1, an abort, an unresolved conflict, or an accept-remote can
+   no longer strand or destroy a staged note.
+4. PATCH to ADO with retry on concurrency conflict
+5. Clear pending changes + dirty flag
+6. Re-fetch item from ADO to update local revision
 
 **Invariant:** Sync MUST NEVER lose local changes without explicit user consent.
+
+> **Why notes go first (#251).** Notes used to be pushed *after* conflict
+> resolution. Every early exit in that flow skipped the note push, and the
+> accept-remote branch called a non-type-scoped `ClearChangesAsync` — deleting a
+> staged note the user had never consented to discard. The user consented to
+> abandoning their *field* changes; the note was collateral. That is a direct
+> violation of the invariant above, which is why the ordering here is normative
+> rather than incidental. Clearing notes must stay type-scoped
+> (`ClearChangesByTypeAsync(id, "note")`) so an unresolved field conflict can
+> neither strand the note nor cause a double-post on the next sync.
 
 ### 2.3 Pull Phase (Refresh)
 

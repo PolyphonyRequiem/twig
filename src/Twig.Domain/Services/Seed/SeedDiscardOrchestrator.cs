@@ -7,11 +7,47 @@ namespace Twig.Domain.Services.Seed;
 /// Builds a cascade-discard plan and executes cascade deletion of seeds.
 /// Consumed by <c>SeedDiscardCommand</c>.
 /// </summary>
-public sealed class SeedDiscardOrchestrator(
-    IWorkItemRepository workItemRepo,
-    ISeedLinkRepository seedLinkRepo,
-    IContextStore contextStore)
+public sealed class SeedDiscardOrchestrator
 {
+    private readonly IWorkItemRepository _workItemRepo;
+    private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IContextStore _contextStore;
+    private readonly IPendingChangeStore? _pendingChangeStore;
+
+    /// <summary>
+    /// Creates an orchestrator that does not clear staged pending changes.
+    /// </summary>
+    /// <remarks>
+    /// Retained for binary compatibility with the shipped public API. Prefer the overload
+    /// that accepts an <see cref="IPendingChangeStore"/>: without it, discarding a seed that
+    /// has a staged note or field edit fails with a SQLite foreign-key violation, because
+    /// <c>pending_changes.work_item_id</c> references <c>work_items(id)</c>
+    /// (PolyphonyRequiem/twig#268).
+    /// </remarks>
+    public SeedDiscardOrchestrator(
+        IWorkItemRepository workItemRepo,
+        ISeedLinkRepository seedLinkRepo,
+        IContextStore contextStore)
+        : this(workItemRepo, seedLinkRepo, contextStore, pendingChangeStore: null)
+    {
+    }
+
+    /// <summary>
+    /// Creates an orchestrator that clears staged pending changes before deleting each
+    /// seed row, so a seed carrying a staged note or field edit can be discarded.
+    /// </summary>
+    public SeedDiscardOrchestrator(
+        IWorkItemRepository workItemRepo,
+        ISeedLinkRepository seedLinkRepo,
+        IContextStore contextStore,
+        IPendingChangeStore? pendingChangeStore)
+    {
+        _workItemRepo = workItemRepo;
+        _seedLinkRepo = seedLinkRepo;
+        _contextStore = contextStore;
+        _pendingChangeStore = pendingChangeStore;
+    }
+
     /// <summary>
     /// Validates the target seed exists and is a seed, then performs a BFS traversal
     /// of the seed graph to collect all descendant seed IDs.
@@ -19,11 +55,11 @@ public sealed class SeedDiscardOrchestrator(
     /// </summary>
     public async Task<SeedDiscardPlan?> BuildDiscardPlanAsync(int seedId, CancellationToken ct = default)
     {
-        var target = await workItemRepo.GetByIdAsync(seedId, ct);
+        var target = await _workItemRepo.GetByIdAsync(seedId, ct);
         if (target is null || !target.IsSeed)
             return null;
 
-        var allSeeds = await workItemRepo.GetSeedsAsync(ct);
+        var allSeeds = await _workItemRepo.GetSeedsAsync(ct);
 
         // Build parent → children lookup (only seeds)
         var childrenByParent = new Dictionary<int, List<int>>();
@@ -68,25 +104,33 @@ public sealed class SeedDiscardOrchestrator(
     }
 
     /// <summary>
-    /// Executes the cascade discard: clears active context if needed, deletes seed links,
-    /// then deletes work item rows. Processes children before parents (reverse BFS order)
-    /// to maintain referential integrity.
+    /// Executes the cascade discard: clears active context if needed, clears pending
+    /// changes, deletes seed links, then deletes work item rows. Processes children
+    /// before parents (reverse BFS order) to maintain referential integrity.
     /// </summary>
     public async Task ExecuteDiscardAsync(SeedDiscardPlan plan, CancellationToken ct = default)
     {
         // Clear active context if the current work item is any of the IDs being discarded
-        var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
         if (activeId.HasValue && plan.AllIds.Contains(activeId.Value))
         {
-            await contextStore.ClearActiveWorkItemIdAsync(ct);
+            await _contextStore.ClearActiveWorkItemIdAsync(ct);
         }
 
         // Process in reverse order (children before parents) to maintain referential integrity
         for (var i = plan.AllIds.Count - 1; i >= 0; i--)
         {
             var id = plan.AllIds[i];
-            await seedLinkRepo.DeleteLinksForItemAsync(id, ct);
-            await workItemRepo.DeleteByIdAsync(id, ct);
+
+            // #268: pending_changes carries a FOREIGN KEY to work_items(id), so any staged
+            // note or field edit on this seed keeps a live reference and the row delete
+            // below raises a constraint violation — which the CLI surfaced as the highly
+            // misleading "Cache corrupted. Run 'twig init --force' to rebuild." Clear the
+            // staged rows first, matching DeleteWorkflow and SyncCoordinator.
+            if (_pendingChangeStore is not null)
+                await _pendingChangeStore.ClearChangesAsync(id, ct);
+            await _seedLinkRepo.DeleteLinksForItemAsync(id, ct);
+            await _workItemRepo.DeleteByIdAsync(id, ct);
         }
     }
 }

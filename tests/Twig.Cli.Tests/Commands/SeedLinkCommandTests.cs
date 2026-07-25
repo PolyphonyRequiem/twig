@@ -220,6 +220,58 @@ public class SeedLinkCommandTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Link_ParentChildFromSeed_WhenAddLinkFails_LeavesOldParentIntact()
+    {
+        // twig#259: the reparent must not tear down the old parent until the new link is
+        // safely written. If AddLinkAsync fails, the seed must keep its original parent in
+        // BOTH stores rather than being left with a ParentId and no link row — the
+        // disagreeing-stores state twig#254 exists to prevent.
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(50).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 50, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+        _seedLinkRepo.AddLinkAsync(Arg.Any<SeedLink>(), Arg.Any<CancellationToken>())
+            .Throws(new Microsoft.Data.Sqlite.SqliteException("UNIQUE constraint failed", 19));
+
+        var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(1);
+        await _seedLinkRepo.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_ParentChildFromSeed_AddsNewLinkBeforeRemovingStale()
+    {
+        // twig#259: ordering is the guarantee. Assert it directly so a future refactor
+        // cannot silently reintroduce the destroy-then-create window.
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(50).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 50, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+
+        var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(0);
+        Received.InOrder(() =>
+        {
+            _seedLinkRepo.AddLinkAsync(
+                Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == 100),
+                Arg.Any<CancellationToken>());
+            _seedLinkRepo.RemoveLinkAsync(
+                -1, 50, SeedLinkTypes.ParentChild, Arg.Any<CancellationToken>());
+        });
+    }
+
     // ── Cycle detection tests ───────────────────────────────────────
 
     [Fact]

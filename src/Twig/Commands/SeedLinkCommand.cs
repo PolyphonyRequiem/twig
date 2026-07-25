@@ -50,6 +50,10 @@ public sealed class SeedLinkCommand(
             return 1;
         }
 
+        // Set once the parent-child link has already been written by the reparent path
+        // below, so the shared add at the end of this method is not attempted twice.
+        var parentChildLinkAdded = false;
+
         if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
         {
             if (sourceId == targetId)
@@ -79,12 +83,21 @@ public sealed class SeedLinkCommand(
                     link.TargetId != targetId)
                 .ToList();
 
-            foreach (var stale in staleParentLinks)
-                await seedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
-
             var previousParentId = childSeed.ParentId ?? staleParentLinks
                 .Select(link => (int?)link.TargetId)
                 .FirstOrDefault();
+
+            // Write the new link BEFORE tearing down the old parent (twig#259). If this
+            // throws, nothing has been mutated yet and the seed keeps its original — if
+            // wrong — parent, rather than being left with a ParentId and no link row,
+            // which is the disagreeing-stores state twig#254 exists to prevent.
+            if (!await TryAddLinkAsync(sourceId, targetId, linkType, fmt, ct))
+                return 1;
+
+            parentChildLinkAdded = true;
+
+            foreach (var stale in staleParentLinks)
+                await seedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
 
             if (childSeed.ParentId != targetId)
                 await workItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
@@ -131,19 +144,35 @@ public sealed class SeedLinkCommand(
             }
         }
 
+        if (!parentChildLinkAdded && !await TryAddLinkAsync(sourceId, targetId, linkType, fmt, ct))
+            return 1;
+
+        RenderLinkOutcome("seedLinked", $"Linked #{sourceId} ──{linkType}──▶ #{targetId}", sourceId, targetId, linkType, outputFormat);
+        return 0;
+    }
+
+    /// <summary>
+    /// Adds a seed link, reporting the duplicate-link case as a user-facing error.
+    /// Returns <c>false</c> when the link already exists and the caller should abort.
+    /// </summary>
+    private async Task<bool> TryAddLinkAsync(
+        int sourceId,
+        int targetId,
+        string linkType,
+        IOutputFormatter fmt,
+        CancellationToken ct)
+    {
         try
         {
             await seedLinkRepo.AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
+            return true;
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
             Console.Error.WriteLine(fmt.FormatError(
                 $"A '{linkType}' link from #{sourceId} to #{targetId} already exists."));
-            return 1;
+            return false;
         }
-
-        RenderLinkOutcome("seedLinked", $"Linked #{sourceId} ──{linkType}──▶ #{targetId}", sourceId, targetId, linkType, outputFormat);
-        return 0;
     }
 
     /// <summary>Remove a virtual link.</summary>

@@ -35,6 +35,12 @@ public sealed class HintEngine
     /// <param name="createdId">The ID of a newly created item (for "seed" command).</param>
     /// <param name="siblings">Sibling work items (for "state d" hint about all siblings done).</param>
     /// <param name="staleSeedCount">Number of stale seeds (for "show" command).</param>
+    /// <param name="noteWasStaged">
+    /// For the "note" command: <c>true</c> when the note was staged locally rather than
+    /// pushed to ADO. The staged-recovery hint is emitted only in that case — see
+    /// PolyphonyRequiem/twig#251, where the hint fired unconditionally and told users a
+    /// successfully-pushed note had merely been staged.
+    /// </param>
     public IReadOnlyList<string> GetHints(
         string commandName,
         WorkItem? item = null,
@@ -43,7 +49,8 @@ public sealed class HintEngine
         string? newStateName = null,
         int? createdId = null,
         IReadOnlyList<WorkItem>? siblings = null,
-        int staleSeedCount = 0)
+        int staleSeedCount = 0,
+        bool noteWasStaged = false)
     {
         // Suppress hints for non-human formats or when disabled
         if (!_hintsEnabled)
@@ -96,7 +103,7 @@ public sealed class HintEngine
                     // Check for pending notes
                     if (item is not null && item.PendingNotes.Count > 0)
                     {
-                        hints.Add($"You have {item.PendingNotes.Count} pending notes. Run twig save to push them.");
+                        hints.Add($"You have {item.PendingNotes.Count} pending notes. Run twig sync to push them.");
                     }
                 }
                 else if (category == StateCategory.Removed)
@@ -118,7 +125,10 @@ public sealed class HintEngine
                 break;
 
             case "note":
-                hints.Add("Note staged. Will push on next twig update or twig save");
+                // #251: only claim "staged" when the note actually staged, and name a
+                // command that exists and flushes. `twig sync` now pushes staged notes.
+                if (noteWasStaged)
+                    hints.Add("Note staged locally. Run twig sync to push it to Azure DevOps.");
                 break;
 
             case "edit":

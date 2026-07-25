@@ -95,6 +95,42 @@ public sealed class GetChangeSummaryTests : IDisposable
         fieldEdits2.ShouldBe(2);
     }
 
+    /// <summary>
+    /// #251: production writes <c>note</c> (NoteWorkflow) and <c>field</c>/<c>state</c>
+    /// (EditCommand, TUI) — NOT the <c>add_note</c>/<c>set_field</c> spellings this query
+    /// originally matched. A genuinely staged note therefore summarised as zero, so
+    /// <c>twig discard</c> reported "no pending changes" over real unsaved content.
+    /// </summary>
+    [Fact]
+    public async Task ProductionChangeTypeSpellings_AreCounted()
+    {
+        await SaveWorkItem(1);
+        await _changeStore.AddChangeAsync(1, "note", null, null, "A staged note");
+        await _changeStore.AddChangeAsync(1, "field", "System.Title", "A", "B");
+        await _changeStore.AddChangeAsync(1, "state", "System.State", "New", "Active");
+
+        var (notes, fieldEdits) = await _changeStore.GetChangeSummaryAsync(1);
+
+        notes.ShouldBe(1);
+        fieldEdits.ShouldBe(2);
+    }
+
+    /// <summary>Legacy rows written by older twig versions must keep counting.</summary>
+    [Fact]
+    public async Task LegacyAndProductionSpellings_AreCountedTogether()
+    {
+        await SaveWorkItem(1);
+        await _changeStore.AddChangeAsync(1, "note", null, null, "New spelling");
+        await _changeStore.AddChangeAsync(1, "add_note", null, null, "Legacy spelling");
+        await _changeStore.AddChangeAsync(1, "field", "System.Title", "A", "B");
+        await _changeStore.AddChangeAsync(1, "set_field", "System.State", "New", "Active");
+
+        var (notes, fieldEdits) = await _changeStore.GetChangeSummaryAsync(1);
+
+        notes.ShouldBe(2);
+        fieldEdits.ShouldBe(2);
+    }
+
     [Fact]
     public async Task UnknownChangeType_DoesNotAffectCounts()
     {

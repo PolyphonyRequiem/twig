@@ -66,17 +66,25 @@ public sealed class McpPendingChangeFlusher(
                     }
                 }
 
-                // FR-9: Notes-only items skip conflict resolution — notes are additive
-                // (ADO comments) and cannot conflict with field-level metadata drift.
+                // FR-9 / #251: notes are additive (ADO comments) and cannot conflict with
+                // field-level metadata drift, so they are pushed FIRST. Pushing them after
+                // the field patch meant a patch failure threw past the note push, leaving
+                // the note stranded behind an unrelated field error.
+                if (notes.Count > 0)
+                {
+                    foreach (var note in notes)
+                        await adoService.AddCommentAsync(item.Id, note, ct);
+
+                    // Clear only the note rows: the field patch below may still fail.
+                    await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
+                }
+
                 if (fieldChanges.Count > 0)
                 {
                     var remote = await adoService.FetchAsync(item.Id, ct);
                     await ConflictRetryHelper.PatchWithRetryAsync(
                         adoService, item.Id, fieldChanges, remote.Revision, ct);
                 }
-
-                foreach (var note in notes)
-                    await adoService.AddCommentAsync(item.Id, note, ct);
 
                 // Post-push resync: clear local pending state and refresh from ADO.
                 await pendingChangeStore.ClearChangesAsync(item.Id, ct);

@@ -140,8 +140,8 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT
-                COALESCE(SUM(CASE WHEN change_type = 'add_note'  THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN change_type = 'set_field' THEN 1 ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN change_type IN ('note', 'add_note') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN change_type IN ('field', 'state', 'set_field') THEN 1 ELSE 0 END), 0)
             FROM pending_changes
             WHERE work_item_id = @workItemId;
             """;

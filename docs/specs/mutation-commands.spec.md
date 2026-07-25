@@ -318,9 +318,11 @@ twig note [--text <string>] [--id <int>] [--output <format>]
 #### Inline mode (`--text` provided)
 
 1. **Resolve item** — by `--id` or active context. Exit 1 if not found.
-2. **Push to ADO** — call `AddCommentAsync()`. Exit 1 on failure (no staging).
+2. **Push to ADO** — call `AddCommentAsync()`. On failure, or when the item is a
+   seed (no ADO identity yet), **fall back to staging the note locally** rather
+   than failing; exit stays 0.
 3. **Resync cache** — re-fetch and update. Non-fatal on failure.
-4. **Output confirmation**
+4. **Output confirmation** — distinguishes the two outcomes (see Output).
 
 #### Editor mode (no `--text`)
 
@@ -328,14 +330,28 @@ twig note [--text <string>] [--id <int>] [--output <format>]
 2. **Open editor** — with template showing item ID and comment instructions.
 3. **Strip comments** — remove lines starting with `#`.
 4. **Empty check** — if empty or unchanged, exit 0: "Note cancelled."
-5. **Push to ADO** — call `AddCommentAsync()`. Exit 1 on failure (no staging).
+5. **Push to ADO** — same push-or-stage semantics as inline mode step 2.
 6. **Resync cache** — re-fetch and update. Non-fatal on failure.
 7. **Output confirmation**
 
+### Staged notes
+
+A staged note is written to `pending_changes` with `change_type = "note"` and is
+flushed by the next `twig sync` (see `working-set-sync.spec.md` §2.2, where notes
+are pushed *before* field conflict resolution so an unrelated field conflict
+cannot discard them — PolyphonyRequiem/twig#251).
+
+Output MUST distinguish pushed from staged, and the recovery hint MUST be emitted
+only when the note actually staged. Claiming "staged" after a successful push is
+the #251 defect: it tells the user their write did not land when it did.
+
 ### Output
 
-- **Human:** `✓ Note added to #42.`
-- **JSON:** `{"id": 42, "noteId": <int>, "text": "...", "createdAt": "..."}`
+- **Human (pushed):** `✓ Note added to #42.`
+- **Human (staged):** `✓ Note added to #42 (pending).`
+  plus hint: `Note staged locally. Run twig sync to push it to Azure DevOps.`
+- **JSON:** `{"id": 42, "isPending": <bool>, "message": "..."}` — `isPending`
+  is the authoritative signal; the `✓` glyph is shared by both outcomes.
 - **Minimal:** `#42 note added`
 
 ### Exit Codes

@@ -393,6 +393,43 @@ public class SeedNewCommandTests
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task SeedNew_NoParent_CreatesUnparentedSeed()
+    {
+        // twig#258: --no-parent ignores the active item entirely.
+        var active = CreateWorkItem(1, "Active Item", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+
+        var result = await _cmd.ExecuteAsync("Orphan seed", type: "Task", noParent: true);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.ParentId == null && w.Title == "Orphan seed"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_NoParentWithoutType_IsUsageError()
+    {
+        // With no parent there is nothing to infer the child type from.
+        var result = await _cmd.ExecuteAsync("Orphan seed", noParent: true);
+
+        result.ShouldBe(2);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_NoParentWithExplicitParent_IsUsageError()
+    {
+        var result = await _cmd.ExecuteAsync("Orphan seed", type: "Task", parent: 2, noParent: true);
+
+        result.ShouldBe(2);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, WorkItemType type)
     {
         return new WorkItem

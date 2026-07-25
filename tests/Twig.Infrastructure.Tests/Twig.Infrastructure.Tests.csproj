@@ -20,4 +20,10 @@
     <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Raw /updates payloads captured from real ADO (twig#241). Never fetched live at
+         test time — live items change under you. -->
+    <None Include="Fixtures\History\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

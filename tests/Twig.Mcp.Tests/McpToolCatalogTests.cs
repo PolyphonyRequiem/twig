@@ -25,17 +25,21 @@ public sealed class McpToolCatalogTests
     }
 
     [Fact]
-    public void CompactProfile_ExposesTenAnnotatedToolsWithinBudget()
+    public void CompactProfile_ExposesElevenAnnotatedToolsWithinBudget()
     {
         var result = McpToolCatalog.FilterList(
             new ListToolsResult { Tools = GetRegisteredTools() },
             McpToolProfile.Compact,
             exposeWorkspaceOverride: false);
 
-        result.Tools.Count.ShouldBe(10);
+        // twig_history joined the compact/default catalog (twig#241).
+        result.Tools.Count.ShouldBe(11);
         result.Tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal)
             .SetEquals(McpToolCatalog.CompactToolNames).ShouldBeTrue();
-        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(8_500);
+        // Budget raised from 8_500 for the 11th tool (twig_history, twig#241). The per-tool
+        // floor is ~700 bytes of name + schema + annotations regardless of prose, so the cap
+        // tracks tool count rather than staying fixed.
+        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(9_000);
 
         foreach (var tool in result.Tools)
         {
@@ -62,8 +66,9 @@ public sealed class McpToolCatalogTests
             McpToolProfile.Full,
             exposeWorkspaceOverride: true);
 
-        result.Tools.Count.ShouldBe(40);
-        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(37_000);
+        result.Tools.Count.ShouldBe(41);
+        // Budget raised from 37_000 for the 41st tool (twig_history, twig#241).
+        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(38_000);
 
         var workspaceCount = 0;
         foreach (var tool in result.Tools)
@@ -73,7 +78,7 @@ public sealed class McpToolCatalogTests
             if (properties.TryGetProperty("workspace", out _)) workspaceCount++;
         }
 
-        workspaceCount.ShouldBe(39);
+        workspaceCount.ShouldBe(40);
     }
 
     [Fact]

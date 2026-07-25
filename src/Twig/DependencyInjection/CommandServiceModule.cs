@@ -103,7 +103,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPublishIdMapRepository>(),
             sp.GetRequiredService<ISeedPublishRulesProvider>(),
             sp.GetRequiredService<IUnitOfWork>(),
-            sp.GetRequiredService<BacklogOrderer>()));
+            sp.GetRequiredService<BacklogOrderer>(),
+            sp.GetRequiredService<IPendingChangeStore>()));
         services.AddSingleton<SeedReconcileOrchestrator>(sp => new SeedReconcileOrchestrator(
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),

@@ -106,6 +106,12 @@ internal sealed class ToolDispatcher(
 
             "twig_cache_status" => readTools.CacheStatus(workspace, verbose: false, ct),
 
+            "twig_history" => readTools.History(
+                GetRequiredInt(args, "id"),
+                GetString(args, "detail"),
+                GetString(args, "field"),
+                workspace, verbose: false, ct),
+
             // Creation tools
             "twig_new" => creationTools.New(
                 GetRequiredString(args, "type"),

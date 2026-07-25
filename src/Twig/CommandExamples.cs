@@ -103,6 +103,13 @@ internal static class CommandExamples
             "twig nav history           Show the navigation history stack",
             "twig nav history --output json  Output navigation history as JSON",
         ],
+        ["history"] =
+        [
+            "twig history 1234          Show the revision history for item #1234",
+            "twig history 1234 --detail 8,11  Show full field values for updates 8 and 11",
+            "twig history 1234 --detail all   Show full field values for every update",
+            "twig history 1234 --field System.State  Show only System.State changes",
+        ],
         ["web"] =
         [
             "twig web                   Open the active work item in a browser",

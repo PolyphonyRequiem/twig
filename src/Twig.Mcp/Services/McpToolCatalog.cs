@@ -29,6 +29,7 @@ internal static class McpToolCatalog
         "twig_delete",
         "twig_discard",
         "twig_find_or_create",
+        "twig_history",
         "twig_link",
         "twig_link_artifact",
         "twig_link_branch",
@@ -71,6 +72,7 @@ internal static class McpToolCatalog
     {
         "twig_cache_status",
         "twig_find_or_create",
+        "twig_history",
         "twig_note",
         "twig_query",
         "twig_set",
@@ -90,6 +92,7 @@ internal static class McpToolCatalog
         "twig_cache_status",
         "twig_children",
         "twig_config",
+        "twig_history",
         "twig_list_workspaces",
         "twig_parent",
         "twig_process",
@@ -360,6 +363,9 @@ internal static class McpToolCatalog
             case "twig_show":
             case "twig_tree":
                 SetMinimum(properties, "depth", 0);
+                break;
+            case "twig_history":
+                SetMinimum(properties, "id", 1);
                 break;
             case "twig_verify_descendants":
                 SetMinimum(properties, "maxDepth", 0);

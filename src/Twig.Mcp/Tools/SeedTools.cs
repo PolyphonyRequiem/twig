@@ -214,7 +214,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             ctx.PublishIdMapRepo,
             ctx.SeedPublishRulesProvider,
             ctx.UnitOfWork,
-            backlogOrderer);
+            backlogOrderer,
+            ctx.PendingChangeStore);
 
         var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
 

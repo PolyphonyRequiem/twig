@@ -22,6 +22,18 @@ public interface IPendingChangeStore
     Task<IReadOnlyList<int>> GetDirtyItemIdsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Repoints every staged change from <paramref name="oldId"/> to <paramref name="newId"/>.
+    /// Used when a seed is published and its negative ID becomes a real ADO ID, so staged
+    /// notes and field edits survive the publish and flush to the published item on the next
+    /// sync — see PolyphonyRequiem/twig#270.
+    /// </summary>
+    /// <remarks>
+    /// The row for <paramref name="newId"/> must already exist in <c>work_items</c>: the
+    /// <c>pending_changes.work_item_id</c> FOREIGN KEY is enforced immediately.
+    /// </remarks>
+    Task RemapWorkItemIdAsync(int oldId, int newId, CancellationToken ct = default);
+
+    /// <summary>
     /// Deletes all pending changes for non-seed work items, including orphaned rows
     /// whose work_item_id no longer exists. Returns the number of rows deleted.
     /// </summary>

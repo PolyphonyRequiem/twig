@@ -25,6 +25,7 @@ public sealed class SeedPublishOrchestrator
     private readonly IUnitOfWork _unitOfWork;
     private readonly SeedLinkPromoter _linkPromoter;
     private readonly BacklogOrderer _backlogOrderer;
+    private readonly IPendingChangeStore? _pendingChangeStore;
 
     [Obsolete("Use the overload that accepts IWorkItemLinkRepository to refresh published relationships.")]
     public SeedPublishOrchestrator(
@@ -47,6 +48,16 @@ public sealed class SeedPublishOrchestrator
     {
     }
 
+    /// <summary>
+    /// Creates an orchestrator that does not migrate staged pending changes across a publish.
+    /// </summary>
+    /// <remarks>
+    /// Retained for binary compatibility with the shipped public API. Prefer the overload
+    /// that accepts an <see cref="IPendingChangeStore"/>: without it, publishing a seed that
+    /// carries a staged note or field edit creates the ADO work item and then fails locally
+    /// with a SQLite foreign-key violation, so every retry creates a duplicate ADO item
+    /// (PolyphonyRequiem/twig#270).
+    /// </remarks>
     public SeedPublishOrchestrator(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
@@ -56,6 +67,34 @@ public sealed class SeedPublishOrchestrator
         ISeedPublishRulesProvider rulesProvider,
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer)
+        : this(
+            workItemRepo,
+            adoService,
+            seedLinkRepo,
+            workItemLinkRepo,
+            publishIdMapRepo,
+            rulesProvider,
+            unitOfWork,
+            backlogOrderer,
+            pendingChangeStore: null)
+    {
+    }
+
+    /// <summary>
+    /// Creates an orchestrator that migrates staged pending changes onto the published ID,
+    /// so a seed carrying a staged note or field edit publishes cleanly and the staged
+    /// content flushes to the published item on the next sync.
+    /// </summary>
+    public SeedPublishOrchestrator(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ISeedLinkRepository seedLinkRepo,
+        IWorkItemLinkRepository workItemLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider rulesProvider,
+        IUnitOfWork unitOfWork,
+        BacklogOrderer backlogOrderer,
+        IPendingChangeStore? pendingChangeStore)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -66,6 +105,7 @@ public sealed class SeedPublishOrchestrator
         _unitOfWork = unitOfWork;
         _linkPromoter = new SeedLinkPromoter(seedLinkRepo, adoService);
         _backlogOrderer = backlogOrderer;
+        _pendingChangeStore = pendingChangeStore;
     }
 
     /// <summary>
@@ -206,13 +246,26 @@ public sealed class SeedPublishOrchestrator
             // 10c: Remap ParentId in child seeds
             await _workItemRepo.RemapParentIdAsync(seedId, newId, ct);
 
-            // 10d: Delete old seed row
-            await _workItemRepo.DeleteByIdAsync(seedId, ct);
-
-            // 10e: Save new item
+            // 10d: Save new item.
+            // Ordered BEFORE the remap/delete below, unlike the pre-#270 sequence: the
+            // pending_changes FK points at work_items(id), so the target row must exist
+            // before staged rows can be repointed at it.
             await _workItemRepo.SaveAsync(fetchedItem, ct);
 
-            // 10f: Commit transaction
+            // 10e: Migrate staged notes / field edits from the seed ID onto the published ID.
+            // pending_changes is the one referencing table the publish path used to forget:
+            // its FK kept the seed row alive, so DeleteByIdAsync threw FOREIGN KEY constraint
+            // failed, the local transaction rolled back, and the ADO item created in Step 7 —
+            // outside this transaction — was orphaned. Every retry then made another duplicate
+            // (PolyphonyRequiem/twig#270). Clearing the rows would fix the crash but silently
+            // destroy an unpushed note, so they are migrated instead and flush on the next sync.
+            if (_pendingChangeStore is not null)
+                await _pendingChangeStore.RemapWorkItemIdAsync(seedId, newId, ct);
+
+            // 10f: Delete old seed row
+            await _workItemRepo.DeleteByIdAsync(seedId, ct);
+
+            // 10g: Commit transaction
             await _unitOfWork.CommitAsync(tx, ct);
         }
         catch

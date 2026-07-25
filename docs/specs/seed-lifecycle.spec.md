@@ -59,6 +59,15 @@ enforcement (e.g., to publish time).
 | P-4 | Batch publish uses topological sort (Kahn's algorithm) | `seed publish --all` |
 | P-5 | Deterministic tiebreaker: oldest `SeedCreatedAt` first | Topological sort |
 | P-6 | Batch publish validates the full dependency graph before starting | Pre-flight check (new) |
+| P-7 | Staged changes survive publish: `pending_changes` rows are remapped onto the published ID, never dropped | Transactional remap |
+
+> **P-7 note.** `pending_changes.work_item_id` carries a FOREIGN KEY to `work_items(id)`,
+> so the new row must be inserted *before* the remap and the seed row deleted *after* it.
+> Getting this wrong is not a local-only failure: the ADO item is created in step 5, outside
+> the transaction, so a rollback here orphans a real work item and every retry creates a
+> duplicate (PolyphonyRequiem/twig#270). Discard clears these rows (twig#268) because that is
+> what the user asked for; publish must migrate them instead, since the note is content the
+> user still wants — it flushes to the published item on the next `twig sync`.
 
 ### 1.5 Mutation Invariants
 
@@ -257,8 +266,9 @@ Publish seeds to Azure DevOps.
    - Record mapping in `publish_id_map` (I-4)
    - Remap `seed_links` IDs (L-5)
    - Remap `ParentId` in child seeds (H-3)
-   - Delete old seed row
    - Insert new ADO item row
+   - Remap `pending_changes.work_item_id` onto the new ID (P-7)
+   - Delete old seed row
 8. Promote seed links to ADO relations (L-6 — non-fatal)
 9. If `--link-branch`: link published items to branch via artifact link
 10. Best-effort cache refresh

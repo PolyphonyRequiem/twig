@@ -122,6 +122,20 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore
         return Task.FromResult<IReadOnlyList<int>>(ids);
     }
 
+    public Task RemapWorkItemIdAsync(int oldId, int newId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        // Enrolled in the ambient transaction: publish remaps inside SqliteUnitOfWork's
+        // transaction, and an unenrolled command would sit outside the rollback (#270).
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "UPDATE pending_changes SET work_item_id = @newId WHERE work_item_id = @oldId;";
+        cmd.Parameters.AddWithValue("@newId", newId);
+        cmd.Parameters.AddWithValue("@oldId", oldId);
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
+    }
+
     public Task<int> ClearAllChangesAsync(CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

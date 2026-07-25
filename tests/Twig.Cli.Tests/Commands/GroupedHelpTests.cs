@@ -244,7 +244,8 @@ public sealed class GroupedHelpTests
     [InlineData("prev")]
     [InlineData("back")]
     [InlineData("fore")]
-    [InlineData("history")]
+    // NOTE: "history" is no longer a hidden alias — `twig history <id>` is a visible
+    // command (twig#241) and is covered dynamically by AllNonHiddenCommands_AppearInGroupedHelp.
     [InlineData("seed")]
     [InlineData("refresh")]
     [InlineData("tree")]

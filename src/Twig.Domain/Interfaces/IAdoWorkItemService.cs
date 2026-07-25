@@ -33,4 +33,19 @@ public interface IAdoWorkItemService
     /// Implementations should treat HTTP 404 as idempotent (item already deleted).
     /// </summary>
     Task DeleteAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches the complete revision history for a work item from the ADO Work Item Updates API
+    /// (twig#241). Read-only: no workspace, cache, context, or pending-change mutation.
+    /// </summary>
+    /// <remarks>
+    /// Complete-or-error: the implementation traverses every ADO page internally and a failure on
+    /// any page fails the whole operation. A partial timeline is never reported as success.
+    /// Relation-target enrichment is best-effort and must never affect
+    /// <see cref="WorkItemHistory.Complete"/>.
+    /// </remarks>
+    Task<WorkItemHistory> FetchHistoryAsync(
+        int id,
+        WorkItemHistoryOptions options,
+        CancellationToken ct = default);
 }

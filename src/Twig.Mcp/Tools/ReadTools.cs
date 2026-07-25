@@ -1,8 +1,10 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -214,6 +216,58 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
             writer.WriteNumber("refreshedCount", refreshedCount);
             writer.WriteString("lastSyncUtc", lastSyncUtc);
             writer.WriteNumber("durationMs", sw.ElapsedMilliseconds);
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_history"), Description("Return a work item's revision history: field changes with old/new values and relation adds/removes, each with a timestamp and actor. Read-only. Brief by default; use detail for values.")]
+    public async Task<CallToolResult> History(
+        [Description("Work item ID.")] int id,
+        [Description("Update IDs (e.g. '8,11,14') or 'all' for full field values.")] string? detail = null,
+        [Description("ADO field reference names to filter to. Relation events are always kept.")] string? field = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        if (id <= 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "A positive work item id is required.");
+
+        var parsed = WorkItemHistoryOptionsParser.Parse(detail, field);
+        if (!parsed.IsSuccess)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, parsed.Error);
+
+        WorkItemHistory history;
+        try
+        {
+            history = await ctx.AdoService.FetchHistoryAsync(id, parsed.Value, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Complete-or-error: a failure never degrades to an empty successful timeline.
+            // History-specific structured error codes are deferred (#249) — reuse existing ones.
+            var code = ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
+                ? McpErrorCode.ItemNotFound
+                : McpErrorCode.AdoUnreachable;
+
+            return await EnvelopeBuilder.ErrorAsync(
+                code, $"Failed to read history for #{id}: {ex.Message}", ctx, ct);
+        }
+
+        // Shares the CLI's AOT-safe writer verbatim, so both surfaces emit an identical document.
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("workItemId", history.WorkItemId);
+            writer.WriteBoolean("complete", history.Complete);
+            writer.WriteNumber("eventCount", history.Events.Count);
+            writer.WritePropertyName("events");
+            using var document = JsonDocument.Parse(WorkItemHistoryJsonWriter.Write(history));
+            document.RootElement.GetProperty("events").WriteTo(writer);
         }, verbose, ct);
     }
 

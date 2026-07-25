@@ -32,7 +32,7 @@ public sealed class McpToolMetadataTests
             .Where(parameter => parameter.Name == "workspace")
             .ToList();
 
-        parameters.Count.ShouldBe(39);
+        parameters.Count.ShouldBe(40);
         McpToolDescriptions.WorkspaceOverride.ShouldContain("Omit");
         McpToolDescriptions.WorkspaceOverride.ShouldContain("repo-local");
 

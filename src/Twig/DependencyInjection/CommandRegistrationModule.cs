@@ -99,6 +99,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<AuthClearCommand>();
         services.AddSingleton<AuthLoginCommand>();
         services.AddSingleton<QueryCommand>();
+        services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();

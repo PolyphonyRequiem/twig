@@ -32,6 +32,12 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
 [JsonSerializable(typeof(AdoWorkItemResponse))]
 [JsonSerializable(typeof(AdoBatchWorkItemResponse))]
+// Work item history — Updates API (twig#241)
+[JsonSerializable(typeof(AdoWorkItemUpdatesResponse))]
+[JsonSerializable(typeof(AdoWorkItemUpdate))]
+[JsonSerializable(typeof(AdoFieldUpdate))]
+[JsonSerializable(typeof(AdoRelationUpdates))]
+[JsonSerializable(typeof(AdoUpdateIdentity))]
 [JsonSerializable(typeof(AdoWiqlResponse))]
 [JsonSerializable(typeof(AdoWiqlRequest))]
 [JsonSerializable(typeof(AdoCommentRequest))]

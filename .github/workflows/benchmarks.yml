@@ -22,8 +22,11 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          # Let global.json drive SDK selection, matching ci.yml and release.yml.
+          # Pinning a version here (11.0.x + preview quality) resolved a NEWER preview
+          # than global.json pins, and global.json sets rollForward: disable — so every
+          # run failed at the first dotnet invocation with exit 155 (#275).
+          global-json-file: global.json
 
       - name: Restore
         run: dotnet restore tests/Twig.Benchmarks/Twig.Benchmarks.csproj

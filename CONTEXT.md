@@ -87,6 +87,21 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
 > the sync boundary as well as reads; whether benches must be concurrent in one process
 > or merely switchable.
+>
+> **The four experiences** (owner, 2026-07-26) — supersedes the loose
+> "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model:
+>
+> 1. **Rich CLI** — a human at a terminal; rendered colour/tables/hints/interpretation.
+> 2. **Script CLI** — a script or CI job; machine-readable **stdio AND fileio**, a stable
+>    parseable contract. (File output is a contract too, not just stdout.)
+> 3. **MCP** — an LLM controlling the Bench and pending set, and answering questions about
+>    **local OR remote** data. Uniquely has REACH: it may be asked about data twig has
+>    never cached.
+> 4. **TUI** — a human in a **session launched from the CLI**, with multiple modes and
+>    views. A MODE OF THE CLI, not a separate application — which makes
+>    `src/Twig.Tui`'s separate composition root a defect rather than a design.
+>
+> See wayfinder ticket 0002.
 
 | Qualified name | Meaning | Defined at |
 |---|---|---|

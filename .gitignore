@@ -71,3 +71,7 @@ desktop.ini
 .polyphony-config/
 
 ci-log*.txt
+
+# BenchmarkDotNet writes results here when the benchmarks are run locally.
+# They are per-machine timings, not source (#275).
+BenchmarkDotNet.Artifacts/

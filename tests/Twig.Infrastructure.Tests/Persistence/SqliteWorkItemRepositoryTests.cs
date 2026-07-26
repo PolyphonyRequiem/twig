@@ -658,6 +658,69 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Seed ID recycling (#280)
+    //
+    //  Publishing DELETES the seed row (SeedPublishOrchestrator.cs:265-266),
+    //  but publish_id_map.old_id is a PERMANENT key space. If the allocator
+    //  derives its high-water mark only from work_items, a published seed's
+    //  negative ID becomes re-issuable — and the new seed then resolves,
+    //  through the map, to the ADO work item published under the PREVIOUS
+    //  owner of that ID.
+    //
+    //  The floor must therefore span both tables.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_IncludesPublishedIds_SoTheyAreNotReissued()
+    {
+        var mapRepo = new SqlitePublishIdMapRepository(_store);
+
+        // Seed A (-1) survives; seed B (-2) was published, so its row is gone
+        // from work_items but its identity is permanently consumed.
+        var seedA = new WorkItemBuilder(-1, "Seed A").AsSeed().Build();
+        await _repo.SaveAsync(seedA);
+        await mapRepo.RecordMappingAsync(-2, 12345);
+
+        var minId = await _repo.GetMinSeedIdAsync();
+
+        minId.ShouldNotBeNull();
+        minId.Value.ShouldBe(-2,
+            "the floor must account for published seed IDs; returning -1 lets the next "
+            + "allocation reissue -2, which already maps to ADO item 12345 (#280)");
+    }
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_ReturnsPublishedFloor_WhenAllSeedsPublished()
+    {
+        var mapRepo = new SqlitePublishIdMapRepository(_store);
+
+        // Every seed has been published — work_items holds no seed rows at all.
+        await mapRepo.RecordMappingAsync(-1, 11111);
+        await mapRepo.RecordMappingAsync(-2, 22222);
+
+        var minId = await _repo.GetMinSeedIdAsync();
+
+        minId.ShouldNotBeNull(
+            "an empty work_items seed set does NOT mean the ID space is unused (#280)");
+        minId.Value.ShouldBe(-2);
+    }
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_ReturnsLiveFloor_WhenLiveSeedIsLower()
+    {
+        var mapRepo = new SqlitePublishIdMapRepository(_store);
+
+        var seed = new WorkItemBuilder(-9, "Live seed").AsSeed().Build();
+        await _repo.SaveAsync(seed);
+        await mapRepo.RecordMappingAsync(-2, 12345);
+
+        var minId = await _repo.GetMinSeedIdAsync();
+
+        minId.ShouldNotBeNull();
+        minId.Value.ShouldBe(-9, "the floor is the minimum across BOTH sources");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  GetByAreaPathsAsync tests (area mode)
     // ═══════════════════════════════════════════════════════════════
 

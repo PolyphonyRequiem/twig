@@ -321,11 +321,16 @@ internal static class ExceptionHandler
             return 1;
         }
 
-        // FM-008: Cache corruption — SqliteException directly or wrapped in InvalidOperationException
-        if (ex is Microsoft.Data.Sqlite.SqliteException
-            || (ex is InvalidOperationException && ex.InnerException is Microsoft.Data.Sqlite.SqliteException))
+        // FM-008: SQLite failures — SqliteException directly or wrapped in InvalidOperationException.
+        // Branch on SqliteErrorCode rather than exception type (#271): most SQLite errors are NOT
+        // corruption, and `twig init --force` destroys a healthy cache along with every staged note.
+        // Demonstrated live in #268, where a FOREIGN KEY violation (a twig logic bug) told the user
+        // their cache was corrupt and recommended the one action that would actually lose their data.
+        var sqliteEx = ex as Microsoft.Data.Sqlite.SqliteException
+            ?? (ex as InvalidOperationException)?.InnerException as Microsoft.Data.Sqlite.SqliteException;
+        if (sqliteEx is not null)
         {
-            stderr.WriteLine("\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.");
+            WriteSqliteDiagnostic(sqliteEx, stderr);
             Environment.ExitCode = 1;
             return 1;
         }
@@ -333,6 +338,69 @@ internal static class ExceptionHandler
         stderr.WriteLine($"error: {ex.Message}");
         Environment.ExitCode = 1;
         return 1;
+    }
+
+    // SQLite primary result codes. Named rather than inlined so the mapping below reads as
+    // intent; see https://www.sqlite.org/rescode.html.
+    private const int SqliteBusy = 5;
+    private const int SqliteLocked = 6;
+    private const int SqliteReadOnly = 8;
+    private const int SqliteCorrupt = 11;
+    private const int SqliteFull = 13;
+    private const int SqliteCantOpen = 14;
+    private const int SqliteConstraint = 19;
+    private const int SqliteNotADb = 26;
+
+    /// <summary>
+    /// Maps a <see cref="Microsoft.Data.Sqlite.SqliteException"/> to an actionable message.
+    /// The destructive `twig init --force` hint is deliberately scoped to the two codes that
+    /// mean the database is genuinely unreadable (#271).
+    /// </summary>
+    private static void WriteSqliteDiagnostic(
+        Microsoft.Data.Sqlite.SqliteException ex,
+        TextWriter stderr)
+    {
+        // Microsoft.Data.Sqlite reports extended codes (e.g. 787 SQLITE_CONSTRAINT_FOREIGNKEY);
+        // the low 8 bits carry the primary code.
+        var primary = ex.SqliteErrorCode & 0xFF;
+
+        switch (primary)
+        {
+            case SqliteCorrupt:
+            case SqliteNotADb:
+                stderr.WriteLine("\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.");
+                break;
+
+            case SqliteConstraint:
+                // A constraint violation is a bug in twig, not damaged data. Rebuilding would
+                // destroy a healthy cache without fixing the defect.
+                stderr.WriteLine($"error: Internal database constraint violation: {ex.Message}");
+                stderr.WriteLine("hint: This is a bug in twig, not a damaged cache — your data is intact.");
+                stderr.WriteLine("hint: Please report it at https://github.com/PolyphonyRequiem/twig/issues");
+                break;
+
+            case SqliteBusy:
+            case SqliteLocked:
+                stderr.WriteLine($"error: Cache is locked by another process: {ex.Message}");
+                stderr.WriteLine("hint: Another twig or twig-mcp process is using the cache. Close it and retry.");
+                break;
+
+            case SqliteReadOnly:
+            case SqliteCantOpen:
+                stderr.WriteLine($"error: Cannot open the cache for writing: {ex.Message}");
+                stderr.WriteLine("hint: Check file permissions on the .twig directory.");
+                break;
+
+            case SqliteFull:
+                stderr.WriteLine($"error: Not enough disk space to write the cache: {ex.Message}");
+                stderr.WriteLine("hint: Free up disk space and retry.");
+                break;
+
+            default:
+                // Unknown code: report it honestly rather than guessing corruption.
+                stderr.WriteLine($"error: Database error (SQLite code {ex.SqliteErrorCode}): {ex.Message}");
+                break;
+        }
     }
 }
 

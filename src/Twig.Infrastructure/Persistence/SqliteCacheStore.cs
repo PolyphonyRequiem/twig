@@ -40,10 +40,16 @@ public sealed class SqliteCacheStore : IDisposable
         catch (SqliteException ex)
         {
             _connection.Dispose();
-            // I-003: Preserve the original exception chain for debugging
-            throw new InvalidOperationException(
-                "\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.",
-                ex);
+            // I-003: Preserve the original exception chain for debugging.
+            // #271: open-time failures include locked, read-only and permission cases that are
+            // NOT corruption, so the message is derived from the error code instead of asserting
+            // corruption unconditionally. ExceptionHandler unwraps this and branches on
+            // SqliteErrorCode again to choose the user-facing advice.
+            var primary = ex.SqliteErrorCode & 0xFF;
+            var message = primary is 11 or 26   // SQLITE_CORRUPT / SQLITE_NOTADB
+                ? $"The twig cache is corrupt and cannot be opened: {ex.Message}"
+                : $"Failed to open the twig cache: {ex.Message}";
+            throw new InvalidOperationException(message, ex);
         }
     }
 

@@ -16,6 +16,8 @@ A twig codebase whose architecture matches its stated ideology — four peer sur
 <!-- one line per closed ticket -->
 - 0008: all six registration touch points (3 CLI, 3 MCP) are now guarded by build-time completeness tests rather than by hand — including constructor-level assertions, because .NET DI's greediest-satisfiable-constructor rule makes a bare resolution test pass on a degraded path. The guards found a live bug: `twig save` was dispatching to an unregistered `SaveCommand`.
 
+- [What is twig for?](tickets/0001-what-is-twig-for.md) — A single-user local tool each dev runs independently; the shared substrate is ADO, never twig. The cache is disposable, the PENDING SET is the only thing twig owns, and it needs its own lifecycle: selective push per item, forced parent-before-child sequencing, push-and-recover with durable intent recorded BEFORE the ADO call, interactive conflict resolution for humans and warn-and-advise for agents/scripts.
+
 ## Not yet specified
 - Whether the TUI is committed or exploratory in the long run — it has 774 lines of source, 1,064 lines of tests, 8 commits, last touched 2026-07-11, and the owner reports it is "coming back to the surface." Its weight changes how much the rendering seam matters.
 - Migration sequencing: if both the persistence model and the surface seam change, which lands first and how the intermediate state stays shippable.

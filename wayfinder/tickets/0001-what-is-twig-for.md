@@ -122,6 +122,11 @@ concept; whether `WorkingSet` survives as a Bench's projection is open.
 Open, and probably the next ticket: is the pending set per-Bench or per-Connection? That
 decides what "selective push" selects.
 
+**`Sprig` is reserved, not rejected.** It was considered for Bench and set aside: a sprig
+is a cluster growing off a twig, which fits **planning over seeds** — a drafted,
+unpublished chain — better than a set of already-tracked ADO items. Held for a future
+planning mode rather than spent on a synonym.
+
 ### 7. ADO API research — verdicts
 
 Two questions were dispatched during this session; full findings in

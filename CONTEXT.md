@@ -75,7 +75,14 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > `WorkingSet` survives as a Bench's derived projection is an open design question.
 >
 > Rejected: Set (collides with the `twig set` command), Focus (implies exactly one),
-> Track (collides with `TrackedItem`/`TrackingMode`), Thread, Branch, Board, Lane, Sprig.
+> Track (collides with `TrackedItem`/`TrackingMode`), Thread, Branch, Board, Lane.
+>
+> **Reserved — `Sprig`.** Considered for Bench and set aside deliberately, not discarded.
+> A sprig is a cluster growing off a twig, which is a closer fit for **planning work over
+> seeds** — a drafted, still-unpublished chain of items — than for a set of items already
+> tracked in ADO. Keep it available for a future planning mode; do not spend it on a
+> synonym. (`CONTEXT.md` rule 3: don't invent a name to avoid a rename — the inverse also
+> holds, don't burn a good name on the wrong concept.)
 >
 > Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
 > the sync boundary as well as reads; whether benches must be concurrent in one process

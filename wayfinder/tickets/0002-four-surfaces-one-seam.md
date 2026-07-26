@@ -52,22 +52,47 @@ fileio."* The audit treated the toolchain surface as `--json` on stdout. Files w
 another program to consume are equally a contract, and nothing currently versions or
 tests either. Widens 0010 (toolchain output stability).
 
-**d. MCP capability should be SELECTIVELY EXPOSED, driven by scenarios in the other
-surfaces.** Owner, 2026-07-26: *"the mcp features should probably be selectively exposed
-when called for by scenarios in the other surfaces."*
+**d. MCP is an LLM TOOLKIT, not a CLI proxy.** Owner, 2026-07-26:
 
-This inverts how MCP is currently built. Today `Twig.Mcp` is a parallel implementation
-with its own composition root, its own envelope stack, and its own tool catalogue —
-capability is decided MCP-side. Under this direction, MCP is a **projection of capability
-that already exists for the other experiences**, exposed deliberately per scenario rather
-than by default. Two consequences worth testing:
+> *"script these twig things using the scripting interface, or use more high level tools
+> targeted at things the MCP might reasonably want to do, and then drive underlying twig
+> operations accordingly. I see the MCP as a bit more of an LLM toolkit than just a CLI
+> proxy."*
 
-- It argues for one seam with MCP as an adapter over it — because a projection needs
-  something to project *from*.
-- It makes the MCP tool catalogue a **curated list**, not a mirror. Something must decide
-  which capabilities are exposed, and that decision is a design artifact needing a home.
-  Note `McpHintProvider.ApplyHintsAsync` already has zero production callers — evidence
-  that MCP-side capability has already drifted from what anyone uses.
+Two offered shapes, and **both already exist in the code as one-offs** — which is the real
+finding here:
+
+- **The scripting interface.** `twig_batch` (`src/Twig.Mcp/Tools/BatchTools.cs:17`) already
+  accepts a JSON graph of `sequence` / `parallel` / `step` nodes, with fail-fast semantics
+  and per-step `onError: continue`. That IS a scripting primitive exposed as a tool.
+- **High-level intent tools.** `twig_find_or_create`
+  (`src/Twig.Mcp/Tools/CreationTools.cs:120`) is not a CLI proxy: its description says
+  *"Always performs a deduplication check — use this instead of twig_new when idempotent
+  creation is required."* It encodes an INTENT the LLM would otherwise have to compose
+  from a query plus a create, and get wrong.
+
+The other ~39 tools are per-command proxies. So the catalogue currently holds **two
+philosophies with no stated intent** — a design decision made twice by accident.
+
+**The mechanism for selective exposure also already exists**, and is not the issue: 41
+tools in `AllToolNames`, only 11 advertised by default via `CompactToolNames`
+(`McpToolCatalog.cs:70`), the rest reachable with `--tool-profile full`. What is missing is
+the *criterion*. The code comment calls the 11 the "high-frequency surface" — chosen by
+guessing what an LLM uses often. The owner's rule is different: a tool earns its place
+because a real scenario needs it.
+
+**Consequence — "CLI ↔ MCP parity" is partly the WRONG QUESTION.** Parity assumes MCP
+should mirror the CLI. If MCP is a toolkit, then some CLI commands should have no MCP tool,
+and some MCP tools (composites like `find_or_create`, and `twig_batch` itself) should have
+no CLI equivalent. **Divergence would be correct, not drift.** The audit's parity table
+needs re-reading with that lens before it is used to justify any alignment work.
+
+Supporting evidence that MCP-side capability has drifted from use:
+`McpHintProvider.ApplyHintsAsync` has zero production callers.
+
+**Open:** what are the scenarios? The toolkit cannot be designed until "things an LLM
+might reasonably want to do" is an enumerated list rather than a phrase. That list is the
+gating artifact for this half of the ticket.
 
 **Sharpest axis so far — interactivity (from 0001 §3d).** 1 and 4 can be *asked a
 question*; 2 cannot; 3 can, but only through the LLM as intermediary. Conflict resolution

@@ -101,8 +101,12 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 >    views. Conceptually a CLI thing (same user, same terminal, same mental model), but
 >    **may still ship as its own product** — packaging is undecided.
 >
-> MCP capability should be **selectively exposed**, driven by scenarios in the other
-> experiences, rather than mirroring everything by default.
+> MCP is an **LLM toolkit, not a CLI proxy** (owner, 2026-07-26): a scripting interface
+> plus high-level tools aimed at what an LLM reasonably wants to do, driving the
+> underlying twig operations itself. Both shapes already exist as one-offs — `twig_batch`
+> (sequence/parallel/step graph) and `twig_find_or_create` (encodes idempotent-creation
+> intent) — while the other ~39 tools are per-command proxies. Consequence: CLI↔MCP
+> **parity is partly the wrong goal**; deliberate divergence is correct for a toolkit.
 >
 > See wayfinder ticket 0002.
 

@@ -91,6 +91,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<DiscardCommand>();
         services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
+        // 'twig save' is deprecated but still dispatches to SaveCommand
+        // (Program.cs Save handler); without this it throws at runtime.
+        services.AddSingleton<SaveCommand>();
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();

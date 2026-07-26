@@ -103,8 +103,63 @@ There is no self-servable event source to make refresh event-driven, which is *w
 staleness clock ended up buried in a read path (`SyncCoordinator.SyncItemAsync:51`) —
 nobody chose it; the absence of events pushed the decision into whatever code touched the
 network. Polling is structural, so the sync boundary must be explicit and user-owned
-rather than an implicit side effect of reading. Evidence pending in
-`%TEMP%\twig-review\research-ado-notifications.md`.
+rather than an implicit side effect of reading. Confirmed by research — see §7.
+
+### 6. Vocabulary: `Workspace` is retired
+
+`Workspace` names four things (`CONTEXT.md` §4). It is being **retired, not
+disambiguated** — CONTEXT.md's own rule is "don't invent a name to avoid a rename."
+
+- **Connection** — one `{org}/{project}` ADO endpoint with its cache and credentials.
+  Replaces `WorkspaceKey`. Several supported. Not "Scope" (collides with ADO auth scopes),
+  not "Project" (collides with `gitProject` in `init`).
+- **Bench** — a named, persistent, switchable set of work items. Plural and concurrent.
+
+A Bench is **not** a rename of `WorkingSet` (`src/Twig.Domain/Services/Workspace/WorkingSet.cs:9`),
+which is singular, derived and recomputed on every access. Plural named benches are a new
+concept; whether `WorkingSet` survives as a Bench's projection is open.
+
+Open, and probably the next ticket: is the pending set per-Bench or per-Connection? That
+decides what "selective push" selects.
+
+### 7. ADO API research — verdicts
+
+Two questions were dispatched during this session; full findings in
+`%TEMP%\twig-review\research-ado-notifications.md` and `research-ado-batch-push.md`.
+
+**No self-servable event source. Confirmed.** Personal notification subscriptions filter
+by *work item fields* only — a saved query or WIQL cannot be the trigger. Service hooks
+(the only machine-consumable channel) require *"Edit subscriptions"*, and *"by default,
+only project administrators have these permissions."* The owner is a plain Contributor.
+**Polling is structural**, as §5 assumed.
+
+**But there is a far better polling primitive than the staleness clock.**
+`GET /_apis/wit/reporting/workitemrevisions` with a persisted `continuationToken` — the
+token *is* a watermark, so it is **clock-free**: no skew, no time-window guessing. Reports
+deletions (`includeDeleted=true`), collapses revision churn (`includeLatestOnly=true`),
+trims payload (`fields`, `types`), and needs only ordinary read scope. This should replace
+`LastSyncedAt` vs `cacheStaleMinutes` — input to 0004.
+
+**`$batch` is NOT atomic — explicitly.** *"Failed requests do not affect subsequent
+requests in the batch."* Per-element `{code, headers, body}`; partial success is normal;
+no rollback language anywhere. Corrections to assumptions made earlier in this ticket: the
+method is `PATCH /_apis/wit/$batch` (not POST), it is **org-scoped**, and **7.1 batch
+semantics are undocumented** — the page renders at api-version 6.1 even under 7.1 views.
+Max operations per batch: not documented.
+
+**Create-and-link in one round trip: not documented — treat as no.** Temporary/negative
+IDs referencing not-yet-created items within a batch could not be confirmed to exist.
+Publishing a parent-child chain requires ordered round trips: create, read back real ids,
+then PATCH relations.
+
+**The finding that settles §4.** Updates fenced by a `test` op on `/rev` are replay-safe;
+**creates have no documented idempotency key** — an ambiguous timeout can duplicate an
+item, and *"twig must reconcile by query before retrying creates."* So push-and-recover is
+not a design preference: **the API leaves no alternative.** Throttling is documented (HTTP
+429 + `TF400733`, honour `Retry-After`), which the recovery path must handle.
+
+Consequence for §4's idempotency key: since ADO offers none natively, twig must supply its
+own (a stamped tag or field) or reconcile by query. Undecided — belongs to 0003.
 
 ### Consequences for the rest of the map
 
@@ -131,5 +186,9 @@ rather than an implicit side effect of reading. Evidence pending in
 
 - The storage mechanism for the pending set (separate table, separate file, separate DB).
 - The idempotency key mechanism.
-- Whether ADO's `$batch` is atomic, which decides how much recovery machinery is needed.
 - Whether the TUI is committed or exploratory.
+- Whether the pending set is per-Bench or per-Connection.
+- Whether a Bench scopes the sync boundary as well as reads, and whether benches must be
+  concurrent within one process or merely switchable.
+
+(`$batch` atomicity is now ANSWERED — not atomic; see §7.)

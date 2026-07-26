@@ -59,6 +59,28 @@ item that has never been pushed to ADO (`src/Twig.Domain/Aggregates/WorkItem.cs:
 `Workspace` currently names three different things. This is a known defect in the domain
 language, not a subtlety. Until it is resolved, **always qualify the term**.
 
+> **Decided 2026-07-26 (wayfinder 0001):** `Workspace` is being RETIRED, not disambiguated.
+> Two replacement nouns are agreed:
+>
+> - **Connection** — one `{org}/{project}` ADO endpoint with its cache and credentials.
+>   Replaces `WorkspaceKey`. Twig will support several. *Not* "Scope" — that collides with
+>   ADO auth scopes (`vso.work`). *Not* "Project" — collides with `gitProject` in `init`.
+> - **Bench** — a named, persistent, switchable set of work items the user is working on.
+>   Several may exist concurrently; a bench is selected, not derived. From "workbench":
+>   what is on your bench right now.
+>
+> `Bench` is NOT a rename of `WorkingSet` below. `WorkingSet` is singular, derived, and
+> recomputed on every access with no identity or persistence. A Bench is plural, named,
+> and persistent — a different concept that happens to occupy adjacent ground. Whether
+> `WorkingSet` survives as a Bench's derived projection is an open design question.
+>
+> Rejected: Set (collides with the `twig set` command), Focus (implies exactly one),
+> Track (collides with `TrackedItem`/`TrackingMode`), Thread, Branch, Board, Lane, Sprig.
+>
+> Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
+> the sync boundary as well as reads; whether benches must be concurrent in one process
+> or merely switchable.
+
 | Qualified name | Meaning | Defined at |
 |---|---|---|
 | **Workspace (read model)** | Display projection, no identity, no invariants: context item + sprint items + seeds + tracked + excluded. | `src/Twig.Domain/ReadModels/Workspace.cs:10` |

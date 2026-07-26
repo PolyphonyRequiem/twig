@@ -59,6 +59,57 @@ item that has never been pushed to ADO (`src/Twig.Domain/Aggregates/WorkItem.cs:
 `Workspace` currently names three different things. This is a known defect in the domain
 language, not a subtlety. Until it is resolved, **always qualify the term**.
 
+> **Decided 2026-07-26 (wayfinder 0001):** `Workspace` is being RETIRED, not disambiguated.
+> Two replacement nouns are agreed:
+>
+> - **Connection** — one `{org}/{project}` ADO endpoint with its cache and credentials.
+>   Replaces `WorkspaceKey`. Twig will support several. *Not* "Scope" — that collides with
+>   ADO auth scopes (`vso.work`). *Not* "Project" — collides with `gitProject` in `init`.
+> - **Bench** — a named, persistent, switchable set of work items the user is working on.
+>   Several may exist concurrently; a bench is selected, not derived. From "workbench":
+>   what is on your bench right now.
+>
+> `Bench` is NOT a rename of `WorkingSet` below. `WorkingSet` is singular, derived, and
+> recomputed on every access with no identity or persistence. A Bench is plural, named,
+> and persistent — a different concept that happens to occupy adjacent ground. Whether
+> `WorkingSet` survives as a Bench's derived projection is an open design question.
+>
+> Rejected: Set (collides with the `twig set` command), Focus (implies exactly one),
+> Track (collides with `TrackedItem`/`TrackingMode`), Thread, Branch, Board, Lane.
+>
+> **Reserved — `Sprig`.** Considered for Bench and set aside deliberately, not discarded.
+> A sprig is a cluster growing off a twig, which is a closer fit for **planning work over
+> seeds** — a drafted, still-unpublished chain of items — than for a set of items already
+> tracked in ADO. Keep it available for a future planning mode; do not spend it on a
+> synonym. (`CONTEXT.md` rule 3: don't invent a name to avoid a rename — the inverse also
+> holds, don't burn a good name on the wrong concept.)
+>
+> Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
+> the sync boundary as well as reads; whether benches must be concurrent in one process
+> or merely switchable.
+>
+> **The four experiences** (owner, 2026-07-26) — supersedes the loose
+> "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model:
+>
+> 1. **Rich CLI** — a human at a terminal; rendered colour/tables/hints/interpretation.
+> 2. **Script CLI** — a script or CI job; machine-readable **stdio AND fileio**, a stable
+>    parseable contract. (File output is a contract too, not just stdout.)
+> 3. **MCP** — an LLM controlling the Bench and pending set, and answering questions about
+>    **local OR remote** data. Uniquely has REACH: it may be asked about data twig has
+>    never cached.
+> 4. **TUI** — a human in a **session launched from the CLI**, with multiple modes and
+>    views. Conceptually a CLI thing (same user, same terminal, same mental model), but
+>    **may still ship as its own product** — packaging is undecided.
+>
+> MCP is an **LLM toolkit, not a CLI proxy** (owner, 2026-07-26): a scripting interface
+> plus high-level tools aimed at what an LLM reasonably wants to do, driving the
+> underlying twig operations itself. Both shapes already exist as one-offs — `twig_batch`
+> (sequence/parallel/step graph) and `twig_find_or_create` (encodes idempotent-creation
+> intent) — while the other ~39 tools are per-command proxies. Consequence: CLI↔MCP
+> **parity is partly the wrong goal**; deliberate divergence is correct for a toolkit.
+>
+> See wayfinder ticket 0002.
+
 | Qualified name | Meaning | Defined at |
 |---|---|---|
 | **Workspace (read model)** | Display projection, no identity, no invariants: context item + sprint items + seeds + tracked + excluded. | `src/Twig.Domain/ReadModels/Workspace.cs:10` |

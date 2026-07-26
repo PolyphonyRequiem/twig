@@ -279,7 +279,20 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT MIN(id) FROM work_items WHERE is_seed = 1;";
+        // The floor spans BOTH live seed rows AND already-published seed IDs.
+        //
+        // Publishing deletes the seed row (SeedPublishOrchestrator.cs:265-266), but
+        // publish_id_map.old_id is a permanent key space. Deriving the floor from
+        // work_items alone lets a published seed's negative ID be reissued, and the
+        // new seed then resolves through the map to the ADO work item published under
+        // that ID's previous owner (#280).
+        cmd.CommandText = """
+            SELECT MIN(id) FROM (
+                SELECT id     FROM work_items     WHERE is_seed = 1
+                UNION ALL
+                SELECT old_id FROM publish_id_map
+            );
+            """;
         var result = cmd.ExecuteScalar();
         var minId = result is DBNull || result is null ? (int?)null : Convert.ToInt32(result);
         return Task.FromResult(minId);

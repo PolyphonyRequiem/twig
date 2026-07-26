@@ -176,9 +176,9 @@ own (a stamped tag or field) or reconcile by query. Undecided — belongs to 000
   **loses its strongest argument** (git-shared team state) since nothing is committed to
   the repo. The live question is narrower: should the pending set be stored separately
   from the cache?
-- **0006 (team-scale baseline revision)** — **Mis-titled.** A persisted baseline revision
-  is still valuable, but for local↔ADO three-way merge, not cross-teammate reconciliation.
-  Rename.
+- **0006 (baseline revision for three-way merge)** — **Retitled** from "team-scale
+  baseline revision." A persisted baseline is still valuable, but for local↔ADO three-way
+  merge, not cross-teammate reconciliation — twig's second writer is ADO, at one user.
 - **0002 (four surfaces, one seam?)** — Gains a behavioural axis: interactive vs
   non-interactive (§3d) may matter more than output shape.
 - **0003 (seed identity model)** — Now also owns the idempotency key (§4), not just the

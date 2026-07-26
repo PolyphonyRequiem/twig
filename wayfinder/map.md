@@ -14,6 +14,7 @@ A twig codebase whose architecture matches its stated ideology — four peer sur
 
 ## Decisions so far
 <!-- one line per closed ticket -->
+- 0008: all six registration touch points (3 CLI, 3 MCP) are now guarded by build-time completeness tests rather than by hand — including constructor-level assertions, because .NET DI's greediest-satisfiable-constructor rule makes a bare resolution test pass on a degraded path. The guards found a live bug: `twig save` was dispatching to an unregistered `SaveCommand`.
 
 ## Not yet specified
 - Whether the TUI is committed or exploratory in the long run — it has 774 lines of source, 1,064 lines of tests, 8 commits, last touched 2026-07-11, and the owner reports it is "coming back to the surface." Its weight changes how much the rendering seam matters.

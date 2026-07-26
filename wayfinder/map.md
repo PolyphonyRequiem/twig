@@ -19,6 +19,7 @@ one. This map does not spawn sub-maps: work that cannot yet be phrased sharply b
 - This is a PLANNING map. Produce decisions, not deliverables. One ticket per session.
 - Doc-rot (~110 mechanical corrections) is deliberately NOT in this map — see Out of scope.
 - Ticket 0011 (startup + observability) carries the only measured latency numbers in this map. Any ticket arguing about the cost of work should cite it rather than assert.
+- Ticket 0012 (MCP toolkit scenarios) carries the external evidence on MCP tool design — industry granularity convention, measured tool-count degradation, and an 18-scenario candidate list. Any ticket arguing about the MCP surface should cite it rather than assert.
 
 ## Decisions so far
 <!-- one line per closed ticket -->
@@ -28,7 +29,6 @@ one. This map does not spawn sub-maps: work that cannot yet be phrased sharply b
 
 ## Not yet specified
 - Whether the TUI ships as its own product or as a mode of one binary. Partly clarified (owner, 2026-07-26): the TUI is a CLI *concept* — same user, same terminal, same mental model — but "can be its own product." That places it conceptually without deciding packaging, so whether `src/Twig.Tui` keeps its own composition root and output stack stays open. See tickets 0002 and 0007.
-- **The MCP toolkit's scenario list.** MCP is to be an LLM toolkit rather than a CLI proxy (0002 §d), but "things an LLM might reasonably want to do" is a phrase, not a list. The toolkit cannot be designed until it is enumerated. Research dispatched 2026-07-26 into MCP tool-design convention and into what LLM agents actually do with work-trackers — findings will land in `%TEMP%\twig-review\research-mcp-tool-design.md` and `research-llm-worktracking-scenarios.md`. Expect this to graduate into one or two tickets.
 - **Is the pending set per-Bench or per-Connection?** Decides what "selective push" actually selects, and therefore what the reconciliation module owns. Sharp enough to be near-ticketable; held here only because it may be answered inside 0004.
 - **Does a Bench scope the sync boundary, or only reads?** If a Bench is the unit of refresh, it interacts with the watermark polling strategy from 0001 §7.
 - **Who owns the sync boundary when an LLM triggers a fetch?** 0001 §5 says the boundary must be explicit and user-owned; 0002 §b notes MCP can be asked about data twig has never cached. Those two are in tension and nothing currently resolves it.

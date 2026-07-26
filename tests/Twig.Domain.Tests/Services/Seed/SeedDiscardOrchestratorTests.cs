@@ -17,6 +17,7 @@ public sealed class SeedDiscardOrchestratorTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
     private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
+    private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
     private readonly SeedDiscardOrchestrator _orchestrator;
 
     public SeedDiscardOrchestratorTests()
@@ -24,7 +25,12 @@ public sealed class SeedDiscardOrchestratorTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<WorkItem>());
 
-        _orchestrator = new SeedDiscardOrchestrator(_workItemRepo, _seedLinkRepo, _contextStore);
+        // Construct the FULLY WIRED overload. The 3-argument overload is documented as
+        // degraded: without IPendingChangeStore, discarding a seed that carries a staged
+        // note fails on a SQLite FK violation (#268). Tests must exercise the wired path,
+        // or a regression in the 4-argument wiring would leave this suite green (#279).
+        _orchestrator = new SeedDiscardOrchestrator(
+            _workItemRepo, _seedLinkRepo, _contextStore, _pendingChangeStore);
     }
 
     // ═══════════════════════════════════════════════════════════════

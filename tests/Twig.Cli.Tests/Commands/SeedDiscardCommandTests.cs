@@ -16,6 +16,7 @@ public class SeedDiscardCommandTests
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IContextStore _contextStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly IPendingChangeStore _pendingChangeStore;
     private readonly SeedDiscardCommand _cmd;
 
     public SeedDiscardCommandTests()
@@ -24,11 +25,15 @@ public class SeedDiscardCommandTests
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
         _contextStore = Substitute.For<IContextStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
 
         // Default: GetSeedsAsync returns empty list (no descendants)
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([]);
 
-        var orchestrator = new SeedDiscardOrchestrator(_workItemRepo, _seedLinkRepo, _contextStore);
+        // Fully wired overload — see #279. The 3-argument overload is degraded and would
+        // let a regression in the IPendingChangeStore wiring pass unnoticed (#268).
+        var orchestrator = new SeedDiscardOrchestrator(
+            _workItemRepo, _seedLinkRepo, _contextStore, _pendingChangeStore);
 
         var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 

@@ -19,7 +19,7 @@ A twig codebase whose architecture matches its stated ideology — four peer sur
 - [What is twig for?](tickets/0001-what-is-twig-for.md) — A single-user local tool each dev runs independently; the shared substrate is ADO, never twig. The cache is disposable, the PENDING SET is the only thing twig owns, and it needs its own lifecycle: selective push per item, forced parent-before-child sequencing, push-and-recover with durable intent recorded BEFORE the ADO call, interactive conflict resolution for humans and warn-and-advise for agents/scripts.
 
 ## Not yet specified
-- How much the TUI mode costs to build properly. The commitment question is ANSWERED (owner, 2026-07-26): the TUI is committed, but as a rich-session MODE OF THE CLI rather than a separate application — a smaller commitment than the current `src/Twig.Tui` structure implies. What remains unspecified is the scope of its modes and views, and the migration cost of folding its composition root into the CLI's. See ticket 0002.
+- Whether the TUI ships as its own product or as a mode of one binary. Partly clarified (owner, 2026-07-26): the TUI is a CLI *concept* — same user, same terminal, same mental model — but "can be its own product." That places it conceptually without deciding packaging, so whether `src/Twig.Tui` keeps its own composition root and output stack stays open. See tickets 0002 and 0007.
 - Migration sequencing: if both the persistence model and the surface seam change, which lands first and how the intermediate state stays shippable.
 - Whether `docs/specs/` should remain hand-written prose or be generated from code once the surfaces share a seam.
 - What twig's public contract actually is for external consumers, and what a breaking change means for it.

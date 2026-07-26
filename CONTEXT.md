@@ -98,8 +98,11 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 >    **local OR remote** data. Uniquely has REACH: it may be asked about data twig has
 >    never cached.
 > 4. **TUI** — a human in a **session launched from the CLI**, with multiple modes and
->    views. A MODE OF THE CLI, not a separate application — which makes
->    `src/Twig.Tui`'s separate composition root a defect rather than a design.
+>    views. Conceptually a CLI thing (same user, same terminal, same mental model), but
+>    **may still ship as its own product** — packaging is undecided.
+>
+> MCP capability should be **selectively exposed**, driven by scenarios in the other
+> experiences, rather than mirroring everything by default.
 >
 > See wayfinder ticket 0002.
 

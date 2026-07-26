@@ -103,6 +103,17 @@ than rendering.
 interactive, differing only in whether state persists across commands)? If so there may be
 **three** surfaces and two *presentation modes*, not four surfaces.
 
+### The MCP freeze shrinks this ticket (0012, 2026-07-26)
+
+MCP is **frozen** — no new tools, no parity work, script CLI first (see 0012). The seam
+question therefore narrows: with one of the four experiences under a build-freeze, the live
+question is **rich CLI vs script CLI vs TUI**, and the owner has already placed rich CLI and
+TUI as serving the same person. MCP remains a consumer of whatever seam exists; it just
+stops being a moving target while the seam is decided.
+
+This does NOT make the ticket trivial — experience 2's contract (stdio *and* fileio, §c)
+is still unversioned and untested, and that is where the investment is going.
+
 ### Who decides the seam question
 
 The owner has **no strong feeling** on one-seam-versus-many (2026-07-26) and is not

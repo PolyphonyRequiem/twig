@@ -2,7 +2,8 @@
 id: 0012
 title: MCP toolkit scenarios and tool granularity
 type: grilling
-status: open
+status: closed
+claimed_by: starbright-baseline (session 2026-07-26)
 blocked_by: [0002]
 ---
 
@@ -116,6 +117,60 @@ and the toolkit should be scoped to what genuinely needs to be an MCP tool rathe
 documented command. This should be tested, not assumed — it argues against building 13 new
 tools reflexively.
 
+## Owner's position (2026-07-26) — FREEZE, don't cut
+
+Owner, on reading the research: *"I'd be willing to 'cut' the MCP in favor of a scriptable
+CLI for now"* — then, on being offered the narrower version, *"freeze is more what I
+meant."*
+
+**The decision: freeze the MCP surface. Do not delete it.**
+
+- **No new MCP tools.** The 41-tool catalogue stops growing.
+- **No CLI↔MCP parity work.** Parity was already established as partly the wrong goal
+  (§d above); freezing makes it moot rather than merely questionable.
+- **Any new agent capability is tried through the script CLI (experience 2) FIRST.** Only
+  when a scenario provably cannot be scripted does it become a candidate MCP tool — and
+  that failure is then the *evidence* for the tool, rather than an assumption.
+- **Existing tools keep working.** ~1,300 lines with 1,308 passing tests, in daily use
+  (the owner runs twig's MCP server under Copilot CLI). Nothing is deleted.
+
+### Why freeze rather than cut
+
+Cutting was considered and rejected as too strong. Against cutting: MCP is live code the
+owner uses daily, and it has **reach** (0002 §b) — it can answer about data twig never
+cached, which a script CLI cannot decide to do on the user's behalf. The Playwright
+finding is one vendor's README about coding agents specifically, which is a datapoint and
+not a verdict.
+
+For freezing: it captures the whole benefit of the evidence — *don't build 13 new tools* —
+at zero risk, and it converts an assumption into an experiment. If the script CLI turns
+out to serve the 18 scenarios, that is real usage data for #282's 1.0 map to make the
+final call on. If it doesn't, the gaps are named and specific.
+
+### What this resolves elsewhere
+
+- **This ticket's main question is deferred, not answered.** Scenario enumeration and tool
+  granularity are no longer urgent, because nothing is being built. The evidence above
+  stands as the input for whenever the freeze lifts.
+- **0002 (four experiences, one seam?) shrinks.** With MCP frozen, the live seam question
+  is CLI-vs-TUI — and the owner has already said those serve the same person. That is a
+  materially smaller question than the original four-way one.
+- **0007 (single composition root) gets cheaper to reason about but NOT easier to do.**
+  MCP's root still exists and still hand-mirrors CLI DI (`WorkspaceContextFactory.cs:30-33`).
+  Freezing stops the divergence growing; it does not close the gap that produced #269,
+  #270 and #279. Registration completeness tests (0008) therefore remain worth doing.
+- **0009 (MCP hints contract)** should be parked while the freeze holds — specifying a
+  hint contract for a surface under a build-freeze is premature.
+
+### Exit condition
+
+The freeze lifts when a concrete scenario is shown to be unserveable by the script CLI, or
+when #282's 1.0 map revisits the surface question with usage data. Whoever lifts it should
+start from the evidence section above rather than re-deriving it.
+
 ## Answer
 
-<!-- empty until resolved -->
+**FROZEN (2026-07-26).** MCP surface frozen at 41 tools: no new tools, no parity work, new
+agent capability goes through the script CLI first. Existing tools keep working and are not
+deleted. Scenario enumeration and granularity are deferred with the evidence preserved
+above; the freeze lifts on a demonstrated script-CLI gap or at the 1.0 map.

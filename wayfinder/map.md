@@ -10,6 +10,7 @@ A twig codebase whose architecture matches its stated ideology — four peer sur
 - Twig has FOUR surfaces and THREE composition roots (CLI, MCP, TUI). Only the CLI references Twig.RenderTree.
 - This is a PLANNING map. Produce decisions, not deliverables. One ticket per session.
 - Doc-rot (~110 mechanical corrections) is deliberately NOT in this map — see Out of scope.
+- Ticket 0011 (startup + observability) carries the only measured latency numbers in this map. Any ticket arguing about the cost of work should cite it rather than assert.
 
 ## Decisions so far
 <!-- one line per closed ticket -->

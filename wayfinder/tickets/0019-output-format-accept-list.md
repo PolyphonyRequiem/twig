@@ -2,7 +2,7 @@
 id: 0019
 title: One accept-list for output formats
 type: task
-status: open
+status: closed
 blocked_by: [0002]
 ---
 
@@ -103,4 +103,99 @@ ceremony for an audience of one.
 
 ## Answer
 
-<!-- empty until resolved -->
+**Built: the narrow entrypoint-only version the ticket sanctions as its escape hatch.**
+0002 has not landed, so this ships validation at the door and explicitly does NOT touch the
+33 copy-pasted machine-format predicates. It is the seed of 0002's collapse, not the collapse.
+
+**One accept-list, one place.** `src/Twig/Formatters/OutputFormats.cs` is the single literal:
+`human`, `json`, `json-full`, `json-compact`, `minimal`, `ids` — membership unchanged, so no
+breaking-change rule from 0010 is tripped. It exposes `Normalize()` (canonical lower-case, or
+`null` when off-list), `IsAccepted()`, `Describe()` (comma list for messages/help), and
+`Default`.
+
+**Validated once, at the entrypoint.** `OutputFormatArgumentValidator.Validate(args)` is called
+in `Program.cs` immediately after the unknown-command interception and BEFORE `app.Run(args)`.
+An unknown value writes `Unknown output format 'X'. Valid formats: human, json, json-full,
+json-compact, minimal, ids.` to stderr and exits **2** (`UsageExitCode`, matching the existing
+command-level usage-error convention). It handles `-o V`, `--output V`, `-o=V`, `--output=V`,
+stops scanning at `--`, and leaves a bare trailing `-o` to the argument parser.
+
+**The two factories now READ the list instead of restating it.** `RendererFactory` (both
+overloads) and `OutputFormatterFactory` switch over `OutputFormats.Normalize(...)`, and their
+`DefaultFormat` constants forward to `OutputFormats.Default`. Their `_ =>` arms remain, but they
+are now only reachable by in-process callers — no CLI input can arrive off-list — so the arm no
+longer converts a user typo into exit 0. `QueryCommand`'s `--output` help line reads
+`OutputFormats.Describe()`.
+
+**Facts later tickets depend on:**
+- The accept-list is `Twig.Formatters.OutputFormats.Accepted`. **0002 should collapse the 33
+  predicates onto this type, not create a second list.** A `IsMachineFormat`-style predicate
+  belongs on `OutputFormats` when 0002 lands.
+- Unknown-format exit code is **2**, distinct from the generic error exit **1**.
+- Case handling is unchanged: `ToLowerInvariant` semantics, so `-o JSON` still works.
+- `json`, `json-full`, `json-compact` still all map to `JsonRenderer(indented: true)`. This
+  ticket deliberately did NOT collapse those three names (the ticket said it may, need not).
+- Scope held: no `schemaVersion`, no JSON schemas, no golden payload tests — 0010's ruling
+  respected. `PlainOutputFormatter` untouched. MCP untouched.
+
+**Tests** — `tests/Twig.Cli.Tests/Formatters/OutputFormatsAcceptListTests.cs`, 31 cases: typos
+(`jsno`, `json5`, `JSON5`, `jsonc`, `yaml`, empty, trailing space) rejected in all four flag
+spellings; every accepted format passes validation and resolves to a renderer AND a formatter in
+the correct family (human vs machine, 0010 rule 2); case-insensitivity pinned; `Describe()`
+proven to list exactly the accept-list; list-vs-switch divergence blocked.
+
+**Pre-fix proof:** a probe using only the e899de46 API surface (asserting a typo does not resolve
+to `SpectreNodeRenderer`/`HumanOutputFormatter`) was run in a detached worktree at e899de46 and
+failed **5/5** — confirming `-o jsno` silently produced human output there. The worktree has been
+removed. End-to-end on the built binary: `-o jsno|json5|jsonc` exit **2** with the message; all
+six valid formats plus `JSON` pass the gate.
+
+**Suite:** Cli 2914 / Infra 1355 / Mcp 1313 / Domain 1828 = 7,410, exit 0 on all four
+(baseline 7,379 + 31 new).
+
+PROPOSED follow-ons (no IDs assigned, per instruction):
+- PROPOSED: Collapse the 33 machine-format predicates onto `OutputFormats` (this is 0002's work
+  and is the reason this ticket shipped narrow).
+- PROPOSED: Decide whether `json-full` / `json-compact` should collapse into `json`, or acquire
+  the distinct behaviour their names advertise.
+
+### Review follow-up (2026-07-27)
+
+Review raised one MAJOR: the ticket's central deliverable — "unknown value exits non-zero" — had
+**no committed guard**. `OutputFormatArgumentValidator.Validate` has exactly one production call
+site (the `Program.cs` guard block), and every unit case called the validator directly, so deleting
+that block left all 31 tests green while `-o jsno` silently returned to human output with exit 0.
+The pre-fix probe was real and honestly disclosed, but it was thrown away rather than retained.
+
+Closed by `tests/Twig.Cli.Tests/Formatters/OutputFormatEntrypointTests.cs`: 6 cases that run the
+built binary and assert exit 2 plus the stderr message. **Non-vacuity proved by removing the guard
+block and re-running: 5 of 6 fail.** The 6th is an in-process positive control that correctly does
+not depend on the entrypoint.
+
+Two traps hit while writing it, recorded so the next author does not repeat them:
+
+- **`[Trait("Category", "Interactive")]` would have made the guard vacuous.** `AotSmokeTests` carries
+  that trait and the default filter EXCLUDES it, so the first version reported exit 0 having run
+  **zero tests**. The trait is deliberately absent, and the file says why.
+- **The positive control cannot go through the binary.** `show -o json` reaches a real command and
+  therefore pays for 0018's startup side effects — a blocking GitHub companion download — which
+  exceeded the 300 s test-run budget and aborted the host. Negative cases never reach it because the
+  guard returns first. The accepted-format direction is asserted in-process instead.
+
+**Ordering note:** the 0019 guard sits ABOVE 0018's startup side effects in `Program.cs`. A usage
+error must exit without paying for a self-update sweep or a companion download. Both tickets' guards
+hold: 0018 asserts its side effects run below the fast-exit block, 0019 asserts its validation runs
+before them.
+
+Also addressed from review: `src/Twig/Commands/QueryCommand.cs:274` touches one of the 33 files the
+escape hatch said not to touch — benign (it removes a restated list), now called out explicitly
+rather than left silent.
+
+PROPOSED follow-ons (not filed as numbered tickets, per the ID-namespace rule):
+
+- **PROPOSED: collapse the duplicate `GetRenderer` overloads** — `RendererFactory.cs:47` and `:71`
+  carry identical five-arm switches differing only in sink. Judgement-call Duplicated Code.
+- **PROPOSED: assert no renderer arm exists outside `Accepted`** — §Scope item 3 asks for it; only
+  the forward direction is tested today.
+- **PROPOSED: `RefreshCommand.cs:72` still drops `json-full` downstream** — the entrypoint gate does
+  not stop it. Residual hazard the ticket itself raised.

@@ -28,7 +28,7 @@ namespace Twig.Rendering;
 public sealed class RendererFactory
 {
     /// <summary>The default format used when none is specified.</summary>
-    public const string DefaultFormat = "human";
+    public const string DefaultFormat = Twig.Formatters.OutputFormats.Default;
 
     /// <summary>
     /// Returns an <see cref="IRenderer"/> bound to the current
@@ -37,9 +37,15 @@ public sealed class RendererFactory
     /// slimmer compact-schema variant project differently per format at the
     /// tree level.
     /// </summary>
+    /// <remarks>
+    /// Wayfinder 0019: format membership is decided by
+    /// <see cref="Twig.Formatters.OutputFormats"/>, the single accept-list.
+    /// Unknown values are rejected at the entrypoint and cannot reach here
+    /// from the CLI.
+    /// </remarks>
     public IRenderer GetRenderer(string? format)
     {
-        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        return Twig.Formatters.OutputFormats.Normalize(format) switch
         {
             "json"         => new JsonRenderer(Console.Out, indented: true),
             "json-full"    => new JsonRenderer(Console.Out, indented: true),
@@ -62,7 +68,7 @@ public sealed class RendererFactory
     {
         ArgumentNullException.ThrowIfNull(writer);
 
-        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        return Twig.Formatters.OutputFormats.Normalize(format) switch
         {
             "json"         => new JsonRenderer(writer, indented: true),
             "json-full"    => new JsonRenderer(writer, indented: true),

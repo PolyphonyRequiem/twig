@@ -262,7 +262,7 @@ public sealed partial class QueryCommand(
         sb.AppendLine("  --createdSince  Items created within N days/weeks/months (e.g., 7d, 2w, 1m)");
         sb.AppendLine("  --changedSince  Items changed within N days/weeks/months");
         sb.AppendLine("  --top           Max results (default: 25)");
-        sb.AppendLine("  --output        Output format: human, json, json-full, json-compact, minimal, ids");
+        sb.AppendLine($"  --output        Output format: {Twig.Formatters.OutputFormats.Describe()}");
         sb.AppendLine();
 
         // Show configured default area paths if available

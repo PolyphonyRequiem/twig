@@ -152,6 +152,21 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
     return;
 }
 
+// Wayfinder 0019: -o is validated ONCE, here, against the single accept-list in
+// OutputFormats. Previously both format factories ended in a catch-all that
+// silently meant "human", so `-o jsno` emitted ANSI prose with exit 0 — the
+// worst failure mode for a tool whose stdout is piped into jq.
+//
+// This sits ABOVE the 0018 startup side effects deliberately: a usage error must
+// exit without paying for a self-update sweep or a blocking companion download.
+var outputFormatError = OutputFormatArgumentValidator.Validate(args);
+if (outputFormatError is not null)
+{
+    Console.Error.WriteLine(outputFormatError);
+    Environment.ExitCode = OutputFormatArgumentValidator.UsageExitCode;
+    return;
+}
+
 // TICKET-0018: startup side effects run ONLY once every fast-exit path has been
 // ruled out. Above this point no network or filesystem side effect is permitted —
 // --version / --help / no-args / unknown-command must stay allocation-cheap and

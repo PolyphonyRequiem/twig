@@ -1,5 +1,5 @@
 ---
-id: 0017
+id: 0019
 title: One accept-list for output formats
 type: task
 status: open

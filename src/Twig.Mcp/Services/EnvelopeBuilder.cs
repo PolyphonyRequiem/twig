@@ -1,3 +1,13 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -27,7 +37,7 @@ internal sealed class EnvelopeBuilder
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A <see cref="CallToolResult"/> containing the envelope JSON.</returns>
     public static async Task<CallToolResult> SuccessAsync(
-        WorkspaceContext? ctx,
+        ConnectionScope? ctx,
         Action<Utf8JsonWriter> writeData,
         bool verbose,
         CancellationToken ct)
@@ -53,7 +63,7 @@ internal sealed class EnvelopeBuilder
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A new <see cref="CallToolResult"/> with the envelope wrapping the inner result's JSON.</returns>
     public static async Task<CallToolResult> WrapAsync(
-        WorkspaceContext? ctx,
+        ConnectionScope? ctx,
         CallToolResult innerResult,
         bool verbose,
         CancellationToken ct)
@@ -127,7 +137,7 @@ internal sealed class EnvelopeBuilder
     public static async Task<CallToolResult> ErrorAsync(
         string code,
         string message,
-        WorkspaceContext? ctx,
+        ConnectionScope? ctx,
         CancellationToken ct,
         IReadOnlyDictionary<string, string>? details = null)
     {
@@ -160,15 +170,15 @@ internal sealed class EnvelopeBuilder
     /// <summary>
     /// Populates an <see cref="McpContext"/> from the current workspace state.
     /// </summary>
-    internal static async Task<McpContext> BuildContextAsync(WorkspaceContext ctx, CancellationToken ct)
+    internal static async Task<McpContext> BuildContextAsync(ConnectionScope ctx, CancellationToken ct)
     {
-        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
-        var workspace = ctx.Key.ToString();
+        var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
+        var workspace = ctx.Connection.ToString();
 
         var cacheAge = "";
         if (activeId.HasValue)
         {
-            var item = await ctx.WorkItemRepo.GetByIdAsync(activeId.Value, ct);
+            var item = await ctx.Get<IWorkItemRepository>().GetByIdAsync(activeId.Value, ct);
             if (item?.LastSyncedAt is not null)
             {
                 cacheAge = FormatIsoDuration(DateTimeOffset.UtcNow - item.LastSyncedAt.Value);

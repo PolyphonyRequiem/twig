@@ -1,3 +1,10 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -15,10 +22,10 @@ namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for work item creation: twig_new, twig_link.
-/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Resolves per-workspace services via <see cref="ConnectionResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFactory)
+public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedFactory)
 {
     [McpServerTool(Name = "twig_new"), Description("Create a new work item in Azure DevOps")]
     public async Task<CallToolResult> New(
@@ -63,7 +70,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             return await EnvelopeBuilder.WrapAsync(ctx, parentedResult, verbose, ct);
         }
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+        var processConfig = ctx.Get<IProcessConfigurationProvider>().GetConfiguration();
 
         // Validate type is recognized in the process configuration
         if (!processConfig.TypeConfigs.ContainsKey(parsedType))
@@ -82,7 +89,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             parsedType,
             areaPath,
             iterationPath,
-            await ctx.StagedIdentityRegistry.MintAsync(ct),
+            await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct),
             assignedTo);
 
         if (!unparentedResult.IsSuccess)
@@ -97,25 +104,25 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         }
 
         int newId;
-        try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
+        try { newId = await ctx.Get<IAdoWorkItemService>().CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Create failed: {ex.Message}", ctx, ct); }
 
         // Fetch back the created item for confirmation
         WorkItem created;
-        try { created = await ctx.AdoService.FetchAsync(newId, ct); }
+        try { created = await ctx.Get<IAdoWorkItemService>().FetchAsync(newId, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable,
                 $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.", ctx, ct);
         }
 
-        try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
+        try { await ctx.Get<IWorkItemRepository>().SaveAsync(created, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
+        var url = $"https://dev.azure.com/{ctx.Connection.Org}/{ctx.Connection.Project}/_workitems/edit/{created.Id}";
         return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString()), verbose, ct);
+            McpResultBuilder.FormatCreated(created, url, ctx.Connection.ToString()), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_find_or_create"), Description("Find an existing work item by title and type under a parent, or create it if not found. Always performs a deduplication check — use this instead of twig_new when idempotent creation is required.")]
@@ -162,7 +169,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
 
         try
         {
-            await ctx.AdoService.AddLinkAsync(sourceId, targetId, adoLinkType, ct);
+            await ctx.Get<IAdoWorkItemService>().AddLinkAsync(sourceId, targetId, adoLinkType, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -173,8 +180,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         string? warning = null;
         try
         {
-            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(sourceId, ct);
-            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(targetId, ct);
+            await ctx.Get<SyncCoordinatorFactory>().ReadOnly.SyncLinksAsync(sourceId, ct);
+            await ctx.Get<SyncCoordinatorFactory>().ReadOnly.SyncLinksAsync(targetId, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -201,10 +208,11 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        if (ctx.BranchLinkService is null)
+        var branchLinkService = ctx.GetOptional<BranchLinkService>();
+        if (branchLinkService is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, "Git context is not configured for this workspace.", ctx, ct);
 
-        var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
+        var result = await branchLinkService.LinkBranchAsync(workItemId, branchName, ct);
         return await EnvelopeBuilder.WrapAsync(ctx,
             McpResultBuilder.FormatBranchLinked(result), verbose, ct);
     }
@@ -229,7 +237,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         bool alreadyLinked;
         try
         {
-            alreadyLinked = await ctx.AdoService.AddArtifactLinkAsync(workItemId, url, name, ct);
+            alreadyLinked = await ctx.Get<IAdoWorkItemService>().AddArtifactLinkAsync(workItemId, url, name, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -241,20 +249,20 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
     }
 
     private async Task<CallToolResult?> CheckForDuplicateAsync(
-        WorkspaceContext ctx, int parentId, string title, WorkItemType type, CancellationToken ct)
+        ConnectionScope ctx, int parentId, string title, WorkItemType type, CancellationToken ct)
     {
         WorkItem? existing;
-        try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.AdoService, parentId, title, type, ct); }
+        try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.Get<IAdoWorkItemService>(), parentId, title, type, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { existing = null; }
 
         if (existing is null) return null;
 
-        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{existing.Id}";
-        return McpResultBuilder.FormatFoundExisting(existing, url, ctx.Key.ToString());
+        var url = $"https://dev.azure.com/{ctx.Connection.Org}/{ctx.Connection.Project}/_workitems/edit/{existing.Id}";
+        return McpResultBuilder.FormatFoundExisting(existing, url, ctx.Connection.ToString());
     }
 
     private async Task<CallToolResult> CreateParentedAsync(
-        WorkspaceContext ctx,
+        ConnectionScope ctx,
         int parentId,
         string title,
         WorkItemType parsedType,
@@ -263,13 +271,13 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         string? assignedTo,
         CancellationToken ct)
     {
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+        var processConfig = ctx.Get<IProcessConfigurationProvider>().GetConfiguration();
 
-        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
+        var (parent, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(parentId, ct);
         if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
         var seedResult = seedFactory.Create(
-            title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), parsedType, assignedTo);
+            title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), parsedType, assignedTo);
         if (!seedResult.IsSuccess)
         {
             var parentType = parent!.Type;
@@ -288,23 +296,23 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         }
 
         int newId;
-        try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
+        try { newId = await ctx.Get<IAdoWorkItemService>().CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Create failed: {ex.Message}", ctx, ct); }
 
         WorkItem created;
-        try { created = await ctx.AdoService.FetchAsync(newId, ct); }
+        try { created = await ctx.Get<IAdoWorkItemService>().FetchAsync(newId, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable,
                 $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.", ctx, ct);
         }
 
-        try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
+        try { await ctx.Get<IWorkItemRepository>().SaveAsync(created, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
-        return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
+        var url = $"https://dev.azure.com/{ctx.Connection.Org}/{ctx.Connection.Project}/_workitems/edit/{created.Id}";
+        return McpResultBuilder.FormatCreated(created, url, ctx.Connection.ToString());
     }
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct

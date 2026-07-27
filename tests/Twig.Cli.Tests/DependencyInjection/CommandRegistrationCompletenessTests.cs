@@ -9,6 +9,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
+using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
@@ -78,7 +79,7 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton<SprintIterationResolver>();
 
         // Domain services that production registers via
-        // TwigServiceRegistration.AddTwigCoreServices. Commands take these as
+        // TwigServiceRegistration.AddConnectionServices. Commands take these as
         // optional constructor parameters, so omitting them here would silently
         // exercise the degraded overloads this test exists to catch.
         services.AddSingleton(Substitute.For<IStagedIdentityRegistry>());
@@ -101,6 +102,9 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton<RenderingPipelineFactory>();
         services.AddSingleton<RendererFactory>();
 
+        // Surface-neutral domain services moved to Infrastructure (wayfinder 0016);
+        // compose both seams rather than re-listing either.
+        services.AddConnectionDomainServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();
 

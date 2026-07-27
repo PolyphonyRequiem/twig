@@ -7,6 +7,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
+using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
@@ -73,7 +74,10 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton<RenderingPipelineFactory>();
         services.AddSingleton<Twig.Rendering.RendererFactory>();
 
-        // Domain services (needed by factory) + command service registrations
+        // Domain services (needed by factory) + command service registrations.
+        // The surface-neutral half now lives in Infrastructure (wayfinder 0016), so the
+        // fixture composes both seams rather than re-listing either one.
+        services.AddConnectionDomainServices();
         services.AddTwigCommandServices();
 
         // Command registrations (the factories under test)

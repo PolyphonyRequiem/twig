@@ -19,7 +19,7 @@ public sealed class ProgramBootstrapTests
     public void WorkspaceInfrastructure_Registrations_ResolveCorrectTypes()
     {
         // Verify that the workspace infrastructure singletons registered in Program.cs
-        // (WorkspaceRegistry via IWorkspaceRegistry, WorkspaceResolver) are resolvable.
+        // (ConnectionRegistry via IConnectionRegistry, ConnectionResolver) are resolvable.
         var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         try
         {
@@ -30,24 +30,24 @@ public sealed class ProgramBootstrapTests
                 """{"organization":"testorg","project":"testproj"}""");
 
             var twigRoot = Path.Combine(tempDir, ".twig");
-            var registry = new WorkspaceRegistry(twigRoot);
+            var registry = new ConnectionRegistry(twigRoot);
 
             var httpClient = new HttpClient();
             var authProvider = NSubstitute.Substitute.For<IAuthenticationProvider>();
 
-            var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot);
-            var resolver = new WorkspaceResolver(registry, factory);
+            var factory = new ConnectionScopeFactory(registry, httpClient, authProvider, twigRoot);
+            var resolver = new ConnectionResolver(registry, factory);
 
             var services = new ServiceCollection();
-            services.AddSingleton<IWorkspaceRegistry>(registry);
+            services.AddSingleton<IConnectionRegistry>(registry);
             services.AddSingleton(resolver);
 
             using var provider = services.BuildServiceProvider();
 
-            provider.GetRequiredService<IWorkspaceRegistry>().ShouldNotBeNull();
-            provider.GetRequiredService<WorkspaceResolver>().ShouldNotBeNull();
-            provider.GetRequiredService<IWorkspaceRegistry>().ShouldBeSameAs(registry);
-            provider.GetRequiredService<WorkspaceResolver>().ShouldBeSameAs(resolver);
+            provider.GetRequiredService<IConnectionRegistry>().ShouldNotBeNull();
+            provider.GetRequiredService<ConnectionResolver>().ShouldNotBeNull();
+            provider.GetRequiredService<IConnectionRegistry>().ShouldBeSameAs(registry);
+            provider.GetRequiredService<ConnectionResolver>().ShouldBeSameAs(resolver);
 
             factory.Dispose();
         }
@@ -69,12 +69,12 @@ public sealed class ProgramBootstrapTests
         try
         {
             Directory.CreateDirectory(Path.Combine(tempDir, ".twig"));
-            var registry = new WorkspaceRegistry(Path.Combine(tempDir, ".twig"));
+            var registry = new ConnectionRegistry(Path.Combine(tempDir, ".twig"));
             var authProvider = NSubstitute.Substitute.For<IAuthenticationProvider>();
-            var factory = new WorkspaceContextFactory(registry, new HttpClient(), authProvider, Path.Combine(tempDir, ".twig"));
-            var resolver = new WorkspaceResolver(registry, factory);
+            var factory = new ConnectionScopeFactory(registry, new HttpClient(), authProvider, Path.Combine(tempDir, ".twig"));
+            var resolver = new ConnectionResolver(registry, factory);
 
-            services.AddSingleton<IWorkspaceRegistry>(registry);
+            services.AddSingleton<IConnectionRegistry>(registry);
             services.AddSingleton(resolver);
 
             services

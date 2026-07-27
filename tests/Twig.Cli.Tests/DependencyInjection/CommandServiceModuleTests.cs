@@ -9,6 +9,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
+using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using System.Reflection;
@@ -45,6 +46,9 @@ public sealed class CommandServiceModuleTests
             Path.Combine(Path.GetTempPath(), ".twig-test", "twig.db")));
 
         services.AddSingleton(config);
+        // Surface-neutral domain services moved to Infrastructure (wayfinder 0016);
+        // compose both seams rather than re-listing either.
+        services.AddConnectionDomainServices();
         services.AddTwigCommandServices();
         return services.BuildServiceProvider();
     }

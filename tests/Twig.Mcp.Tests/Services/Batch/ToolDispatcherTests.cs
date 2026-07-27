@@ -22,15 +22,15 @@ public sealed class ToolDispatcherTests
 
     public ToolDispatcherTests()
     {
-        var registry = Substitute.For<IWorkspaceRegistry>();
-        registry.Workspaces.Returns(new List<WorkspaceKey>().AsReadOnly());
+        var registry = Substitute.For<IConnectionRegistry>();
+        registry.Workspaces.Returns(new List<Connection>().AsReadOnly());
         registry.IsSingleWorkspace.Returns(false);
 
-        var factory = Substitute.For<IWorkspaceContextFactory>();
+        var factory = Substitute.For<IConnectionScopeFactory>();
         // Any explicit workspace parse succeeds but the factory rejects it as unregistered.
-        factory.GetOrCreate(Arg.Any<WorkspaceKey>())
+        factory.GetOrCreate(Arg.Any<Connection>())
             .Returns(_ => throw new KeyNotFoundException("Workspace not found"));
-        var resolver = new WorkspaceResolver(registry, factory);
+        var resolver = new ConnectionResolver(registry, factory);
 
         var navigationTools = new NavigationTools(resolver);
         _dispatcher = new ToolDispatcher(

@@ -1,3 +1,13 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
@@ -9,10 +19,10 @@ namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for manual work-item tracking: twig_track, twig_untrack, twig_tracking_status.
-/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Resolves per-workspace services via <see cref="ConnectionResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class TrackingTools(WorkspaceResolver resolver)
+public sealed class TrackingTools(ConnectionResolver resolver)
 {
     [McpServerTool(Name = "twig_track"), Description("Track one or more work items by ID. Tracked items are included in every ADO sync/refresh.")]
     public async Task<CallToolResult> Track(
@@ -28,7 +38,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        if (ctx.TrackingRepo is null)
+        if (ctx.Get<ITrackingRepository>() is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 "Tracking is not available for this workspace.", ctx, ct);
 
@@ -41,7 +51,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
 
         foreach (var workItemId in ids)
         {
-            await ctx.TrackingRepo.UpsertTrackedAsync(workItemId, mode, ct);
+            await ctx.Get<ITrackingRepository>().UpsertTrackedAsync(workItemId, mode, ct);
             trackedIds.Add(workItemId);
 
             if (recursive)
@@ -49,7 +59,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
                 var descendantIds = await ResolveDescendantsAsync(ctx, workItemId, ct);
                 foreach (var descId in descendantIds)
                 {
-                    await ctx.TrackingRepo.UpsertTrackedAsync(descId, TrackingMode.Single, ct);
+                    await ctx.Get<ITrackingRepository>().UpsertTrackedAsync(descId, TrackingMode.Single, ct);
                     trackedIds.Add(descId);
                 }
             }
@@ -82,7 +92,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        if (ctx.TrackingRepo is null)
+        if (ctx.Get<ITrackingRepository>() is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 "Tracking is not available for this workspace.", ctx, ct);
 
@@ -93,7 +103,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
         var removedIds = new List<int>();
         foreach (var workItemId in ids)
         {
-            await ctx.TrackingRepo.RemoveTrackedAsync(workItemId, ct);
+            await ctx.Get<ITrackingRepository>().RemoveTrackedAsync(workItemId, ct);
             removedIds.Add(workItemId);
         }
 
@@ -117,16 +127,16 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        if (ctx.TrackingRepo is null)
+        if (ctx.Get<ITrackingRepository>() is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 "Tracking is not available for this workspace.", ctx, ct);
 
-        var tracked = await ctx.TrackingRepo.GetAllTrackedAsync(ct);
+        var tracked = await ctx.Get<ITrackingRepository>().GetAllTrackedAsync(ct);
 
         // Join with work item cache to get title, type, and ChangedDate
         var ids = tracked.Select(t => t.WorkItemId).ToList();
         var workItems = ids.Count > 0
-            ? await ctx.WorkItemRepo.GetByIdsAsync(ids, ct)
+            ? await ctx.Get<IWorkItemRepository>().GetByIdsAsync(ids, ct)
             : [];
         var workItemLookup = workItems.ToDictionary(w => w.Id);
 
@@ -171,10 +181,10 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
 
     /// <summary>
     /// Recursively resolves all descendant work item IDs for a given parent.
-    /// Uses cache-first with ADO fallback via <see cref="WorkspaceContext.FetchChildrenWithFallbackAsync"/>.
+    /// Uses cache-first with ADO fallback via <see cref="ConnectionScope.FetchChildrenWithFallbackAsync"/>.
     /// </summary>
     private static async Task<List<int>> ResolveDescendantsAsync(
-        WorkspaceContext ctx, int parentId, CancellationToken ct)
+        ConnectionScope ctx, int parentId, CancellationToken ct)
     {
         var result = new List<int>();
         var queue = new Queue<int>();
@@ -184,7 +194,7 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
         while (queue.Count > 0)
         {
             var currentId = queue.Dequeue();
-            var children = await ctx.FetchChildrenWithFallbackAsync(currentId, ct);
+            var children = await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(currentId, ct);
 
             foreach (var child in children)
             {

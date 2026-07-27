@@ -150,7 +150,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
         var result = await CreateSut().Parent(50);
 
         result.IsError.ShouldBeNull();
-        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestConnection.ToString());
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -1,3 +1,13 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -10,7 +20,7 @@ namespace Twig.Mcp.Tools;
 /// Lists all work item types (no args) or shows type details (with type name).
 /// </summary>
 [McpServerToolType]
-public sealed class ProcessTools(WorkspaceResolver resolver)
+public sealed class ProcessTools(ConnectionResolver resolver)
 {
     [McpServerTool(Name = "twig_process"), Description("Show process configuration: list types (no args) or type details (with type name)")]
     public async Task<CallToolResult> Process(
@@ -31,9 +41,9 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
-    private static async Task<CallToolResult> ListTypesAsync(WorkspaceContext ctx, CancellationToken ct)
+    private static async Task<CallToolResult> ListTypesAsync(ConnectionScope ctx, CancellationToken ct)
     {
-        var types = await ctx.ProcessTypeStore.GetAllAsync(ct);
+        var types = await ctx.Get<IProcessTypeStore>().GetAllAsync(ct);
 
         if (types.Count == 0)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.CacheStale, "No process types found. Use twig_sync to refresh process data.", ctx, ct);
@@ -42,14 +52,14 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
     }
 
     private static async Task<CallToolResult> ShowTypeDetailAsync(
-        WorkspaceContext ctx, string typeName, CancellationToken ct)
+        ConnectionScope ctx, string typeName, CancellationToken ct)
     {
-        var typeRecord = await ctx.ProcessTypeStore.GetByNameAsync(typeName, ct);
+        var typeRecord = await ctx.Get<IProcessTypeStore>().GetByNameAsync(typeName, ct);
 
         if (typeRecord is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Type '{typeName}' not found. Use twig_sync to refresh process data.", ctx, ct);
 
-        var fields = await ctx.FieldDefinitionStore.GetAllAsync(ct);
+        var fields = await ctx.Get<IFieldDefinitionStore>().GetAllAsync(ct);
         return McpResultBuilder.FormatProcessType(typeRecord, fields);
     }
 }

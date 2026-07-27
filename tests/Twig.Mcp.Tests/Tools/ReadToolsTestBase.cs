@@ -36,40 +36,37 @@ public abstract class ReadToolsTestBase
     protected readonly ISeedPublishRulesProvider _seedPublishRulesProvider = Substitute.For<ISeedPublishRulesProvider>();
     protected readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
-    protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
+    protected static readonly Connection TestConnection = new("testorg", "testproject");
 
     protected static readonly TwigConfiguration DefaultConfig = new()
     {
         Display = new DisplayConfig { CacheStaleMinutes = 5 },
     };
 
-    protected WorkspaceResolver BuildResolver(TwigConfiguration config, bool includeGitService = false)
+    protected ConnectionResolver BuildResolver(TwigConfiguration config, bool includeGitService = false)
     {
         IAdoGitService? gitService = includeGitService ? _adoGitService : null;
-        BranchLinkService? branchLinkService = gitService is not null
-            ? new BranchLinkService(gitService, _adoService)
-            : null;
 
-        var ctx = BuildContext(TestWorkspaceKey, config,
+        var ctx = BuildContext(TestConnection, config,
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
             _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
             _processTypeStore, _fieldDefinitionStore,
             _seedLinkRepo, _publishIdMapRepo, _seedPublishRulesProvider, _unitOfWork,
-            _trackingRepo, branchLinkService);
+            _trackingRepo, gitService);
 
-        var registry = Substitute.For<IWorkspaceRegistry>();
-        registry.Workspaces.Returns(new[] { TestWorkspaceKey });
+        var registry = Substitute.For<IConnectionRegistry>();
+        registry.Workspaces.Returns(new[] { TestConnection });
         registry.IsSingleWorkspace.Returns(true);
 
-        var factory = Substitute.For<IWorkspaceContextFactory>();
-        factory.GetOrCreate(Arg.Any<WorkspaceKey>()).Returns(ci =>
+        var factory = Substitute.For<IConnectionScopeFactory>();
+        factory.GetOrCreate(Arg.Any<Connection>()).Returns(ci =>
         {
-            var k = ci.Arg<WorkspaceKey>();
-            if (k == TestWorkspaceKey) return ctx;
+            var k = ci.Arg<Connection>();
+            if (k == TestConnection) return ctx;
             throw new KeyNotFoundException($"Unknown workspace: {k}");
         });
 
-        return new WorkspaceResolver(registry, factory);
+        return new ConnectionResolver(registry, factory);
     }
 
     /// <summary>
@@ -93,20 +90,20 @@ public abstract class ReadToolsTestBase
         IUnitOfWork UnitOfWork);
 
     /// <summary>
-    /// Builds a <see cref="WorkspaceResolver"/> with multiple workspaces, each backed by
+    /// Builds a <see cref="ConnectionResolver"/> with multiple workspaces, each backed by
     /// independent mock sets. Returns the resolver and a dictionary of per-workspace mocks
     /// for test setup.
     /// </summary>
-    protected static (WorkspaceResolver Resolver, IReadOnlyDictionary<WorkspaceKey, WorkspaceMocks> Mocks)
-        BuildMultiResolver(TwigConfiguration config, params WorkspaceKey[] keys)
+    protected static (ConnectionResolver Resolver, IReadOnlyDictionary<Connection, WorkspaceMocks> Mocks)
+        BuildMultiResolver(TwigConfiguration config, params Connection[] keys)
     {
-        var mocks = new Dictionary<WorkspaceKey, WorkspaceMocks>();
+        var mocks = new Dictionary<Connection, WorkspaceMocks>();
 
-        var registry = Substitute.For<IWorkspaceRegistry>();
+        var registry = Substitute.For<IConnectionRegistry>();
         registry.Workspaces.Returns(keys.ToList().AsReadOnly());
         registry.IsSingleWorkspace.Returns(keys.Length == 1);
 
-        var factory = Substitute.For<IWorkspaceContextFactory>();
+        var factory = Substitute.For<IConnectionScopeFactory>();
 
         foreach (var key in keys)
         {
@@ -138,11 +135,11 @@ public abstract class ReadToolsTestBase
             mocks[key] = m;
         }
 
-        return (new WorkspaceResolver(registry, factory), mocks);
+        return (new ConnectionResolver(registry, factory), mocks);
     }
 
-    private static WorkspaceContext BuildContext(
-        WorkspaceKey key,
+    private static ConnectionScope BuildContext(
+        Connection key,
         TwigConfiguration config,
         IContextStore contextStore,
         IWorkItemRepository workItemRepo,
@@ -159,62 +156,12 @@ public abstract class ReadToolsTestBase
         ISeedPublishRulesProvider seedPublishRulesProvider,
         IUnitOfWork unitOfWork,
         ITrackingRepository? trackingRepo = null,
-        BranchLinkService? branchLinkService = null)
-    {
-        var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
-        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncFactory = new SyncCoordinatorFactory(
-            workItemRepo, adoService, protectedWriter, pendingChangeStore,
-            linkRepo,
-            readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
-            readWriteStaleMinutes: config.Display.CacheStaleMinutes);
-        var contextChange = new ContextChangeService(
-            workItemRepo, adoService, syncFactory.ReadWrite, protectedWriter, linkRepo);
-        var workingSet = new WorkingSetService(
-            contextStore, workItemRepo, pendingChangeStore, iterationService,
-            config.User.DisplayName);
-        var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
-        var parentPropagation = new ParentStatePropagationService(
-            workItemRepo, adoService, processConfigProvider, protectedWriter);
-        var stateTransitionWorkflow = new StateTransitionWorkflow(
-            workItemRepo, adoService, pendingChangeStore, processConfigProvider,
-            parentPropagation: parentPropagation,
-            promptStateWriter: promptStateWriter);
-        var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
-            workItemRepo, adoService, pendingChangeStore, promptStateWriter);
-        var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
-            workItemRepo, adoService, pendingChangeStore, promptStateWriter);
-        var discardWorkflow = new Twig.Infrastructure.Services.Mutation.DiscardWorkflow(
-            workItemRepo, pendingChangeStore, promptStateWriter);
-        var deleteWorkflow = new Twig.Infrastructure.Services.Mutation.DeleteWorkflow(
-            adoService, workItemRepo, linkRepo, pendingChangeStore, promptStateWriter);
-        var patchWorkflow = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
-            workItemRepo, adoService, pendingChangeStore, promptStateWriter);
-        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
-        var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
-        var cacheStore = new SqliteCacheStore("Data Source=:memory:");
-
-        return new WorkspaceContext(
-            key, config, paths, cacheStore,
-            workItemRepo, linkRepo, contextStore, pendingChangeStore,
-            adoService, iterationService, processConfigProvider,
-            activeItemResolver, syncFactory, contextChange,
-            workingSet, flusher, promptStateWriter, parentPropagation,
-            stateTransitionWorkflow,
-            fieldUpdateWorkflow,
-            noteWorkflow,
-            discardWorkflow,
-            deleteWorkflow,
-            patchWorkflow,
-            sprintIterationResolver,
-            processTypeStore, fieldDefinitionStore,
-            seedLinkRepo, publishIdMapRepo,
-            new Twig.Infrastructure.Persistence.SqlitePublishIntentRepository(cacheStore),
-            new Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry(cacheStore),
-            seedPublishRulesProvider, unitOfWork,
-            trackingRepo,
-            branchLinkService);
-    }
+        IAdoGitService? adoGitService = null)
+        => TestConnectionScope.Build(
+            key, config, contextStore, workItemRepo, adoService, pendingChangeStore,
+            linkRepo, iterationService, processConfigProvider, promptStateWriter,
+            processTypeStore, fieldDefinitionStore, seedLinkRepo, publishIdMapRepo,
+            seedPublishRulesProvider, unitOfWork, trackingRepo, adoGitService);
 
     protected ReadTools CreateSut(TwigConfiguration config)
     {

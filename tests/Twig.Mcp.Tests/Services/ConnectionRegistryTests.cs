@@ -7,11 +7,11 @@ using Xunit;
 
 namespace Twig.Mcp.Tests.Services;
 
-public sealed class WorkspaceRegistryTests : IDisposable
+public sealed class ConnectionRegistryTests : IDisposable
 {
     private readonly string _tempDir;
 
-    public WorkspaceRegistryTests()
+    public ConnectionRegistryTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
@@ -32,13 +32,13 @@ public sealed class WorkspaceRegistryTests : IDisposable
         WriteConfig("orgA", "proj2", "orgA", "proj2");
         WriteConfig("orgB", "proj3", "orgB", "proj3");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.Count.ShouldBe(3);
         registry.IsSingleWorkspace.ShouldBeFalse();
-        registry.Workspaces.ShouldContain(new WorkspaceKey("orgA", "proj1"));
-        registry.Workspaces.ShouldContain(new WorkspaceKey("orgA", "proj2"));
-        registry.Workspaces.ShouldContain(new WorkspaceKey("orgB", "proj3"));
+        registry.Workspaces.ShouldContain(new Connection("orgA", "proj1"));
+        registry.Workspaces.ShouldContain(new Connection("orgA", "proj2"));
+        registry.Workspaces.ShouldContain(new Connection("orgB", "proj3"));
     }
 
     [Fact]
@@ -47,12 +47,12 @@ public sealed class WorkspaceRegistryTests : IDisposable
         WriteConfig("orgA", "proj1", "orgA", "proj1", team: "TeamAlpha");
         WriteConfig("orgA", "proj2", "orgA", "proj2", team: "TeamBeta");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
-        var config1 = registry.GetConfig(new WorkspaceKey("orgA", "proj1"));
+        var config1 = registry.GetConfig(new Connection("orgA", "proj1"));
         config1.Team.ShouldBe("TeamAlpha");
 
-        var config2 = registry.GetConfig(new WorkspaceKey("orgA", "proj2"));
+        var config2 = registry.GetConfig(new Connection("orgA", "proj2"));
         config2.Team.ShouldBe("TeamBeta");
     }
 
@@ -63,7 +63,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         WriteLegacyConfig("legacyOrg", "legacyProj");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.Count.ShouldBe(1);
         registry.IsSingleWorkspace.ShouldBeTrue();
@@ -79,11 +79,11 @@ public sealed class WorkspaceRegistryTests : IDisposable
         WriteConfig("org1", "proj1", "org1", "proj1");
         WriteLegacyConfig("legacyOrg", "legacyProj");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         // Only the org/project workspace should be found, not the legacy one
         registry.Workspaces.Count.ShouldBe(1);
-        registry.Workspaces[0].ShouldBe(new WorkspaceKey("org1", "proj1"));
+        registry.Workspaces[0].ShouldBe(new Connection("org1", "proj1"));
     }
 
     [Fact]
@@ -100,10 +100,10 @@ public sealed class WorkspaceRegistryTests : IDisposable
             """{"auth":{"method":"azcli"}}""");
         File.WriteAllText(Path.Combine(contextDir, "twig.db"), "");
 
-        var registry = new WorkspaceRegistry(twigRoot, _tempDir);
+        var registry = new ConnectionRegistry(twigRoot, _tempDir);
 
-        registry.Workspaces.ShouldBe([new WorkspaceKey("microsoft", "OS")]);
-        var config = registry.GetConfig(new WorkspaceKey("microsoft", "OS"));
+        registry.Workspaces.ShouldBe([new Connection("microsoft", "OS")]);
+        var config = registry.GetConfig(new Connection("microsoft", "OS"));
         config.Organization.ShouldBe("microsoft");
         config.Project.ShouldBe("OS");
         config.Auth.Method.ShouldBe("azcli");
@@ -117,9 +117,9 @@ public sealed class WorkspaceRegistryTests : IDisposable
             Path.Combine(_tempDir, "twig.json"),
             """{"organization":"microsoft","project":"OS"}""");
 
-        var registry = new WorkspaceRegistry(twigRoot, _tempDir);
+        var registry = new ConnectionRegistry(twigRoot, _tempDir);
 
-        registry.Workspaces.ShouldBe([new WorkspaceKey("microsoft", "OS")]);
+        registry.Workspaces.ShouldBe([new Connection("microsoft", "OS")]);
     }
 
     // ── Single-workspace fast-path ──────────────────────────────────
@@ -129,7 +129,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         WriteConfig("myOrg", "myProj", "myOrg", "myProj");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.IsSingleWorkspace.ShouldBeTrue();
         registry.Workspaces.Count.ShouldBe(1);
@@ -140,7 +140,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     [Fact]
     public void Empty_TwigRoot_Returns_No_Workspaces()
     {
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
         registry.IsSingleWorkspace.ShouldBeFalse();
@@ -151,7 +151,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         var nonExistent = Path.Combine(_tempDir, "does-not-exist");
 
-        var registry = new WorkspaceRegistry(nonExistent);
+        var registry = new ConnectionRegistry(nonExistent);
 
         registry.Workspaces.ShouldBeEmpty();
     }
@@ -161,7 +161,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         WriteConfig("org1", "proj1", org: "", project: "proj1");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
     }
@@ -171,7 +171,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         WriteConfig("org1", "proj1", org: "org1", project: "");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
     }
@@ -183,7 +183,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "config"), "NOT VALID JSON {{{");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
     }
@@ -195,7 +195,7 @@ public sealed class WorkspaceRegistryTests : IDisposable
         Directory.CreateDirectory(dir);
         // No config file created
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
     }
@@ -209,10 +209,10 @@ public sealed class WorkspaceRegistryTests : IDisposable
         Directory.CreateDirectory(badDir);
         File.WriteAllText(Path.Combine(badDir, "config"), "<<<bad>>>");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.Count.ShouldBe(1);
-        registry.Workspaces[0].ShouldBe(new WorkspaceKey("org1", "good"));
+        registry.Workspaces[0].ShouldBe(new Connection("org1", "good"));
     }
 
     // ── GetConfig errors ────────────────────────────────────────────
@@ -222,10 +222,10 @@ public sealed class WorkspaceRegistryTests : IDisposable
     {
         WriteConfig("org1", "proj1", "org1", "proj1");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         var ex = Should.Throw<KeyNotFoundException>(() =>
-            registry.GetConfig(new WorkspaceKey("unknown", "missing")));
+            registry.GetConfig(new Connection("unknown", "missing")));
 
         // Lists discovered workspaces and where they were discovered, so operators can
         // tell the registry isn't empty — it just doesn't have the requested key.
@@ -242,12 +242,12 @@ public sealed class WorkspaceRegistryTests : IDisposable
         var nonExistentTwigRoot = Path.Combine(_tempDir, "no-such-twig-dir");
         var launchCwd = "/some/launch/cwd";
 
-        var registry = new WorkspaceRegistry(nonExistentTwigRoot, launchCwd);
+        var registry = new ConnectionRegistry(nonExistentTwigRoot, launchCwd);
 
         registry.Workspaces.ShouldBeEmpty();
 
         var ex = Should.Throw<KeyNotFoundException>(() =>
-            registry.GetConfig(new WorkspaceKey("any-org", "any-proj")));
+            registry.GetConfig(new Connection("any-org", "any-proj")));
 
         // Tells the operator WHY discovery is empty (no .twig/ ancestor) and HOW
         // discovery works (walks upward from server cwd; siblings/children not scanned).
@@ -261,12 +261,12 @@ public sealed class WorkspaceRegistryTests : IDisposable
     public void GetConfig_EmptyRegistry_TwigDirExistsButEmpty_PointsAtTwigInit()
     {
         // _tempDir exists but has no {org}/{project}/config inside.
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.ShouldBeEmpty();
 
         var ex = Should.Throw<KeyNotFoundException>(() =>
-            registry.GetConfig(new WorkspaceKey("any-org", "any-proj")));
+            registry.GetConfig(new Connection("any-org", "any-proj")));
 
         ex.Message.ShouldContain("contains no valid workspace configs");
         ex.Message.ShouldContain(_tempDir);
@@ -282,10 +282,10 @@ public sealed class WorkspaceRegistryTests : IDisposable
         WriteConfig("dirA", "dirB", org: "sameOrg", project: "sameProj", team: "First");
         WriteConfig("dirC", "dirD", org: "sameOrg", project: "sameProj", team: "Second");
 
-        var registry = new WorkspaceRegistry(_tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
 
         registry.Workspaces.Count.ShouldBe(1);
-        var config = registry.GetConfig(new WorkspaceKey("sameOrg", "sameProj"));
+        var config = registry.GetConfig(new Connection("sameOrg", "sameProj"));
         // First registration wins — team should be one of the two, not throw
         config.ShouldNotBeNull();
     }

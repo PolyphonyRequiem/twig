@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
@@ -28,7 +29,7 @@ namespace Twig.Infrastructure;
 /// <c>internal static class</c> in the CLI project and cannot be referenced
 /// from Infrastructure. CLI <c>Program.cs</c> must call
 /// <c>LegacyDbMigrator.MigrateIfNeeded()</c> directly after consuming
-/// <see cref="AddTwigCoreServices"/>.
+/// <see cref="AddConnectionServices"/>.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -45,7 +46,7 @@ public static class TwigServiceRegistration
     /// <param name="startDir">Optional CWD override. Stored on <see cref="TwigPaths.StartDir"/>
     /// so commands like <c>twig init</c> can create workspaces relative to the invocation
     /// directory rather than the walked-up <c>.twig</c> ancestor.</param>
-    public static IServiceCollection AddTwigCoreServices(
+    public static IServiceCollection AddConnectionServices(
         this IServiceCollection services,
         TwigConfiguration? preloadedConfig = null,
         string? twigDir = null,
@@ -98,7 +99,6 @@ public static class TwigServiceRegistration
         services.AddSingleton<SeedFactory>();
         services.AddSingleton<SeedDiscardOrchestrator>();
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
-        services.AddSingleton<SprintIterationResolver>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
@@ -126,10 +126,6 @@ public static class TwigServiceRegistration
         // Telemetry client — no-op when TWIG_TELEMETRY_ENDPOINT is unset.
         services.AddSingleton<ITelemetryClient, TelemetryClient>();
 
-        // Mutation providers
-        services.AddSingleton<SeedMutationProvider>();
-        services.AddSingleton<AdoMutationProvider>();
-
         // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(
             sp.GetRequiredService<IContextStore>(),
@@ -137,6 +133,176 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>()));
+
+        AddConnectionDomainServices(services);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the surface-neutral domain services — resolvers, sync coordination, and the
+    /// mutation workflows — that every surface (CLI, TUI, MCP) needs identically.
+    /// </summary>
+    /// <remarks>
+    /// Exposed separately from <see cref="AddConnectionServices"/> so a caller that already owns
+    /// persistence and network registrations — a test fixture over substitutes, or a surface
+    /// composing its own container — can add exactly this block without duplicating the list.
+    /// Callers of <see cref="AddConnectionServices"/> get it automatically and must not call both.
+    /// <para/>
+    /// These previously lived in the CLI-only <c>CommandServiceModule</c>, which MCP cannot
+    /// reference, forcing <c>WorkspaceContextFactory</c> to hand-mirror the wiring. A mirror has
+    /// no compiler forcing the two copies to agree, which is the mechanism behind
+    /// PolyphonyRequiem/twig#269 and #270 (wayfinder 0016).
+    /// <para/>
+    /// Membership test: a service belongs here when it does <b>not</b> name a surface. Services
+    /// that do — <c>HintEngine</c>, <c>IEditorLauncher</c>/<c>IConsoleInput</c>,
+    /// <c>CommandContext</c>, <c>StatusFieldConfigReader</c>, <c>IPendingChangeFlusher</c> (which
+    /// takes <c>IConsoleInput</c> and an output-format string) — stay in the CLI.
+    /// <para/>
+    /// Several of these depend on <see cref="IAdoWorkItemService"/> and
+    /// <see cref="IIterationService"/> from
+    /// <see cref="NetworkServiceModule.AddTwigNetworkServices"/>. That is safe because every
+    /// registration here is factory-based and therefore resolved lazily: a surface that never
+    /// resolves them (the TUI) never needs the network module.
+    /// </remarks>
+    /// <param name="services">The service collection.</param>
+    public static IServiceCollection AddConnectionDomainServices(this IServiceCollection services)
+    {
+        // Mutation providers. Previously registered in BOTH this module and the CLI's
+        // CommandServiceModule — harmless last-wins on the same concrete type, but the tell
+        // that the boundary sat where nobody could see both sides at once (wayfinder 0016).
+        services.AddSingleton<SeedMutationProvider>();
+        services.AddSingleton<AdoMutationProvider>();
+
+        services.AddSingleton<ActiveItemResolver>(sp => new ActiveItemResolver(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>()));
+
+        services.AddSingleton<ProtectedCacheWriter>(sp => new ProtectedCacheWriter(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>()));
+
+        // DD-13 + #1614: SyncCoordinatorFactory holds ReadOnly (longer TTL) and ReadWrite (shorter TTL)
+        // tiers. Accepts int primitives to avoid Domain → Infrastructure circular reference.
+        services.AddSingleton<SyncCoordinatorFactory>(sp =>
+        {
+            var display = sp.GetRequiredService<TwigConfiguration>().Display;
+            return new SyncCoordinatorFactory(
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<ProtectedCacheWriter>(),
+                sp.GetRequiredService<IPendingChangeStore>(),
+                sp.GetRequiredService<IWorkItemLinkRepository>(),
+                display.CacheStaleMinutesReadOnly,
+                display.CacheStaleMinutes);
+        });
+
+        // Backward compat — direct SyncCoordinator consumers resolve to pair.ReadWrite
+        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
+
+        // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
+        services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IIterationService>(),
+            sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
+            sp.GetRequiredService<ITrackingRepository>()));
+
+        // EPIC-003: Seed publish orchestrator
+        services.AddSingleton<BacklogOrderer>(sp => new BacklogOrderer(
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IFieldDefinitionStore>()));
+        services.AddSingleton<SeedPublishOrchestrator>(sp => new SeedPublishOrchestrator(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<IPublishIdMapRepository>(),
+            sp.GetRequiredService<ISeedPublishRulesProvider>(),
+            sp.GetRequiredService<IUnitOfWork>(),
+            sp.GetRequiredService<BacklogOrderer>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IPublishIntentRepository>()));
+        services.AddSingleton<SeedReconcileOrchestrator>(sp => new SeedReconcileOrchestrator(
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPublishIdMapRepository>()));
+
+        // EPIC-002: Domain orchestration services
+        services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<ProtectedCacheWriter>()));
+
+        // Mutation workflows — extracted orchestration shared by CLI commands and MCP tools.
+        services.AddSingleton<StateTransitionWorkflow>(sp => new StateTransitionWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetService<ParentStatePropagationService>(),
+            sp.GetService<IPromptStateWriter>(),
+            sp.GetService<IProcessRuleProvider>()));
+
+        services.AddSingleton<FieldUpdateWorkflow>(sp => new FieldUpdateWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
+        services.AddSingleton<NoteWorkflow>(sp => new NoteWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
+        services.AddSingleton<DiscardWorkflow>(sp => new DiscardWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
+        services.AddSingleton<DeleteWorkflow>(sp => new DeleteWorkflow(
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
+        services.AddSingleton<PatchWorkflow>(sp => new PatchWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
+        services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetRequiredService<WorkingSetService>(),
+            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<IIterationService>(),
+            sp.GetService<ITrackingService>()));
+
+        // Context change extension — additively hydrates parent chain + downstream graph
+        services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<SyncCoordinator>(),
+            sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetService<IWorkItemLinkRepository>()));
+
+        // Resolves sprint expressions against ADO iterations — needed by every surface.
+        services.AddSingleton<SprintIterationResolver>();
+
+        // Cache-first / ADO-fallback work item reads, shared by every surface.
+        services.AddSingleton<WorkItemFetcher>(sp => new WorkItemFetcher(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>()));
 
         return services;
     }
@@ -151,7 +317,7 @@ public static class TwigServiceRegistration
     /// <remarks>
     /// This is the supported public composition root for external consumers.
     /// In-repo entry points (CLI, MCP, TUI) call
-    /// <see cref="AddTwigCoreServices"/> and
+    /// <see cref="AddConnectionServices"/> and
     /// <see cref="NetworkServiceModule.AddTwigNetworkServices"/> separately
     /// because they perform git auto-detection between the two phases; that
     /// split is an in-repo concern and is not the recommended external API.
@@ -179,7 +345,7 @@ public static class TwigServiceRegistration
         string? resolvedGitProject = null,
         string? resolvedRepository = null)
     {
-        services.AddTwigCoreServices(config, twigDir, startDir);
+        services.AddConnectionServices(config, twigDir, startDir);
         services.AddTwigNetworkServices(config, resolvedGitProject, resolvedRepository);
         return services;
     }

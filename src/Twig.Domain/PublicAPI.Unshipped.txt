@@ -715,3 +715,7 @@ Twig.Domain.ValueObjects.PublishIntent.TypeName.get -> string!
 Twig.Domain.ValueObjects.PublishIntent.TypeName.init -> void
 const Twig.Domain.ValueObjects.PublishIntent.IntentTag = "twig-publishing" -> string!
 Twig.Domain.Interfaces.IAdoWorkItemService.FindPublishedIntentAsync(Twig.Domain.ValueObjects.PublishIntent! intent, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Domain.Services.Sync.WorkItemFetcher
+Twig.Domain.Services.Sync.WorkItemFetcher.WorkItemFetcher(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService) -> void
+Twig.Domain.Services.Sync.WorkItemFetcher.FetchWithFallbackAsync(int id, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<(Twig.Domain.Aggregates.WorkItem? Item, string? Error)>!
+Twig.Domain.Services.Sync.WorkItemFetcher.FetchChildrenWithFallbackAsync(int parentId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!

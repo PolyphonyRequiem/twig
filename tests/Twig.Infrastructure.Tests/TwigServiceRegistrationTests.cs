@@ -7,13 +7,13 @@ using Xunit;
 namespace Twig.Infrastructure.Tests;
 
 /// <summary>
-/// Tests for TwigServiceRegistration.AddTwigCoreServices — specifically
+/// Tests for TwigServiceRegistration.AddConnectionServices — specifically
 /// the optional twigDir parameter added in T-2.1.
 /// </summary>
 public sealed class TwigServiceRegistrationTests
 {
     [Fact]
-    public void AddTwigCoreServices_RepoManifestOnly_CreatesMissingContextDatabase()
+    public void AddConnectionServices_RepoManifestOnly_CreatesMissingContextDatabase()
     {
         var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         var twigDir = Path.Combine(repoRoot, ".twig");
@@ -25,7 +25,7 @@ public sealed class TwigServiceRegistrationTests
             var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
             var paths = TwigPaths.ForContext(twigDir, config.Organization, config.Project, repoRoot);
             var services = new ServiceCollection();
-            services.AddTwigCoreServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+            services.AddConnectionServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
 
             using var provider = services.BuildServiceProvider();
             provider.GetRequiredService<SqliteCacheStore>();
@@ -41,7 +41,7 @@ public sealed class TwigServiceRegistrationTests
     }
 
     [Fact]
-    public void AddTwigCoreServices_ConfigOnlyWorkspace_CreatesMissingContextDatabase()
+    public void AddConnectionServices_ConfigOnlyWorkspace_CreatesMissingContextDatabase()
     {
         var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         var twigDir = Path.Combine(repoRoot, ".twig");
@@ -53,7 +53,7 @@ public sealed class TwigServiceRegistrationTests
             var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
             var paths = TwigPaths.ForContext(twigDir, config.Organization, config.Project, repoRoot);
             var services = new ServiceCollection();
-            services.AddTwigCoreServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+            services.AddConnectionServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
 
             using var provider = services.BuildServiceProvider();
             provider.GetRequiredService<SqliteCacheStore>();
@@ -69,13 +69,13 @@ public sealed class TwigServiceRegistrationTests
     }
 
     [Fact]
-    public void AddTwigCoreServices_WithTwigDir_UsesTwigDirForPaths()
+    public void AddConnectionServices_WithTwigDir_UsesTwigDirForPaths()
     {
         var services = new ServiceCollection();
         var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
         var customDir = Path.Combine(Path.GetTempPath(), "custom-twig-dir");
 
-        services.AddTwigCoreServices(preloadedConfig: config, twigDir: customDir);
+        services.AddConnectionServices(preloadedConfig: config, twigDir: customDir);
 
         var provider = services.BuildServiceProvider();
         var paths = provider.GetRequiredService<TwigPaths>();
@@ -86,12 +86,12 @@ public sealed class TwigServiceRegistrationTests
     }
 
     [Fact]
-    public void AddTwigCoreServices_WithNullTwigDir_FallsBackToCwd()
+    public void AddConnectionServices_WithNullTwigDir_FallsBackToCwd()
     {
         var services = new ServiceCollection();
         var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
 
-        services.AddTwigCoreServices(preloadedConfig: config, twigDir: null);
+        services.AddConnectionServices(preloadedConfig: config, twigDir: null);
 
         var provider = services.BuildServiceProvider();
         var paths = provider.GetRequiredService<TwigPaths>();
@@ -101,7 +101,7 @@ public sealed class TwigServiceRegistrationTests
     }
 
     [Fact]
-    public void AddTwigCoreServices_NullConfig_WithTwigDir_ConfigFallbackUsesProvidedDir()
+    public void AddConnectionServices_NullConfig_WithTwigDir_ConfigFallbackUsesProvidedDir()
     {
         // When preloadedConfig is null, the config factory loads from twigDir/config.
         // TwigConfiguration.Load returns a default config if the file doesn't exist.
@@ -111,7 +111,7 @@ public sealed class TwigServiceRegistrationTests
         try
         {
             var services = new ServiceCollection();
-            services.AddTwigCoreServices(preloadedConfig: null, twigDir: tempDir);
+            services.AddConnectionServices(preloadedConfig: null, twigDir: tempDir);
 
             var provider = services.BuildServiceProvider();
 

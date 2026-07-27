@@ -73,7 +73,7 @@ public sealed class NavigationToolsChildrenTests : NavigationToolsTestBase
         var result = await CreateSut().Children(1);
 
         result.IsError.ShouldBeNull();
-        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestConnection.ToString());
     }
 
     // ═══════════════════════════════════════════════════════════════

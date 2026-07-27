@@ -55,7 +55,7 @@ if (File.Exists(tempPaths.DbPath))
 
 // Build DI container using shared registration
 var services = new ServiceCollection();
-services.AddTwigCoreServices(config, twigDir);
+services.AddConnectionServices(config, twigDir);
 var provider = services.BuildServiceProvider();
 var workItemRepo = provider.GetRequiredService<IWorkItemRepository>();
 var contextStore = provider.GetRequiredService<IContextStore>();

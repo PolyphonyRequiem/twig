@@ -1,3 +1,11 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -17,7 +25,7 @@ namespace Twig.Mcp.Tools;
 /// All tools accept explicit IDs or search parameters and do not require or modify the active context.
 /// </summary>
 [McpServerToolType]
-public sealed class NavigationTools(WorkspaceResolver resolver)
+public sealed class NavigationTools(ConnectionResolver resolver)
 {
     [McpServerTool(Name = "twig_show"), Description("Read a work item by ID without changing the active context")]
     public async Task<CallToolResult> Show(
@@ -30,7 +38,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        var (item, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(id, ct);
         if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
         if (tree)
@@ -40,44 +48,44 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         }
 
         // Include pending changes when the requested item is the active work item
-        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
         IReadOnlyList<PendingChangeRecord>? pendingChanges = null;
         if (activeId == id)
-            pendingChanges = await ctx.PendingChangeStore.GetChangesAsync(id, ct);
+            pendingChanges = await ctx.Get<IPendingChangeStore>().GetChangesAsync(id, ct);
 
-        var toolResult = McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildTreeResultAsync(
-        WorkspaceContext ctx, WorkItem item, int? depth, CancellationToken ct)
+        ConnectionScope ctx, WorkItem item, int? depth, CancellationToken ct)
     {
         // Build parent chain
         var parentChain = item.ParentId.HasValue
-            ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
+            ? await ctx.Get<IWorkItemRepository>().GetParentChainAsync(item.ParentId.Value, ct)
             : Array.Empty<WorkItem>();
 
         var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
-        var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
+        var allChildren = await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(item.Id, ct);
         var totalChildCount = allChildren.Count;
 
         // Recursively fetch descendants up to maxDepth
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
         await WorkTreeFetcher.FetchDescendantsAsync(
-            ctx.FetchChildrenWithFallbackAsync, allChildren, maxDepth - 1, descendantsByParentId, ct);
+            ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync, allChildren, maxDepth - 1, descendantsByParentId, ct);
 
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain.Append(item))
             siblingCounts[node.Id] = node.ParentId.HasValue
-                ? (await ctx.FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
+                ? (await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
                 : null;
 
         // Best-effort link sync
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
         try
         {
-            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
+            links = await ctx.Get<SyncCoordinatorFactory>().ReadOnly.SyncLinksAsync(item.Id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
@@ -126,23 +134,23 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         var wiql = WiqlQueryBuilder.Build(parameters);
 
         IReadOnlyList<int> ids;
-        try { ids = await ctx.AdoService.QueryByWiqlAsync(wiql, top, ct); }
+        try { ids = await ctx.Get<IAdoWorkItemService>().QueryByWiqlAsync(wiql, top, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Query failed: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem> items = ids.Count > 0
-            ? await ctx.AdoService.FetchBatchAsync(ids, ct)
+            ? await ctx.Get<IAdoWorkItemService>().FetchBatchAsync(ids, ct)
             : [];
 
         // Best-effort cache write — ADO is the source of truth
         if (items.Count > 0)
         {
-            try { await ctx.WorkItemRepo.SaveBatchAsync(items, ct); }
+            try { await ctx.Get<IWorkItemRepository>().SaveBatchAsync(items, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
         }
 
         var queryDescription = BuildQueryDescription(parameters);
-        var toolResult = McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
@@ -155,8 +163,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var children = await ctx.FetchChildrenWithFallbackAsync(id, ct);
-        var toolResult = McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
+        var children = await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(id, ct);
+        var toolResult = McpResultBuilder.FormatChildren(id, children, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
@@ -169,7 +177,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (childResult, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        var (childResult, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(id, ct);
         if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
         var child = childResult!;
 
@@ -177,11 +185,11 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         WorkItem? parent = null;
         if (child.ParentId.HasValue)
         {
-            var (p, _) = await ctx.FetchWithFallbackAsync(child.ParentId.Value, ct);
+            var (p, _) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(child.ParentId.Value, ct);
             parent = p;
         }
 
-        var toolResult = McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatParent(child, parent, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
@@ -196,10 +204,10 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var service = new DescendantVerificationService(
-            ctx.WorkItemRepo, ctx.AdoService, ctx.ProcessConfigProvider);
+            ctx.Get<IWorkItemRepository>(), ctx.Get<IAdoWorkItemService>(), ctx.Get<IProcessConfigurationProvider>());
 
         var result = await service.VerifyAsync(id, maxDepth, ct);
-        var toolResult = McpResultBuilder.FormatVerification(result, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatVerification(result, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
@@ -213,15 +221,15 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         IterationPath iterationPath;
-        try { iterationPath = await ctx.IterationService.GetCurrentIterationAsync(ct); }
+        try { iterationPath = await ctx.Get<IIterationService>().GetCurrentIterationAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Failed to get current iteration: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem>? sprintItems = null;
         if (items)
-            sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
+            sprintItems = await ctx.Get<IWorkItemRepository>().GetByIterationAsync(iterationPath, ct);
 
-        var toolResult = McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 

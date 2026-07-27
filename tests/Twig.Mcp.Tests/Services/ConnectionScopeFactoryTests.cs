@@ -7,6 +7,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
 using Twig.Mcp.Services;
 using Xunit;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -14,14 +15,14 @@ using Twig.Infrastructure.Persistence;
 
 namespace Twig.Mcp.Tests.Services;
 
-public sealed class WorkspaceContextFactoryTests : IDisposable
+public sealed class ConnectionScopeFactoryTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly HttpClient _httpClient;
     private readonly IAuthenticationProvider _authProvider;
-    private readonly List<WorkspaceContextFactory> _factories = [];
+    private readonly List<ConnectionScopeFactory> _factories = [];
 
-    public WorkspaceContextFactoryTests()
+    public ConnectionScopeFactoryTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
@@ -58,7 +59,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var context = factory.GetOrCreate(key);
 
         context.ShouldNotBeNull();
-        context.Key.ShouldBe(key);
+        context.Connection.ShouldBe(key);
     }
 
     [Fact]
@@ -71,20 +72,20 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
         context.Config.ShouldNotBeNull();
         context.Paths.ShouldNotBeNull();
-        context.WorkItemRepo.ShouldNotBeNull();
-        context.ContextStore.ShouldNotBeNull();
-        context.PendingChangeStore.ShouldNotBeNull();
-        context.AdoService.ShouldNotBeNull();
-        context.IterationService.ShouldNotBeNull();
-        context.ProcessConfigProvider.ShouldNotBeNull();
-        context.ActiveItemResolver.ShouldNotBeNull();
-        context.SyncCoordinatorFactory.ShouldNotBeNull();
-        context.ContextChangeService.ShouldNotBeNull();
-        context.WorkingSetService.ShouldNotBeNull();
-        context.Flusher.ShouldNotBeNull();
-        context.PromptStateWriter.ShouldNotBeNull();
-        context.SprintIterationResolver.ShouldNotBeNull();
-        context.TrackingRepo.ShouldNotBeNull();
+        context.Get<IWorkItemRepository>().ShouldNotBeNull();
+        context.Get<IContextStore>().ShouldNotBeNull();
+        context.Get<IPendingChangeStore>().ShouldNotBeNull();
+        context.Get<IAdoWorkItemService>().ShouldNotBeNull();
+        context.Get<IIterationService>().ShouldNotBeNull();
+        context.Get<IProcessConfigurationProvider>().ShouldNotBeNull();
+        context.Get<ActiveItemResolver>().ShouldNotBeNull();
+        context.Get<SyncCoordinatorFactory>().ShouldNotBeNull();
+        context.Get<ContextChangeService>().ShouldNotBeNull();
+        context.Get<WorkingSetService>().ShouldNotBeNull();
+        context.Get<McpPendingChangeFlusher>().ShouldNotBeNull();
+        context.Get<IPromptStateWriter>().ShouldNotBeNull();
+        context.Get<SprintIterationResolver>().ShouldNotBeNull();
+        context.Get<ITrackingRepository>().ShouldNotBeNull();
     }
 
     [Fact]
@@ -95,7 +96,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
         var context = factory.GetOrCreate(key);
 
-        context.TrackingRepo.ShouldBeOfType<FileTrackingRepository>();
+        context.Get<ITrackingRepository>().ShouldBeOfType<FileTrackingRepository>();
     }
 
     [Fact]
@@ -106,7 +107,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
         var context = factory.GetOrCreate(key);
 
-        context.BranchLinkService.ShouldNotBeNull();
+        context.GetOptional<BranchLinkService>().ShouldNotBeNull();
     }
 
     [Fact]
@@ -117,7 +118,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
         var context = factory.GetOrCreate(key);
 
-        context.BranchLinkService.ShouldBeNull();
+        context.GetOptional<BranchLinkService>().ShouldBeNull();
     }
 
     [Fact]
@@ -153,8 +154,8 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var key = WriteWorkspace("orgA", "proj1");
         using var factory = CreateFactory();
 
-        WorkspaceContext? ctx1 = null;
-        WorkspaceContext? ctx2 = null;
+        ConnectionScope? ctx1 = null;
+        ConnectionScope? ctx2 = null;
 
         Parallel.Invoke(
             () => ctx1 = factory.GetOrCreate(key),
@@ -178,8 +179,8 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var ctx2 = factory.GetOrCreate(key2);
 
         ReferenceEquals(ctx1, ctx2).ShouldBeFalse();
-        ctx1.Key.ShouldBe(key1);
-        ctx2.Key.ShouldBe(key2);
+        ctx1.Connection.ShouldBe(key1);
+        ctx2.Connection.ShouldBe(key2);
     }
 
     [Fact]
@@ -193,12 +194,12 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var ctx2 = factory.GetOrCreate(key2);
 
         // Each context should have its own independent service instances
-        ReferenceEquals(ctx1.WorkItemRepo, ctx2.WorkItemRepo).ShouldBeFalse();
-        ReferenceEquals(ctx1.ContextStore, ctx2.ContextStore).ShouldBeFalse();
-        ReferenceEquals(ctx1.PendingChangeStore, ctx2.PendingChangeStore).ShouldBeFalse();
-        ReferenceEquals(ctx1.ActiveItemResolver, ctx2.ActiveItemResolver).ShouldBeFalse();
-        ReferenceEquals(ctx1.Flusher, ctx2.Flusher).ShouldBeFalse();
-        ReferenceEquals(ctx1.TrackingRepo, ctx2.TrackingRepo).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<IWorkItemRepository>(), ctx2.Get<IWorkItemRepository>()).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<IContextStore>(), ctx2.Get<IContextStore>()).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<IPendingChangeStore>(), ctx2.Get<IPendingChangeStore>()).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<ActiveItemResolver>(), ctx2.Get<ActiveItemResolver>()).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<McpPendingChangeFlusher>(), ctx2.Get<McpPendingChangeFlusher>()).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<ITrackingRepository>(), ctx2.Get<ITrackingRepository>()).ShouldBeFalse();
     }
 
     [Fact]
@@ -211,7 +212,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var ctx1 = factory.GetOrCreate(key1);
         var ctx2 = factory.GetOrCreate(key2);
 
-        ReferenceEquals(ctx1.CacheStore, ctx2.CacheStore).ShouldBeFalse();
+        ReferenceEquals(ctx1.Get<SqliteCacheStore>(), ctx2.Get<SqliteCacheStore>()).ShouldBeFalse();
     }
 
     // ── Unknown key ─────────────────────────────────────────────────
@@ -223,7 +224,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         using var factory = CreateFactory();
 
         Should.Throw<KeyNotFoundException>(() =>
-            factory.GetOrCreate(new WorkspaceKey("unknown", "missing")));
+            factory.GetOrCreate(new Connection("unknown", "missing")));
     }
 
     // ── Disposal ────────────────────────────────────────────────────
@@ -239,8 +240,8 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var ctx2 = factory.GetOrCreate(key2);
 
         // Capture connections before disposal to verify they become unusable
-        var conn1 = ctx1.CacheStore.GetConnection();
-        var conn2 = ctx2.CacheStore.GetConnection();
+        var conn1 = ctx1.Get<SqliteCacheStore>().GetConnection();
+        var conn2 = ctx2.Get<SqliteCacheStore>().GetConnection();
 
         factory.Dispose();
 
@@ -271,7 +272,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         Should.Throw<ObjectDisposedException>(() => factory.GetOrCreate(key));
     }
 
-    // ── WorkspaceContext.Dispose ─────────────────────────────────────
+    // ── ConnectionScope.Dispose ─────────────────────────────────────
 
     [Fact]
     public void Context_Dispose_Disposes_CacheStore()
@@ -280,7 +281,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         using var factory = CreateFactory();
 
         var context = factory.GetOrCreate(key);
-        var conn = context.CacheStore.GetConnection();
+        var conn = context.Get<SqliteCacheStore>().GetConnection();
 
         context.Dispose();
 
@@ -289,7 +290,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private WorkspaceKey WriteWorkspace(string org, string project, string? team = null,
+    private Connection WriteWorkspace(string org, string project, string? team = null,
         string? gitProject = null, string? gitRepository = null)
     {
         var dir = Path.Combine(_tempDir, org, project);
@@ -310,13 +311,13 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         var json = JsonSerializer.Serialize(config, TwigJsonContext.Default.TwigConfiguration);
         File.WriteAllText(Path.Combine(dir, "config"), json);
 
-        return new WorkspaceKey(org, project);
+        return new Connection(org, project);
     }
 
-    private WorkspaceContextFactory CreateFactory()
+    private ConnectionScopeFactory CreateFactory()
     {
-        var registry = new WorkspaceRegistry(_tempDir);
-        var factory = new WorkspaceContextFactory(registry, _httpClient, _authProvider, _tempDir);
+        var registry = new ConnectionRegistry(_tempDir);
+        var factory = new ConnectionScopeFactory(registry, _httpClient, _authProvider, _tempDir);
         _factories.Add(factory);
         return factory;
     }

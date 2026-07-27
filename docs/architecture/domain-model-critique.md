@@ -393,7 +393,7 @@ infrastructure and all tests.
 > `SprintHierarchy.Build` no longer exists; `src/Twig.Domain/ReadModels/SprintHierarchy.cs` is down
 > to 66 lines and exposes only a `Create` factory over an already-built dictionary (`:63`). The
 > 200-line walk moved to the service the critique asked for:
-> `src/Twig.Domain/Services/Workspace/SprintHierarchyBuilder.cs:12` behind
+> `src/Twig.Domain/Services/Workspace/SprintHierarchyBuilder.cs:15` behind
 > `src/Twig.Domain/Interfaces/ISprintHierarchyBuilder.cs:10`, injected into commands
 > (`src/Twig/Commands/WorkspaceCommand.cs:43`). The `.Any()`-in-`while` ceiling check is now a
 > `HashSet<string>` with the reason stated inline: "Pre-compute ceiling type set for O(1) lookup

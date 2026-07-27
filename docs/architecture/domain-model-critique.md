@@ -9,6 +9,25 @@
 ## 1. WorkItem Aggregate — God Object
 
 **Severity**: High | **Blast Radius**: Core domain, all consumers
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — two of the three specific issues are
+> gone, the aggregate-boundary complaint is not.
+> FIXED: the divergent copy methods are consolidated — `WorkItemCopier.Copy` is the single copy
+> path (`src/Twig.Domain/Aggregates/WorkItemCopier.cs:10`) and every `With*` delegates to it
+> (`WorkItem.cs:141`, `:184`, `:192`, `:199`), with `preserveDirty` now an explicit parameter
+> rather than an accident.
+> FIXED: the static mutable `_seedIdCounter` no longer exists anywhere in `src/` — identity is
+> minted per seed from the durable register (`src/Twig.Domain/Interfaces/IStagedIdentityRegistry.cs:15`)
+> and carried on `WorkItem.StagedIdentity` (`WorkItem.cs:57`); the negative `Id` is a display alias
+> only. The `SeedFactory` the critique asked for exists and takes the minted identity as a
+> parameter (`src/Twig.Domain/Services/Seed/SeedFactory.cs:19`, `:30-36`) — it has no counter to
+> initialise. The only surviving trace of `ISeedIdCounter` is a `*REMOVED*` line in
+> `src/Twig.Domain/PublicAPI.Unshipped.txt:656`.
+> STILL TRUE: `ChangeState` performs no process validation — it null-checks and assigns
+> (`WorkItem.cs:89-96`); validation still lives outside in
+> `src/Twig.Domain/Services/Process/StateTransitionService.cs:19`. `SetField`/`ImportFields`
+> remain `internal` (`WorkItem.cs:70`, `:76`), so same-assembly code can still bypass the
+> mutation methods.
+
 
 The `WorkItem` class simultaneously serves as entity, command queue, field bag,
 seed factory, and copy factory. It does not protect domain invariants — callers
@@ -43,6 +62,14 @@ architecturally meaningless.
 ## 2. Command Queue Pattern — Complexity Without Payoff
 
 **Severity**: Medium | **Blast Radius**: WorkItem, Commands/, all mutating commands
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED — the pattern is gone. `git grep` for
+> `IWorkItemCommand`, `ApplyCommands`, and `ToFieldChange` returns zero hits in `src/`, and there is
+> no `Commands/` directory under `src/Twig.Domain`. It was replaced by exactly the direct-mutation
+> shape the critique proposed: `ChangeState` and `UpdateField` mutate and return a `FieldChange`
+> (`src/Twig.Domain/Aggregates/WorkItem.cs:89`, `:97`). The `IsDirty` tracking the critique flagged
+> as load-bearing survives (`WorkItem.cs:36`) and `SyncGuard` still consumes it via
+> `GetDirtyItemsAsync` (`src/Twig.Domain/Services/Sync/SyncGuard.cs:19`).
+
 
 The `IWorkItemCommand` → queue → `ApplyCommands()` pattern resembles Event
 Sourcing prep but delivers none of its benefits. Commands are enqueued and
@@ -68,6 +95,19 @@ precondition ("must call Execute first") is temporal coupling.
 ## 3. Hardcoded Process Assumptions
 
 **Severity**: Medium | **Blast Radius**: ProcessConfiguration, TransitionKind
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED (main issue) / STILL TRUE (secondary).
+> FIXED: `BuildTypeConfig` no longer compares against a magic string. The cut/forward decision is
+> made on `stateEntries[j].Category == StateCategory.Removed`
+> (`src/Twig.Domain/Aggregates/ProcessConfiguration.cs:184`), exactly the `StateEntry` category
+> lookup the containment practice asked for. `private const string RemovedStateName` does not exist
+> in `src/`; the only remaining `"Removed"` literals are the two ADO-wire parsers in
+> `src/Twig.Domain/Services/Process/StateCategoryResolver.cs:50` and `:63`, which are parsing
+> Microsoft's own category vocabulary and are correct there.
+> STILL TRUE (as documented, not as defect): `WorkItemType` still declares 13 static well-known
+> types and still case-normalizes through `NormalizeCasing`
+> (`src/Twig.Domain/ValueObjects/WorkItemType.cs:69`), which the critique itself asked to leave in
+> place — but the "document that they are advisory" half was not done.
+
 
 Despite the explicit process-agnostic principle, `ProcessConfiguration.BuildTypeConfig`
 hardcodes `"Removed"` as the cut/destructive state name. CMMI and custom processes
@@ -93,6 +133,15 @@ be used instead of the magic string.
 ## 4. Value Object Structural Inconsistencies
 
 **Severity**: Low | **Blast Radius**: ValueObjects/
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED. `AreaPath` is no longer a
+> `readonly record struct` — it is a plain `readonly struct : IEquatable<AreaPath>` with
+> hand-written `Equals`/`GetHashCode` over `Value` only, so the cached `_segments` array no longer
+> fights generated equality (`src/Twig.Domain/ValueObjects/AreaPath.cs:8`, `:12`, `:44-46`).
+> `IterationPath` has the same shape (`IterationPath.cs:8`). The duplicated `\`-separated
+> validation is now a shared helper: both call `PathValidation.ValidateBackslashPath` and both get
+> `IsUnder` from `PathValidation.IsUnder` (`src/Twig.Domain/ValueObjects/PathValidation.cs:41`;
+> `AreaPath.cs:43`, `IterationPath.cs:31`).
+
 
 `AreaPath` is a `readonly record struct` with custom `Equals`/`GetHashCode` to
 work around the generated equality including a cached `_segments` array. This
@@ -112,6 +161,17 @@ but share no code.
 ## 5. Service Layer Organization (56 Flat Files)
 
 **Severity**: Medium | **Blast Radius**: Services/ folder structure
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED. `src/Twig.Domain/Services/` now holds 70
+> `.cs` files, of which only **4** sit at the top level (`SprintIterationResolver.cs`,
+> `WorkItemHistoryJsonWriter.cs`, `WorkItemHistoryOptionsParser.cs`, `WorkItemMapper.cs`). The rest
+> are organised into seven concern subdirectories — `Field/`, `Mutation/`, `Navigation/`,
+> `Process/`, `Seed/`, `Sync/`, `Workspace/` — which is the sub-organisation the containment
+> practice proposed. The named examples moved with it: `RefreshOrchestrator` is at
+> `src/Twig.Domain/Services/Sync/RefreshOrchestrator.cs`, `SeedPublishOrchestrator` at
+> `Services/Seed/SeedPublishOrchestrator.cs`, `CacheAgeFormatter` at `Services/Field/`, and
+> `Pluralizer` left `Services/` entirely for `src/Twig.Domain/Common/Pluralizer.cs`. April's "56
+> flat files" no longer describes the tree.
+
 
 The `Services/` folder contains 56 files with no sub-organization — from tiny
 utilities (`Pluralizer`, `CacheAgeFormatter`) to complex orchestrators
@@ -132,6 +192,23 @@ and the "where does this go?" problem grows with every addition.
 ## 6. Orchestrator Proliferation
 
 **Severity**: Medium | **Blast Radius**: Multiple orchestrators + commands
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — the April audit's own findings hold,
+> but the count went back up and wayfinder 0004's ruling has not landed.
+> Holds: `StatusOrchestrator` is gone (zero hits in `src/`), and the five retained/absorbed verdicts
+> still match the code, though the line counts have drifted —
+> `SyncCoordinator.cs` 281 (was 211), `RefreshOrchestrator.cs` 191 (was 193),
+> `SeedPublishOrchestrator.cs` **616** (was 245), `SeedReconcileOrchestrator.cs` 117 (was 110).
+> `SyncCoordinatorFactory` still exists un-renamed (`Services/Sync/SyncCoordinatorFactory.cs`).
+> STILL TRUE / new: a **sixth** orchestrator has since been added —
+> `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines) — so proliferation
+> resumed after the audit closed.
+> STILL TRUE: wayfinder ticket 0004 ruled that reconciliation becomes a named module and that
+> `SeedReconcileOrchestrator` be renamed to reflect that it is a seed-link GC
+> (`wayfinder/tickets/0004-does-reconciliation-exist.md:185-192`, scope explicitly "decision only").
+> No such module exists — `git grep Reconciliation` in `src/` returns only two display strings
+> (`src/Twig/Commands/SeedReconcileCommand.cs:97`,
+> `src/Twig/Formatters/HumanOutputFormatter.cs:1412`). It is still just a decision.
+
 
 Five orchestrator/coordinator patterns existed with overlapping dependency subsets.
 An audit was performed in April 2026 to evaluate each one for consolidation,
@@ -178,6 +255,22 @@ removal, or retention.
 ## 7. Result Type Proliferation
 
 **Severity**: Medium | **Blast Radius**: Cross-cutting (all services/commands)
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — both "In Progress" migrations landed;
+> the "Deferred" bucket is untouched.
+> FIXED: `StatusSnapshot` no longer exists in `src/` at all. It is now the DU the section specified,
+> with exactly the three named cases: `public union StatusResult(StatusNoContext,
+> StatusUnreachable, StatusSuccess)` (`src/Twig.Domain/Services/Workspace/StatusResult.cs:25`).
+> FIXED: `BranchLinkResult` is no longer an enum+class hybrid — `BranchLinkStatus` is gone and it is
+> `public union BranchLinkResult(Linked, AlreadyLinked, GitContextUnavailable, LinkFailed)`
+> (`src/Twig.Domain/ValueObjects/BranchLinkResult.cs:32`). Only the fourth case is named
+> `LinkFailed` rather than the planned `Failed`.
+> STILL TRUE: the deferred types are unchanged data bags — `SeedPublishResult` is still a
+> `public sealed class` (`src/Twig.Domain/ValueObjects/SeedPublishResult.cs:6`), alongside
+> `SeedValidationResult.cs`, `SeedReconcileResult.cs`, `SeedPublishBatchResult.cs`; and
+> `RefreshFetchResult` remains a single-consumer data bag
+> (`src/Twig.Domain/Services/Sync/RefreshOrchestrator.cs`, `src/Twig/Commands/RefreshCommand.cs`).
+> Both were deliberate deferrals, so this is unfinished-by-design rather than drift.
+
 
 > **Convention document**: [`docs/architecture/result-type-conventions.md`](result-type-conventions.md)
 > establishes the three-tier taxonomy (Discriminated Union / `Result<T>` / Data Bag)
@@ -227,6 +320,19 @@ The codebase has 9+ distinct result types with incompatible patterns: `Result<T>
 ## 8. Command Layer Bloat
 
 **Severity**: High | **Blast Radius**: CLI Commands/
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY.
+> FIXED for the two named commands: `StatusCommand` no longer exists in the tree (no
+> `src/Twig/Commands/StatusCommand.cs`; only `StatusFieldConfigReader.cs` survives that name), and
+> `SetCommand` is down to **7** constructor parameters across 192 lines
+> (`src/Twig/Commands/SetCommand.cs:24-31`). The `CommandContext` aggregate parameter object the
+> critique proposed exists and is the first parameter of both
+> (`src/Twig/Commands/CommandContext.cs:13`), and inline infrastructure access was pulled into
+> `src/Twig/Commands/StatusFieldConfigReader.cs:8`.
+> STILL TRUE as a class-level finding: the bloat relocated rather than disappeared.
+> `WorkspaceCommand` now takes **15** constructor parameters over 851 lines
+> (`src/Twig/Commands/WorkspaceCommand.cs:34-48`), and `ShowCommand.cs` (792) and `InitCommand.cs`
+> (739) are the same shape. No `CommandRenderingPipeline` exists.
+
 
 `StatusCommand` and `SetCommand` each take 15–17 constructor parameters. Method
 bodies exceed 200 lines with duplicated rendering paths (renderer vs. formatter),
@@ -247,6 +353,22 @@ orchestration + display + hints + telemetry + sync logic.
 ## 9. Domain ↔ Infrastructure Boundary Leak
 
 **Severity**: Medium | **Blast Radius**: IAdoWorkItemService, persistence
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — a mapping layer now exists, but the
+> interface boundary the finding is actually about is unchanged.
+> FIXED (construction): infrastructure no longer constructs domain aggregates during
+> deserialization. `AdoResponseMapper.MapToSnapshot` produces an infrastructure-agnostic
+> `WorkItemSnapshot` (`src/Twig.Infrastructure/Ado/AdoResponseMapper.cs:47`), and the domain owns
+> all value-object parsing and state restoration in `WorkItemMapper.Map`
+> (`src/Twig.Domain/Services/WorkItemMapper.cs:10`). `AdoRestClient` just wires the two
+> (`src/Twig.Infrastructure/Ado/AdoRestClient.cs:74-75`). `SqliteWorkItemRepository` goes through
+> the same snapshot seam (`src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs:512`),
+> and there is a real wire-DTO tier under `src/Twig.Infrastructure/Ado/Dtos/` (19 files).
+> STILL TRUE: `IAdoWorkItemService` still returns domain `WorkItem` aggregates directly —
+> `Task<WorkItem> FetchAsync`, `FetchWithLinksAsync`, `FetchChildrenAsync`, `FetchBatchAsync`
+> (`src/Twig.Domain/Interfaces/IAdoWorkItemService.cs:12`, `:13`, `:14`, `:61`), so `WorkItem`
+> changes still cascade to every consumer and test. Note the critique's own sequencing advice is now
+> discharged: it said defer until Item 1's copy-method consolidation was done, and it is.
+
 
 `IAdoWorkItemService` returns domain `WorkItem` aggregates directly. The
 infrastructure ADO client constructs full domain objects during deserialization.
@@ -267,6 +389,16 @@ infrastructure and all tests.
 ## 10. SprintHierarchy.Build — Misplaced Complex Logic
 
 **Severity**: Low | **Blast Radius**: ReadModels/, SprintHierarchy
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED — both containment practices landed.
+> `SprintHierarchy.Build` no longer exists; `src/Twig.Domain/ReadModels/SprintHierarchy.cs` is down
+> to 66 lines and exposes only a `Create` factory over an already-built dictionary (`:63`). The
+> 200-line walk moved to the service the critique asked for:
+> `src/Twig.Domain/Services/Workspace/SprintHierarchyBuilder.cs:12` behind
+> `src/Twig.Domain/Interfaces/ISprintHierarchyBuilder.cs:10`, injected into commands
+> (`src/Twig/Commands/WorkspaceCommand.cs:43`). The `.Any()`-in-`while` ceiling check is now a
+> `HashSet<string>` with the reason stated inline: "Pre-compute ceiling type set for O(1) lookup
+> instead of O(n) .Any()" (`SprintHierarchyBuilder.cs:70-71`).
+
 
 `SprintHierarchy.Build` is a 200-line static method doing parent-chain walking,
 virtual group creation, ceiling-type resolution, and LINQ `.Any()` inside
@@ -283,6 +415,19 @@ virtual group creation, ceiling-type resolution, and LINQ `.Any()` inside
 ## 11. Workspace Read Model Does Computation
 
 **Severity**: Low | **Blast Radius**: ReadModels/Workspace
+> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY. The read model is now inert — none of
+> the three methods are members of `Workspace` any more; they are extension methods in
+> `src/Twig.Domain/ReadModels/WorkspaceExtensions.cs:15` (`GetStaleSeeds`), `:32` (`GetDirtyItems`),
+> `:54` (`ListAll`), whose own doc comment states the intent: "Pure computation methods extracted
+> from `Workspace`. Keeps the read model as an inert projection" (`WorkspaceExtensions.cs:5-8`).
+> What did **not** happen is the containment practice as written — the computation was not moved
+> into the building service or a `WorkspaceAnalyzer` (no such type in `src/`); it was relocated to
+> extensions in the same `ReadModels` namespace. Whether that discharges the finding is a judgement
+> call, not a code fact. The "callers are few" claim is also now stale: there are 8 call sites
+> across `src/Twig.Mcp/Services/McpResultBuilder.cs:180`, `:189`,
+> `src/Twig/Commands/WorkspaceCommand.cs:687`, `:702`, `:741`, and
+> `src/Twig/Formatters/HumanOutputFormatter.cs:491`, `:521`, `:677`.
+
 
 `Workspace.GetStaleSeeds()`, `GetDirtyItems()`, `ListAll()` are computation
 methods on a read model. Read models should be inert projections.
@@ -296,6 +441,20 @@ methods on a read model. Read models should be inert projections.
 ---
 
 ## Recommended Remediation Order
+
+> **Status (2026-07, re-baselined at `55b02d32`)**: mostly obsolete. Items **2, 3, 4, 5, 10** are
+> FIXED and drop off the list entirely. Item **6** is *not* "completed April 2026" as this list's ninth entry claims:
+> the audit completed, but a sixth orchestrator has since been added
+> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`) and wayfinder 0004's named
+> reconciliation module has not landed. Item **7** is no longer "in progress" — both scheduled
+> migrations shipped (`Services/Workspace/StatusResult.cs:25`,
+> `ValueObjects/BranchLinkResult.cs:32`); only the explicitly deferred seed result types remain.
+> Item **11** is substantially done. What actually remains, in the order this section's own
+> risk-ordering logic implies: **11** (decide whether extensions discharge it), **1**'s residual
+> aggregate-boundary question, **8** (bloat relocated to `WorkspaceCommand`/`ShowCommand`/
+> `InitCommand`), **6**'s reconciliation module, and **9** — which the original ordering placed
+> last on the grounds that Item 1's copy consolidation had to come first, and that precondition is
+> now met.
 
 1. **Item 3** (Process assumptions) — smallest, most surgical
 2. **Item 4** (Value object cleanup) — isolated, low risk

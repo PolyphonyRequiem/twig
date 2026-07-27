@@ -158,3 +158,44 @@ PROPOSED follow-ons (no IDs assigned, per instruction):
   and is the reason this ticket shipped narrow).
 - PROPOSED: Decide whether `json-full` / `json-compact` should collapse into `json`, or acquire
   the distinct behaviour their names advertise.
+
+### Review follow-up (2026-07-27)
+
+Review raised one MAJOR: the ticket's central deliverable — "unknown value exits non-zero" — had
+**no committed guard**. `OutputFormatArgumentValidator.Validate` has exactly one production call
+site (the `Program.cs` guard block), and every unit case called the validator directly, so deleting
+that block left all 31 tests green while `-o jsno` silently returned to human output with exit 0.
+The pre-fix probe was real and honestly disclosed, but it was thrown away rather than retained.
+
+Closed by `tests/Twig.Cli.Tests/Formatters/OutputFormatEntrypointTests.cs`: 6 cases that run the
+built binary and assert exit 2 plus the stderr message. **Non-vacuity proved by removing the guard
+block and re-running: 5 of 6 fail.** The 6th is an in-process positive control that correctly does
+not depend on the entrypoint.
+
+Two traps hit while writing it, recorded so the next author does not repeat them:
+
+- **`[Trait("Category", "Interactive")]` would have made the guard vacuous.** `AotSmokeTests` carries
+  that trait and the default filter EXCLUDES it, so the first version reported exit 0 having run
+  **zero tests**. The trait is deliberately absent, and the file says why.
+- **The positive control cannot go through the binary.** `show -o json` reaches a real command and
+  therefore pays for 0018's startup side effects — a blocking GitHub companion download — which
+  exceeded the 300 s test-run budget and aborted the host. Negative cases never reach it because the
+  guard returns first. The accepted-format direction is asserted in-process instead.
+
+**Ordering note:** the 0019 guard sits ABOVE 0018's startup side effects in `Program.cs`. A usage
+error must exit without paying for a self-update sweep or a companion download. Both tickets' guards
+hold: 0018 asserts its side effects run below the fast-exit block, 0019 asserts its validation runs
+before them.
+
+Also addressed from review: `src/Twig/Commands/QueryCommand.cs:274` touches one of the 33 files the
+escape hatch said not to touch — benign (it removes a restated list), now called out explicitly
+rather than left silent.
+
+PROPOSED follow-ons (not filed as numbered tickets, per the ID-namespace rule):
+
+- **PROPOSED: collapse the duplicate `GetRenderer` overloads** — `RendererFactory.cs:47` and `:71`
+  carry identical five-arm switches differing only in sink. Judgement-call Duplicated Code.
+- **PROPOSED: assert no renderer arm exists outside `Accepted`** — §Scope item 3 asks for it; only
+  the forward direction is tested today.
+- **PROPOSED: `RefreshCommand.cs:72` still drops `json-full` downstream** — the entrypoint gate does
+  not stop it. Residual hazard the ticket itself raised.

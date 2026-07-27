@@ -259,6 +259,7 @@ jobs:
       - name: Pack libraries
         run: |
           set -euo pipefail
+          dotnet pack src/Twig.RenderTree/Twig.RenderTree.csproj -c Release -o ./nupkgs
           dotnet pack src/Twig.Domain/Twig.Domain.csproj         -c Release -o ./nupkgs
           dotnet pack src/Twig.Infrastructure/Twig.Infrastructure.csproj -c Release -o ./nupkgs
           ls -la ./nupkgs

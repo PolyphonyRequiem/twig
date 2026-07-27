@@ -2,7 +2,7 @@
 id: 0002
 title: Four surfaces, one seam?
 type: grilling
-status: open
+status: closed
 blocked_by: [0001]
 ---
 
@@ -134,4 +134,158 @@ whether he wants one.
 
 ## Answer
 
-<!-- empty until resolved -->
+**Not four adapters at one render seam. Three surfaces at one CAPABILITY seam, each
+owning its own presentation.** The seam is the **workflow layer**, it already exists and
+is already load-bearing on the mutation half, and the work is to *finish* it — extend it
+to reads — not to build a new one.
+
+`Twig.RenderTree` is scoped down honestly to **the CLI's format layer**. It is not
+promoted, and MCP/TUI are not migrated onto it.
+
+### 1. The ticket's central evidence was misread — RenderTree has ONE adapter, not four
+
+The question assumed `Twig.RenderTree`'s four adapters make the surface seam
+"emphatically real." Verified against live code (2026-07-27), they do not. The four
+adapters are `SpectreNodeRenderer` / `JsonRenderer` / `MinimalRenderer` / `IdsRenderer` —
+four values of **`--format` on one surface**, dispatched by
+`RendererFactory.cs:44-49`. At the *four-experiences* seam RenderTree has exactly **one**
+adapter: the CLI.
+
+Per this map's own rule — one adapter = hypothetical seam, two = real — RenderTree is a
+**hypothetical** surface seam. The absence of a `Twig.RenderTree` reference from
+`Twig.Mcp.csproj` and `Twig.Tui.csproj` is not the defect the audit read it as.
+
+It also could not become that seam, because **`RenderTree` is presentational, not
+semantic**:
+
+- `RenderNode.Markup` (`RenderNode.cs:46`) carries literal Spectre.Console markup strings.
+- `Section` is documented as "a visual grouping container"; `Hint` as "typically dim."
+
+Migrating MCP onto it means an LLM consuming Spectre markup. The CLI already escapes its
+own tree for exactly this reason: `SpectreRenderer` has 8 bespoke `Render*Async` methods
+(~1,700 lines) that 5 commands bypass RenderTree entirely to reach — e.g.
+`SeedViewCommand.cs:44-53` branches to `renderer.RenderSeedViewAsync` on the TTY path and
+only falls through to the tree otherwise. A seam its sole adapter routes around is not a
+seam that wants more adapters.
+
+**Correction to the map:** "Only the CLI references Twig.RenderTree" is true but is not
+evidence of drift. It is correct layering.
+
+### 2. The real seam already exists, already has two adapters, and is already deep
+
+All three composition roots reference exactly `Twig.Domain` + `Twig.Infrastructure` and
+nothing else. They do not share an output stack because they **should not**. What they
+share is capability — and on the mutation half that sharing is already formalised.
+
+Six workflows in `Twig.Infrastructure/Services/Mutation/` — `StateTransitionWorkflow`,
+`FieldUpdateWorkflow`, `NoteWorkflow`, `DiscardWorkflow`, `DeleteWorkflow`,
+`PatchWorkflow` — each have **exactly two consumers**: one CLI command and MCP's
+`MutationTools`. Two adapters at one seam. **Real by the rule, and nobody wrote it down.**
+
+The interface is deep (`StateTransitionWorkflow.cs:90,116`):
+
+```csharp
+StateTransitionOutcome? Validate(WorkItem item, string stateName);
+Task<StateTransitionOutcome> ExecuteAsync(WorkItem remote, string stateName, int revision, CancellationToken ct);
+```
+
+Two methods; the return is a **union the caller pattern-matches**. `StateCommand.cs:117-190`
+renders eight outcome cases as human text; `MutationTools.cs:65-74` renders the same
+outcomes into a JSON envelope. One capability, shaped twice, deliberately.
+
+### 3. The seam's interface handles INTERACTIVITY, which is the sharpest axis
+
+The two-phase split is not ceremony — it is the seam doing the job the ticket identified.
+
+- `StateCommand.cs:68-82` — `Validate`, then **interactive conflict resolution at line 79**,
+  then `ExecuteAsync`.
+- `MutationTools.cs:65-74` — `Validate`, no interjection, `ExecuteAsync`.
+
+**The interactive surface interjects between the phases; the non-interactive one does not.**
+So the seam's interface is not "render this," it is:
+
+> `Validate` → *(surface interjects if it can)* → `Execute` → **match the outcome union**
+
+That is 0001's "interactive conflict resolution for humans, warn-and-advise for
+agents/scripts" already expressed structurally rather than as prose. Interactivity, not
+output format, is what varies across this seam — as 0001 §3d predicted.
+
+### 4. Reads never got the treatment — and `WorkspaceContext` is the symptom
+
+Nothing equivalent exists for reads. `SeedViewCommand` injects six dependencies and
+composes the use-case inline; MCP's `ReadTools` composes the same work again through
+`ctx.IterationService` / `ctx.AdoService`. Same capability, assembled twice, in two places.
+
+The tell is `WorkspaceContext` (`src/Twig.Mcp/Services/WorkspaceContext.cs`): **34 public
+properties** re-exporting the container — repositories, stores, resolvers, services, and
+the six workflows. It is a god object that exists precisely because there is no read-side
+workflow for MCP to depend on instead. It is not a design; it is the negative space where
+the read seam should be.
+
+**Read workflows take ONE method, not the mutation two-phase shape.** Reads have no write
+to validate ahead of; a `Validate` on a read would be symmetry for its own sake. One
+`ExecuteAsync` returning an outcome union.
+
+### 5. REACH is an OUTCOME, not a policy — which resolves the 0001 §5 tension
+
+§b asked: if an LLM triggers a fetch by asking about uncached data, who owns that
+boundary? The single-method read shape answers it.
+
+**A read workflow never decides to fetch.** Encountering data twig has not cached is a
+**case of the outcome union** — `NotCached(id)` — returned to the caller. Each surface
+then decides:
+
+| Surface | Response to `NotCached` |
+|---|---|
+| Rich CLI | render the miss, advise `twig sync` |
+| Script CLI | stable machine-readable miss; exit code, no implicit network |
+| TUI | prompt the user — it can ask |
+| MCP | return a hint; the LLM must ask the user to sync |
+
+This puts the sync boundary back **in the surface, where 0001 §5 says the user owns it**,
+instead of burying a fetch policy inside shared code where no surface can see it. It
+resolves the map's open item *"Who owns the sync boundary when an LLM triggers a fetch?"*
+— **nobody in the seam does; the seam reports, the surface decides.**
+
+It also keeps MCP inside the 0012 freeze: no new tools, no parity work — existing tools
+consume a seam that gets deeper beneath them.
+
+### 6. How many surfaces, then
+
+**Three surfaces, four experiences.** Rich CLI and Script CLI are one surface — one binary,
+one composition root, one command set — with `--format` selecting presentation
+(`RendererFactory`). That is a **presentation mode**, not a surface. §a's open question
+resolves the same way from the other side: the TUI is a distinct surface because it has a
+distinct *interaction model* (a persistent interjecting session), not because it serves a
+different person.
+
+Surfaces are counted by **interaction model**, not audience or output format:
+
+| Surface | Interaction model | Experiences served |
+|---|---|---|
+| CLI | one-shot; may interject on a TTY | 1 (rich) + 2 (script) |
+| TUI | persistent session; always interjects | 4 |
+| MCP | one-shot; never interjects directly | 3 |
+
+Experience 2's fileio contract (§c) is a **CLI output-target** concern and belongs to
+0010, not to this seam. It is unaffected by this answer.
+
+### 7. What this decides for the blocked tickets
+
+- **0007 (single composition root):** three composition roots are **correct** — they are
+  the three surfaces. The question narrows to whether the TUI's *packaging* follows, which
+  is a shipping decision, not an architectural one. The duplication worth removing is
+  `WorkspaceContext`, not the roots.
+- **0009 (MCP hints contract):** hints are **surface-owned shaping of outcome unions**, not
+  a seam concern. That `McpHintProvider.ApplyHintsAsync` has zero production callers is
+  consistent with hints having no home yet — 0009 should give them one on the MCP surface.
+- **0010 (toolchain output stability):** scoped to the CLI's format layer (RenderTree +
+  fileio). It does **not** need to cover MCP, whose envelope is separate and stays separate.
+
+### 8. Scope discipline
+
+This is a decision, not a refactor. **No code moved.** The implied work — extending the
+workflow seam to reads and collapsing `WorkspaceContext` — is deepening that must be done
+**only where two surfaces already compose the same use-case**, never speculatively. That
+keeps the one-adapter-vs-two rule honest at the new seam too, and is the failure mode to
+watch: a read workflow with one consumer is a pass-through that has not earned its keep.

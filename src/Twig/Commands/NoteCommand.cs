@@ -137,7 +137,7 @@ public sealed class NoteCommand(
         nodes.Add(lower switch
         {
             "minimal" => new RenderNode.Text(message),
-            "json" or "json-full" or "json-compact" or "jsonc" or "ids" => BuildNoteAddedRecord(itemId, isPending, message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildNoteAddedRecord(itemId, isPending, message),
             _ => new RenderNode.Text(message, Severity.Success),
         });
 
@@ -156,7 +156,7 @@ public sealed class NoteCommand(
         RenderNode node = lower switch
         {
             "minimal" => new RenderNode.Text(message),
-            "json" or "json-full" or "json-compact" or "jsonc" => BuildNoteCancelledRecord(message),
+            "json" or "json-full" or "json-compact" => BuildNoteCancelledRecord(message),
             "ids" => new RenderNode.Text(string.Empty),
             _ => new RenderNode.Text(message, Severity.Info),
         };

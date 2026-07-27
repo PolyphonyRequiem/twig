@@ -25,7 +25,7 @@ namespace Twig.Commands;
 /// </summary>
 /// <remarks>
 /// Partially migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
-/// seam: <c>json</c>, <c>jsonc</c>, <c>minimal</c>, and <c>ids</c> output formats now project
+/// seam: <c>json</c>, <c>minimal</c>, and <c>ids</c> output formats now project
 /// the workspace through a <see cref="Twig.RenderTree.RenderTree"/>. The <c>human</c> path
 /// continues to delegate to <see cref="HumanOutputFormatter.FormatWorkspace"/> /
 /// <see cref="HumanOutputFormatter.FormatSprintView"/> so the rich human-format
@@ -648,7 +648,7 @@ public sealed class WorkspaceCommand(
         return result;
     }
 
-    // ── RenderTree projection for machine output formats (json/jsonc/minimal/ids) ────────
+    // ── RenderTree projection for machine output formats (json/minimal/ids) ────────
     // The human path keeps using HumanOutputFormatter to preserve rich-format behavior
     // (active marker, dirty/stale glyphs, tree layout). These helpers produce the
     // structural projection consumed by the JSON / minimal / ids renderers.

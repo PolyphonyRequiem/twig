@@ -35,7 +35,7 @@ twig state <name> [--id <int>] [--output <format>]
 |-----------|------|---------|-------------|
 | `name` | string | required | Target state name (full or partial, case-insensitive) |
 | `--id` | int? | null | Target work item ID; omit for active item |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
 
@@ -97,7 +97,7 @@ twig update <field> [<value>] [--format <convert>] [--file <path>] [--stdin]
 | `--stdin` | bool | false | Read value from stdin |
 | `--append` | bool | false | Append to existing value instead of replacing |
 | `--id` | int? | null | Target work item ID; omit for active item |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
 
@@ -162,7 +162,7 @@ twig patch [--json <string>] [--stdin] [--format <convert>] [--id <int>] [--outp
 | `--stdin` | bool | false | Read JSON object from stdin |
 | `--format` | string? | null | Input conversion: `"markdown"` converts Markdown values → HTML |
 | `--id` | int? | null | Target work item ID; omit for active item |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Input Format
 
@@ -240,7 +240,7 @@ twig batch --ids <csv> [--state <name>] [--set <key=value>...] [--note <text>]
 | `--set` | string[]? | null | Field updates as `key=value` pairs (repeatable) |
 | `--note` | string? | null | Comment to add to each item |
 | `--format` | string? | null | Input conversion: `"markdown"` converts values → HTML |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 At least one of `--state`, `--set`, or `--note` must be specified. Exit 2 otherwise.
 
@@ -311,7 +311,7 @@ twig note [--text <string>] [--id <int>] [--output <format>]
 |-----------|------|---------|-------------|
 | `--text` | string? | null | Inline note text; omit to open editor |
 | `--id` | int? | null | Target work item ID; omit for active item |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
 
@@ -443,7 +443,7 @@ twig link parent <targetId> [--output <format>]
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `targetId` | int | required | Work item ID to set as parent |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
 

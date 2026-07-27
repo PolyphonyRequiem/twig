@@ -1,3 +1,13 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
@@ -13,7 +23,7 @@ namespace Twig.Mcp.Tools;
 /// Returns workspace configuration and project structure information.
 /// </summary>
 [McpServerToolType]
-public sealed class AdminTools(WorkspaceResolver resolver)
+public sealed class AdminTools(ConnectionResolver resolver)
 {
     private const string AreaTreeJsonKey = "area_tree_json";
     private const string AreaTreeFetchedAtKey = "area_tree_fetched_at";
@@ -65,8 +75,8 @@ public sealed class AdminTools(WorkspaceResolver resolver)
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // 1. Check cache
-        var cachedJson = await ctx.ContextStore.GetValueAsync(AreaTreeJsonKey, ct);
-        var cachedAtStr = await ctx.ContextStore.GetValueAsync(AreaTreeFetchedAtKey, ct);
+        var cachedJson = await ctx.Get<IContextStore>().GetValueAsync(AreaTreeJsonKey, ct);
+        var cachedAtStr = await ctx.Get<IContextStore>().GetValueAsync(AreaTreeFetchedAtKey, ct);
         var isCacheFresh = IsCacheFresh(cachedAtStr);
 
         if (isCacheFresh && cachedJson is not null)
@@ -78,13 +88,13 @@ public sealed class AdminTools(WorkspaceResolver resolver)
         // 2. Cache miss or stale — try fetching from ADO
         try
         {
-            var areaTree = await ctx.IterationService.GetAreaTreeAsync(ct);
+            var areaTree = await ctx.Get<IIterationService>().GetAreaTreeAsync(ct);
             var json = SerializeAreaTree(areaTree);
             var fetchedAt = DateTimeOffset.UtcNow.ToString("o");
 
             // Update cache
-            await ctx.ContextStore.SetValueAsync(AreaTreeJsonKey, json, ct);
-            await ctx.ContextStore.SetValueAsync(AreaTreeFetchedAtKey, fetchedAt, ct);
+            await ctx.Get<IContextStore>().SetValueAsync(AreaTreeJsonKey, json, ct);
+            await ctx.Get<IContextStore>().SetValueAsync(AreaTreeFetchedAtKey, fetchedAt, ct);
 
             return await BuildAreaResultAsync(ctx, areaTree, fetchedAt, verbose, ct);
         }
@@ -136,7 +146,7 @@ public sealed class AdminTools(WorkspaceResolver resolver)
     }
 
     private static async Task<CallToolResult> BuildAreaResultAsync(
-        WorkspaceContext ctx, AreaTreeNode tree, string fetchedAt, bool verbose, CancellationToken ct)
+        ConnectionScope ctx, AreaTreeNode tree, string fetchedAt, bool verbose, CancellationToken ct)
     {
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
@@ -149,7 +159,7 @@ public sealed class AdminTools(WorkspaceResolver resolver)
     }
 
     private static async Task<CallToolResult> BuildAreaResultFromCacheAsync(
-        WorkspaceContext ctx, string cachedJson, string fetchedAt, bool verbose, CancellationToken ct)
+        ConnectionScope ctx, string cachedJson, string fetchedAt, bool verbose, CancellationToken ct)
     {
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {

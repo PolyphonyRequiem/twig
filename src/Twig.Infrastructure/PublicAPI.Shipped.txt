@@ -45,7 +45,7 @@ static Twig.Infrastructure.GitHub.CompanionUpdateResult.operator ==(Twig.Infrast
 static Twig.Infrastructure.GitHub.SelfUpdater.CleanupOldBinary() -> void
 static Twig.Infrastructure.GitHub.UpdateResult.operator !=(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
 static Twig.Infrastructure.GitHub.UpdateResult.operator ==(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
-static Twig.Infrastructure.TwigServiceRegistration.AddTwigCoreServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration? preloadedConfig = null, string? twigDir = null, string? startDir = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Twig.Infrastructure.TwigServiceRegistration.AddConnectionServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration? preloadedConfig = null, string? twigDir = null, string? startDir = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Twig.Infrastructure.TwigServiceRegistration.AddTwigInfrastructure(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration! config, string? twigDir = null, string? startDir = null, string? resolvedGitProject = null, string? resolvedRepository = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 Twig.Infrastructure.Ado.AdoErrorClassifier
 Twig.Infrastructure.Ado.AutoPushNotesHelper

@@ -20,11 +20,11 @@ var (isValid, guardError, discoveredTwigDir) = WorkspaceGuard.CheckWorkspaceAmbi
 string? twigRoot = discoveredTwigDir;
 
 // Workspace infrastructure — replaces single-workspace singleton registrations.
-// WorkspaceRegistry loads split config and scans legacy per-workspace configs (DD-5).
-// WorkspaceContextFactory lazily creates per-workspace service bundles.
-// WorkspaceResolver routes per-tool-call workspace selection.
+// ConnectionRegistry loads split config and scans legacy per-workspace configs (DD-5).
+// ConnectionScopeFactory lazily creates per-workspace service bundles.
+// ConnectionResolver routes per-tool-call workspace selection.
 var launchCwd = Directory.GetCurrentDirectory();
-var registry = new WorkspaceRegistry(twigRoot ?? Path.Combine(launchCwd, ".twig"), launchCwd);
+var registry = new ConnectionRegistry(twigRoot ?? Path.Combine(launchCwd, ".twig"), launchCwd);
 
 // Global singletons shared across all workspaces (auth is per-user, not per-workspace).
 // Determine auth method from workspace configs — if any workspace uses PAT, use PAT;
@@ -36,8 +36,8 @@ var authMethod = registry.Workspaces
     ?? "azcli";
 var authProvider = AuthProviderFactory.Create(authMethod);
 
-var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(launchCwd, ".twig"));
-var resolver = new WorkspaceResolver(registry, factory);
+var factory = new ConnectionScopeFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(launchCwd, ".twig"));
+var resolver = new ConnectionResolver(registry, factory);
 var toolProfile = McpToolCatalog.ResolveProfile(
     args,
     Environment.GetEnvironmentVariable(McpToolCatalog.ProfileEnvironmentVariable));
@@ -48,11 +48,11 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 // Register workspace infrastructure as singletons
-builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
+builder.Services.AddSingleton<IConnectionRegistry>(registry);
 builder.Services.AddSingleton(resolver);
 
 // Seed factory — stateless now: identity is minted per seed from the per-workspace durable
-// register on WorkspaceContext, not from a process-wide counter (wayfinder 0014).
+// register on ConnectionScope, not from a process-wide counter (wayfinder 0014).
 builder.Services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
 
 // Batch dispatch — interface enables BatchExecutionEngine to be tested in isolation (NFR-7).
@@ -122,7 +122,7 @@ return 0;
 
 static string GetVersion()
 {
-    var version = typeof(WorkspaceResolver).Assembly
+    var version = typeof(ConnectionResolver).Assembly
         .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         is [System.Reflection.AssemblyInformationalVersionAttribute attr]
         ? attr.InformationalVersion

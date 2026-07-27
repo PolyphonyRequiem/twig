@@ -214,7 +214,7 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
         var result = await CreateSut().Query();
 
         result.IsError.ShouldBeNull();
-        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestConnection.ToString());
     }
 
     // ═══════════════════════════════════════════════════════════════

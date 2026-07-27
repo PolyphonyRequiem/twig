@@ -277,7 +277,7 @@ Each entry point composes its own service graph by calling shared registration m
 defined in `TwigServiceRegistration.cs`:
 
 ```
-AddTwigCoreServices(config, twigDir)     → Domain + persistence (SQLite repos, stores)
+AddConnectionServices(config, twigDir)     → Domain + persistence (SQLite repos, stores)
 AddTwigNetworkServices(config, ...)      → ADO REST clients, auth, telemetry, git client
 ```
 

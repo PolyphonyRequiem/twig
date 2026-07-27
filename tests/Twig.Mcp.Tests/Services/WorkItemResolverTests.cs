@@ -15,7 +15,7 @@ namespace Twig.Mcp.Tests.Services;
 /// </summary>
 public sealed class WorkItemResolverTests : ReadToolsTestBase
 {
-    private WorkspaceContext BuildCtx()
+    private ConnectionScope BuildCtx()
     {
         var resolver = BuildResolver(DefaultConfig);
         resolver.TryResolve(null, out var ctx, out _);

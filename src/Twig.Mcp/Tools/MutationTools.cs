@@ -1,3 +1,9 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Workspace;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
@@ -19,10 +25,10 @@ namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for mutations: twig_state, twig_update, twig_patch, twig_note, twig_delete, twig_sync.
-/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Resolves per-workspace services via <see cref="ConnectionResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class MutationTools(WorkspaceResolver resolver)
+public sealed class MutationTools(ConnectionResolver resolver)
 {
     [McpServerTool(Name = "twig_state"),Description("Change the state of a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
     public async Task<CallToolResult> State(
@@ -45,15 +51,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         {
             var previousState = item.State;
             var change = new FieldChange("System.State", item.State, stateName);
-            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
+            var seedProvider = new SeedMutationProvider(ctx.Get<IWorkItemRepository>());
             var seedResult = await seedProvider.ChangeStateAsync(item.Id, change, ct);
             if (!seedResult.IsSuccess)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.ErrorMessage!, ctx, ct);
 
             // Re-read the updated item for the response
-            var seedUpdated = await ctx.WorkItemRepo.GetByIdAsync(item.Id, ct) ?? item;
+            var seedUpdated = await ctx.Get<IWorkItemRepository>().GetByIdAsync(item.Id, ct) ?? item;
 
-            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+            try { await ctx.Get<IPromptStateWriter>().WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
             return await EnvelopeBuilder.WrapAsync(ctx,
@@ -62,7 +68,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         // Pre-flight validation (pure, no side effects). Bails on bad input
         // before fetching remote.
-        var preflight = ctx.StateTransitionWorkflow.Validate(item, stateName);
+        var preflight = ctx.Get<StateTransitionWorkflow>().Validate(item, stateName);
         if (preflight is not null)
             return await RenderOutcomeAsync(ctx, item, preflight, verbose, ct);
 
@@ -70,8 +76,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         StateTransitionOutcome outcome;
         try
         {
-            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            outcome = await ctx.StateTransitionWorkflow.ExecuteAsync(remote, stateName, remote.Revision, ct);
+            remote = await ctx.Get<IAdoWorkItemService>().FetchAsync(item.Id, ct);
+            outcome = await ctx.Get<StateTransitionWorkflow>().ExecuteAsync(remote, stateName, remote.Revision, ct);
         }
         catch (AdoBadRequestException ex)
         {
@@ -94,7 +100,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     }
 
     private static async Task<CallToolResult> RenderOutcomeAsync(
-        WorkspaceContext ctx, WorkItem item, StateTransitionOutcome outcome, bool verbose, CancellationToken ct)
+        ConnectionScope ctx, WorkItem item, StateTransitionOutcome outcome, bool verbose, CancellationToken ct)
     {
         switch (outcome)
         {
@@ -171,7 +177,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var resolution = await HtmlFieldFormatter.ResolveAsync(field, value, format, ctx.FieldDefinitionStore, onMissingFieldDef: null, ct);
+        var resolution = await HtmlFieldFormatter.ResolveAsync(field, value, format, ctx.Get<IFieldDefinitionStore>(), onMissingFieldDef: null, ct);
         var effectiveValue = resolution.EffectiveValue;
 
         var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
@@ -187,12 +193,12 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             }
 
             var change = new FieldChange(field, null, effectiveValue);
-            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
+            var seedProvider = new SeedMutationProvider(ctx.Get<IWorkItemRepository>());
             var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
             if (!seedResult.IsSuccess)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.ErrorMessage!, ctx, ct);
 
-            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+            try { await ctx.Get<IPromptStateWriter>().WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
             return await EnvelopeBuilder.WrapAsync(ctx,
@@ -203,8 +209,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         FieldUpdateOutcome outcome;
         try
         {
-            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            outcome = await ctx.FieldUpdateWorkflow.ExecuteAsync(
+            remote = await ctx.Get<IAdoWorkItemService>().FetchAsync(item.Id, ct);
+            outcome = await ctx.Get<FieldUpdateWorkflow>().ExecuteAsync(
                 item, remote, field, effectiveValue, resolution.IsHtml, append, ct);
         }
         catch (AdoException ex)
@@ -266,7 +272,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>(fieldMap.Count);
         foreach (var (key, value) in fieldMap)
         {
-            var fieldResolution = await HtmlFieldFormatter.ResolveAsync(key, value, format, ctx.FieldDefinitionStore, onMissingFieldDef: null, ct);
+            var fieldResolution = await HtmlFieldFormatter.ResolveAsync(key, value, format, ctx.Get<IFieldDefinitionStore>(), onMissingFieldDef: null, ct);
             changes.Add(new FieldChange(key, null, fieldResolution.EffectiveValue));
             fieldChanges[key] = (null, fieldResolution.EffectiveValue);
         }
@@ -274,7 +280,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         // Seed path: workflow handles seed routing.
         if (item.IsSeed)
         {
-            var seedOutcome = await ctx.PatchWorkflow.ExecuteAsync(item, changes, remote: null, ct);
+            var seedOutcome = await ctx.Get<PatchWorkflow>().ExecuteAsync(item, changes, remote: null, ct);
             return seedOutcome switch
             {
                 PatchOutcome.SeedPatched =>
@@ -289,14 +295,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         WorkItem remote;
         try
         {
-            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
+            remote = await ctx.Get<IAdoWorkItemService>().FetchAsync(item.Id, ct);
         }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
-        var outcome = await ctx.PatchWorkflow.ExecuteAsync(item, changes, remote, ct);
+        var outcome = await ctx.Get<PatchWorkflow>().ExecuteAsync(item, changes, remote, ct);
         return outcome switch
         {
             PatchOutcome.Patched p =>
@@ -332,7 +338,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         var commentResolution = HtmlFieldFormatter.ResolveComment(text, format);
 
-        var outcome = await ctx.NoteWorkflow.ExecuteAsync(item, commentResolution.EffectiveValue, commentResolution.IsHtml, ct);
+        var outcome = await ctx.Get<NoteWorkflow>().ExecuteAsync(item, commentResolution.EffectiveValue, commentResolution.IsHtml, ct);
 
         bool isPending = outcome switch
         {
@@ -359,7 +365,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Resolve item from cache or ADO (for seed guard + early not-found error)
-        var (item, fetchError) = await ctx.FetchWithFallbackAsync(id, ct);
+        var (item, fetchError) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(id, ct);
         if (item is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchError ?? $"Work item #{id} not found.", ctx, ct);
 
@@ -368,7 +374,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"#{id} is a seed. Use 'twig seed discard {id}' instead.", ctx, ct);
 
         // Workflow: fresh fetch + link guard
-        var preparation = await ctx.DeleteWorkflow.PrepareAsync(id, ct);
+        var preparation = await ctx.Get<DeleteWorkflow>().PrepareAsync(id, ct);
         WorkItem freshItem;
         switch (preparation)
         {
@@ -391,7 +397,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             return await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDeleteConfirmation(freshItem), verbose, ct);
 
         // Phase 2: Workflow execution (audit + delete + cache cleanup + prompt-state)
-        var outcome = await ctx.DeleteWorkflow.ExecuteAsync(freshItem, ct);
+        var outcome = await ctx.Get<DeleteWorkflow>().ExecuteAsync(freshItem, ct);
         return outcome switch
         {
             DeleteOutcome.AdoFailed f =>
@@ -418,24 +424,24 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         else
         {
-            var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+            var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
             if (activeId is null)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
             itemId = activeId.Value;
         }
 
         // Resolve item: cache-first, ADO fallback
-        var item = await ctx.WorkItemRepo.GetByIdAsync(itemId, ct);
+        var item = await ctx.Get<IWorkItemRepository>().GetByIdAsync(itemId, ct);
         if (item is null)
         {
-            try { item = await ctx.AdoService.FetchAsync(itemId, ct); }
+            try { item = await ctx.Get<IAdoWorkItemService>().FetchAsync(itemId, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{itemId} could not be resolved: {ex.Message}", ctx, ct);
             }
         }
 
-        var outcome = await ctx.DiscardWorkflow.ExecuteAsync(item, ct);
+        var outcome = await ctx.Get<DiscardWorkflow>().ExecuteAsync(item, ct);
 
         return outcome switch
         {
@@ -462,11 +468,11 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         McpFlushSummary? flushSummary = null;
         if (!pull_only)
         {
-            flushSummary = await ctx.Flusher.FlushAllAsync(ct);
+            flushSummary = await ctx.Get<McpPendingChangeFlusher>().FlushAllAsync(ct);
         }
 
         // Phase 2 — Pull: sync active item context from ADO
-        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        var resolved = await ctx.Get<ActiveItemResolver>().GetActiveItemAsync(ct);
         if (resolved is Found or FetchedFromAdo)
         {
             var item = resolved switch
@@ -480,22 +486,22 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
             if (item.ParentId.HasValue)
             {
-                var chain = await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+                var chain = await ctx.Get<IWorkItemRepository>().GetParentChainAsync(item.ParentId.Value, ct);
                 idsToSync.AddRange(chain.Select(p => p.Id));
             }
 
-            var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
+            var children = await ctx.Get<IWorkItemRepository>().GetChildrenAsync(item.Id, ct);
             idsToSync.AddRange(children.Select(c => c.Id));
 
             try
             {
-                await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
+                await ctx.Get<SyncCoordinatorFactory>().ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
             }
             catch (OperationCanceledException) { throw; }
             catch { /* best-effort */ }
         }
 
-        await ctx.PromptStateWriter.WritePromptStateAsync();
+        await ctx.Get<IPromptStateWriter>().WritePromptStateAsync();
 
         return await EnvelopeBuilder.WrapAsync(ctx,
             McpResultBuilder.FormatSyncSummary(flushSummary, pull_only), verbose, ct);

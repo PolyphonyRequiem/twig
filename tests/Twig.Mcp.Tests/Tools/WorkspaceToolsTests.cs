@@ -10,8 +10,8 @@ namespace Twig.Mcp.Tests.Tools;
 
 public sealed class WorkspaceToolsTests : ReadToolsTestBase
 {
-    private static readonly WorkspaceKey Key1 = new("org1", "project1");
-    private static readonly WorkspaceKey Key2 = new("org2", "project2");
+    private static readonly Connection Key1 = new("org1", "project1");
+    private static readonly Connection Key2 = new("org2", "project2");
 
     // ═══════════════════════════════════════════════════════════════
     //  Empty registry — returns empty list
@@ -20,7 +20,7 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     [Fact]
     public async Task ListWorkspaces_EmptyRegistry_ReturnsEmptyList()
     {
-        var (registry, resolver) = BuildDeps(Array.Empty<WorkspaceKey>());
+        var (registry, resolver) = BuildDeps(Array.Empty<Connection>());
         var sut = new WorkspaceTools(registry, resolver);
 
         var result = await sut.ListWorkspaces();
@@ -103,15 +103,15 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private static (IWorkspaceRegistry registry, WorkspaceResolver resolver) BuildDeps(
-        IReadOnlyList<WorkspaceKey> keys)
+    private static (IConnectionRegistry registry, ConnectionResolver resolver) BuildDeps(
+        IReadOnlyList<Connection> keys)
     {
-        var registry = Substitute.For<IWorkspaceRegistry>();
+        var registry = Substitute.For<IConnectionRegistry>();
         registry.Workspaces.Returns(keys);
         registry.IsSingleWorkspace.Returns(keys.Count == 1);
 
-        var factory = Substitute.For<IWorkspaceContextFactory>();
-        var resolver = new WorkspaceResolver(registry, factory);
+        var factory = Substitute.For<IConnectionScopeFactory>();
+        var resolver = new ConnectionResolver(registry, factory);
 
         return (registry, resolver);
     }

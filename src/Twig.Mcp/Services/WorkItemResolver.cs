@@ -1,3 +1,12 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using ModelContextProtocol.Protocol;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services.Navigation;
@@ -23,17 +32,17 @@ internal static class WorkItemResolver
     /// When <c>Error</c> is non-null, <c>Item</c> is null and the caller should return the error immediately.
     /// </returns>
     public static async Task<(WorkItem? Item, CallToolResult? Error)> ResolveWorkItemAsync(
-        WorkspaceContext ctx, int? id, CancellationToken ct)
+        ConnectionScope ctx, int? id, CancellationToken ct)
     {
         if (id.HasValue)
         {
-            var (item, error) = await ctx.FetchWithFallbackAsync(id.Value, ct);
+            var (item, error) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(id.Value, ct);
             if (item is null)
                 return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, error ?? $"Work item #{id.Value} not found.", ctx, ct));
             return (item, null);
         }
 
-        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        var resolved = await ctx.Get<ActiveItemResolver>().GetActiveItemAsync(ct);
         if (resolved is ActiveNoContext)
             return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct));
         if (resolved is ActiveUnreachable u)

@@ -11,7 +11,7 @@ namespace Twig.Mcp.Tools;
 /// MCP tools for workspace management: twig_list_workspaces.
 /// </summary>
 [McpServerToolType]
-public sealed class WorkspaceTools(IWorkspaceRegistry registry, WorkspaceResolver resolver)
+public sealed class WorkspaceTools(IConnectionRegistry registry, ConnectionResolver resolver)
 {
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 

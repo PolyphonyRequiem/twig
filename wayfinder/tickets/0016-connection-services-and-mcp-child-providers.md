@@ -2,7 +2,7 @@
 id: 0016
 title: AddConnectionServices and MCP child providers
 type: task
-status: open
+status: resolved
 blocked_by: [0004]
 ---
 
@@ -144,4 +144,57 @@ can see both sides at once. Do not file it separately; it resolves when the seam
 
 ## Answer
 
-<!-- empty until resolved -->
+**Done.** The seam moved: the surface-neutral registrations now live in the shared Infrastructure
+module, MCP builds one `ServiceProvider` per `Connection` from that same module, and both mirror
+classes are deleted.
+
+### What shipped
+
+- **`AddConnectionDomainServices`** (new, in `TwigServiceRegistration`) holds the surface-neutral
+  block; `AddConnectionServices` calls it. It is exposed separately so a caller that already owns
+  persistence and network registrations — a test fixture over substitutes — composes the same list
+  instead of re-listing it. `AddTwigCoreServices` renamed to **`AddConnectionServices`** per 0004.
+- **`ConnectionScope`** replaces `WorkspaceContext`: it owns one provider per Connection and
+  exposes `Get<T>()`, `Connection`, `Config`, `Paths`. `WorkspaceKey` is now **`Connection`**.
+- **`ConnectionScopeFactory`** replaces `WorkspaceContextFactory`, building **sibling
+  `ServiceCollection`s** — never `CreateScope` — with `HttpClient`, `IAuthenticationProvider` and
+  `AdoConcurrencyThrottle` injected as shared instances. The `ConcurrentDictionary<_, Lazy<_>>`
+  caching shape and the disposal chain are preserved; a `ServiceProvider` disposes its own
+  singletons, so `SqliteCacheStore` disposal comes for free.
+- **Deleted:** `WorkspaceContext` (209 lines, 33 ctor params) and `WorkspaceContextFactory`
+  (283 lines). 171 `ctx.X` call sites across 13 files now resolve from the provider.
+- `WorkspaceContext.FetchWithFallbackAsync` / `FetchChildrenWithFallbackAsync` moved to a new
+  `WorkItemFetcher` in Domain — behaviour unchanged, but now resolvable by any surface.
+
+### Corrections to this ticket's own scope
+
+- **`IPendingChangeFlusher` does NOT move.** The ticket lists it among the 17, but it takes
+  `IConsoleInput` and an output-format string, and its own doc comment says the interface "has
+  CLI-specific parameters". By the ticket's stated membership test — *does it name a surface?* —
+  it stays in the CLI. MCP already has its own headless `McpPendingChangeFlusher`.
+- **`SprintIterationResolver` also moved.** Not on the ticket's list, but it is surface-neutral
+  and MCP resolves it; leaving it in `AddConnectionServices` alone broke the MCP tool path.
+- **The DD-12 blocker was confirmed false and deleted.** `IAdoWorkItemService` is registered in
+  `NetworkServiceModule.cs`, in Infrastructure — not "with CLI-layer factory logic".
+- **The `SeedMutationProvider` double registration is gone**, as predicted, without a separate fix.
+
+### Verification
+
+- Canonical suite (`AGENTS.md`, serial, `-m:1`, exit codes captured): **7,437 passing, exit 0 ×4**
+  — Cli 2924 / Infra 1375 / Mcp 1313 / Domain 1825. Identical before and after, which is the
+  correct result for a behaviour-neutral move. **The ticket's 7,389 figure was stale.**
+- **The regression guard fails on unfixed code.** `ConnectionScopeCompletenessTests` binds to the
+  real `AddConnectionDomainServices` call. Two independent mutations, each restored after:
+  removing the `SeedPublishOrchestrator` registration → `Failed: 2`; removing
+  `SprintIterationResolver` → `Failed: 1`; unmutated → 22/22 pass.
+- A `Test Run Aborted` trap surfaced during this work: the default 300s vstest session timeout
+  truncated `Twig.Cli.Tests` at 1,228 tests while still printing `Passed! Failed: 0`. The suite
+  script now raises `TestSessionTimeout` and treats any abort marker as an invalid run.
+
+### Why this mattered
+
+Wiring `IPublishIntentRepository` for 0015 needed four separate edits — `CommandServiceModule`,
+`WorkspaceContext`, `WorkspaceContextFactory`, `SeedTools` — with a green build proving none of
+them, because DI failures are runtime-only. That was the third occurrence after #269 and #270.
+The mirror had no compiler forcing its two copies to agree; a provider has no argument list to
+drift, so that defect class is now unexpressible.

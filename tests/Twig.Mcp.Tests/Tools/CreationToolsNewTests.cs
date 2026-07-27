@@ -78,9 +78,9 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         json.GetProperty("id").GetInt32().ShouldBe(300);
         json.GetProperty("title").GetString().ShouldBe("Standalone Bug");
         json.GetProperty("type").GetString().ShouldBe("Bug");
-        json.GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        json.GetProperty("workspace").GetString().ShouldBe(TestConnection.ToString());
         json.GetProperty("url").GetString()
-            .ShouldBe($"https://dev.azure.com/{TestWorkspaceKey.Org}/{TestWorkspaceKey.Project}/_workitems/edit/300");
+            .ShouldBe($"https://dev.azure.com/{TestConnection.Org}/{TestConnection.Project}/_workitems/edit/300");
     }
 
     // ═══════════════════════════════════════════════════════════════

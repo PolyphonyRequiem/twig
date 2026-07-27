@@ -4,12 +4,12 @@ using Twig.Infrastructure.Config;
 namespace Twig.Mcp.Services;
 
 /// <summary>
-/// Read-only view of discovered workspaces. Extracted for testability of <see cref="WorkspaceResolver"/>.
+/// Read-only view of discovered workspaces. Extracted for testability of <see cref="ConnectionResolver"/>.
 /// </summary>
-public interface IWorkspaceRegistry
+public interface IConnectionRegistry
 {
     /// <summary>All discovered workspace keys.</summary>
-    IReadOnlyList<WorkspaceKey> Workspaces { get; }
+    IReadOnlyList<Connection> Workspaces { get; }
 
     /// <summary>True when exactly one workspace is registered — enables backward-compat fast-path.</summary>
     bool IsSingleWorkspace { get; }
@@ -19,16 +19,16 @@ public interface IWorkspaceRegistry
 /// Discovers available workspaces from split config or legacy per-workspace configs on disk.
 /// Immutable after construction — scanned once at startup (DD-5).
 /// </summary>
-public sealed class WorkspaceRegistry : IWorkspaceRegistry
+public sealed class ConnectionRegistry : IConnectionRegistry
 {
-    private readonly ReadOnlyDictionary<WorkspaceKey, TwigConfiguration> _workspaces;
+    private readonly ReadOnlyDictionary<Connection, TwigConfiguration> _workspaces;
     private readonly string _twigRoot;
     private readonly string? _launchCwd;
 
     /// <summary>
     /// All discovered workspace keys.
     /// </summary>
-    public IReadOnlyList<WorkspaceKey> Workspaces { get; }
+    public IReadOnlyList<Connection> Workspaces { get; }
 
     /// <summary>
     /// True when exactly one workspace is registered — enables backward-compat fast-path.
@@ -43,7 +43,7 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
     /// distinguishes "no workspaces discovered at all" (likely a launch-cwd problem)
     /// from "workspace not in the discovered set" so operators can self-diagnose.
     /// </exception>
-    public TwigConfiguration GetConfig(WorkspaceKey key)
+    public TwigConfiguration GetConfig(Connection key)
     {
         if (_workspaces.TryGetValue(key, out var config))
             return config;
@@ -86,11 +86,11 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
     /// Optional context: the directory the MCP server was launched from, used to produce a
     /// self-diagnosing error when no <c>.twig/</c> directory was discovered.
     /// </param>
-    public WorkspaceRegistry(string twigRoot, string? launchCwd = null)
+    public ConnectionRegistry(string twigRoot, string? launchCwd = null)
     {
         _twigRoot = twigRoot;
         _launchCwd = launchCwd;
-        var discovered = new Dictionary<WorkspaceKey, TwigConfiguration>();
+        var discovered = new Dictionary<Connection, TwigConfiguration>();
 
         // Current split layout: twig.json + optional .twig/config.
         TryRegisterSplit(twigRoot, discovered);
@@ -114,13 +114,13 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
             }
         }
 
-        _workspaces = new ReadOnlyDictionary<WorkspaceKey, TwigConfiguration>(discovered);
+        _workspaces = new ReadOnlyDictionary<Connection, TwigConfiguration>(discovered);
         Workspaces = discovered.Keys.ToList().AsReadOnly();
     }
 
     private static void TryRegisterSplit(
         string twigRoot,
-        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+        Dictionary<Connection, TwigConfiguration> discovered)
     {
         var paths = new TwigPaths(
             twigRoot,
@@ -144,7 +144,7 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
 
     private static void TryRegisterLegacy(
         string directory,
-        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+        Dictionary<Connection, TwigConfiguration> discovered)
     {
         var configPath = Path.Combine(directory, "config");
         if (!File.Exists(configPath))
@@ -166,12 +166,12 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
 
     private static void TryAddConfig(
         TwigConfiguration config,
-        Dictionary<WorkspaceKey, TwigConfiguration> discovered)
+        Dictionary<Connection, TwigConfiguration> discovered)
     {
         if (string.IsNullOrWhiteSpace(config.Organization) || string.IsNullOrWhiteSpace(config.Project))
             return;
 
-        var key = new WorkspaceKey(config.Organization, config.Project);
+        var key = new Connection(config.Organization, config.Project);
 
         // First registration wins — don't overwrite if duplicate
         discovered.TryAdd(key, config);

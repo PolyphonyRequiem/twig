@@ -221,15 +221,15 @@ public sealed class McpRegistrationCompletenessTests
             var twigRoot = Path.Combine(tempDir, ".twig");
             Directory.CreateDirectory(twigRoot);
 
-            var registry = new WorkspaceRegistry(twigRoot);
+            var registry = new ConnectionRegistry(twigRoot);
             var authProvider = NSubstitute.Substitute.For<Twig.Domain.Interfaces.IAuthenticationProvider>();
             using var httpClient = new HttpClient();
-            var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot);
-            var resolver = new WorkspaceResolver(registry, factory);
+            var factory = new ConnectionScopeFactory(registry, httpClient, authProvider, twigRoot);
+            var resolver = new ConnectionResolver(registry, factory);
 
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton<IWorkspaceRegistry>(registry);
+            services.AddSingleton<IConnectionRegistry>(registry);
             services.AddSingleton(resolver);
             services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
             services.AddSingleton<Twig.Mcp.Services.Batch.IToolDispatcher, Twig.Mcp.Services.Batch.ToolDispatcher>();

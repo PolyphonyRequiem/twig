@@ -210,55 +210,31 @@ public sealed class McpHintProviderTests
 
     // ── Helpers ─────────────────────────────────────────────────────
 
-    private WorkspaceContext BuildContext()
+    private ConnectionScope BuildContext()
     {
-        var key = new WorkspaceKey("org", "proj");
+        var key = new Connection("org", "proj");
         var config = new TwigConfiguration
         {
             Display = new DisplayConfig { CacheStaleMinutes = 5 },
         };
         var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
-        var cacheStore = new SqliteCacheStore("Data Source=:memory:");
-        var adoService = Substitute.For<IAdoWorkItemService>();
-        var iterationService = Substitute.For<IIterationService>();
-        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
-        var promptStateWriter = Substitute.For<IPromptStateWriter>();
-        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
-        var processTypeStore = Substitute.For<IProcessTypeStore>();
-        var fieldDefStore = Substitute.For<IFieldDefinitionStore>();
-
-        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
-        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncFactory = new SyncCoordinatorFactory(
-            _workItemRepo, adoService, protectedWriter, _pendingChangeStore,
-            linkRepo,
-            readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
-            readWriteStaleMinutes: config.Display.CacheStaleMinutes);
-        var contextChange = new ContextChangeService(
-            _workItemRepo, adoService, syncFactory.ReadWrite, protectedWriter, linkRepo);
-        var workingSet = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, iterationService,
-            config.User.DisplayName);
-        var flusher = new McpPendingChangeFlusher(_workItemRepo, adoService, _pendingChangeStore);
-        var parentPropagation = new ParentStatePropagationService(
-            _workItemRepo, adoService, processConfigProvider, protectedWriter);
-        var sprintIterationResolver = new SprintIterationResolver(iterationService, _workItemRepo);
-
-        return new WorkspaceContext(
-            key, config, paths, cacheStore,
-            _workItemRepo, linkRepo, _contextStore, _pendingChangeStore,
-            adoService, iterationService, processConfigProvider,
-            activeItemResolver, syncFactory, contextChange,
-            workingSet, flusher, promptStateWriter, parentPropagation,
-            stateTransitionWorkflow: null!,
-            fieldUpdateWorkflow: null!,
-            noteWorkflow: null!,
-            discardWorkflow: null!,
-            deleteWorkflow: null!,
-            patchWorkflow: null!,
-            sprintIterationResolver,
-            processTypeStore, fieldDefStore,
-            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<IPublishIntentRepository>(), Substitute.For<IStagedIdentityRegistry>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
+        return TestConnectionScope.Build(
+            key,
+            config,
+            _contextStore,
+            _workItemRepo,
+            Substitute.For<IAdoWorkItemService>(),
+            _pendingChangeStore,
+            Substitute.For<IWorkItemLinkRepository>(),
+            Substitute.For<IIterationService>(),
+            Substitute.For<IProcessConfigurationProvider>(),
+            Substitute.For<IPromptStateWriter>(),
+            Substitute.For<IProcessTypeStore>(),
+            Substitute.For<IFieldDefinitionStore>(),
+            Substitute.For<ISeedLinkRepository>(),
+            Substitute.For<IPublishIdMapRepository>(),
+            Substitute.For<ISeedPublishRulesProvider>(),
+            Substitute.For<IUnitOfWork>());
     }
 
     private static JsonElement ParseJson(CallToolResult result)

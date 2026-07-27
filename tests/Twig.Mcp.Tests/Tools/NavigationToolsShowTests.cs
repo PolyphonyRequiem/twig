@@ -118,7 +118,7 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
         var json = ParseResult(result);
         json.GetProperty("areaPath").GetString().ShouldBe("Twig\\Core");
         json.GetProperty("iterationPath").GetString().ShouldBe("Twig\\Sprint 1");
-        json.GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        json.GetProperty("workspace").GetString().ShouldBe(TestConnection.ToString());
     }
 
     // ═══════════════════════════════════════════════════════════════

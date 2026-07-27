@@ -18,8 +18,8 @@ namespace Twig.Mcp.Tests.Tools;
 /// </summary>
 public sealed class MultiWorkspaceSetTests : ReadToolsTestBase
 {
-    private static readonly WorkspaceKey WsAlpha = new("orgA", "projectA");
-    private static readonly WorkspaceKey WsBeta = new("orgB", "projectB");
+    private static readonly Connection WsAlpha = new("orgA", "projectA");
+    private static readonly Connection WsBeta = new("orgB", "projectB");
 
     // ═══════════════════════════════════════════════════════════════
     //  Cross-workspace: item found in workspace A cache

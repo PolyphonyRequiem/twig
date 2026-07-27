@@ -1,3 +1,10 @@
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 ﻿using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -15,10 +22,10 @@ namespace Twig.Mcp.Tools;
 /// MCP tools for seed lifecycle: twig_seed_new, twig_seed_view, twig_seed_publish, twig_seed_validate,
 /// twig_seed_discard, twig_seed_chain, twig_seed_reconcile, twig_seed_edit, twig_seed_link.
 /// Seeds are local-only draft work items with negative IDs.
-/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Resolves per-workspace services via <see cref="ConnectionResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactory)
+public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFactory)
 {
     [McpServerTool(Name = "twig_seed_new"), Description("Create a new local seed work item (no ADO interaction). Seeds are draft items with negative IDs that can be published later.")]
     public async Task<CallToolResult> SeedNew(
@@ -44,7 +51,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         // Wayfinder 0014: no counter to initialize — identity is minted per seed below.
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+        var processConfig = ctx.Get<IProcessConfigurationProvider>().GetConfiguration();
 
         WorkItemType? typeOverride = null;
         if (type is not null)
@@ -60,12 +67,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (parentId.HasValue)
         {
             // Fetch the parent for type inference and path inheritance
-            var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId.Value, ct);
+            var (parent, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(parentId.Value, ct);
             if (fetchErr is not null)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
             seedResult = seedFactory.Create(
-                title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), typeOverride, assignedTo);
+                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, assignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
@@ -86,7 +93,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
             seedResult = seedFactory.CreateUnparented(
                 title, typeOverride.Value, areaPath, iterationPath,
-                await ctx.StagedIdentityRegistry.MintAsync(ct), assignedTo);
+                await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), assignedTo);
             if (!seedResult.IsSuccess)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.Error, ctx, ct);
         }
@@ -100,13 +107,13 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         }
 
         // Persist locally — no ADO interaction
-        await ctx.WorkItemRepo.SaveAsync(seed, ct);
+        await ctx.Get<IWorkItemRepository>().SaveAsync(seed, ct);
 
         // An explicit parentId is recorded in BOTH stores so validate can tell a chosen
         // parent from an inferred one (twig#260). Mirrors CLI `seed new --parent`.
         if (seed.ParentId.HasValue)
         {
-            await ctx.SeedLinkRepo.AddLinkAsync(
+            await ctx.Get<ISeedLinkRepository>().AddLinkAsync(
                 new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
         }
 
@@ -137,7 +144,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
+        var seeds = await ctx.Get<IWorkItemRepository>().GetSeedsAsync(ct);
 
         // Group seeds by parentId
         var groups = seeds
@@ -205,20 +212,20 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Construct the publish orchestrator from per-workspace services
-        var backlogOrderer = new BacklogOrderer(ctx.AdoService, ctx.FieldDefinitionStore);
+        var backlogOrderer = new BacklogOrderer(ctx.Get<IAdoWorkItemService>(), ctx.Get<IFieldDefinitionStore>());
         var orchestrator = new SeedPublishOrchestrator(
-            ctx.WorkItemRepo,
-            ctx.AdoService,
-            ctx.SeedLinkRepo,
-            ctx.WorkItemLinkRepo,
-            ctx.PublishIdMapRepo,
-            ctx.SeedPublishRulesProvider,
-            ctx.UnitOfWork,
+            ctx.Get<IWorkItemRepository>(),
+            ctx.Get<IAdoWorkItemService>(),
+            ctx.Get<ISeedLinkRepository>(),
+            ctx.Get<IWorkItemLinkRepository>(),
+            ctx.Get<IPublishIdMapRepository>(),
+            ctx.Get<ISeedPublishRulesProvider>(),
+            ctx.Get<IUnitOfWork>(),
             backlogOrderer,
-            ctx.PendingChangeStore,
-            ctx.PublishIntentRepo);
+            ctx.Get<IPendingChangeStore>(),
+            ctx.Get<IPublishIntentRepository>());
 
-        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
 
         if (all)
             return await PublishAllAsync(ctx, orchestrator, activeId, force, dryRun, verbose, ct);
@@ -227,7 +234,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     }
 
     private static async Task<CallToolResult> PublishSingleAsync(
-        WorkspaceContext ctx,
+        ConnectionScope ctx,
         SeedPublishOrchestrator orchestrator,
         int? activeId,
         int seedId,
@@ -249,7 +256,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         // Update active context if the published seed was the active item
         if (result.Status == SeedPublishStatus.Created && activeId == seedId && result.NewId > 0 && !dryRun)
-            await ctx.ContextStore.SetActiveWorkItemIdAsync(result.NewId, ct);
+            await ctx.Get<IContextStore>().SetActiveWorkItemIdAsync(result.NewId, ct);
 
         if (!result.IsSuccess)
         {
@@ -268,7 +275,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     }
 
     private static async Task<CallToolResult> PublishAllAsync(
-        WorkspaceContext ctx,
+        ConnectionScope ctx,
         SeedPublishOrchestrator orchestrator,
         int? activeId,
         bool force,
@@ -293,7 +300,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             var published = batchResult.Results
                 .FirstOrDefault(r => r.OldId == activeId.Value && r.Status == SeedPublishStatus.Created);
             if (published is not null && published.NewId > 0)
-                await ctx.ContextStore.SetActiveWorkItemIdAsync(published.NewId, ct);
+                await ctx.Get<IContextStore>().SetActiveWorkItemIdAsync(published.NewId, ct);
         }
 
         if (batchResult.HasErrors)
@@ -390,12 +397,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var rules = await ctx.SeedPublishRulesProvider.GetRulesAsync(ct);
+        var rules = await ctx.Get<ISeedPublishRulesProvider>().GetRulesAsync(ct);
 
         if (all)
         {
-            var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
-            var allLinks = await ctx.SeedLinkRepo.GetAllSeedLinksAsync(ct);
+            var seeds = await ctx.Get<IWorkItemRepository>().GetSeedsAsync(ct);
+            var allLinks = await ctx.Get<ISeedLinkRepository>().GetAllSeedLinksAsync(ct);
             var results = seeds.Select(s => SeedValidator.Validate(s, rules, allLinks)).ToList();
             var passCount = results.Count(r => r.Passed);
             var failCount = results.Count - passCount;
@@ -418,12 +425,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         }
 
         // Single seed validation
-        var seed = await ctx.WorkItemRepo.GetByIdAsync(id!.Value, ct);
+        var seed = await ctx.Get<IWorkItemRepository>().GetByIdAsync(id!.Value, ct);
         if (seed is null || !seed.IsSeed)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
                 $"Seed {id.Value} not found.", ctx, ct);
 
-        var seedLinks = await ctx.SeedLinkRepo.GetLinksForItemAsync(id.Value, ct);
+        var seedLinks = await ctx.Get<ISeedLinkRepository>().GetLinksForItemAsync(id.Value, ct);
         var result = SeedValidator.Validate(seed, rules, seedLinks);
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
@@ -445,7 +452,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var orchestrator = new SeedDiscardOrchestrator(ctx.WorkItemRepo, ctx.SeedLinkRepo, ctx.ContextStore, ctx.PendingChangeStore);
+        var orchestrator = new SeedDiscardOrchestrator(ctx.Get<IWorkItemRepository>(), ctx.Get<ISeedLinkRepository>(), ctx.Get<IContextStore>(), ctx.Get<IPendingChangeStore>());
         var plan = await orchestrator.BuildDiscardPlanAsync(id, ct);
 
         if (plan is null)
@@ -489,7 +496,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         // Wayfinder 0014: no counter to initialize — identity is minted per seed below.
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+        var processConfig = ctx.Get<IProcessConfigurationProvider>().GetConfiguration();
 
         WorkItemType? typeOverride = null;
         if (type is not null)
@@ -501,7 +508,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         }
 
         // Fetch the parent for type inference and path inheritance
-        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
+        var (parent, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(parentId, ct);
         if (fetchErr is not null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
@@ -510,7 +517,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         foreach (var title in titles)
         {
             var seedResult = seedFactory.Create(
-                title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), typeOverride, assignedTo);
+                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, assignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
@@ -520,12 +527,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             }
 
             var seed = seedResult.Value;
-            await ctx.WorkItemRepo.SaveAsync(seed, ct);
+            await ctx.Get<IWorkItemRepository>().SaveAsync(seed, ct);
 
             // Explicit parentId — record in both stores (twig#260).
             if (seed.ParentId.HasValue)
             {
-                await ctx.SeedLinkRepo.AddLinkAsync(
+                await ctx.Get<ISeedLinkRepository>().AddLinkAsync(
                     new SeedLink(seed.Id, seed.ParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
             }
 
@@ -560,7 +567,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var orchestrator = new SeedReconcileOrchestrator(ctx.SeedLinkRepo, ctx.WorkItemRepo, ctx.PublishIdMapRepo);
+        var orchestrator = new SeedReconcileOrchestrator(ctx.Get<ISeedLinkRepository>(), ctx.Get<IWorkItemRepository>(), ctx.Get<IPublishIdMapRepository>());
         var result = await orchestrator.ReconcileAsync(ct);
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
@@ -605,7 +612,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var seed = await ctx.WorkItemRepo.GetByIdAsync(id, ct);
+        var seed = await ctx.Get<IWorkItemRepository>().GetByIdAsync(id, ct);
         if (seed is null || !seed.IsSeed)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
                 $"Seed {id} not found.", ctx, ct);
@@ -675,14 +682,14 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (parentId.HasValue && newParentId != seed.ParentId)
             updated = updated.WithParentId(newParentId);
 
-        await ctx.WorkItemRepo.SaveAsync(updated, ct);
+        await ctx.Get<IWorkItemRepository>().SaveAsync(updated, ct);
 
         // Setting a parent through seed edit is an explicit choice, so it must reconcile
         // both stores (twig#260) — and drop stale rows so the resolver never sees an
         // ambiguous multi-parent state (same invariant as the reparent path, twig#259).
         if (parentId.HasValue && newParentId != seed.ParentId)
         {
-            var staleParentLinks = (await ctx.SeedLinkRepo.GetLinksForItemAsync(id, ct))
+            var staleParentLinks = (await ctx.Get<ISeedLinkRepository>().GetLinksForItemAsync(id, ct))
                 .Where(link =>
                     link.LinkType == SeedLinkTypes.ParentChild &&
                     link.SourceId == id &&
@@ -691,12 +698,12 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
             if (newParentId.HasValue)
             {
-                await ctx.SeedLinkRepo.AddLinkAsync(
+                await ctx.Get<ISeedLinkRepository>().AddLinkAsync(
                     new SeedLink(id, newParentId.Value, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow), ct);
             }
 
             foreach (var stale in staleParentLinks)
-                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
+                await ctx.Get<ISeedLinkRepository>().RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
         }
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
@@ -753,7 +760,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                     $"Seed #{sourceId} cannot be its own parent.", ctx, ct);
 
-            var childSeed = await ctx.WorkItemRepo.GetByIdAsync(sourceId, ct);
+            var childSeed = await ctx.Get<IWorkItemRepository>().GetByIdAsync(sourceId, ct);
             if (childSeed is null || !childSeed.IsSeed)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
                     $"Seed #{sourceId} not found.", ctx, ct);
@@ -761,7 +768,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             // Reparenting is allowed — see SeedLinkCommand.LinkAsync (twig#254). Both stores
             // move to the new target; stale parent-child rows are removed so the seed never
             // reaches SeedParentResolver in an ambiguous multi-parent state.
-            var staleParentLinks = (await ctx.SeedLinkRepo.GetLinksForItemAsync(sourceId, ct))
+            var staleParentLinks = (await ctx.Get<ISeedLinkRepository>().GetLinksForItemAsync(sourceId, ct))
                 .Where(link =>
                     link.LinkType == SeedLinkTypes.ParentChild &&
                     link.SourceId == sourceId &&
@@ -785,10 +792,10 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             parentChildLinkAdded = true;
 
             foreach (var stale in staleParentLinks)
-                await ctx.SeedLinkRepo.RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
+                await ctx.Get<ISeedLinkRepository>().RemoveLinkAsync(stale.SourceId, stale.TargetId, stale.LinkType, ct);
 
             if (childSeed.ParentId != targetId)
-                await ctx.WorkItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
+                await ctx.Get<IWorkItemRepository>().SaveAsync(childSeed.WithParentId(targetId), ct);
         }
 
         // Cycle detection for directional link types
@@ -798,8 +805,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                     $"Self-referencing links are not allowed (source and target are both #{sourceId}).", ctx, ct);
 
-            var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
-            var existingLinks = await ctx.SeedLinkRepo.GetAllSeedLinksAsync(ct);
+            var seeds = await ctx.Get<IWorkItemRepository>().GetSeedsAsync(ct);
+            var existingLinks = await ctx.Get<ISeedLinkRepository>().GetAllSeedLinksAsync(ct);
             var proposed = new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow);
 
             if (SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed))
@@ -832,7 +839,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     /// can surface the duplicate-link error without duplicating the catch.
     /// </summary>
     private static async Task<bool> TryAddSeedLinkAsync(
-        WorkspaceContext ctx,
+        ConnectionScope ctx,
         int sourceId,
         int targetId,
         string linkType,
@@ -840,7 +847,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     {
         try
         {
-            await ctx.SeedLinkRepo.AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
+            await ctx.Get<ISeedLinkRepository>().AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
             return true;
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)

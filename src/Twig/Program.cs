@@ -47,7 +47,7 @@ var app = ConsoleApp.Create()
         // org/project from config to derive the DB context dir).
         var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), startDir);
         var config = TwigConfiguration.LoadSplit(probePaths);
-        services.AddTwigCoreServices(config, twigDir, startDir);
+        services.AddConnectionServices(config, twigDir, startDir);
 
         // ITEM-138: Migrate legacy flat twig.db → nested context path.
         // LegacyDbMigrator is internal to CLI — must be called here, not in shared registration.

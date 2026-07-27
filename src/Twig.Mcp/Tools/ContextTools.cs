@@ -1,3 +1,11 @@
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -9,10 +17,10 @@ namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for context management: twig_set.
-/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Resolves per-workspace services via <see cref="ConnectionResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class ContextTools(WorkspaceResolver resolver)
+public sealed class ContextTools(ConnectionResolver resolver)
 {
     [McpServerTool(Name = "twig_set"), Description("Set the active work item by ID or title pattern")]
     public async Task<CallToolResult> Set(
@@ -24,7 +32,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(idOrPattern))
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_set requires an ID or title pattern.");
 
-        WorkspaceContext ctx;
+        ConnectionScope ctx;
         Domain.Aggregates.WorkItem item;
 
         if (int.TryParse(idOrPattern, out var id))
@@ -35,7 +43,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
             catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
             { return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, ex.Message); }
 
-            var result = await ctx.ActiveItemResolver.ResolveByIdAsync(id, ct);
+            var result = await ctx.Get<ActiveItemResolver>().ResolveByIdAsync(id, ct);
 
             if (result is ActiveUnreachable u)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct);
@@ -53,7 +61,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
             catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
             { return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, ex.Message); }
 
-            var matches = await ctx.WorkItemRepo.FindByPatternAsync(idOrPattern, ct);
+            var matches = await ctx.Get<IWorkItemRepository>().FindByPatternAsync(idOrPattern, ct);
 
             if (matches.Count == 0)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"No cached items match '{idOrPattern}'.", ctx, ct);
@@ -66,31 +74,31 @@ public sealed class ContextTools(WorkspaceResolver resolver)
             }
 
             item = matches[0];
-            resolver.ActiveWorkspace = ctx.Key;
+            resolver.ActiveWorkspace = ctx.Connection;
         }
 
-        await ctx.ContextStore.SetActiveWorkItemIdAsync(item.Id, ct);
+        await ctx.Get<IContextStore>().SetActiveWorkItemIdAsync(item.Id, ct);
 
         // Extend working set around the target item (parent chain, 2 levels of children, links).
         // Best-effort — extension failures must never fail the tool call.
         try
         {
-            await ctx.ContextChangeService.ExtendWorkingSetAsync(item.Id, ct);
+            await ctx.Get<ContextChangeService>().ExtendWorkingSetAsync(item.Id, ct);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* best-effort */ }
 
-        await ctx.PromptStateWriter.WritePromptStateAsync();
+        await ctx.Get<IPromptStateWriter>().WritePromptStateAsync();
 
         // Compute working set summary for the response (post-extension snapshot)
         var parentChainCount = 0;
         if (item.ParentId.HasValue)
         {
-            var chain = await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+            var chain = await ctx.Get<IWorkItemRepository>().GetParentChainAsync(item.ParentId.Value, ct);
             parentChainCount = chain.Count;
         }
-        var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
-        var toolResult = McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
+        var children = await ctx.Get<IWorkItemRepository>().GetChildrenAsync(item.Id, ct);
+        var toolResult = McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 }

@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Config;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -13,11 +14,11 @@ using Xunit;
 
 namespace Twig.Mcp.Tests.Services;
 
-public sealed class WorkspaceResolverTests
+public sealed class ConnectionResolverTests
 {
-    private static readonly WorkspaceKey KeyA = new("orgA", "proj1");
-    private static readonly WorkspaceKey KeyB = new("orgB", "proj2");
-    private static readonly WorkspaceKey KeyC = new("orgC", "proj3");
+    private static readonly Connection KeyA = new("orgA", "proj1");
+    private static readonly Connection KeyB = new("orgB", "proj2");
+    private static readonly Connection KeyC = new("orgC", "proj3");
 
     // ── Resolve (standard tool calls) ───────────────────────────────
 
@@ -298,7 +299,7 @@ public sealed class WorkspaceResolverTests
         var (resolver, contexts) = CreateResolver(KeyA, KeyB);
 
         // KeyA returns an auth error — should propagate, not be swallowed
-        contexts[KeyA].AdoService.FetchAsync(99, Arg.Any<CancellationToken>())
+        contexts[KeyA].Get<IAdoWorkItemService>().FetchAsync(99, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoAuthenticationException());
 
         await Should.ThrowAsync<AdoAuthenticationException>(
@@ -311,7 +312,7 @@ public sealed class WorkspaceResolverTests
         var (resolver, contexts) = CreateResolver(KeyA, KeyB);
 
         // ADO is unreachable — should propagate, not be misreported as "not found"
-        contexts[KeyA].AdoService.FetchAsync(99, Arg.Any<CancellationToken>())
+        contexts[KeyA].Get<IAdoWorkItemService>().FetchAsync(99, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoOfflineException(new HttpRequestException("DNS failure")));
 
         await Should.ThrowAsync<AdoOfflineException>(
@@ -332,8 +333,8 @@ public sealed class WorkspaceResolverTests
 
         result.ShouldBeSameAs(contexts[KeyA]);
         // ADO should not have been called
-        await contexts[KeyA].AdoService.DidNotReceive().FetchAsync(50, Arg.Any<CancellationToken>());
-        await contexts[KeyB].AdoService.DidNotReceive().FetchAsync(50, Arg.Any<CancellationToken>());
+        await contexts[KeyA].Get<IAdoWorkItemService>().DidNotReceive().FetchAsync(50, Arg.Any<CancellationToken>());
+        await contexts[KeyB].Get<IAdoWorkItemService>().DidNotReceive().FetchAsync(50, Arg.Any<CancellationToken>());
     }
 
     // ── ResolveForSetAsync — three workspaces ───────────────────────
@@ -369,7 +370,7 @@ public sealed class WorkspaceResolverTests
     [Fact]
     public void AmbiguousWorkspaceException_NoWorkItemId_HasCorrectProperties()
     {
-        var workspaces = new List<WorkspaceKey> { KeyA, KeyB };
+        var workspaces = new List<Connection> { KeyA, KeyB };
         var ex = new AmbiguousWorkspaceException(workspaces);
 
         ex.WorkItemId.ShouldBeNull();
@@ -381,7 +382,7 @@ public sealed class WorkspaceResolverTests
     [Fact]
     public void AmbiguousWorkspaceException_WithWorkItemId_HasCorrectProperties()
     {
-        var workspaces = new List<WorkspaceKey> { KeyA, KeyB };
+        var workspaces = new List<Connection> { KeyA, KeyB };
         var ex = new AmbiguousWorkspaceException(42, workspaces);
 
         ex.WorkItemId.ShouldBe(42);
@@ -394,7 +395,7 @@ public sealed class WorkspaceResolverTests
     [Fact]
     public void WorkItemNotFoundException_HasCorrectProperties()
     {
-        var workspaces = new List<WorkspaceKey> { KeyA, KeyB };
+        var workspaces = new List<Connection> { KeyA, KeyB };
         var ex = new WorkItemNotFoundException(999, workspaces);
 
         ex.WorkItemId.ShouldBe(999);
@@ -428,15 +429,15 @@ public sealed class WorkspaceResolverTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static (WorkspaceResolver Resolver, Dictionary<WorkspaceKey, WorkspaceContext> Contexts)
-        CreateResolver(params WorkspaceKey[] keys)
+    private static (ConnectionResolver Resolver, Dictionary<Connection, ConnectionScope> Contexts)
+        CreateResolver(params Connection[] keys)
     {
-        var registry = Substitute.For<IWorkspaceRegistry>();
+        var registry = Substitute.For<IConnectionRegistry>();
         registry.Workspaces.Returns(keys.ToList().AsReadOnly());
         registry.IsSingleWorkspace.Returns(keys.Length == 1);
 
-        var contexts = new Dictionary<WorkspaceKey, WorkspaceContext>();
-        var factoryMock = Substitute.For<IWorkspaceContextFactory>();
+        var contexts = new Dictionary<Connection, ConnectionScope>();
+        var factoryMock = Substitute.For<IConnectionScopeFactory>();
 
         foreach (var key in keys)
         {
@@ -446,78 +447,55 @@ public sealed class WorkspaceResolverTests
         }
 
         // Unknown keys throw KeyNotFoundException
-        factoryMock.When(f => f.GetOrCreate(Arg.Is<WorkspaceKey>(k => !keys.Contains(k))))
+        factoryMock.When(f => f.GetOrCreate(Arg.Is<Connection>(k => !keys.Contains(k))))
             .Do(callInfo => throw new KeyNotFoundException(
-                $"Workspace '{callInfo.Arg<WorkspaceKey>()}' is not registered."));
+                $"Workspace '{callInfo.Arg<Connection>()}' is not registered."));
 
-        var resolver = new WorkspaceResolver(registry, factoryMock);
+        var resolver = new ConnectionResolver(registry, factoryMock);
         return (resolver, contexts);
     }
 
     /// <summary>
-    /// Creates a <see cref="WorkspaceContext"/> with NSubstitute mocks for the services
-    /// the resolver accesses during probing (<see cref="IWorkItemRepository"/>,
-    /// <see cref="IAdoWorkItemService"/>). All other services use <c>null!</c>
-    /// since the resolver never touches them.
+    /// Builds a <see cref="ConnectionScope"/> over substitutes. Only the repository and ADO
+    /// service matter here — the resolver never touches anything else — but the scope is built
+    /// from the real registrations, so it cannot drift from production wiring.
     /// </summary>
-    private static WorkspaceContext CreateStubContext(WorkspaceKey key)
-    {
-        var workItemRepo = Substitute.For<IWorkItemRepository>();
-        var adoService = Substitute.For<IAdoWorkItemService>();
+    private static ConnectionScope CreateStubContext(Connection key)
+        => TestConnectionScope.Build(
+            key,
+            new TwigConfiguration { Display = new DisplayConfig { CacheStaleMinutes = 5 } },
+            Substitute.For<IContextStore>(),
+            Substitute.For<IWorkItemRepository>(),
+            Substitute.For<IAdoWorkItemService>(),
+            Substitute.For<IPendingChangeStore>(),
+            Substitute.For<IWorkItemLinkRepository>(),
+            Substitute.For<IIterationService>(),
+            Substitute.For<IProcessConfigurationProvider>(),
+            Substitute.For<IPromptStateWriter>(),
+            Substitute.For<IProcessTypeStore>(),
+            Substitute.For<IFieldDefinitionStore>(),
+            Substitute.For<ISeedLinkRepository>(),
+            Substitute.For<IPublishIdMapRepository>(),
+            Substitute.For<ISeedPublishRulesProvider>(),
+            Substitute.For<IUnitOfWork>());
 
-        return new WorkspaceContext(
-            key: key,
-            config: null!,
-            paths: null!,
-            cacheStore: null!,
-            workItemRepo: workItemRepo,
-            workItemLinkRepo: Substitute.For<IWorkItemLinkRepository>(),
-            contextStore: null!,
-            pendingChangeStore: null!,
-            adoService: adoService,
-            iterationService: null!,
-            processConfigProvider: null!,
-            activeItemResolver: null!,
-            syncCoordinatorFactory: null!,
-            contextChangeService: null!,
-            workingSetService: null!,
-            flusher: null!,
-            promptStateWriter: null!,
-            parentPropagationService: null!,
-            stateTransitionWorkflow: null!,
-            fieldUpdateWorkflow: null!,
-            noteWorkflow: null!,
-            discardWorkflow: null!,
-            deleteWorkflow: null!,
-            patchWorkflow: null!,
-            sprintIterationResolver: null!,
-            processTypeStore: null!,
-            fieldDefinitionStore: null!,
-            seedLinkRepo: Substitute.For<ISeedLinkRepository>(),
-            publishIdMapRepo: Substitute.For<IPublishIdMapRepository>(),
-            publishIntentRepo: Substitute.For<IPublishIntentRepository>(),
-            stagedIdentityRegistry: Substitute.For<IStagedIdentityRegistry>(),
-            seedPublishRulesProvider: Substitute.For<ISeedPublishRulesProvider>(),
-            unitOfWork: Substitute.For<IUnitOfWork>());
-    }
-
-    private static void SetupCacheHit(WorkspaceContext ctx, int id)
+    private static void SetupCacheHit(ConnectionScope ctx, int id)
     {
         var workItem = WorkItemBuilder.Simple(id, $"Item {id}");
-        ctx.WorkItemRepo.GetByIdAsync(id, Arg.Any<CancellationToken>())
+        ctx.Get<IWorkItemRepository>().GetByIdAsync(id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Domain.Aggregates.WorkItem?>(workItem));
     }
 
-    private static void SetupAdoHit(WorkspaceContext ctx, int id)
+    private static void SetupAdoHit(ConnectionScope ctx, int id)
     {
         var workItem = WorkItemBuilder.Simple(id, $"Item {id}");
-        ctx.AdoService.FetchAsync(id, Arg.Any<CancellationToken>())
+        ctx.Get<IAdoWorkItemService>().FetchAsync(id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(workItem));
     }
 
-    private static void SetupAdoMiss(WorkspaceContext ctx, int id)
+    private static void SetupAdoMiss(ConnectionScope ctx, int id)
     {
-        ctx.AdoService.FetchAsync(id, Arg.Any<CancellationToken>())
+        ctx.Get<IAdoWorkItemService>().FetchAsync(id, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoNotFoundException(id));
     }
 }

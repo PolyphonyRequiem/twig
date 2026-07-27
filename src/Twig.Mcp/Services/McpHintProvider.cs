@@ -1,3 +1,12 @@
+using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Config;
 using ModelContextProtocol.Protocol;
 using Twig.Domain.Interfaces;
 
@@ -14,15 +23,15 @@ internal static class McpHintProvider
     /// Inspects workspace state and returns actionable hints for the caller.
     /// </summary>
     public static async Task<IReadOnlyList<string>> GetHintsAsync(
-        WorkspaceContext ctx, CancellationToken ct)
+        ConnectionScope ctx, CancellationToken ct)
     {
         var hints = new List<string>();
 
         // 1. Pending changes on the active item
-        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
         if (activeId.HasValue)
         {
-            var changes = await ctx.PendingChangeStore.GetChangesAsync(activeId.Value, ct);
+            var changes = await ctx.Get<IPendingChangeStore>().GetChangesAsync(activeId.Value, ct);
             if (changes.Count > 0)
             {
                 var noun = changes.Count == 1 ? "change" : "changes";
@@ -31,7 +40,7 @@ internal static class McpHintProvider
         }
 
         // 2. Dirty items across the workspace
-        var dirtyIds = await ctx.PendingChangeStore.GetDirtyItemIdsAsync(ct);
+        var dirtyIds = await ctx.Get<IPendingChangeStore>().GetDirtyItemIdsAsync(ct);
         // Exclude the active item to avoid duplicate messaging
         var otherDirtyCount = activeId.HasValue
             ? dirtyIds.Count(id => id != activeId.Value)
@@ -43,7 +52,7 @@ internal static class McpHintProvider
         }
 
         // 3. Unpublished seeds
-        var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
+        var seeds = await ctx.Get<IWorkItemRepository>().GetSeedsAsync(ct);
         if (seeds.Count > 0)
         {
             var noun = seeds.Count == 1 ? "seed" : "seeds";
@@ -58,7 +67,7 @@ internal static class McpHintProvider
     /// When verbose is false, returns the result unchanged (no hints array).
     /// </summary>
     public static async Task<CallToolResult> ApplyHintsAsync(
-        CallToolResult result, bool verbose, WorkspaceContext ctx, CancellationToken ct)
+        CallToolResult result, bool verbose, ConnectionScope ctx, CancellationToken ct)
     {
         if (!verbose) return result;
         var hints = await GetHintsAsync(ctx, ct);

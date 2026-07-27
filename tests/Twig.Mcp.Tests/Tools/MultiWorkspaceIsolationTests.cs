@@ -15,8 +15,8 @@ namespace Twig.Mcp.Tests.Tools;
 /// </summary>
 public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
 {
-    private static readonly WorkspaceKey WsAlpha = new("orgA", "projectA");
-    private static readonly WorkspaceKey WsBeta = new("orgB", "projectB");
+    private static readonly Connection WsAlpha = new("orgA", "projectA");
+    private static readonly Connection WsBeta = new("orgB", "projectB");
 
     // ═══════════════════════════════════════════════════════════════
     //  Active context: setting in A does not affect B

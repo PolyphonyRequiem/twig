@@ -43,49 +43,40 @@ public sealed class DiscardCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("discard", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         int exitCode;
         int itemCount = 0;
-        try
+        if (id.HasValue && all)
         {
-            if (id.HasValue && all)
-            {
-                Console.Error.WriteLine(fmt.FormatError("Specify either <id> or --all, not both."));
-                exitCode = 1;
-            }
-            else if (!id.HasValue && !all)
-            {
-                Console.Error.WriteLine(fmt.FormatError("Specify <id> or --all. Run 'twig discard --help' for usage."));
-                exitCode = 1;
-            }
-            else
-            {
-                (exitCode, itemCount) = all
-                    ? await ExecuteAllAsync(fmt, yes, outputFormat, ct)
-                    : await ExecuteSingleAsync(id!.Value, fmt, yes, outputFormat, ct);
-            }
+            Console.Error.WriteLine(fmt.FormatError("Specify either <id> or --all, not both."));
+            exitCode = 1;
+        }
+        else if (!id.HasValue && !all)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Specify <id> or --all. Run 'twig discard --help' for usage."));
+            exitCode = 1;
+        }
+        else
+        {
+            (exitCode, itemCount) = all
+                ? await ExecuteAllAsync(fmt, yes, outputFormat, ct)
+                : await ExecuteSingleAsync(id!.Value, fmt, yes, outputFormat, ct);
+        }
 
-            scope.Complete(exitCode);
-            telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-            {
-                ["command"] = "discard",
-                ["exit_code"] = exitCode.ToString(),
-                ["output_format"] = outputFormat,
-                ["item_count"] = itemCount.ToString(),
-                ["used_all"] = all.ToString(),
-            }, new Dictionary<string, double>
-            {
-                ["duration_ms"] = Stopwatch.GetElapsedTime(scope.StartTimestamp).TotalMilliseconds,
-            });
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
-            scope.Fail(ex);
-            throw;
-        }
+            ["command"] = "discard",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["item_count"] = itemCount.ToString(),
+            ["used_all"] = all.ToString(),
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
+        });
+        return exitCode;
     }
 
     private async Task<(int ExitCode, int ItemCount)> ExecuteSingleAsync(

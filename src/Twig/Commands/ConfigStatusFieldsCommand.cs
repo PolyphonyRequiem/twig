@@ -37,30 +37,21 @@ public sealed class ConfigStatusFieldsCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("config-status-fields", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        try
+        exitCode = await ExecuteCoreAsync(outputFormat, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
-            exitCode = await ExecuteCoreAsync(outputFormat, ct);
-            scope.Complete(exitCode);
-            telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-            {
-                ["command"] = "config-status-fields",
-                ["exit_code"] = exitCode.ToString(),
-                ["output_format"] = outputFormat,
-                ["twig_version"] = VersionHelper.GetVersion(),
-                ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-            }, new Dictionary<string, double>
-            {
-                ["duration_ms"] = Stopwatch.GetElapsedTime(scope.StartTimestamp).TotalMilliseconds
-            });
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+            ["command"] = "config-status-fields",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+        }, new Dictionary<string, double>
         {
-            scope.Fail(ex);
-            throw;
-        }
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        });
+        return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(string outputFormat, CancellationToken ct)

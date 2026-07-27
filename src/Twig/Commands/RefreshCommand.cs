@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
@@ -45,24 +46,15 @@ public sealed class RefreshCommand(
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("refresh", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        try
-        {
-            int itemCount;
-            bool hashChanged;
-            (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, force, ct);
-            scope.Complete(exitCode);
-            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "refresh", outputFormat, exitCode, scope.StartTimestamp,
-                extraProperties: new Dictionary<string, string> { ["hash_changed"] = hashChanged.ToString() },
-                extraMetrics: new Dictionary<string, double> { ["item_count"] = itemCount });
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            scope.Fail(ex);
-            throw;
-        }
+        int itemCount;
+        bool hashChanged;
+        (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, force, ct);
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "refresh", outputFormat, exitCode, startTimestamp,
+            extraProperties: new Dictionary<string, string> { ["hash_changed"] = hashChanged.ToString() },
+            extraMetrics: new Dictionary<string, double> { ["item_count"] = itemCount });
+        return exitCode;
     }
 
     private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, bool force, CancellationToken ct)

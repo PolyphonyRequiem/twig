@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
@@ -60,30 +61,21 @@ public sealed class PatchCommand(
         string? format = null,
         CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("patch", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        try
-        {
-            int fieldCount;
-            (exitCode, fieldCount) = await ExecuteCoreAsync(json, readStdin, id, outputFormat, format, ct);
-            scope.Complete(exitCode);
-            TelemetryHelper.TrackCommand(
-                telemetryClient,
-                "patch",
-                outputFormat,
-                exitCode,
-                scope.StartTimestamp,
-                extraMetrics: new Dictionary<string, double>
-                {
-                    ["field_count"] = fieldCount
-                });
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            scope.Fail(ex);
-            throw;
-        }
+        int fieldCount;
+        (exitCode, fieldCount) = await ExecuteCoreAsync(json, readStdin, id, outputFormat, format, ct);
+        TelemetryHelper.TrackCommand(
+            telemetryClient,
+            "patch",
+            outputFormat,
+            exitCode,
+            startTimestamp,
+            extraMetrics: new Dictionary<string, double>
+            {
+                ["field_count"] = fieldCount
+            });
+        return exitCode;
     }
 
     private async Task<(int ExitCode, int FieldCount)> ExecuteCoreAsync(

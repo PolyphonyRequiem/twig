@@ -658,3 +658,27 @@ Twig.Domain.ValueObjects.WorkItemSnapshot.StagedIdentity.init -> void
 *REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.Initialize(int minExistingId) -> void
 *REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.Next() -> int
 *REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.SeedIdCounter() -> void
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.CacheHit = "twig.cache_hit" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.Command = "twig.command" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.ExceptionKind = "twig.exception_kind" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.ExitCode = "twig.exit_code" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.ItemCount = "twig.item_count" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.Operation = "twig.operation" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.OutputFormat = "twig.output_format" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.Result = "twig.result" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.RetryCount = "twig.retry_count" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TraceTags.StatusCodeClass = "twig.status_code_class" -> string!
+*REMOVED*const Twig.Domain.Diagnostics.TwigActivitySource.SourceName = "Twig" -> string!
+*REMOVED*static readonly Twig.Domain.Diagnostics.TraceTags.AllowedKeys -> System.Collections.Generic.IReadOnlySet<string!>!
+*REMOVED*static readonly Twig.Domain.Diagnostics.TwigActivitySource.Source -> System.Diagnostics.ActivitySource!
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.Complete(System.Diagnostics.Activity? activity, int exitCode) -> void
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.Fail(System.Diagnostics.Activity? activity, System.Exception! ex) -> void
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.SetItemCount(System.Diagnostics.Activity? activity, int count) -> void
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.SetStatusCodeClass(System.Diagnostics.Activity? activity, int httpStatusCode) -> void
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.StartAdoOperation(string! operation) -> System.Diagnostics.Activity?
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.StartCommand(string! commandName, string! outputFormat) -> System.Diagnostics.Activity?
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.StartRenderOperation(string! operation) -> System.Diagnostics.Activity?
+*REMOVED*static Twig.Domain.Diagnostics.ActivityHelper.StartSqliteOperation(string! operation) -> System.Diagnostics.Activity?
+*REMOVED*Twig.Domain.Diagnostics.ActivityHelper
+*REMOVED*Twig.Domain.Diagnostics.TraceTags
+*REMOVED*Twig.Domain.Diagnostics.TwigActivitySource

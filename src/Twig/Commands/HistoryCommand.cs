@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -39,7 +40,7 @@ public sealed class HistoryCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("history", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
         int exitCode;
 
@@ -55,13 +56,12 @@ public sealed class HistoryCommand(
             exitCode = 1;
         }
 
-        scope.Complete(exitCode);
         TelemetryHelper.TrackCommand(
             ctx.TelemetryClient,
             "history",
             outputFormat,
             exitCode,
-            scope.StartTimestamp,
+            startTimestamp,
             extraProperties: new Dictionary<string, string>
             {
                 ["detailed"] = (detail is not null).ToString(),

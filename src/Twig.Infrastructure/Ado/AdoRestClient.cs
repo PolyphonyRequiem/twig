@@ -123,11 +123,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     }
 
     public async Task<int?> FindPublishedIntentAsync(
-        string title,
-        string typeName,
-        DateTimeOffset createdAtOrAfter,
+        PublishIntent intent,
         CancellationToken ct = default)
     {
+        var title = intent.Title;
+        var typeName = intent.TypeName;
+        var createdAtOrAfter = intent.RecordedAt;
+
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(typeName))
             return null;
 
@@ -176,12 +178,16 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         if (!item.Fields.TryGetValue("System.Tags", out var current) || current is null)
             return;
 
-        var remaining = current
-            .Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        // Split ONCE. Two independently-written splits could drift apart, and the second one
+        // drives the no-op short-circuit — a divergence there would silently issue a pointless
+        // PATCH, or worse, skip a needed one.
+        var tags = current.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        var remaining = tags
             .Where(t => !string.Equals(t, PublishIntent.IntentTag, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (remaining.Count == current.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Length)
+        if (remaining.Count == tags.Length)
             return;
 
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";

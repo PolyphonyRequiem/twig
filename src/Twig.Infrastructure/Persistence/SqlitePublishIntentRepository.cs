@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
@@ -24,12 +24,22 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         string typeName,
         CancellationToken ct = default)
     {
-        // An open intent is returned as-is rather than replaced. Re-stamping RecordedAt would
-        // move the lower bound the recovery query fences on PAST the create the first attempt
-        // may already have made, so the orphan would stop being findable — reintroducing the
-        // duplicate this ledger exists to prevent.
+        // An EXISTING intent is returned as-is — whether it is open or completed. Two distinct
+        // reasons, and the second one is the bug review caught:
+        //
+        // OPEN: re-stamping RecordedAt would move the lower bound the recovery query fences on
+        // PAST the create the first attempt may already have made, so the orphan stops being
+        // findable.
+        //
+        // COMPLETED: the row NAMES the ADO id. A previous attempt created the item and then
+        // died in step 10, so this row is the only surviving proof the item exists. An earlier
+        // version preserved the row only when `IsOpen`, letting a completed intent fall through
+        // to the ON CONFLICT below — which set published_id back to NULL and re-stamped
+        // recorded_at, destroying the evidence AND moving the fence past the orphan. CreateAsync
+        // then fired again: a duplicate, in exactly the #270 scenario this ledger exists to
+        // prevent. The caller adopts PublishedId when it is set.
         var existing = await GetIntentAsync(identity, ct);
-        if (existing is { IsOpen: true })
+        if (existing is not null)
             return existing;
 
         var intent = new PublishIntent

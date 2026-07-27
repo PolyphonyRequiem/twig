@@ -514,7 +514,7 @@ public sealed class AdoResponseMapperTests
         result.ShouldContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority");
     }
 
-    // ── InjectTwigTag / MergeTwigTag ────────────────────────────────
+    // ── InjectTags / MergeTag ───────────────────────────────────────
 
     [Fact]
     public void MapSeedToCreatePayload_ExistingTags_MergesTwigTag()
@@ -574,9 +574,9 @@ public sealed class AdoResponseMapperTests
     [InlineData("TWIG", "twig", "TWIG")]
     [InlineData("frontend; twig; api", "twig", "frontend; twig; api")]
     [InlineData("frontend;twig", "twig", "frontend;twig")]
-    public void MergeTwigTag_MergesCorrectly(string existing, string tag, string expected)
+    public void MergeTag_MergesCorrectly(string existing, string tag, string expected)
     {
-        var result = AdoResponseMapper.MergeTwigTag(existing, tag);
+        var result = AdoResponseMapper.MergeTag(existing, tag);
 
         result.ShouldBe(expected);
     }

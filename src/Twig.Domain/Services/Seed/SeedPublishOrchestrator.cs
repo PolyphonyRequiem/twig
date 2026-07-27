@@ -1,4 +1,4 @@
-using Twig.Domain.Aggregates;
+﻿using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
@@ -273,21 +273,26 @@ public sealed class SeedPublishOrchestrator
         // match anything already in ADO.
         int newId;
         var identity = seed.StagedIdentity;
+        var intentIsTracked = false;
 
         if (_publishIntentRepo is not null && identity is { } intentIdentity)
         {
             var intent = await _publishIntentRepo.RecordIntentAsync(
                 intentIdentity, seed.Title, seed.Type.Value, ct);
 
-            // A prior attempt may have created the item before dying. Ask ADO before creating
-            // anything: this is the whole point of stamping the tag, and it is the only way to
-            // tell an ambiguous timeout from a genuine failure, because ADO documents no
-            // idempotency key for creates.
+            // A prior attempt may have created the item before dying. Two places can hold that
+            // evidence, and BOTH must be consulted before creating anything.
             //
-            // The tag is a single constant, so it only NARROWS to what twig had in flight;
-            // title + type + the intent's own RecordedAt identify which item is this create.
-            var alreadyLanded = await _adoService.FindPublishedIntentAsync(
-                intent.Title, intent.TypeName, intent.RecordedAt, ct);
+            // 1. The ledger itself. If a previous attempt completed the intent and then died in
+            //    step 10, the row already names the ADO id. Reading it back is cheaper and
+            //    strictly more reliable than re-deriving it from ADO — and it is the read path
+            //    this ledger was built to serve. (Before review, nothing read it: the ledger was
+            //    write-only, which is precisely why the rollback path duplicated.)
+            // 2. Failing that, ask ADO. The tag is a single constant, so it only NARROWS to what
+            //    twig had in flight; title + type + the intent's own RecordedAt identify which
+            //    item is this create.
+            var alreadyLanded = intent.PublishedId
+                ?? await _adoService.FindPublishedIntentAsync(intent, ct);
 
             newId = alreadyLanded
                 ?? await _adoService.CreateAsync(
@@ -298,22 +303,13 @@ public sealed class SeedPublishOrchestrator
             // remote item is accounted for even if every step below fails.
             await _publishIntentRepo.CompleteIntentAsync(intentIdentity, newId, ct);
 
-            // The item is no longer in flight, so drop the tag — it marks in-flight state, not
-            // provenance (the constant "twig" tag already carries that). Best-effort: the
-            // publish has succeeded by now, so a failure here must not fail the publish. A tag
-            // left behind is cosmetic and self-corrects on the next publish of the same seed.
-            try
-            {
-                await _adoService.ClearIntentTagAsync(newId, ct);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                // Intentionally swallowed — see above.
-            }
+            // The tag is NOT stripped here. It marks in-flight state, and the publish is still
+            // in flight until the step-10 transaction commits — which is ~30 lines below. An
+            // earlier version cleared it at this point, which disarmed the guard for exactly the
+            // window it exists to protect: a rollback at step 10 left an orphan with no tag, so
+            // the recovery query could not narrow to it and the retry duplicated. See the
+            // post-commit strip after step 10.
+            intentIsTracked = true;
         }
         else
         {
@@ -378,6 +374,34 @@ public sealed class SeedPublishOrchestrator
         finally
         {
             await tx.DisposeAsync();
+        }
+
+        // Step 10h: the local half is COMMITTED, so the publish is no longer in flight — only
+        // now is it safe to drop the in-flight tag.
+        //
+        // Ordering is the whole point. Stripping it before the transaction (as an earlier
+        // version did) disarms the guard for precisely the window it exists to protect: a
+        // rollback above would leave a real ADO item carrying no tag, `FindPublishedIntentAsync`
+        // could not narrow to it, and the retry would create a duplicate — #270, reintroduced
+        // through its own fix.
+        //
+        // Best-effort: the publish has succeeded by now, so a failure here must not fail it. A
+        // leftover tag is cosmetic, and the ledger row (which survives independently) still
+        // names the id, so recovery does not depend on this succeeding.
+        if (intentIsTracked)
+        {
+            try
+            {
+                await _adoService.ClearIntentTagAsync(newId, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Intentionally swallowed — see above.
+            }
         }
 
         // Step 11: Promote seed links to ADO relations

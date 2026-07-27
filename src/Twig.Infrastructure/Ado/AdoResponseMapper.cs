@@ -185,15 +185,18 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTwigTag(operations, request.StampIntentTag ? PublishIntent.IntentTag : null);
+        InjectTags(operations, request.StampIntentTag);
 
         return operations;
     }
 
-    // Stamps the constant "twig" marker plus, when the create is being tracked, the constant
-    // in-flight intent tag (wayfinder 0015). Both are constants, so publishing N items adds at
-    // most two entries to the project's shared tag vocabulary — not N.
-    private static void InjectTwigTag(List<AdoPatchOperation> operations, string? idempotencyTag = null)
+    // Stamps the constant "twig" provenance marker plus, when the create is being tracked, the
+    // constant in-flight intent tag (wayfinder 0015). Both are constants, so publishing N items
+    // adds at most two entries to the project's shared tag vocabulary — not N.
+    //
+    // A bool rather than the tag string: the tag is fixed by the ticket, so passing it in would
+    // invite a caller to vary something that must not vary.
+    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag = false)
     {
         const string tagPath = "/fields/System.Tags";
         const string twigTag = "twig";
@@ -201,25 +204,25 @@ internal static class AdoResponseMapper
         var existingIndex = operations.FindIndex(op =>
             string.Equals(op.Path, tagPath, StringComparison.OrdinalIgnoreCase));
 
+        var current = existingIndex >= 0
+            ? operations[existingIndex].Value?.GetValue<string>() ?? ""
+            : "";
+
+        var merged = MergeTag(current, twigTag);
+        if (stampIntentTag)
+            merged = MergeTag(merged, PublishIntent.IntentTag);
+
         if (existingIndex >= 0)
         {
-            var current = operations[existingIndex].Value?.GetValue<string>() ?? "";
-            var merged = MergeTwigTag(current, twigTag);
-            if (!string.IsNullOrWhiteSpace(idempotencyTag))
-                merged = MergeTwigTag(merged, idempotencyTag);
             operations[existingIndex].Value = JsonValue.Create(merged);
         }
         else
         {
-            var value = string.IsNullOrWhiteSpace(idempotencyTag)
-                ? twigTag
-                : MergeTwigTag(twigTag, idempotencyTag);
-
             operations.Add(new AdoPatchOperation
             {
                 Op = "add",
                 Path = tagPath,
-                Value = JsonValue.Create(value),
+                Value = JsonValue.Create(merged),
             });
         }
     }
@@ -228,7 +231,7 @@ internal static class AdoResponseMapper
     /// Merges a tag into a semicolon-separated tag string with case-insensitive deduplication.
     /// Returns the original string unchanged if the tag is already present.
     /// </summary>
-    internal static string MergeTwigTag(string existingTags, string tag)
+    internal static string MergeTag(string existingTags, string tag)
     {
         if (string.IsNullOrWhiteSpace(existingTags))
             return tag;

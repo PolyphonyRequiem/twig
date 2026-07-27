@@ -74,8 +74,8 @@ So the mechanism splits: the tag **narrows**, local state **identifies**.
   and topologically ordered. Twig's permanent contribution to the project tag vocabulary is
   **one** tag, not one per item.
 - The intent row carries `title`, `type_name` and `recorded_at`. Recovery queries the tag, then
-  matches title + type + `System.CreatedDate >= recorded_at`. Titles rarely overlap
-  (owner-confirmed), and because `recorded_at` is written *before* the call it is a sound lower
+  matches title + type + `System.CreatedDate >= recorded_at`. Titles can in principle collide (see the known
+  limitation below), and because `recorded_at` is written *before* the call it is a sound lower
   bound -- which is what stops a reused tag matching an older item. `recorded_at` is never
   re-stamped while an intent is open, since moving the fence forward would push it past the very
   create it exists to find.
@@ -124,6 +124,62 @@ that publishes many items a day.
 Confirmed with a positive and a negative control: a fence one second BEFORE the create returns
 the item; a fence five minutes AFTER returns nothing -- and returns it as an empty 200, not an
 error, so the exclusion is real rather than an incidental failure.
+
+### Review found the guard was disarmed for the window it protects -- corrected
+
+The first implementation shipped an **ordering bug**, caught in review on PR #309 and confirmed
+independently at every cited line. Recorded here rather than quietly edited away, because the
+failure mode is instructive: *the fix for #270 reintroduced #270*.
+
+Both the intent close (`CompleteIntentAsync`) and the tag strip (`ClearIntentTagAsync`) happened
+~30 lines **before** the step-10 transaction even began. So on the exact #270 rollback:
+
+1. **No tag** -- stripped before the transaction, so `FindPublishedIntentAsync` could not narrow
+   to the orphan.
+2. **No usable ledger row** -- `RecordIntentAsync` preserved an existing intent only when
+   `IsOpen: true`. A *completed* intent fell through to `ON CONFLICT DO UPDATE`, which reset
+   `published_id` to NULL and re-stamped `recorded_at` -- destroying the proof the item existed
+   **and** moving the fence past it.
+
+`CreateAsync` fired again. Duplicate. The irony is exact: the comment above that line explains
+why re-stamping `RecordedAt` reintroduces the duplicate, and the `IsOpen` condition then permitted
+precisely that on the completed path.
+
+**Why it survived the first round of testing: the ledger was WRITE-ONLY.** `GetIntentAsync` had
+zero production callers (`git grep -- src/`), so no code path exercised recovery-from-durable-state
+at all, and three tests were vacuous -- one asserted the in-memory object built *before* the
+INSERT (deleting the INSERT left it green), and the recovery test never issued a second
+`PublishAsync`, so "the retry does not duplicate" was never actually tested.
+
+**The fix, three parts:**
+
+- `ClearIntentTagAsync` moved to **after** the commit. The tag marks in-flight state, and the
+  publish is in flight until the local half commits.
+- `RecordIntentAsync` preserves **any** existing intent, open or completed. A completed row names
+  the ADO id and is the only surviving proof the item exists.
+- The orchestrator now **reads the ledger back** (`intent.PublishedId`) before asking ADO. That is
+  the read path the ledger was built to serve and never had.
+
+Every guard is demonstrated non-vacuous by reverting each half independently:
+
+| Reverted | Tests that FAIL |
+|---|---|
+| tag stripped pre-commit | `RolledBackAttempt_DoesNotStripTheIntentTag`, `SuccessfulPublish_StripsTheIntentTagOnlyAfterTheCommit` |
+| `IsOpen` fall-through | `RecordIntent_OnACOMPLETEDIntent_PreservesThePublishedId` |
+| no ledger adoption | `SecondPublishAfterARolledBackFirst_AdoptsTheOrphanFromTheLedger`, `..._CreatesInAdoExactlyOnce` |
+
+The recovery test now drives a **second** `PublishAsync` after a rolled-back first attempt and
+asserts `CreateAsync` was called **exactly once** across both.
+
+### Known limitation -- title collisions
+
+The recovery predicate matches on title + type + creation fence. **If two seeds of the same type
+share a title inside one publish window, the predicate is ambiguous.** An earlier draft of this
+Answer described titles as rarely overlapping and attributed that to the owner; **there is no
+provenance for such a confirmation, and it is withdrawn.** It is a real limitation of the
+constant-tag design, mitigated but not eliminated by the `recorded_at` fence and by publishing
+being serial and topologically ordered. A per-create key would remove it, at the cost of the
+unbounded shared-tag growth this ticket rejected.
 
 ### Evidence
 

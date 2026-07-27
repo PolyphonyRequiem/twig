@@ -32,8 +32,14 @@ public sealed record PublishIntent
     /// One constant tag means the in-use set is bounded by the number of publishes currently
     /// in flight — normally one, since publishing is serial and topologically ordered.
     /// Disambiguation is therefore LOCAL: the recovery query narrows by this tag, then matches
-    /// title + type + a creation time at or after the intent was recorded. Titles rarely
-    /// overlap (owner-confirmed), and the time fence stops an older same-titled item matching.
+    /// title + type + a creation time at or after the intent was recorded. The time fence stops
+    /// an older same-titled item matching.
+    /// </para>
+    /// <para>
+    /// KNOWN LIMITATION: if two seeds of the same type share a title inside one publish window,
+    /// the predicate is ambiguous. Publishing is serial and topologically ordered, which makes
+    /// that window small, but it does not close it. A per-create key would remove the ambiguity
+    /// at the cost of the unbounded shared-tag growth described above.
     /// </para>
     /// <para>
     /// Avoids a leading <c>@</c>, which ADO's query editor would read as a macro and which

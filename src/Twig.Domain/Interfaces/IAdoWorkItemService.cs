@@ -28,16 +28,20 @@ public interface IAdoWorkItemService
     /// </para>
     /// <para>
     /// The match is a single constant tag (<see cref="ValueObjects.PublishIntent.IntentTag"/>)
-    /// to narrow, then <paramref name="title"/> + <paramref name="typeName"/> +
-    /// <paramref name="createdAtOrAfter"/> to identify. A per-create unique tag would be a
-    /// stronger key but mints one new project-wide tag per published item forever, which ADO's
-    /// unique-tag cap and 0001 §1's "twig owns only the pending set" both rule out.
+    /// to narrow, then the intent's own title, type and <c>RecordedAt</c> to identify. A
+    /// per-create unique tag would be a stronger key but mints one new project-wide tag per
+    /// published item forever, which ADO's unique-tag cap and 0001 §1's "twig owns only the
+    /// pending set" both rule out.
+    /// </para>
+    /// <para>
+    /// Takes the <see cref="ValueObjects.PublishIntent"/> whole rather than three unpacked
+    /// primitives: the caller is already holding one, and the three fields are only meaningful
+    /// together — <c>RecordedAt</c> is a valid fence *because* it belongs to the same intent
+    /// that produced the title and type.
     /// </para>
     /// </remarks>
     Task<int?> FindPublishedIntentAsync(
-        string title,
-        string typeName,
-        DateTimeOffset createdAtOrAfter,
+        ValueObjects.PublishIntent intent,
         CancellationToken ct = default);
 
     /// <summary>

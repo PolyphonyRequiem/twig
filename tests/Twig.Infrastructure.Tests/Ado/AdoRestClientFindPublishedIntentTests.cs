@@ -41,13 +41,23 @@ public sealed class AdoRestClientFindPublishedIntentTests
     private static readonly DateTimeOffset Fence =
         new(2026, 7, 27, 15, 2, 58, TimeSpan.Zero);
 
+    private static PublishIntent Intent(
+        string title = "A staged seed", string typeName = "Task", DateTimeOffset? recordedAt = null)
+        => new()
+        {
+            Identity = StagedIdentity.New(),
+            Title = title,
+            TypeName = typeName,
+            RecordedAt = recordedAt ?? Fence,
+        };
+
     [Fact]
     public async Task FindPublishedIntentAsync_SetsTimePrecision_SoAdoAcceptsATimedFence()
     {
         var handler = new WiqlTrackingHandler([3329]);
         var client = CreateClient(handler);
 
-        await client.FindPublishedIntentAsync("A staged seed", "Task", Fence);
+        await client.FindPublishedIntentAsync(Intent());
 
         handler.LastWiqlUrl.ShouldNotBeNull();
 
@@ -61,7 +71,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
         var handler = new WiqlTrackingHandler([3329]);
         var client = CreateClient(handler);
 
-        await client.FindPublishedIntentAsync("A staged seed", "Task", Fence);
+        await client.FindPublishedIntentAsync(Intent());
 
         var query = handler.LastQuery.ShouldNotBeNull();
 
@@ -81,7 +91,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
 
         // An intent recorded 900ms into the second must not fence past its own create.
         var fractional = new DateTimeOffset(2026, 7, 27, 15, 2, 58, 900, TimeSpan.Zero);
-        await client.FindPublishedIntentAsync("A staged seed", "Task", fractional);
+        await client.FindPublishedIntentAsync(Intent(recordedAt: fractional));
 
         handler.LastQuery.ShouldNotBeNull()
             .ShouldContain("[System.CreatedDate] >= '2026-07-27T15:02:58Z'");
@@ -93,7 +103,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
         var handler = new WiqlTrackingHandler([3329]);
         var client = CreateClient(handler);
 
-        await client.FindPublishedIntentAsync("A staged seed", "Task", Fence);
+        await client.FindPublishedIntentAsync(Intent());
 
         var query = handler.LastQuery.ShouldNotBeNull();
         query.ShouldContain($"[System.Tags] CONTAINS '{PublishIntent.IntentTag}'");
@@ -109,7 +119,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
 
         // Titles are user-supplied. WIQL escapes a single quote by doubling it; without this the
         // query is malformed and the recovery path fails open into a duplicate.
-        await client.FindPublishedIntentAsync("Bob's seed", "Task", Fence);
+        await client.FindPublishedIntentAsync(Intent(title: "Bob's seed"));
 
         handler.LastQuery.ShouldNotBeNull().ShouldContain("'Bob''s seed'");
     }
@@ -120,7 +130,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
         var handler = new WiqlTrackingHandler([]);
         var client = CreateClient(handler);
 
-        var result = await client.FindPublishedIntentAsync("A staged seed", "Task", Fence);
+        var result = await client.FindPublishedIntentAsync(Intent());
 
         result.ShouldBeNull();
     }
@@ -131,7 +141,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
         var handler = new WiqlTrackingHandler([4444, 3329, 5555]);
         var client = CreateClient(handler);
 
-        var result = await client.FindPublishedIntentAsync("A staged seed", "Task", Fence);
+        var result = await client.FindPublishedIntentAsync(Intent());
 
         // More than one match means a duplicate already exists. Adopt the FIRST create rather
         // than an accidental copy; the extras stay visible in ADO for the user to reconcile.
@@ -148,7 +158,7 @@ public sealed class AdoRestClientFindPublishedIntentTests
         var handler = new WiqlTrackingHandler([3329]);
         var client = CreateClient(handler);
 
-        var result = await client.FindPublishedIntentAsync(title, typeName, Fence);
+        var result = await client.FindPublishedIntentAsync(Intent(title, typeName));
 
         // The tag alone does not identify an item, so a half-specified lookup must not run and
         // must not return someone else's in-flight create.

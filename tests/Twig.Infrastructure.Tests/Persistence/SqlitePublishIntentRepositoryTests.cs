@@ -23,18 +23,29 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     public void Dispose() => _store.Dispose();
 
     [Fact]
-    public async Task RecordIntent_StampsATagAndLeavesTheIntentOpen()
+    public async Task RecordIntent_PERSISTS_TheIntentAndLeavesItOpen()
     {
         var identity = StagedIdentity.New();
 
-        var intent = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
+        var returned = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
-        intent.Identity.ShouldBe(identity);
-        intent.Title.ShouldBe("Ship the thing");
-        intent.TypeName.ShouldBe("Task");
-        intent.IsOpen.ShouldBeTrue();
-        intent.PublishedId.ShouldBeNull();
-        intent.CompletedAt.ShouldBeNull();
+        // Assert on what was READ BACK, not on the object handed to us. An earlier version of
+        // this test asserted only the returned in-memory instance, which is built BEFORE the
+        // INSERT — deleting the INSERT entirely left it green. It was also the only test named
+        // for that write path.
+        var persisted = await _repo.GetIntentAsync(identity);
+
+        persisted.ShouldNotBeNull("the intent must actually reach the durable store");
+        persisted.Identity.ShouldBe(identity);
+        persisted.Title.ShouldBe("Ship the thing");
+        persisted.TypeName.ShouldBe("Task");
+        persisted.IsOpen.ShouldBeTrue();
+        persisted.PublishedId.ShouldBeNull();
+        persisted.CompletedAt.ShouldBeNull();
+
+        // The returned instance must describe the same row, or callers fencing on RecordedAt
+        // would be fencing on a value the store does not hold.
+        persisted.RecordedAt.ShouldBe(returned.RecordedAt);
     }
 
     [Fact]
@@ -83,22 +94,27 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task RecordIntent_AfterCompletion_StartsAFreshIntent()
+    public async Task RecordIntent_OnACOMPLETEDIntent_PreservesThePublishedId()
     {
-        // Fixture guard for the test above: the "keep the original" rule applies ONLY while the
-        // intent is open. Once completed, a later publish of the same identity is a NEW create
-        // and must get its own fence — otherwise this test and the one above could both pass
-        // against an implementation that simply never updates the row.
+        // THE BUG REVIEW CAUGHT. An earlier version preserved an existing row only when
+        // `IsOpen`, so a COMPLETED intent fell through to `ON CONFLICT DO UPDATE`, which reset
+        // published_id to NULL and re-stamped recorded_at. That destroyed the only surviving
+        // proof the ADO item existed AND moved the recovery fence past it — so the retry created
+        // a duplicate, in exactly the #270 scenario this ledger exists to prevent.
         var identity = StagedIdentity.New();
         var first = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
-        await _repo.CompleteIntentAsync(identity, 11);
+        await _repo.CompleteIntentAsync(identity, 4242);
 
-        var second = await _repo.RecordIntentAsync(identity, "Ship it again", "Bug");
+        var second = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
-        second.IsOpen.ShouldBeTrue();
-        second.Title.ShouldBe("Ship it again");
-        second.TypeName.ShouldBe("Bug");
-        second.RecordedAt.ShouldBeGreaterThanOrEqualTo(first.RecordedAt);
+        second.PublishedId.ShouldBe(4242, "the recorded outcome is the evidence recovery adopts");
+        second.RecordedAt.ShouldBe(first.RecordedAt, "re-stamping the fence would skip the orphan");
+        second.IsOpen.ShouldBeFalse();
+
+        // And it must be true of the persisted row, not just the returned instance.
+        var persisted = await _repo.GetIntentAsync(identity);
+        persisted.ShouldNotBeNull();
+        persisted.PublishedId.ShouldBe(4242);
     }
 
     [Fact]

@@ -93,14 +93,40 @@ public sealed class StartupOrderingTests
     }
 
     [Fact]
-    public void FastExitPaths_ConstructNoHttpClient()
+    public void FastExitPaths_ReachNoNetworkConstructingCall()
     {
         // Acceptance from the ticket: zero network calls on the fast-exit paths.
+        //
+        // A previous version of this test grepped the above-fast-exit slice for
+        // "CreateHttpClient" / "new HttpClient" and was VACUOUS: the only construction
+        // site is inside CompanionStartup.RunFirstRunCheckCore, three frames down and
+        // far below the DetectGitRemote cut that bounds the slice. It therefore passed
+        // at the pre-fix commit too, and would keep passing after a revert.
+        //
+        // The network cost is reachable only THROUGH the two startup side effects, so
+        // the honest assertion is that neither entry point is called above the fast-exit
+        // block — the call chain, not a lexical grep for the leaf.
         var top = ReadTopLevelStatements();
         var aboveFastExitEnd = top[..FastExitEndIndex(top)];
 
-        // No HttpClient may be constructed above the fast-exit block.
-        aboveFastExitEnd.ShouldNotContain("CreateHttpClient");
-        aboveFastExitEnd.ShouldNotContain("new HttpClient");
+        aboveFastExitEnd.ShouldNotContain(
+            "CompanionStartup.RunFirstRunCheck()",
+            Case.Sensitive,
+            "RunFirstRunCheck reaches NetworkServiceModule.CreateHttpClient() and performs a "
+            + "blocking GitHub release download with a 60s budget. It must not run above the "
+            + "fast-exit block.");
+
+        aboveFastExitEnd.ShouldNotContain(
+            "SelfUpdater.CleanupOldBinary()",
+            Case.Sensitive,
+            "CleanupOldBinary performs filesystem churn and must not run above the fast-exit block.");
+
+        // Precondition: the leaf really is behind that call, so this test cannot silently
+        // degrade into a no-op if the network construction moves.
+        ReadProgramSource().ShouldContain(
+            "NetworkServiceModule.CreateHttpClient()",
+            Case.Sensitive,
+            "Expected the companion first-run check to still construct an HttpClient — if this "
+            + "moved, re-derive what the fast-exit paths must avoid.");
     }
 }

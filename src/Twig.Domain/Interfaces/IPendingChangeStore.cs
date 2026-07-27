@@ -28,8 +28,11 @@ public interface IPendingChangeStore
     /// sync — see PolyphonyRequiem/twig#270.
     /// </summary>
     /// <remarks>
-    /// The row for <paramref name="newId"/> must already exist in <c>work_items</c>: the
-    /// <c>pending_changes.work_item_id</c> FOREIGN KEY is enforced immediately.
+    /// Ordering note: this used to be a hard requirement — the row for <paramref name="newId"/>
+    /// had to exist in <c>work_items</c> first, because <c>pending_changes.work_item_id</c>
+    /// carried an immediately-enforced FOREIGN KEY. Wayfinder 0013 moved <c>pending_changes</c>
+    /// into the durable store, and a cross-file foreign key is unexpressible, so the constraint
+    /// is gone. The ordering is kept as intent, not as an obligation.
     /// </remarks>
     Task RemapWorkItemIdAsync(int oldId, int newId, CancellationToken ct = default);
 

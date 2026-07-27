@@ -122,11 +122,12 @@ public sealed class SeedDiscardOrchestrator
         {
             var id = plan.AllIds[i];
 
-            // #268: pending_changes carries a FOREIGN KEY to work_items(id), so any staged
-            // note or field edit on this seed keeps a live reference and the row delete
-            // below raises a constraint violation — which the CLI surfaced as the highly
-            // misleading "Cache corrupted. Run 'twig init --force' to rebuild." Clear the
-            // staged rows first, matching DeleteWorkflow and SyncCoordinator.
+            // #268 was a FOREIGN KEY from pending_changes to work_items(id): a staged note kept
+            // a live reference, so the row delete below raised a constraint violation that the
+            // CLI surfaced as the highly misleading "Cache corrupted. Run 'twig init --force'".
+            // Wayfinder 0013 deleted that FK by moving pending_changes to the durable store, so
+            // the crash is now unexpressible. Clearing first is retained deliberately: discard
+            // means the staged edits go too, and leaving them would orphan them in pending.db.
             if (_pendingChangeStore is not null)
                 await _pendingChangeStore.ClearChangesAsync(id, ct);
             await _seedLinkRepo.DeleteLinksForItemAsync(id, ct);

@@ -247,18 +247,19 @@ public sealed class SeedPublishOrchestrator
             await _workItemRepo.RemapParentIdAsync(seedId, newId, ct);
 
             // 10d: Save new item.
-            // Ordered BEFORE the remap/delete below, unlike the pre-#270 sequence: the
-            // pending_changes FK points at work_items(id), so the target row must exist
-            // before staged rows can be repointed at it.
+            // Ordered BEFORE the remap/delete below, unlike the pre-#270 sequence. This was
+            // mandatory while pending_changes carried an FK to work_items(id); wayfinder 0013
+            // deleted that FK, so the order now expresses intent rather than a constraint.
             await _workItemRepo.SaveAsync(fetchedItem, ct);
 
             // 10e: Migrate staged notes / field edits from the seed ID onto the published ID.
-            // pending_changes is the one referencing table the publish path used to forget:
-            // its FK kept the seed row alive, so DeleteByIdAsync threw FOREIGN KEY constraint
-            // failed, the local transaction rolled back, and the ADO item created in Step 7 —
-            // outside this transaction — was orphaned. Every retry then made another duplicate
-            // (PolyphonyRequiem/twig#270). Clearing the rows would fix the crash but silently
-            // destroy an unpushed note, so they are migrated instead and flush on the next sync.
+            // pending_changes is the one referencing table the publish path used to forget: its
+            // FK kept the seed row alive, so DeleteByIdAsync threw FOREIGN KEY constraint failed,
+            // the local transaction rolled back, and the ADO item created in Step 7 — outside
+            // this transaction — was orphaned. Every retry then made another duplicate
+            // (PolyphonyRequiem/twig#270). The FK is gone, but the migration stays: clearing the
+            // rows would fix the crash while silently destroying an unpushed note, and they
+            // still need to flush onto the published ID on the next sync.
             if (_pendingChangeStore is not null)
                 await _pendingChangeStore.RemapWorkItemIdAsync(seedId, newId, ct);
 

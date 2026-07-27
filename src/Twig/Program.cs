@@ -23,12 +23,9 @@ catch (Exception)
     // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
 }
 
-// EPIC-005: Clean up old binary left behind from a previous Windows self-update.
-SelfUpdater.CleanupOldBinary();
-
-// First-run companion check — installs missing companions after upgrade.
-// Must run before ConsoleApp.Create() — no SynchronizationContext, blocking is safe.
-CompanionStartup.RunFirstRunCheck();
+// TICKET-0018: startup side effects (binary cleanup, companion first-run check)
+// deliberately do NOT run here. They sit below the fast-exit block so that
+// --version / --help / no-args / unknown-command never pay for them.
 
 var app = ConsoleApp.Create()
     .ConfigureServices(services =>
@@ -154,6 +151,18 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
     Environment.ExitCode = 1;
     return;
 }
+
+// TICKET-0018: startup side effects run ONLY once every fast-exit path has been
+// ruled out. Above this point no network or filesystem side effect is permitted —
+// --version / --help / no-args / unknown-command must stay allocation-cheap and
+// perform zero network calls.
+
+// EPIC-005: Clean up old binary left behind from a previous Windows self-update.
+SelfUpdater.CleanupOldBinary();
+
+// First-run companion check — installs missing companions after upgrade.
+// Runs before app.Run() — no SynchronizationContext, blocking is safe.
+CompanionStartup.RunFirstRunCheck();
 
 app.Run(args);
 

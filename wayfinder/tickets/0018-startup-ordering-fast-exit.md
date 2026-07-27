@@ -1,5 +1,5 @@
 ---
-id: 0016
+id: 0018
 title: Startup ordering — no side effects above the fast-exit
 type: task
 status: open

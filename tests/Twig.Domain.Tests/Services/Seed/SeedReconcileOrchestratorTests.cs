@@ -1,4 +1,4 @@
-using NSubstitute;
+﻿using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
@@ -20,12 +20,22 @@ public class SeedReconcileOrchestratorTests
 
     private readonly SeedReconcileOrchestrator _orchestrator;
 
+    // Wayfinder 0014: publish_id_map is keyed on StagedIdentity. seed_links still stores the
+    // negative display alias, so a fixture mapping needs both -- the identity that keys the
+    // row and the alias the link refers to.
+    private static PublishMapping Mapping(int alias, int newId)
+    {
+        StagedAlias.TryFrom(alias, out var parsed).ShouldBeTrue(
+            "Fixture guard: a publish mapping's alias must be negative, or the reconcile path under test never fires.");
+        return new PublishMapping(StagedIdentity.New(), parsed, newId);
+    }
+
     public SeedReconcileOrchestratorTests()
     {
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)>());
+            .Returns(new List<PublishMapping>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem>());
 
@@ -79,7 +89,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
 
@@ -99,7 +109,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-3, 600) });
+            .Returns(new List<PublishMapping> { Mapping(-3, 600) });
         _workItemRepo.ExistsByIdAsync(100, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(-3, Arg.Any<CancellationToken>()).Returns(false);
 
@@ -118,7 +128,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500), (-2, 600) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500), Mapping(-2, 600) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(false);
 
@@ -181,7 +191,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(300, Arg.Any<CancellationToken>()).Returns(true);
@@ -201,7 +211,7 @@ public class SeedReconcileOrchestratorTests
     public async Task ReconcileAsync_StaleParentIdWithMapping_FixesParent()
     {
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-10, 700) });
+            .Returns(new List<PublishMapping> { Mapping(-10, 700) });
 
         var seed = new WorkItemBuilder(-5, "Child seed").AsSeed().WithParent(-10).Build();
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
@@ -273,7 +283,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(300, Arg.Any<CancellationToken>()).Returns(true);
@@ -300,7 +310,7 @@ public class SeedReconcileOrchestratorTests
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500), (-10, 700) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500), Mapping(-10, 700) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(300, Arg.Any<CancellationToken>()).Returns(true);

@@ -275,29 +275,6 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
-    public Task<int?> GetMinSeedIdAsync(CancellationToken ct = default)
-    {
-        var conn = _store.GetConnection();
-        using var cmd = conn.CreateCommand();
-        // The floor spans BOTH live seed rows AND already-published seed IDs.
-        //
-        // Publishing deletes the seed row (SeedPublishOrchestrator.cs:265-266), but
-        // publish_id_map.old_id is a permanent key space. Deriving the floor from
-        // work_items alone lets a published seed's negative ID be reissued, and the
-        // new seed then resolves through the map to the ADO work item published under
-        // that ID's previous owner (#280).
-        cmd.CommandText = """
-            SELECT MIN(id) FROM (
-                SELECT id     FROM work_items     WHERE is_seed = 1
-                UNION ALL
-                SELECT old_id FROM publish_id_map
-            );
-            """;
-        var result = cmd.ExecuteScalar();
-        var minId = result is DBNull || result is null ? (int?)null : Convert.ToInt32(result);
-        return Task.FromResult(minId);
-    }
-
     public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();
@@ -470,10 +447,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.CommandText = """
             INSERT OR REPLACE INTO work_items
                 (id, type, title, state, parent_id, assigned_to, iteration_path, area_path,
-                 revision, is_seed, seed_created_at, fields_json, is_dirty, last_synced_at)
+                 revision, is_seed, seed_created_at, staged_identity, fields_json, is_dirty, last_synced_at)
             VALUES
                 (@id, @type, @title, @state, @parentId, @assignedTo, @iterationPath, @areaPath,
-                 @revision, @isSeed, @seedCreatedAt, @fieldsJson, @isDirty, @lastSyncedAt);
+                 @revision, @isSeed, @seedCreatedAt, @stagedIdentity, @fieldsJson, @isDirty, @lastSyncedAt);
             """;
 
         cmd.Parameters.AddWithValue("@id", item.Id);
@@ -488,6 +465,8 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Parameters.AddWithValue("@isSeed", item.IsSeed ? 1 : 0);
         cmd.Parameters.AddWithValue("@seedCreatedAt",
             item.SeedCreatedAt.HasValue ? item.SeedCreatedAt.Value.ToString("o") : DBNull.Value);
+        cmd.Parameters.AddWithValue("@stagedIdentity",
+            item.StagedIdentity.HasValue ? item.StagedIdentity.Value.ToString() : DBNull.Value);
         cmd.Parameters.AddWithValue("@fieldsJson", SerializeFields(item.Fields));
         cmd.Parameters.AddWithValue("@isDirty", item.IsDirty ? 1 : 0);
         cmd.Parameters.AddWithValue("@lastSyncedAt", DateTimeOffset.UtcNow.ToString("o"));
@@ -553,6 +532,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             SeedCreatedAt = seedCreatedAtStr is not null
                 ? DateTimeOffset.Parse(seedCreatedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
                 : null,
+            StagedIdentity = reader.IsDBNull(reader.GetOrdinal("staged_identity"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("staged_identity")),
             LastSyncedAt = lastSyncedAtStr is not null
                 ? DateTimeOffset.Parse(lastSyncedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
                 : null,

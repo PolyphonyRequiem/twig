@@ -58,6 +58,7 @@ internal static class WorkItemCopier
             ParentId = overrideParentId ? parentIdValue : source.ParentId,
             IsSeed = isSeedOverride ?? source.IsSeed,
             SeedCreatedAt = source.SeedCreatedAt,
+            StagedIdentity = source.StagedIdentity,
             LastSyncedAt = source.LastSyncedAt,
         };
 

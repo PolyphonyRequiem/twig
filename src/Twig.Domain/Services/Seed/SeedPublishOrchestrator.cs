@@ -238,7 +238,11 @@ public sealed class SeedPublishOrchestrator
         try
         {
             // 10a: Record publish mapping
-            await _publishIdMapRepo.RecordMappingAsync(seedId, newId, ct);
+            // 10a: Record publish mapping, keyed on the durable identity (wayfinder 0014).
+            // The negative alias is no longer the key, so a cache rebuild cannot reissue it to
+            // a different seed and make this lookup resolve to a previous owner (#280).
+            if (seed.StagedIdentity is { } stagedIdentity)
+                await _publishIdMapRepo.RecordMappingAsync(stagedIdentity, newId, ct);
 
             // 10b: Remap ID in seed_links
             await _seedLinkRepo.RemapIdAsync(seedId, newId, ct);

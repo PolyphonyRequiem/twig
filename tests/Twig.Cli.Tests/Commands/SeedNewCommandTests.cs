@@ -8,6 +8,7 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -184,17 +185,18 @@ public class SeedNewCommandTests
     }
 
     [Fact]
-    public async Task SeedNew_InitializesSeedCounterFromDb()
+    public async Task SeedNew_AssignsNegativeAliasFromStagedIdentityRegistry()
     {
         var parent = CreateWorkItem(1, "Parent Feature", WorkItemType.Feature);
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns(-5);
 
         var result = await _cmd.ExecuteAsync("Story");
 
         result.ShouldBe(0);
-        await _workItemRepo.Received().GetMinSeedIdAsync(Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.Id < 0 && w.StagedIdentity != null),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -503,11 +505,11 @@ public class SeedNewCommandTests
         HintEngine hintEngine)
     {
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var seedIdCounter = new SeedIdCounter();
+        var stagedIdentityRegistry = new FakeStagedIdentityRegistry();
         return new SeedNewCommand(
             _resolver, _workItemRepo, processConfigProvider,
             _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
     }
 
     private static ProcessTypeRecord CreateProcessTypeRecord(string typeName, params string[] childTypes) =>

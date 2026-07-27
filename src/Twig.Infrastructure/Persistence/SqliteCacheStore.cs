@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 11;
+    internal const int SchemaVersion = 12;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 1;
+    internal const int DurableSchemaVersion = 2;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -317,6 +317,50 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_seed_links_source ON seed_links(source_id);
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_seed_links_target ON seed_links(target_id);
             """,
+
+        // Wayfinder 0014. The durable half of the seed identity model.
+        //
+        // WHY A SEPARATE TABLE, when work_items already has an is_seed flag: work_items is in
+        // the DISPOSABLE mirror. A durable identity on a droppable row is the exact incoherence
+        // 0003 objected to, so the identity, the alias and the retirement record live HERE, in
+        // the store a SchemaVersion bump cannot reach. The mirror keeps a staged_identity
+        // column purely as a join-free convenience for reads; this table is the source of truth
+        // and can rebuild it.
+        //
+        // The `alias` column is UNIQUE but is deliberately NOT the primary key and is NOT a
+        // foreign key target anywhere (0003 §5a). `retired_at` is what makes "never recycled"
+        // structural: a discarded seed's row is marked, never deleted, so MIN(alias) can never
+        // walk back over an issued number.
+        [2] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.staged_identities (
+                staged_identity TEXT PRIMARY KEY,
+                alias INTEGER NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                retired_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_staged_identities_alias ON staged_identities(alias);
+
+            ALTER TABLE {DurableSchema}.publish_id_map ADD COLUMN staged_identity TEXT;
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_publish_id_map_staged_identity
+                ON publish_id_map(staged_identity);
+
+            INSERT OR IGNORE INTO {DurableSchema}.staged_identities (staged_identity, alias, created_at, retired_at)
+            SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-7' || substr(hex(randomblob(2)), 2)
+                       || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2)
+                       || '-' || hex(randomblob(6))),
+                   old_id,
+                   published_at,
+                   published_at
+            FROM {DurableSchema}.publish_id_map
+            WHERE old_id < 0;
+
+            UPDATE {DurableSchema}.publish_id_map
+            SET staged_identity = (
+                SELECT si.staged_identity FROM {DurableSchema}.staged_identities si
+                WHERE si.alias = publish_id_map.old_id
+            )
+            WHERE staged_identity IS NULL AND old_id < 0;
+            """,
     };
 
     private bool SchemaExists()
@@ -389,6 +433,7 @@ public sealed class SqliteCacheStore : IDisposable
             revision INTEGER NOT NULL,
             is_seed INTEGER NOT NULL DEFAULT 0,
             seed_created_at TEXT,
+            staged_identity TEXT,
             fields_json TEXT NOT NULL,
             is_dirty INTEGER NOT NULL DEFAULT 0,
             last_synced_at TEXT NOT NULL

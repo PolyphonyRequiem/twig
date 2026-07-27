@@ -1,4 +1,4 @@
-using NSubstitute;
+﻿using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -37,6 +37,8 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
     private readonly SqliteWorkItemRepository _repo;
     private readonly SqlitePublishIdMapRepository _publishIdMapRepo;
     private readonly SqliteUnitOfWork _unitOfWork;
+    private readonly SqliteStagedIdentityRegistry _registry;
+    private StagedIdentity _seedIdentity;
     private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
     private readonly IWorkItemLinkRepository _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
     private readonly ISeedPublishRulesProvider _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
@@ -48,7 +50,8 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
         _store = new SqliteCacheStore("Data Source=:memory:");
         _changeStore = new SqlitePendingChangeStore(_store);
         _repo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
-        _publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
+        _registry = new SqliteStagedIdentityRegistry(_store);
+        _publishIdMapRepo = new SqlitePublishIdMapRepository(_store, _registry);
         _unitOfWork = new SqliteUnitOfWork(_store);
 
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -118,7 +121,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
 
         // The map entry now lands, so a retry cannot create a second ADO item.
         (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
-        (await _publishIdMapRepo.GetNewIdAsync(SeedId)).ShouldBe(PublishedId);
+        (await _publishIdMapRepo.GetNewIdAsync(_seedIdentity)).ShouldBe(PublishedId);
     }
 
     [Fact]
@@ -134,7 +137,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
 
         (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
         (await _repo.GetByIdAsync(PublishedId)).ShouldNotBeNull();
-        (await _publishIdMapRepo.GetNewIdAsync(SeedId)).ShouldBe(PublishedId);
+        (await _publishIdMapRepo.GetNewIdAsync(_seedIdentity)).ShouldBe(PublishedId);
 
         // The note is migrated, not destroyed — it flushes to the published item on next sync.
         (await _changeStore.GetChangesAsync(SeedId)).ShouldBeEmpty();
@@ -183,9 +186,19 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
 
     private async Task SaveSeedAsync()
     {
+        // Wayfinder 0014: a staged seed carries a minted identity, and the alias it wears is
+        // whatever the durable register handed out. Pin the alias to SeedId so the rest of
+        // this fixture reads unchanged, and assert it -- if the register ever stops issuing
+        // -1 first, this fixture would otherwise silently drift off the path under test.
+        var minted = await _registry.MintAsync();
+        minted.Alias.Value.ShouldBe(SeedId,
+            "Fixture guard: the first minted alias must be SeedId, or the publish path below never runs.");
+        _seedIdentity = minted.Identity;
+
         var seed = new WorkItem
         {
             Id = SeedId,
+            StagedIdentity = _seedIdentity,
             Type = WorkItemType.Task,
             Title = "publish me",
             State = "New",

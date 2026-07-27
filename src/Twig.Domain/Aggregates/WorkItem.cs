@@ -45,6 +45,17 @@ public sealed class WorkItem
     public bool IsSeed { get; init; }
     public DateTimeOffset? SeedCreatedAt { get; init; }
 
+    /// <summary>
+    /// The durable identity minted when this item was staged as a seed (wayfinder 0014), or
+    /// <see langword="null"/> for an item that ADO owns.
+    /// <para>
+    /// <see cref="Id"/> on a seed is the negative <b>display alias</b> — decorative, never a
+    /// key. This is the key. The mirror column it round-trips through is a convenience copy;
+    /// the durable register in <c>pending.db</c> is the source of truth.
+    /// </para>
+    /// </summary>
+    public StagedIdentity? StagedIdentity { get; init; }
+
     // ── Cache staleness ─────────────────────────────────────────────
     public DateTimeOffset? LastSyncedAt { get; init; }
 

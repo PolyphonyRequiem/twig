@@ -19,9 +19,15 @@ namespace Twig.Mcp.Tests.Tools;
 /// </summary>
 public sealed class SeedToolsTests : CreationToolsTestBase
 {
+    private static PublishMapping Mapping(int alias, int newId)
+    {
+        StagedAlias.TryFrom(alias, out var a);
+        return new PublishMapping(StagedIdentity.New(), a, newId);
+    }
+
     private SeedTools CreateSeedSut()
     {
-        return new SeedTools(BuildResolver(DefaultConfig), new SeedFactory(new SeedIdCounter()));
+        return new SeedTools(BuildResolver(DefaultConfig), new SeedFactory());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -187,24 +193,6 @@ public sealed class SeedToolsTests : CreationToolsTestBase
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("Allowed child types");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  twig_seed_new — initializes seed counter from DB
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task SeedNew_InitializesSeedCounter_FromMinSeedId()
-    {
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns(-5);
-
-        var sut = CreateSeedSut();
-        var result = await sut.SeedNew("Seed After Init", type: "Task");
-
-        result.IsError.ShouldBeNull();
-        var data = ParseResult(result);
-        // ID should be below -5 since counter was initialized at -5
-        data.GetProperty("id").GetInt32().ShouldBeLessThan(-5);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -946,7 +934,7 @@ public sealed class SeedToolsTests : CreationToolsTestBase
     public async Task SeedReconcile_NothingToDo_ReturnsCleanResult()
     {
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink>());
-        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<(int, int)>());
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<PublishMapping>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem>());
 
         var sut = CreateSeedSut();
@@ -971,7 +959,7 @@ public sealed class SeedToolsTests : CreationToolsTestBase
         var staleLink = new SeedLink(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow);
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink> { staleLink });
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500), (-2, 600) });
+            .Returns(new List<PublishMapping> { Mapping(-1, 500), Mapping(-2, 600) });
 
         // Both old IDs are gone (published)
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
@@ -996,7 +984,7 @@ public sealed class SeedToolsTests : CreationToolsTestBase
     {
         var orphanLink = new SeedLink(-1, -2, SeedLinkTypes.Related, DateTimeOffset.UtcNow);
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink> { orphanLink });
-        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<(int, int)>());
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<PublishMapping>());
 
         // Neither seed exists and no publish mapping
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
@@ -1021,7 +1009,7 @@ public sealed class SeedToolsTests : CreationToolsTestBase
     {
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink>());
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-10, 1000) });
+            .Returns(new List<PublishMapping> { Mapping(-10, 1000) });
 
         // Seed with stale parent reference
         var seed = new WorkItemBuilder(-5, "Child Seed").AsTask().AsSeed().WithParent(-10).Build();

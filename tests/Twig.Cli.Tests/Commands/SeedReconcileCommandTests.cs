@@ -28,7 +28,7 @@ public class SeedReconcileCommandTests : IDisposable
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)>());
+            .Returns(new List<PublishMapping>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem>());
 
@@ -100,7 +100,7 @@ public class SeedReconcileCommandTests : IDisposable
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500) });
+            .Returns(new List<PublishMapping> { new(StagedIdentity.New(), Alias(-1), 500) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
 
@@ -145,7 +145,7 @@ public class SeedReconcileCommandTests : IDisposable
         };
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(links);
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<(int, int)> { (-1, 500) });
+            .Returns(new List<PublishMapping> { new(StagedIdentity.New(), Alias(-1), 500) });
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
 
@@ -181,4 +181,11 @@ public class SeedReconcileCommandTests : IDisposable
         exitCode.ShouldBe(0);
         writer.ToString().ShouldContain("discarded");
     }
+
+    private static StagedAlias Alias(int value)
+    {
+        StagedAlias.TryFrom(value, out var alias).ShouldBeTrue();
+        return alias;
+    }
+
 }

@@ -6,6 +6,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -41,11 +42,11 @@ public class SeedChainCommandTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var seedIdCounter = new SeedIdCounter();
+        var stagedIdentityRegistry = new FakeStagedIdentityRegistry();
         _cmd = new SeedChainCommand(
             _resolver, _workItemRepo, _seedLinkRepo,
             _processConfigProvider, _consoleInput, formatterFactory, hintEngine,
-            new SeedFactory(seedIdCounter), seedIdCounter);
+            new SeedFactory(), stagedIdentityRegistry);
     }
 
     // ── E4-T4: Chain creates N seeds with N-1 links ────────────────
@@ -252,16 +253,17 @@ public class SeedChainCommandTests
     }
 
     [Fact]
-    public async Task Chain_InitializesSeedCounterFromDb()
+    public async Task Chain_AssignsNegativeAliasFromStagedIdentityRegistry()
     {
         SetupParent(1, "Parent Feature", WorkItemType.Feature);
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns(-5);
         SetupConsoleInputSequence("Task", "");
 
         var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None);
 
         result.ShouldBe(0);
-        await _workItemRepo.Received().GetMinSeedIdAsync(Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.Id < 0 && w.StagedIdentity != null),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

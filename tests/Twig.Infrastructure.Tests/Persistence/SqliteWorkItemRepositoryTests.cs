@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -609,115 +609,81 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  GetMinSeedIdAsync tests (E1-T10, E1-T11)
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task GetMinSeedIdAsync_ReturnsNull_WhenNoSeeds()
-    {
-        var result = await _repo.GetMinSeedIdAsync();
-        result.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task GetMinSeedIdAsync_ReturnsNull_WhenOnlyNonSeeds()
-    {
-        var item = CreateWorkItem(1, "Task", "Regular", "Active");
-        await _repo.SaveAsync(item);
-
-        var result = await _repo.GetMinSeedIdAsync();
-        result.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task GetMinSeedIdAsync_ReturnsSmallestSeedId()
-    {
-        var seed1 = new WorkItemBuilder(-11, "Seed 1").AsSeed().Build();
-        var seed2 = new WorkItemBuilder(-12, "Seed 2").AsSeed().Build();
-        var seed3 = new WorkItemBuilder(-13, "Seed 3").AsSeed().Build();
-        await _repo.SaveBatchAsync(new[] { seed1, seed2, seed3 });
-
-        var minId = await _repo.GetMinSeedIdAsync();
-
-        minId.ShouldNotBeNull();
-        minId.Value.ShouldBe(new[] { seed1.Id, seed2.Id, seed3.Id }.Min());
-    }
-
-    [Fact]
-    public async Task GetMinSeedIdAsync_IgnoresNonSeedItems()
-    {
-        var regular = CreateWorkItem(1, "Task", "Regular", "Active");
-        var seed = new WorkItemBuilder(-6, "Seed").AsSeed().Build();
-        await _repo.SaveAsync(regular);
-        await _repo.SaveAsync(seed);
-
-        var minId = await _repo.GetMinSeedIdAsync();
-
-        minId.ShouldNotBeNull();
-        minId.Value.ShouldBe(seed.Id);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Seed ID recycling (#280)
+    //  Seed ID recycling (#280) — the invariant INVERTED, wayfinder 0014
     //
-    //  Publishing DELETES the seed row (SeedPublishOrchestrator.cs:265-266),
-    //  but publish_id_map.old_id is a PERMANENT key space. If the allocator
-    //  derives its high-water mark only from work_items, a published seed's
-    //  negative ID becomes re-issuable — and the new seed then resolves,
-    //  through the map, to the ADO work item published under the PREVIOUS
-    //  owner of that ID.
+    //  The tests that lived here asserted that GetMinSeedIdAsync's floor spanned BOTH
+    //  work_items and publish_id_map, because a published seed's negative ID was a
+    //  permanent key and reissuing it resolved the new seed to the previous owner's ADO
+    //  item. That was correct for the allocator model.
     //
-    //  The floor must therefore span both tables.
+    //  0014 deleted the allocator. GetMinSeedIdAsync and its #285 union query are gone,
+    //  so those assertions are not merely obsolete — they are UNEXPRESSIBLE, the same
+    //  shape as 0013 deleting the FK. Following that precedent, they are inverted rather
+    //  than removed: what replaces them is that no floor query exists on the repository
+    //  at all, and that the identity a seed carries is what publish_id_map is keyed on.
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task GetMinSeedIdAsync_IncludesPublishedIds_SoTheyAreNotReissued()
+    public void Fixture_NoSeedIdFloorQueryExists_SoTheReissueClassIsUnexpressible()
     {
-        var mapRepo = new SqlitePublishIdMapRepository(_store);
+        // The deletion test from 0003 §3, asserted rather than assumed: if someone
+        // reintroduces a min-seed-id scan on the repository, the allocator — and #280's
+        // failure class with it — is back, and this fails.
+        typeof(SqliteWorkItemRepository)
+            .GetMethods()
+            .ShouldNotContain(
+                m => m.Name.Contains("MinSeedId", StringComparison.Ordinal),
+                "wayfinder 0014 retired the seed-id floor; a new floor query reopens #280");
 
-        // Seed A (-1) survives; seed B (-2) was published, so its row is gone
-        // from work_items but its identity is permanently consumed.
-        var seedA = new WorkItemBuilder(-1, "Seed A").AsSeed().Build();
-        await _repo.SaveAsync(seedA);
-        await mapRepo.RecordMappingAsync(-2, 12345);
-
-        var minId = await _repo.GetMinSeedIdAsync();
-
-        minId.ShouldNotBeNull();
-        minId.Value.ShouldBe(-2,
-            "the floor must account for published seed IDs; returning -1 lets the next "
-            + "allocation reissue -2, which already maps to ADO item 12345 (#280)");
+        typeof(Twig.Domain.Interfaces.IWorkItemRepository)
+            .GetMethods()
+            .ShouldNotContain(m => m.Name.Contains("MinSeedId", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task GetMinSeedIdAsync_ReturnsPublishedFloor_WhenAllSeedsPublished()
+    public async Task PublishedSeedIdentity_IsNotReissuable_EvenAfterTheSeedRowIsGone()
     {
-        var mapRepo = new SqlitePublishIdMapRepository(_store);
+        // #280 restated for the new model. Seed B was published, so its work_items row is
+        // deleted — the exact state that used to let its negative ID be reissued. The map
+        // is now keyed on the minted identity, so the published mapping stays reachable
+        // and a freshly minted seed cannot collide with it, with no floor consulted.
+        var registry = new SqliteStagedIdentityRegistry(_store);
+        var mapRepo = new SqlitePublishIdMapRepository(_store, registry);
 
-        // Every seed has been published — work_items holds no seed rows at all.
-        await mapRepo.RecordMappingAsync(-1, 11111);
-        await mapRepo.RecordMappingAsync(-2, 22222);
+        var published = await registry.MintAsync();
+        await mapRepo.RecordMappingAsync(published.Identity, 12345);
 
-        var minId = await _repo.GetMinSeedIdAsync();
+        // Nothing of seed B survives in work_items.
+        (await _repo.GetByIdAsync(published.Alias.Value)).ShouldBeNull();
 
-        minId.ShouldNotBeNull(
-            "an empty work_items seed set does NOT mean the ID space is unused (#280)");
-        minId.Value.ShouldBe(-2);
+        // A new seed mints a fresh identity AND a fresh alias, without any DB floor scan.
+        var next = await registry.MintAsync();
+        next.Identity.ShouldNotBe(published.Identity);
+        next.Alias.Value.ShouldBeLessThan(published.Alias.Value,
+            "the durable register never deletes a row, so the alias floor cannot walk back");
+
+        // The published mapping is still resolvable under its own identity.
+        (await mapRepo.GetNewIdAsync(published.Identity)).ShouldBe(12345);
+        (await mapRepo.GetNewIdAsync(next.Identity)).ShouldBeNull(
+            "a newly minted seed must not resolve to another seed's published ADO item (#280)");
     }
 
     [Fact]
-    public async Task GetMinSeedIdAsync_ReturnsLiveFloor_WhenLiveSeedIsLower()
+    public async Task RetiredAlias_IsNeverReissued()
     {
-        var mapRepo = new SqlitePublishIdMapRepository(_store);
+        // 0003 §5a: a discarded seed's alias is retired, not reissued. Retirement marks the
+        // row rather than deleting it, precisely so MIN(alias) cannot reclaim the number.
+        var registry = new SqliteStagedIdentityRegistry(_store);
 
-        var seed = new WorkItemBuilder(-9, "Live seed").AsSeed().Build();
-        await _repo.SaveAsync(seed);
-        await mapRepo.RecordMappingAsync(-2, 12345);
+        var discarded = await registry.MintAsync();
+        await registry.RetireAsync(discarded.Identity);
 
-        var minId = await _repo.GetMinSeedIdAsync();
+        var next = await registry.MintAsync();
 
-        minId.ShouldNotBeNull();
-        minId.Value.ShouldBe(-9, "the floor is the minimum across BOTH sources");
+        next.Alias.Value.ShouldBeLessThan(discarded.Alias.Value,
+            "a retired alias must not be handed out again");
+        (await registry.FindByAliasAsync(discarded.Alias)).ShouldBe(discarded.Identity,
+            "the retirement record survives so the old alias still resolves for display");
     }
 
     // ═══════════════════════════════════════════════════════════════

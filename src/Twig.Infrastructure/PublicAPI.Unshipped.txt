@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 *REMOVED*Twig.Infrastructure.Config.AreasConfig.Mode.get -> string!
 Twig.Infrastructure.Config.AreasConfig.EffectiveMode.get -> string!
 Twig.Infrastructure.Config.AreasConfig.Mode.get -> string?
@@ -78,3 +78,19 @@ Twig.Infrastructure.Services.Mutation.PatchWorkflow
 Twig.Infrastructure.Services.Mutation.PatchWorkflow.PatchWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
 Twig.Infrastructure.Services.Mutation.PatchWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, Twig.Domain.Aggregates.WorkItem? remote, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PatchOutcome!>!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.RemapWorkItemIdAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PublishMapping>!>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.RecordMappingAsync(Twig.Domain.ValueObjects.StagedIdentity identity, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.SqlitePublishIdMapRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store, Twig.Domain.Interfaces.IStagedIdentityRegistry! registry) -> void
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.FindAliasAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedAlias?>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.FindByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedIdentity?>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.MintAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedSeedIdentity>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.RetireAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.SqliteStagedIdentityRegistry(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+*REMOVED*Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<(int OldId, int NewId)>!>!
+*REMOVED*Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdAsync(int oldId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+*REMOVED*Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.RecordMappingAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.SqlitePublishIdMapRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+*REMOVED*Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetMinSeedIdAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!

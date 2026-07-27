@@ -487,7 +487,7 @@ public sealed class McpEnvelopeShapeTests
             patchWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
-            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
+            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<IStagedIdentityRegistry>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
     }
 
     private static void AssertNoSpectreMarkup(CallToolResult result)

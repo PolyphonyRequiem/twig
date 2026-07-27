@@ -24,7 +24,7 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
         var workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
         var workItemLinkRepo = new SqliteWorkItemLinkRepository(_store);
         var seedLinkRepo = new SqliteSeedLinkRepository(_store);
-        var publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
+        var publishIdMapRepo = new SqlitePublishIdMapRepository(_store, new SqliteStagedIdentityRegistry(_store));
         var unitOfWork = new SqliteUnitOfWork(_store);
         var adoService = Substitute.For<IAdoWorkItemService>();
         var rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
@@ -71,7 +71,7 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
         var workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
         var workItemLinkRepo = new SqliteWorkItemLinkRepository(_store);
         var seedLinkRepo = new SqliteSeedLinkRepository(_store);
-        var publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
+        var publishIdMapRepo = new SqlitePublishIdMapRepository(_store, new SqliteStagedIdentityRegistry(_store));
         var unitOfWork = new SqliteUnitOfWork(_store);
         var adoService = Substitute.For<IAdoWorkItemService>();
         var rulesProvider = Substitute.For<ISeedPublishRulesProvider>();

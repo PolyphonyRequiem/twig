@@ -18,6 +18,7 @@ public sealed record WorkItemSnapshot
     public int? ParentId { get; init; }
     public bool IsSeed { get; init; }
     public DateTimeOffset? SeedCreatedAt { get; init; }
+    public string? StagedIdentity { get; init; }
     public DateTimeOffset? LastSyncedAt { get; init; }
     public bool IsDirty { get; init; }
     public IReadOnlyDictionary<string, string?> Fields { get; init; }

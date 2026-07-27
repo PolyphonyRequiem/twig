@@ -8,17 +8,16 @@ namespace Twig.Domain.Services.Seed;
 /// <summary>
 /// Creates seed work items, validating parent/child rules via <see cref="ProcessConfiguration"/>
 /// and inheriting area/iteration paths from the parent context.
-/// Uses <see cref="ISeedIdCounter"/> for thread-safe negative ID generation.
+/// <para>
+/// Wayfinder 0014: identity is <b>minted</b>, not allocated. The caller passes the
+/// <see cref="StagedSeedIdentity"/> it obtained from <see cref="IStagedIdentityRegistry"/>;
+/// there is no counter to initialize, so there is no two-line preamble a sixth call site can
+/// forget (0003 §2). The negative integer lands on <see cref="WorkItem.Id"/> as a display
+/// alias only — <see cref="WorkItem.StagedIdentity"/> is the key.
+/// </para>
 /// </summary>
-public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
+public sealed class SeedFactory
 {
-    /// <summary>
-    /// Initializes the seed ID counter so that subsequent seed creation
-    /// produces IDs below all existing seeds. Thread-safe.
-    /// </summary>
-    public void InitializeSeedCounter(int minExistingId) =>
-        seedIdCounter.Initialize(minExistingId);
-
     /// <summary>
     /// Creates a seed work item under the given parent context.
     /// </summary>
@@ -27,10 +26,12 @@ public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
     /// <param name="processConfig">Process configuration for validating parent/child rules.</param>
     /// <param name="typeOverride">Explicit child type. If null, inferred from parent's allowed child types.</param>
     /// <param name="assignedTo">Optional user display name to auto-assign the seed.</param>
+    /// <param name="identity">The minted identity and display alias for the new seed.</param>
     public Result<WorkItem> Create(
         string title,
         WorkItem? parentContext,
         ProcessConfiguration processConfig,
+        StagedSeedIdentity identity,
         WorkItemType? typeOverride = null,
         string? assignedTo = null)
     {
@@ -79,7 +80,8 @@ public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
             parentContext?.Id,
             parentContext?.AreaPath ?? default,
             parentContext?.IterationPath ?? default,
-            assignedTo);
+            assignedTo,
+            identity);
 
         return Result.Ok(seed);
     }
@@ -93,6 +95,7 @@ public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
         WorkItemType type,
         AreaPath areaPath,
         IterationPath iterationPath,
+        StagedSeedIdentity identity,
         string? assignedTo = null,
         int? parentId = null)
     {
@@ -105,22 +108,27 @@ public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
             parentId,
             areaPath,
             iterationPath,
-            assignedTo);
+            assignedTo,
+            identity);
 
         return Result.Ok(seed);
     }
 
-    private WorkItem CreateSeedInternal(
+    private static WorkItem CreateSeedInternal(
         WorkItemType type,
         string title,
         int? parentId,
         AreaPath areaPath,
         IterationPath iterationPath,
-        string? assignedTo)
+        string? assignedTo,
+        StagedSeedIdentity identity)
     {
         var seed = new WorkItem
         {
-            Id = seedIdCounter.Next(),
+            // The negative integer is the DISPLAY ALIAS (0003 §5a) — never a key, never joined
+            // on, never a FK target. StagedIdentity below is the key.
+            Id = identity.Alias.Value,
+            StagedIdentity = identity.Identity,
             Type = type,
             Title = title,
             IsSeed = true,

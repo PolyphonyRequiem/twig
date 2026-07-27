@@ -210,9 +210,14 @@ public sealed class NavigationHistoryCommands(
     {
         if (workItemId < 0)
         {
-            var newId = await publishIdMapRepo.GetNewIdAsync(workItemId, ct);
-            if (newId.HasValue)
-                return newId.Value;
+            // The number came from a user or from navigation_history, so it is an alias.
+            // Resolve it through the durable register; an unknown alias stays unknown.
+            if (StagedAlias.TryFrom(workItemId, out var alias))
+            {
+                var newId = await publishIdMapRepo.GetNewIdByAliasAsync(alias, ct);
+                if (newId.HasValue)
+                    return newId.Value;
+            }
         }
 
         return workItemId;

@@ -8,6 +8,7 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -124,7 +125,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
-            new SeedFactory(new SeedIdCounter()));
+            new SeedFactory(), new FakeStagedIdentityRegistry());
 
         var result = await cmd.ExecuteAsync("My Task", "Task", set: true);
 
@@ -144,7 +145,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
-            new SeedFactory(new SeedIdCounter()),
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
             rendererFactory: null,
             contextChangeService: contextChangeService);
     }

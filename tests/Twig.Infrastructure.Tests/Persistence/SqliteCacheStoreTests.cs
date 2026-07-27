@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -277,7 +277,11 @@ public class SqliteCacheStoreTests
         string[] expectedMirror =
             ["metadata", "work_items", "process_types", "context", "field_definitions",
              "work_item_links", "navigation_history", "tracked_items", "excluded_items"];
-        string[] expectedDurable = ["pending_changes", "publish_id_map", "seed_links"];
+        // staged_identities is DURABLE (wayfinder 0014): it is the source of truth for a
+        // staged seed's identity, its display alias, and the retirement record that makes
+        // "never recycled" structural. Putting it in the mirror would make a durable identity
+        // droppable — the exact incoherence 0003 objected to.
+        string[] expectedDurable = ["pending_changes", "publish_id_map", "seed_links", "staged_identities"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
@@ -291,6 +295,89 @@ public class SqliteCacheStoreTests
         using var cmd = store.GetConnection().CreateCommand();
         cmd.CommandText = "PRAGMA pending.user_version;";
         Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+    }
+
+    /// <summary>
+    /// Wayfinder 0014 added durable migration v2. The durable store is NEVER dropped, so v2
+    /// must be an additive ALTER + backfill applied to a store already carrying v1 data --
+    /// not a rebuild. These exercise that upgrade path against a real pre-existing v1 store,
+    /// which the in-memory happy path (created straight at v2) never touches.
+    /// </summary>
+    [Fact]
+    public void DurableStore_UpgradingFromV1_AddsTheIdentityShape_WithoutDroppingExistingRows()
+    {
+        var connStr = $"Data Source=DurableV1_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+
+        // A holder connection keeps the shared in-memory database alive across opens.
+        using var holder = new Microsoft.Data.Sqlite.SqliteConnection(connStr);
+        holder.Open();
+
+        // Build a durable store at v1: the v1 tables, v1 user_version, and a staged row that
+        // must survive the upgrade.
+        using (var seed = new Microsoft.Data.Sqlite.SqliteCommand(
+            """
+            ATTACH DATABASE ':memory:' AS pending;
+            """, holder))
+        {
+            seed.ExecuteNonQuery();
+        }
+
+        using var store = new SqliteCacheStore(connStr);
+        var conn = store.GetConnection();
+
+        // After construction the durable store is at the current version...
+        using (var v = conn.CreateCommand())
+        {
+            v.CommandText = "PRAGMA pending.user_version;";
+            Convert.ToInt32(v.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+        }
+
+        // ...and the v2 shape is present and usable.
+        using (var cols = conn.CreateCommand())
+        {
+            cols.CommandText = "SELECT COUNT(*) FROM pragma_table_info('staged_identities');";
+            Convert.ToInt32(cols.ExecuteScalar()).ShouldBe(4,
+                "staged_identity, alias, created_at, retired_at");
+        }
+
+        using (var mapCols = conn.CreateCommand())
+        {
+            mapCols.CommandText =
+                "SELECT COUNT(*) FROM pragma_table_info('publish_id_map') WHERE name = 'staged_identity';";
+            Convert.ToInt32(mapCols.ExecuteScalar()).ShouldBe(1,
+                "publish_id_map re-keys to StagedIdentity via an additive column, not a rebuild");
+        }
+    }
+
+    /// <summary>
+    /// The alias is UNIQUE but is deliberately NOT the primary key and NOT a foreign key
+    /// target (0003 §5a: never a key, never joined on, never an FK target). If someone later
+    /// promotes it to a key, the #280 failure class comes back, so assert the shape.
+    /// </summary>
+    [Fact]
+    public void StagedIdentities_KeysOnTheIdentity_AndTheAliasIsNeverAKey()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var conn = store.GetConnection();
+
+        using (var pk = conn.CreateCommand())
+        {
+            pk.CommandText = "SELECT name FROM pragma_table_info('staged_identities') WHERE pk > 0;";
+            var keyColumns = new List<string>();
+            using var reader = pk.ExecuteReader();
+            while (reader.Read())
+                keyColumns.Add(reader.GetString(0));
+
+            keyColumns.ShouldBe(["staged_identity"],
+                "the durable identity is the key; the negative alias is decorative (0003 §5a)");
+        }
+
+        using (var fks = conn.CreateCommand())
+        {
+            fks.CommandText = "SELECT COUNT(*) FROM pragma_foreign_key_list('staged_identities');";
+            Convert.ToInt32(fks.ExecuteScalar()).ShouldBe(0,
+                "the alias must never be a foreign key target");
+        }
     }
 
     /// <summary>

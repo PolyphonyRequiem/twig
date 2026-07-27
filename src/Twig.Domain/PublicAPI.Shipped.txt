@@ -1025,9 +1025,9 @@ Twig.Domain.Services.Seed.SeedPublishOrchestrator
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.PublishAllAsync(bool force = false, bool dryRun = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedPublishBatchResult!>!
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.PublishAsync(int seedId, bool force = false, bool dryRun = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedPublishResult!>!
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer) -> void
-Twig.Domain.Services.Seed.SeedReconcileOrchestrator
-Twig.Domain.Services.Seed.SeedReconcileOrchestrator.ReconcileAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedReconcileResult!>!
-Twig.Domain.Services.Seed.SeedReconcileOrchestrator.SeedReconcileOrchestrator(Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo) -> void
+Twig.Domain.Services.Seed.SeedLinkRepair
+Twig.Domain.Services.Seed.SeedLinkRepair.RepairAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedLinkRepairResult!>!
+Twig.Domain.Services.Seed.SeedLinkRepair.SeedLinkRepair(Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo) -> void
 Twig.Domain.Services.Seed.SeedValidator
 Twig.Domain.Services.SprintIterationResolver
 Twig.Domain.Services.SprintIterationResolver.GetSprintItemsAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationExpression>! expressions, string? userDisplayName, bool allUsers, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
@@ -1082,8 +1082,8 @@ Twig.Domain.Services.Sync.PartiallyUpdated.SavedCount.get -> int
 Twig.Domain.Services.Sync.PartiallyUpdated.SavedCount.init -> void
 Twig.Domain.Services.Sync.ProtectedCacheWriter
 Twig.Domain.Services.Sync.ProtectedCacheWriter.ProtectedCacheWriter(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore) -> void
-Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveBatchProtectedAsync(System.Collections.Generic.IEnumerable<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlySet<int>! protectedIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<int>!>!
-Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveBatchProtectedAsync(System.Collections.Generic.IEnumerable<Twig.Domain.Aggregates.WorkItem!>! items, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<int>!>!
+Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveBatchProtectedAsync(System.Collections.Generic.IEnumerable<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlySet<int>! protectedIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
+Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveBatchProtectedAsync(System.Collections.Generic.IEnumerable<Twig.Domain.Aggregates.WorkItem!>! items, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
 Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveProtectedAsync(Twig.Domain.Aggregates.WorkItem! item, System.Collections.Generic.IReadOnlySet<int>! protectedIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Services.Sync.ProtectedCacheWriter.SaveProtectedAsync(Twig.Domain.Aggregates.WorkItem! item, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Services.Sync.RefreshConflict
@@ -1637,17 +1637,17 @@ Twig.Domain.ValueObjects.SeedPublishStatus.DryRun = 2 -> Twig.Domain.ValueObject
 Twig.Domain.ValueObjects.SeedPublishStatus.Error = 4 -> Twig.Domain.ValueObjects.SeedPublishStatus
 Twig.Domain.ValueObjects.SeedPublishStatus.Skipped = 1 -> Twig.Domain.ValueObjects.SeedPublishStatus
 Twig.Domain.ValueObjects.SeedPublishStatus.ValidationFailed = 3 -> Twig.Domain.ValueObjects.SeedPublishStatus
-Twig.Domain.ValueObjects.SeedReconcileResult
-Twig.Domain.ValueObjects.SeedReconcileResult.LinksRemoved.get -> int
-Twig.Domain.ValueObjects.SeedReconcileResult.LinksRemoved.init -> void
-Twig.Domain.ValueObjects.SeedReconcileResult.LinksRepaired.get -> int
-Twig.Domain.ValueObjects.SeedReconcileResult.LinksRepaired.init -> void
-Twig.Domain.ValueObjects.SeedReconcileResult.NothingToDo.get -> bool
-Twig.Domain.ValueObjects.SeedReconcileResult.ParentIdsFixed.get -> int
-Twig.Domain.ValueObjects.SeedReconcileResult.ParentIdsFixed.init -> void
-Twig.Domain.ValueObjects.SeedReconcileResult.SeedReconcileResult() -> void
-Twig.Domain.ValueObjects.SeedReconcileResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.ValueObjects.SeedReconcileResult.Warnings.init -> void
+Twig.Domain.ValueObjects.SeedLinkRepairResult
+Twig.Domain.ValueObjects.SeedLinkRepairResult.LinksRemoved.get -> int
+Twig.Domain.ValueObjects.SeedLinkRepairResult.LinksRemoved.init -> void
+Twig.Domain.ValueObjects.SeedLinkRepairResult.LinksRepaired.get -> int
+Twig.Domain.ValueObjects.SeedLinkRepairResult.LinksRepaired.init -> void
+Twig.Domain.ValueObjects.SeedLinkRepairResult.NothingToDo.get -> bool
+Twig.Domain.ValueObjects.SeedLinkRepairResult.ParentIdsFixed.get -> int
+Twig.Domain.ValueObjects.SeedLinkRepairResult.ParentIdsFixed.init -> void
+Twig.Domain.ValueObjects.SeedLinkRepairResult.SeedLinkRepairResult() -> void
+Twig.Domain.ValueObjects.SeedLinkRepairResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.ValueObjects.SeedLinkRepairResult.Warnings.init -> void
 Twig.Domain.ValueObjects.SeedValidationFailure
 Twig.Domain.ValueObjects.SeedValidationFailure.Deconstruct(out string! Rule, out string! Message) -> void
 Twig.Domain.ValueObjects.SeedValidationFailure.Equals(Twig.Domain.ValueObjects.SeedValidationFailure other) -> bool

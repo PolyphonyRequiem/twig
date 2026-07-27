@@ -738,7 +738,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed reconcile")]
     public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedReconcileCommand>().ExecuteAsync(output, ct);
+        => await services.GetRequiredService<SeedLinkRepairCommand>().ExecuteAsync(output, ct);
 
     // ── Link commands (published work items) ────────────────────────
 

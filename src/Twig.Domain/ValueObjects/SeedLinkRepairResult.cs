@@ -3,7 +3,7 @@ namespace Twig.Domain.ValueObjects;
 /// <summary>
 /// Outcome of reconciling stale seed links and parent references using the publish ID map.
 /// </summary>
-public sealed class SeedReconcileResult
+public sealed class SeedLinkRepairResult
 {
     public int LinksRepaired { get; init; }
     public int LinksRemoved { get; init; }

@@ -567,8 +567,8 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var orchestrator = new SeedReconcileOrchestrator(ctx.Get<ISeedLinkRepository>(), ctx.Get<IWorkItemRepository>(), ctx.Get<IPublishIdMapRepository>());
-        var result = await orchestrator.ReconcileAsync(ct);
+        var orchestrator = new SeedLinkRepair(ctx.Get<ISeedLinkRepository>(), ctx.Get<IWorkItemRepository>(), ctx.Get<IPublishIdMapRepository>());
+        var result = await orchestrator.RepairAsync(ct);
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {

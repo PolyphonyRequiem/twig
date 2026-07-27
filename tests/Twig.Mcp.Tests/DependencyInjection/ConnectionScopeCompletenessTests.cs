@@ -52,7 +52,7 @@ public sealed class ConnectionScopeCompletenessTests
         typeof(PatchWorkflow),
         typeof(BacklogOrderer),
         typeof(SeedPublishOrchestrator),
-        typeof(SeedReconcileOrchestrator),
+        typeof(SeedLinkRepair),
         typeof(SeedMutationProvider),
         typeof(AdoMutationProvider),
         typeof(SprintIterationResolver),

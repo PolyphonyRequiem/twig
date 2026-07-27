@@ -58,7 +58,7 @@ public class ProtectedCacheWriterTests
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
         skipped.Count.ShouldBe(1);
-        skipped.ShouldContain(2);
+        skipped.Select(i => i.Id).ShouldContain(2);
         await _workItemRepo.Received(1).SaveBatchAsync(
             Arg.Is<IEnumerable<WorkItem>>(x => x.Count() == 2),
             Arg.Any<CancellationToken>());
@@ -78,8 +78,8 @@ public class ProtectedCacheWriterTests
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
         skipped.Count.ShouldBe(2);
-        skipped.ShouldContain(1);
-        skipped.ShouldContain(2);
+        skipped.Select(i => i.Id).ShouldContain(1);
+        skipped.Select(i => i.Id).ShouldContain(2);
         await _workItemRepo.DidNotReceive().SaveBatchAsync(
             Arg.Any<IEnumerable<WorkItem>>(),
             Arg.Any<CancellationToken>());
@@ -150,8 +150,8 @@ public class ProtectedCacheWriterTests
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
         skipped.Count.ShouldBe(2);
-        skipped.ShouldContain(5);
-        skipped.ShouldContain(8);
+        skipped.Select(i => i.Id).ShouldContain(5);
+        skipped.Select(i => i.Id).ShouldContain(8);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -259,6 +259,79 @@ public class ProtectedCacheWriterTests
         await _workItemRepo.Received(1).SaveBatchAsync(
             Arg.Is<IEnumerable<WorkItem>>(x => x.Count() == 4 && x.All(i => i.Id != 3)),
             Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Wayfinder 0004 §4 — a skipped item must carry its remote snapshot
+    //
+    //  0004: "SaveBatchProtectedAsync must stop reducing skipped IDs to a
+    //  count. It discards precisely the remote-side input ConflictResolver
+    //  needs. A batch reconcile cannot be built on a cache that throws away
+    //  what it saw."
+    //
+    //  A skipped item is BY DEFINITION one where local is protected (dirty
+    //  or pending) AND a fresh remote snapshot was just fetched — i.e. exactly
+    //  the conflict case. The pre-0004 signature returned int IDs, so the
+    //  remote WorkItem died on the return statement and any caller wanting to
+    //  reconcile had to re-fetch it from ADO.
+    //
+    //  This asserts the OUTCOME, not the signature: the returned value must be
+    //  sufficient to drive ConflictResolver to a real HasConflicts verdict with
+    //  no further I/O. An int list cannot satisfy that at any revision.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SaveBatchProtectedAsync_SkippedItem_CarriesRemoteSnapshotSufficientForConflictResolution()
+    {
+        // Local #42 is protected (pending change) and sits at revision 7.
+        var local = new WorkItemBuilder(42, "Local title").InState("Active").Build();
+        local.MarkSynced(7);
+        _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 42 });
+
+        // Remote #42 has moved on: revision 9, different title and state.
+        var remote = new WorkItemBuilder(42, "Remote title").InState("Closed").Build();
+        remote.MarkSynced(9);
+
+        var skipped = await _sut.SaveBatchProtectedAsync([remote]);
+
+        // Fixture guard — assert the conflict branch can actually fire.
+        // ConflictResolver.Resolve short-circuits to NoConflict when the
+        // revisions match, and a freshly built WorkItem is Revision 0 on BOTH
+        // sides. Without this the test would silently exercise the happy path.
+        local.Revision.ShouldBe(7);
+        remote.Revision.ShouldBe(9);
+        remote.Revision.ShouldNotBe(local.Revision,
+            "the conflict branch is unreachable when revisions match");
+
+        // The write must have been skipped — this is the protected path.
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Any<IEnumerable<WorkItem>>(), Arg.Any<CancellationToken>());
+
+        // The remote snapshot must survive the call, not be reduced to an id.
+        var carried = skipped.ShouldHaveSingleItem();
+        carried.Id.ShouldBe(42);
+        carried.Revision.ShouldBe(9);
+        carried.Title.ShouldBe("Remote title");
+        carried.State.ShouldBe("Closed");
+
+        // And it must be sufficient, with no extra fetch, to reach a verdict.
+        // MergeResult is a `union` value type — pattern-match the case rather
+        // than casting or using ShouldBeOfType against the wrapper.
+        var merge = ConflictResolver.Resolve(local, carried);
+        if (merge is not HasConflicts hasConflicts)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"expected a field-level conflict verdict, got {merge}");
+        }
+
+        var conflicts = hasConflicts.ConflictingFields;
+        conflicts.Select(c => c.FieldName).ShouldContain("System.State");
+        var stateConflict = conflicts.First(c => c.FieldName == "System.State");
+        stateConflict.LocalValue.ShouldBe("Active");
+        stateConflict.RemoteValue.ShouldBe("Closed");
+
+        // No ADO round-trip was needed to get here.
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
 }

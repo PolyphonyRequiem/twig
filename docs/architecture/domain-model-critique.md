@@ -415,16 +415,25 @@ virtual group creation, ceiling-type resolution, and LINQ `.Any()` inside
 ## 11. Workspace Read Model Does Computation
 
 **Severity**: Low | **Blast Radius**: ReadModels/Workspace
-> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY. The read model is now inert — none of
-> the three methods are members of `Workspace` any more; they are extension methods in
-> `src/Twig.Domain/ReadModels/WorkspaceExtensions.cs:15` (`GetStaleSeeds`), `:32` (`GetDirtyItems`),
-> `:54` (`ListAll`), whose own doc comment states the intent: "Pure computation methods extracted
-> from `Workspace`. Keeps the read model as an inert projection" (`WorkspaceExtensions.cs:5-8`).
-> What did **not** happen is the containment practice as written — the computation was not moved
-> into the building service or a `WorkspaceAnalyzer` (no such type in `src/`); it was relocated to
-> extensions in the same `ReadModels` namespace. Whether that discharges the finding is a judgement
-> call, not a code fact. The "callers are few" claim is also now stale: there are 8 call sites
-> across `src/Twig.Mcp/Services/McpResultBuilder.cs:180`, `:189`,
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED. The finding is that a read model does
+> computation; it no longer does. `src/Twig.Domain/ReadModels/Workspace.cs` is 78 lines of
+> init-only projection state (`:13-31`) plus a `Build` factory (`:54`) and one trivial
+> `IsTracked` membership check (`:69`) — none of `GetStaleSeeds`, `GetDirtyItems`, or `ListAll`
+> is a member. They are extension methods in
+> `src/Twig.Domain/ReadModels/WorkspaceExtensions.cs:15`, `:32`, and `:54`, whose own doc comment
+> states the intent: "Pure computation methods extracted from `Workspace`. Keeps the read model
+> as an inert projection" (`WorkspaceExtensions.cs:5-8`).
+>
+> Recorded deliberately: this is *not* the containment practice as written, which asked for the
+> computation to move into the building service or a `WorkspaceAnalyzer` (no such type exists in
+> `src/`). It went to extensions in the same `ReadModels` namespace instead. That was judged to
+> discharge the finding on 2026-07-27 — the stated defect was inertness of the read model, and
+> the extension-method placement achieves it; `WorkspaceAnalyzer` was one suggested means, not
+> the finding itself. Reopen if the extensions start accumulating state or policy.
+>
+> One sub-claim is stale rather than fixed: "callers that invoke these methods are few — grep
+> before changing" now understates it at 8 call sites —
+> `src/Twig.Mcp/Services/McpResultBuilder.cs:180`, `:189`,
 > `src/Twig/Commands/WorkspaceCommand.cs:687`, `:702`, `:741`, and
 > `src/Twig/Formatters/HumanOutputFormatter.cs:491`, `:521`, `:677`.
 
@@ -449,12 +458,12 @@ methods on a read model. Read models should be inert projections.
 > reconciliation module has not landed. Item **7** is no longer "in progress" — both scheduled
 > migrations shipped (`Services/Workspace/StatusResult.cs:25`,
 > `ValueObjects/BranchLinkResult.cs:32`); only the explicitly deferred seed result types remain.
-> Item **11** is substantially done. What actually remains, in the order this section's own
-> risk-ordering logic implies: **11** (decide whether extensions discharge it), **1**'s residual
-> aggregate-boundary question, **8** (bloat relocated to `WorkspaceCommand`/`ShowCommand`/
-> `InitCommand`), **6**'s reconciliation module, and **9** — which the original ordering placed
-> last on the grounds that Item 1's copy consolidation had to come first, and that precondition is
-> now met.
+> Item **11** is FIXED and also drops off (ruled 2026-07-27: extension-method placement discharges
+> the inertness finding even though `WorkspaceAnalyzer` was never built). What actually remains, in
+> the order this section's own risk-ordering logic implies: **1**'s residual aggregate-boundary
+> question, **8** (bloat relocated to `WorkspaceCommand`/`ShowCommand`/`InitCommand`), **6**'s
+> reconciliation module, and **9** — which the original ordering placed last on the grounds that
+> Item 1's copy consolidation had to come first, and that precondition is now met.
 
 1. **Item 3** (Process assumptions) — smallest, most surgical
 2. **Item 4** (Value object cleanup) — isolated, low risk

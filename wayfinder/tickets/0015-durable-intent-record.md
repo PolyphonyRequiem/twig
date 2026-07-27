@@ -101,9 +101,33 @@ ATTACH-window risk 0005 §4 accepted is covered by the same record -- no separat
 A seed with no `StagedIdentity` predates 0014 and takes the old unprotected path rather than
 being given a fresh identity that would match nothing already in ADO.
 
+### Verified against live ADO -- and it caught a real bug
+
+The recovery clause was smoke-tested against a real project (`dangreen-msft/Twig`) with a
+throwaway work item, created and deleted. **The first version did not work.** ADO answered:
+
+```
+HTTP 400 -- You cannot supply a time with the date when running a query using date precision.
+The error is caused by <<[System.CreatedDate] >= '2026-07-27T15:02:58Z'>>.
+```
+
+This is the worst possible failure shape: the recovery query returns nothing, the orchestrator
+concludes the create never landed, and the retry duplicates the work item -- **precisely the #270
+bug this ticket exists to close**, reintroduced by the fix for it. No mocked test could see it,
+because the mock answers whatever it is told to.
+
+The fix is `timePrecision=true` as a **query-string parameter** on the WIQL endpoint. Two dead
+ends confirmed on the way: a body-level `timePrecision` field is silently ignored, and dropping
+the time component degrades the fence to day granularity, which is not a fence at all for a tool
+that publishes many items a day.
+
+Confirmed with a positive and a negative control: a fence one second BEFORE the create returns
+the item; a fence five minutes AFTER returns nothing -- and returns it as an empty 200, not an
+error, so the exclusion is real rather than an incidental failure.
+
 ### Evidence
 
-Suite green, all four projects exit 0: **7,388 passing** (Cli 2887 / Infra 1365 / Mcp 1313 /
+Suite green, all four projects exit 0: **7,398 passing** (Cli 2887 / Infra 1375 / Mcp 1313 /
 Domain 1823), against a re-measured `e899de46` baseline of 7,379. (Counts shift against that
 baseline because sibling PRs #306 and #307 landed underneath during the rebase.)
 

@@ -141,9 +141,10 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var escapedType = typeName.Replace("'", "''");
         var escapedTag = PublishIntent.IntentTag.Replace("'", "''");
 
-        // ADO compares System.CreatedDate at whole-second resolution, so a sub-second fence can
-        // exclude the very item it is meant to find. Round DOWN to be inclusive; a slightly
-        // loose lower bound is safe because title + type still have to match.
+        // Round DOWN to the whole second: the fence is a lower bound, and ADO stores
+        // CreatedDate at ~millisecond resolution, so truncating keeps it inclusive of an item
+        // created in the same second. A slightly loose bound is safe — title + type must match
+        // too. Rounding UP would exclude the very item this query exists to find.
         var fence = createdAtOrAfter.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
         var wiql =
@@ -152,7 +153,9 @@ internal sealed class AdoRestClient : IAdoWorkItemService
             $"AND [System.WorkItemType] = '{escapedType}' " +
             $"AND [System.CreatedDate] >= '{fence}'";
 
-        var ids = await QueryByWiqlAsync(wiql, ct);
+        // timePrecision: true — the fence carries a time, which ADO rejects (HTTP 400) unless
+        // this is set. Losing it degrades the query to day granularity at best.
+        var ids = await ExecuteWiqlAsync(wiql, top: null, timePrecision: true, ct);
 
         // More than one match means the duplicate this mechanism exists to prevent already
         // happened. Return the lowest — the first create — so recovery adopts the original
@@ -213,10 +216,20 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
         => ExecuteWiqlAsync(wiql, top, ct);
 
-    private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(string wiql, int? top, CancellationToken ct)
+    private Task<IReadOnlyList<int>> ExecuteWiqlAsync(string wiql, int? top, CancellationToken ct)
+        => ExecuteWiqlAsync(wiql, top, timePrecision: false, ct);
+
+    // timePrecision is a QUERY-STRING parameter, not a body field. Without it ADO rejects any
+    // date comparison carrying a time component with HTTP 400:
+    //   "You cannot supply a time with the date when running a query using date precision."
+    // Verified against live ADO (dangreen-msft/Twig) — a body-level "timePrecision" is silently
+    // ignored, and the day-granularity fallback loses the sub-day fence entirely.
+    private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(
+        string wiql, int? top, bool timePrecision, CancellationToken ct)
     {
         var topParam = top.HasValue ? $"&$top={top.Value}" : "";
-        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}";
+        var precisionParam = timePrecision ? "&timePrecision=true" : "";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}{precisionParam}";
         var request = new AdoWiqlRequest { Query = wiql };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoWiqlRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");

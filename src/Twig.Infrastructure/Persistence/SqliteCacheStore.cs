@@ -111,7 +111,7 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history", "tracked_items", "excluded_items", "sprint_iterations", "area_paths"];
+        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history", "tracked_items", "excluded_items"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -245,18 +245,6 @@ public sealed class SqliteCacheStore : IDisposable
         CREATE TABLE excluded_items (
             id INTEGER PRIMARY KEY,
             created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE sprint_iterations (
-            expression TEXT NOT NULL,
-            type TEXT NOT NULL DEFAULT 'relative',
-            PRIMARY KEY (expression, type)
-        );
-
-        CREATE TABLE area_paths (
-            path TEXT NOT NULL,
-            semantics TEXT NOT NULL DEFAULT 'under',
-            PRIMARY KEY (path, semantics)
         );
         """;
 

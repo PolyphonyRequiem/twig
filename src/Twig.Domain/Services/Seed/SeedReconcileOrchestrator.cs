@@ -38,7 +38,13 @@ public sealed class SeedReconcileOrchestrator
         // Step 1: Load all seed_links and publish ID mappings
         var links = await _seedLinkRepo.GetAllSeedLinksAsync(ct);
         var mappings = await _publishIdMapRepo.GetAllMappingsAsync(ct);
-        var mapDict = mappings.ToDictionary(m => m.OldId, m => m.NewId);
+        // seed_links stores the negative display alias, so the lookup is built from Alias.
+        // This is a *display-side* resolution, not a join: the mapping rows are keyed on
+        // StagedIdentity, and a row whose alias predates the register is simply skipped rather
+        // than matched to a plausible neighbour (0003 §4, §5a).
+        var mapDict = mappings
+            .Where(m => m.Alias is not null)
+            .ToDictionary(m => m.Alias!.Value.Value, m => m.NewId);
 
         // Step 2: Process each link for stale / orphaned references
         // Track IDs we've already remapped to avoid double-remapping

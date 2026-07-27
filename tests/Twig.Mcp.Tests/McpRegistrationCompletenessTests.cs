@@ -231,7 +231,6 @@ public sealed class McpRegistrationCompletenessTests
             services.AddLogging();
             services.AddSingleton<IWorkspaceRegistry>(registry);
             services.AddSingleton(resolver);
-            services.AddSingleton<Twig.Domain.Interfaces.ISeedIdCounter, Twig.Domain.Services.Seed.SeedIdCounter>();
             services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
             services.AddSingleton<Twig.Mcp.Services.Batch.IToolDispatcher, Twig.Mcp.Services.Batch.ToolDispatcher>();
 

@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -26,9 +26,18 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
         _store = new SqliteCacheStore("Data Source=:memory:");
         _workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
         _seedLinkRepo = new SqliteSeedLinkRepository(_store);
-        _publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
+        _registry = new SqliteStagedIdentityRegistry(_store);
+        _publishIdMapRepo = new SqlitePublishIdMapRepository(_store, _registry);
         _unitOfWork = new SqliteUnitOfWork(_store);
     }
+
+    private readonly SqliteStagedIdentityRegistry _registry;
+
+    // Wayfinder 0014: publish_id_map is keyed on the minted identity, so each test that
+    // exercises the publish transaction mints one up front. The alias it carries is -1,
+    // matching the seed ids these fixtures already use.
+    private StagedIdentity _seedIdentity => _lazyIdentity ??= _registry.MintAsync().GetAwaiter().GetResult().Identity;
+    private StagedIdentity? _lazyIdentity;
 
     public void Dispose() => _store.Dispose();
 
@@ -60,7 +69,7 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
         var tx = await _unitOfWork.BeginAsync();
         try
         {
-            await _publishIdMapRepo.RecordMappingAsync(-1, 500);
+            await _publishIdMapRepo.RecordMappingAsync(_seedIdentity, 500);
             await _seedLinkRepo.RemapIdAsync(-1, 500);
             await _workItemRepo.RemapParentIdAsync(-1, 500);
             await _workItemRepo.DeleteByIdAsync(-1);
@@ -78,7 +87,7 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
         }
 
         // Assert: all changes persisted
-        var mapping = await _publishIdMapRepo.GetNewIdAsync(-1);
+        var mapping = await _publishIdMapRepo.GetNewIdAsync(_seedIdentity);
         mapping.ShouldBe(500);
 
         var oldSeed = await _workItemRepo.GetByIdAsync(-1);
@@ -110,14 +119,14 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
 
         // Act: start transaction, do partial work, then rollback
         var tx = await _unitOfWork.BeginAsync();
-        await _publishIdMapRepo.RecordMappingAsync(-1, 500);
+        await _publishIdMapRepo.RecordMappingAsync(_seedIdentity, 500);
         await _seedLinkRepo.RemapIdAsync(-1, 500);
         await _workItemRepo.DeleteByIdAsync(-1);
         await _unitOfWork.RollbackAsync(tx);
         await tx.DisposeAsync();
 
         // Assert: database is unchanged — all operations rolled back
-        var mapping = await _publishIdMapRepo.GetNewIdAsync(-1);
+        var mapping = await _publishIdMapRepo.GetNewIdAsync(_seedIdentity);
         mapping.ShouldBeNull();
 
         var originalSeed = await _workItemRepo.GetByIdAsync(-1);
@@ -150,7 +159,7 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
         var tx = await _unitOfWork.BeginAsync();
         try
         {
-            await _publishIdMapRepo.RecordMappingAsync(-1, 500);
+            await _publishIdMapRepo.RecordMappingAsync(_seedIdentity, 500);
             await _workItemRepo.RemapParentIdAsync(-1, 500);
             // Simulate failure before delete+save
             throw new InvalidOperationException("Simulated failure");
@@ -165,7 +174,7 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
         }
 
         // Assert: all changes rolled back
-        var mapping = await _publishIdMapRepo.GetNewIdAsync(-1);
+        var mapping = await _publishIdMapRepo.GetNewIdAsync(_seedIdentity);
         mapping.ShouldBeNull();
 
         var childItem = await _workItemRepo.GetByIdAsync(-2);

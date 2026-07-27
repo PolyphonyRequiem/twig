@@ -38,12 +38,12 @@ public sealed class ToolDispatcherTests
             new ReadTools(resolver, navigationTools),
             new MutationTools(resolver),
             navigationTools,
-            new CreationTools(resolver, new SeedFactory(new SeedIdCounter())),
+            new CreationTools(resolver, new SeedFactory()),
             new WorkspaceTools(registry, resolver),
             new TrackingTools(resolver),
             new AdminTools(resolver),
             new ProcessTools(resolver),
-            new SeedTools(resolver, new SeedFactory(new SeedIdCounter())));
+            new SeedTools(resolver, new SeedFactory()));
     }
 
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs) =>

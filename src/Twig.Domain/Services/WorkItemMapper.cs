@@ -27,6 +27,9 @@ public sealed class WorkItemMapper
             ParentId = snapshot.ParentId,
             IsSeed = snapshot.IsSeed,
             SeedCreatedAt = snapshot.SeedCreatedAt,
+            StagedIdentity = ValueObjects.StagedIdentity.TryParse(snapshot.StagedIdentity, out var stagedIdentity)
+                ? stagedIdentity
+                : null,
             LastSyncedAt = snapshot.LastSyncedAt,
         };
 

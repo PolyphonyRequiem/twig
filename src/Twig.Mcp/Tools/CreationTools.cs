@@ -82,6 +82,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             parsedType,
             areaPath,
             iterationPath,
+            await ctx.StagedIdentityRegistry.MintAsync(ct),
             assignedTo);
 
         if (!unparentedResult.IsSuccess)
@@ -267,7 +268,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
         if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
-        var seedResult = seedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
+        var seedResult = seedFactory.Create(
+            title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), parsedType, assignedTo);
         if (!seedResult.IsSuccess)
         {
             var parentType = parent!.Type;

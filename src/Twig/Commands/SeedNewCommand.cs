@@ -32,7 +32,7 @@ public sealed class SeedNewCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     SeedFactory seedFactory,
-    ISeedIdCounter seedIdCounter,
+    IStagedIdentityRegistry stagedIdentityRegistry,
     ISeedLinkRepository seedLinkRepo,
     RendererFactory? rendererFactory = null)
 {
@@ -118,13 +118,13 @@ public sealed class SeedNewCommand(
             typeOverride = typeResult.Value;
         }
 
-        // Initialize seed counter from DB to avoid ID collisions (D7)
-        var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            seedIdCounter.Initialize(minSeedId.Value);
+        // Wayfinder 0014: no counter to initialize. The identity is minted per seed, and the
+        // display alias comes from the durable register — nothing to forget here.
 
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
+
+        var stagedIdentity = await stagedIdentityRegistry.MintAsync(ct);
 
         // With --no-parent there is no context to inherit area/iteration from, so fall back
         // to configured defaults — the same resolution the MCP twig_seed_new path uses for
@@ -135,8 +135,9 @@ public sealed class SeedNewCommand(
                 typeOverride!.Value,
                 ResolveDefaultPath(config.Defaults?.AreaPath, config.Project, AreaPath.Parse),
                 ResolveDefaultPath(config.Defaults?.IterationPath, config.Project, IterationPath.Parse),
+                stagedIdentity,
                 config.User.DisplayName)
-            : seedFactory.Create(seedTitle, parentContext, processConfig, typeOverride,
+            : seedFactory.Create(seedTitle, parentContext, processConfig, stagedIdentity, typeOverride,
                 config.User.DisplayName);
         if (!seedResult.IsSuccess)
         {

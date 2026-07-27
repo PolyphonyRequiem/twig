@@ -51,8 +51,8 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
 builder.Services.AddSingleton(resolver);
 
-// Seed factory — singleton counter for consistent negative ID generation across MCP tool calls.
-builder.Services.AddSingleton<Twig.Domain.Interfaces.ISeedIdCounter, Twig.Domain.Services.Seed.SeedIdCounter>();
+// Seed factory — stateless now: identity is minted per seed from the per-workspace durable
+// register on WorkspaceContext, not from a process-wide counter (wayfinder 0014).
 builder.Services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
 
 // Batch dispatch — interface enables BatchExecutionEngine to be tested in isolation (NFR-7).

@@ -442,7 +442,6 @@ static Twig.Domain.Services.Seed.SeedParentResolver.CheckInferredParent(Twig.Dom
 Twig.Domain.ValueObjects.SeedValidationResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedValidationFailure>!
 Twig.Domain.ValueObjects.SeedValidationResult.Warnings.init -> void
 static Twig.Domain.Services.Seed.SeedValidator.Validate(Twig.Domain.Aggregates.WorkItem! seed, Twig.Domain.ValueObjects.SeedPublishRules! rules, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.SeedLink>? links) -> Twig.Domain.ValueObjects.SeedValidationResult!
-
 const Twig.Domain.Services.WorkItemHistoryOptionsParser.DetailAllToken = "all" -> string!
 override Twig.Domain.ValueObjects.WorkItemFieldChange.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.WorkItemFieldChange.GetHashCode() -> int
@@ -571,6 +570,91 @@ Twig.Domain.ValueObjects.WorkItemRelationTarget.Type.get -> string?
 Twig.Domain.ValueObjects.WorkItemRelationTarget.Type.init -> void
 Twig.Domain.ValueObjects.WorkItemRelationTarget.WorkItemRelationTarget(int Id, string? Title, string? Type, string? State, bool Deleted) -> void
 Twig.Domain.Services.Seed.SeedDiscardOrchestrator.SeedDiscardOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IPendingChangeStore? pendingChangeStore) -> void
-
 Twig.Domain.Interfaces.IPendingChangeStore.RemapWorkItemIdAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer, Twig.Domain.Interfaces.IPendingChangeStore? pendingChangeStore) -> void
+~override Twig.Domain.ValueObjects.PublishMapping.Equals(object obj) -> bool
+~override Twig.Domain.ValueObjects.PublishMapping.ToString() -> string
+~override Twig.Domain.ValueObjects.StagedAlias.Equals(object obj) -> bool
+~override Twig.Domain.ValueObjects.StagedIdentity.Equals(object obj) -> bool
+~override Twig.Domain.ValueObjects.StagedSeedIdentity.Equals(object obj) -> bool
+~override Twig.Domain.ValueObjects.StagedSeedIdentity.ToString() -> string
+override Twig.Domain.ValueObjects.PublishMapping.GetHashCode() -> int
+override Twig.Domain.ValueObjects.StagedAlias.GetHashCode() -> int
+override Twig.Domain.ValueObjects.StagedAlias.ToString() -> string!
+override Twig.Domain.ValueObjects.StagedIdentity.GetHashCode() -> int
+override Twig.Domain.ValueObjects.StagedIdentity.ToString() -> string!
+override Twig.Domain.ValueObjects.StagedSeedIdentity.GetHashCode() -> int
+static Twig.Domain.ValueObjects.PublishMapping.operator !=(Twig.Domain.ValueObjects.PublishMapping left, Twig.Domain.ValueObjects.PublishMapping right) -> bool
+static Twig.Domain.ValueObjects.PublishMapping.operator ==(Twig.Domain.ValueObjects.PublishMapping left, Twig.Domain.ValueObjects.PublishMapping right) -> bool
+static Twig.Domain.ValueObjects.StagedAlias.Below(int floor) -> Twig.Domain.ValueObjects.StagedAlias
+static Twig.Domain.ValueObjects.StagedAlias.operator !=(Twig.Domain.ValueObjects.StagedAlias left, Twig.Domain.ValueObjects.StagedAlias right) -> bool
+static Twig.Domain.ValueObjects.StagedAlias.operator ==(Twig.Domain.ValueObjects.StagedAlias left, Twig.Domain.ValueObjects.StagedAlias right) -> bool
+static Twig.Domain.ValueObjects.StagedAlias.TryFrom(int value, out Twig.Domain.ValueObjects.StagedAlias alias) -> bool
+static Twig.Domain.ValueObjects.StagedIdentity.FromGuid(System.Guid value) -> Twig.Domain.ValueObjects.StagedIdentity
+static Twig.Domain.ValueObjects.StagedIdentity.New() -> Twig.Domain.ValueObjects.StagedIdentity
+static Twig.Domain.ValueObjects.StagedIdentity.operator !=(Twig.Domain.ValueObjects.StagedIdentity left, Twig.Domain.ValueObjects.StagedIdentity right) -> bool
+static Twig.Domain.ValueObjects.StagedIdentity.operator ==(Twig.Domain.ValueObjects.StagedIdentity left, Twig.Domain.ValueObjects.StagedIdentity right) -> bool
+static Twig.Domain.ValueObjects.StagedIdentity.TryParse(string? text, out Twig.Domain.ValueObjects.StagedIdentity identity) -> bool
+static Twig.Domain.ValueObjects.StagedSeedIdentity.operator !=(Twig.Domain.ValueObjects.StagedSeedIdentity left, Twig.Domain.ValueObjects.StagedSeedIdentity right) -> bool
+static Twig.Domain.ValueObjects.StagedSeedIdentity.operator ==(Twig.Domain.ValueObjects.StagedSeedIdentity left, Twig.Domain.ValueObjects.StagedSeedIdentity right) -> bool
+Twig.Domain.Aggregates.WorkItem.StagedIdentity.get -> Twig.Domain.ValueObjects.StagedIdentity?
+Twig.Domain.Aggregates.WorkItem.StagedIdentity.init -> void
+Twig.Domain.Interfaces.IPublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PublishMapping>!>!
+Twig.Domain.Interfaces.IPublishIdMapRepository.GetNewIdAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Domain.Interfaces.IPublishIdMapRepository.GetNewIdByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Domain.Interfaces.IPublishIdMapRepository.RecordMappingAsync(Twig.Domain.ValueObjects.StagedIdentity identity, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IStagedIdentityRegistry
+Twig.Domain.Interfaces.IStagedIdentityRegistry.FindAliasAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedAlias?>!
+Twig.Domain.Interfaces.IStagedIdentityRegistry.FindByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedIdentity?>!
+Twig.Domain.Interfaces.IStagedIdentityRegistry.MintAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedSeedIdentity>!
+Twig.Domain.Interfaces.IStagedIdentityRegistry.RetireAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Seed.SeedFactory.Create(string! title, Twig.Domain.Aggregates.WorkItem? parentContext, Twig.Domain.Aggregates.ProcessConfiguration! processConfig, Twig.Domain.ValueObjects.StagedSeedIdentity identity, Twig.Domain.ValueObjects.WorkItemType? typeOverride = null, string? assignedTo = null) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+Twig.Domain.Services.Seed.SeedFactory.CreateUnparented(string! title, Twig.Domain.ValueObjects.WorkItemType type, Twig.Domain.ValueObjects.AreaPath areaPath, Twig.Domain.ValueObjects.IterationPath iterationPath, Twig.Domain.ValueObjects.StagedSeedIdentity identity, string? assignedTo = null, int? parentId = null) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+Twig.Domain.Services.Seed.SeedFactory.SeedFactory() -> void
+Twig.Domain.ValueObjects.PublishMapping
+Twig.Domain.ValueObjects.PublishMapping.Alias.get -> Twig.Domain.ValueObjects.StagedAlias?
+Twig.Domain.ValueObjects.PublishMapping.Alias.init -> void
+Twig.Domain.ValueObjects.PublishMapping.Deconstruct(out Twig.Domain.ValueObjects.StagedIdentity Identity, out Twig.Domain.ValueObjects.StagedAlias? Alias, out int NewId) -> void
+Twig.Domain.ValueObjects.PublishMapping.Equals(Twig.Domain.ValueObjects.PublishMapping other) -> bool
+Twig.Domain.ValueObjects.PublishMapping.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
+Twig.Domain.ValueObjects.PublishMapping.Identity.init -> void
+Twig.Domain.ValueObjects.PublishMapping.NewId.get -> int
+Twig.Domain.ValueObjects.PublishMapping.NewId.init -> void
+Twig.Domain.ValueObjects.PublishMapping.PublishMapping() -> void
+Twig.Domain.ValueObjects.PublishMapping.PublishMapping(Twig.Domain.ValueObjects.StagedIdentity Identity, Twig.Domain.ValueObjects.StagedAlias? Alias, int NewId) -> void
+Twig.Domain.ValueObjects.StagedAlias
+Twig.Domain.ValueObjects.StagedAlias.Equals(Twig.Domain.ValueObjects.StagedAlias other) -> bool
+Twig.Domain.ValueObjects.StagedAlias.IsEmpty.get -> bool
+Twig.Domain.ValueObjects.StagedAlias.StagedAlias() -> void
+Twig.Domain.ValueObjects.StagedAlias.Value.get -> int
+Twig.Domain.ValueObjects.StagedIdentity
+Twig.Domain.ValueObjects.StagedIdentity.Equals(Twig.Domain.ValueObjects.StagedIdentity other) -> bool
+Twig.Domain.ValueObjects.StagedIdentity.IsEmpty.get -> bool
+Twig.Domain.ValueObjects.StagedIdentity.StagedIdentity() -> void
+Twig.Domain.ValueObjects.StagedIdentity.Value.get -> System.Guid
+Twig.Domain.ValueObjects.StagedSeedIdentity
+Twig.Domain.ValueObjects.StagedSeedIdentity.Alias.get -> Twig.Domain.ValueObjects.StagedAlias
+Twig.Domain.ValueObjects.StagedSeedIdentity.Alias.init -> void
+Twig.Domain.ValueObjects.StagedSeedIdentity.Deconstruct(out Twig.Domain.ValueObjects.StagedIdentity Identity, out Twig.Domain.ValueObjects.StagedAlias Alias) -> void
+Twig.Domain.ValueObjects.StagedSeedIdentity.Equals(Twig.Domain.ValueObjects.StagedSeedIdentity other) -> bool
+Twig.Domain.ValueObjects.StagedSeedIdentity.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
+Twig.Domain.ValueObjects.StagedSeedIdentity.Identity.init -> void
+Twig.Domain.ValueObjects.StagedSeedIdentity.StagedSeedIdentity() -> void
+Twig.Domain.ValueObjects.StagedSeedIdentity.StagedSeedIdentity(Twig.Domain.ValueObjects.StagedIdentity Identity, Twig.Domain.ValueObjects.StagedAlias Alias) -> void
+Twig.Domain.ValueObjects.WorkItemSnapshot.StagedIdentity.get -> string?
+Twig.Domain.ValueObjects.WorkItemSnapshot.StagedIdentity.init -> void
+*REMOVED*Twig.Domain.Interfaces.IPublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<(int OldId, int NewId)>!>!
+*REMOVED*Twig.Domain.Interfaces.IPublishIdMapRepository.GetNewIdAsync(int oldId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+*REMOVED*Twig.Domain.Interfaces.IPublishIdMapRepository.RecordMappingAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Domain.Interfaces.ISeedIdCounter
+*REMOVED*Twig.Domain.Interfaces.ISeedIdCounter.Initialize(int minExistingId) -> void
+*REMOVED*Twig.Domain.Interfaces.ISeedIdCounter.Next() -> int
+*REMOVED*Twig.Domain.Interfaces.IWorkItemRepository.GetMinSeedIdAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+*REMOVED*Twig.Domain.Services.Seed.SeedFactory.Create(string! title, Twig.Domain.Aggregates.WorkItem? parentContext, Twig.Domain.Aggregates.ProcessConfiguration! processConfig, Twig.Domain.ValueObjects.WorkItemType? typeOverride = null, string? assignedTo = null) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+*REMOVED*Twig.Domain.Services.Seed.SeedFactory.CreateUnparented(string! title, Twig.Domain.ValueObjects.WorkItemType type, Twig.Domain.ValueObjects.AreaPath areaPath, Twig.Domain.ValueObjects.IterationPath iterationPath, string? assignedTo = null, int? parentId = null) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
+*REMOVED*Twig.Domain.Services.Seed.SeedFactory.InitializeSeedCounter(int minExistingId) -> void
+*REMOVED*Twig.Domain.Services.Seed.SeedFactory.SeedFactory(Twig.Domain.Interfaces.ISeedIdCounter! seedIdCounter) -> void
+*REMOVED*Twig.Domain.Services.Seed.SeedIdCounter
+*REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.Initialize(int minExistingId) -> void
+*REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.Next() -> int
+*REMOVED*Twig.Domain.Services.Seed.SeedIdCounter.SeedIdCounter() -> void

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
@@ -309,11 +309,13 @@ public sealed class WorkItemMapperTests
             "LastSyncedAt",
             "ParentId",
             "SeedCreatedAt",
+            "StagedIdentity",
             "Title",
             "Type",
         ]);
 
         // Map a fully-populated snapshot and verify each init property was set
+        var stagedIdentity = StagedIdentity.New();
         var snapshot = new WorkItemSnapshot
         {
             Id = 99,
@@ -327,6 +329,7 @@ public sealed class WorkItemMapperTests
             ParentId = 42,
             IsSeed = true,
             SeedCreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            StagedIdentity = stagedIdentity.ToString(),
             LastSyncedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
         };
 
@@ -341,6 +344,7 @@ public sealed class WorkItemMapperTests
         result.ParentId.ShouldBe(42);
         result.IsSeed.ShouldBeTrue();
         result.SeedCreatedAt.ShouldBe(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        result.StagedIdentity.ShouldBe(stagedIdentity);
         result.LastSyncedAt.ShouldBe(new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
     }
 

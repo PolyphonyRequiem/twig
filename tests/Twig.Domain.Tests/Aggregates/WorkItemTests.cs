@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
@@ -498,52 +498,54 @@ public class WorkItemTests
     //  SeedIdCounter tests (E1-T3, E1-T12) — via instance counter
     // ═══════════════════════════════════════════════════════════════
 
+    // Wayfinder 0014 deleted SeedIdCounter. The four SeedIdCounter_* facts that lived here
+    // described an allocator's arithmetic (Initialize/Next, clamping, collision avoidance).
+    // That mechanism is gone; what survives of their intent is the alias's shape and the
+    // property that identity no longer depends on a floor at all.
+
     [Fact]
-    public void SeedIdCounter_SetsCounterBelowExistingSeeds()
+    public void StagedAlias_Below_ProducesAnAliasStrictlyBelowTheFloor()
     {
-        var counter = new SeedIdCounter();
-        counter.Initialize(-10);
-
-        var id = counter.Next();
-
-        id.ShouldBeLessThan(-10);
+        StagedAlias.Below(-10).Value.ShouldBeLessThan(-10);
     }
 
     [Fact]
-    public void SeedIdCounter_WithPositiveValue_ClampsToZero()
+    public void StagedAlias_Below_ClampsANonNegativeFloorToZero()
     {
-        var counter = new SeedIdCounter();
-        counter.Initialize(5);
-
-        var id = counter.Next();
-
-        // Math.Min(5, 0) = 0, so next is Decrement(0) = -1
-        id.ShouldBeLessThan(0);
+        // Math.Min(5, 0) - 1 == -1: an alias is always negative, whatever the floor claims.
+        StagedAlias.Below(5).Value.ShouldBe(-1);
+        StagedAlias.Below(0).Value.ShouldBe(-1);
     }
 
     [Fact]
-    public void SeedIdCounter_AvoidCollisionsWithExistingSeeds()
+    public void StagedAlias_TryFrom_RejectsANonNegativeInt_RatherThanCoercingIt()
     {
-        var counter = new SeedIdCounter();
-        // Simulate existing seeds at -1, -2, -3 → min is -3
-        counter.Initialize(-3);
-
-        var newIds = new HashSet<int>();
-        for (var i = 0; i < 5; i++)
-        {
-            var id = counter.Next();
-            id.ShouldBeLessThan(-3, "New seed ID should be below all existing seed IDs");
-            newIds.Add(id).ShouldBeTrue("Each seed should have a unique ID");
-        }
+        // A non-negative integer is an ADO work item ID, not an alias. It stays visibly
+        // unknown rather than being coerced into a plausible known value (0003 §4).
+        StagedAlias.TryFrom(-3, out var alias).ShouldBeTrue();
+        alias.Value.ShouldBe(-3);
+        StagedAlias.TryFrom(7, out _).ShouldBeFalse();
+        StagedAlias.TryFrom(0, out _).ShouldBeFalse();
     }
 
     [Fact]
-    public void SeedIdCounter_WithZero_ProducesNegativeIds()
+    public void StagedIdentity_New_IsCollisionFreeWithoutConsultingAnyExistingState()
     {
-        var counter = new SeedIdCounter();
-        counter.Initialize(0);
+        // This is why the counter could be deleted: no floor, no scan, no Initialize.
+        var minted = new HashSet<StagedIdentity>();
+        for (var i = 0; i < 100; i++)
+            minted.Add(StagedIdentity.New()).ShouldBeTrue("Each minted identity should be unique");
+    }
 
-        var id = counter.Next();
-        id.ShouldBeLessThan(0);
+    [Fact]
+    public void StagedIdentity_New_IsSortableByCreationOrder()
+    {
+        // GUIDv7 over plain GUID (0003 §5, owner-confirmed): creation order survives without
+        // a separate sequence column.
+        var first = StagedIdentity.New();
+        Thread.Sleep(5);
+        var second = StagedIdentity.New();
+
+        first.ToString().CompareTo(second.ToString()).ShouldBeLessThan(0);
     }
 }

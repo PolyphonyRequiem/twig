@@ -80,7 +80,7 @@ public sealed class CommandRegistrationCompletenessTests
         // TwigServiceRegistration.AddTwigCoreServices. Commands take these as
         // optional constructor parameters, so omitting them here would silently
         // exercise the degraded overloads this test exists to catch.
-        services.AddSingleton<ISeedIdCounter, Twig.Domain.Services.Seed.SeedIdCounter>();
+        services.AddSingleton(Substitute.For<IStagedIdentityRegistry>());
         services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
         services.AddSingleton<Twig.Domain.Services.Seed.SeedDiscardOrchestrator>();
 

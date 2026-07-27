@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Common;
@@ -42,10 +42,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        // Initialize seed counter from DB to avoid ID collisions
-        var minSeedId = await ctx.WorkItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            seedFactory.InitializeSeedCounter(minSeedId.Value);
+        // Wayfinder 0014: no counter to initialize — identity is minted per seed below.
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
 
@@ -67,7 +64,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             if (fetchErr is not null)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
-            seedResult = seedFactory.Create(title, parent!, processConfig, typeOverride, assignedTo);
+            seedResult = seedFactory.Create(
+                title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), typeOverride, assignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
@@ -86,7 +84,9 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
             var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
 
-            seedResult = seedFactory.CreateUnparented(title, typeOverride.Value, areaPath, iterationPath, assignedTo);
+            seedResult = seedFactory.CreateUnparented(
+                title, typeOverride.Value, areaPath, iterationPath,
+                await ctx.StagedIdentityRegistry.MintAsync(ct), assignedTo);
             if (!seedResult.IsSuccess)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.Error, ctx, ct);
         }
@@ -486,10 +486,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        // Initialize seed counter from DB to avoid ID collisions
-        var minSeedId = await ctx.WorkItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            seedFactory.InitializeSeedCounter(minSeedId.Value);
+        // Wayfinder 0014: no counter to initialize — identity is minted per seed below.
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
 
@@ -511,7 +508,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         foreach (var title in titles)
         {
-            var seedResult = seedFactory.Create(title, parent!, processConfig, typeOverride, assignedTo);
+            var seedResult = seedFactory.Create(
+                title, parent!, processConfig, await ctx.StagedIdentityRegistry.MintAsync(ct), typeOverride, assignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);

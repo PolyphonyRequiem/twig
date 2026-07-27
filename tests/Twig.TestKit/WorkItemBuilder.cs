@@ -1,4 +1,4 @@
-using Twig.Domain.Aggregates;
+﻿using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.TestKit;
@@ -19,6 +19,7 @@ public sealed class WorkItemBuilder
     private AreaPath _areaPath;
     private bool _isSeed;
     private DateTimeOffset? _seedCreatedAt;
+    private StagedIdentity? _stagedIdentity;
     private DateTimeOffset? _lastSyncedAt;
     private bool _dirty;
     private readonly Dictionary<string, string?> _fields = new(StringComparer.OrdinalIgnoreCase);
@@ -44,7 +45,19 @@ public sealed class WorkItemBuilder
     public WorkItemBuilder AssignedTo(string? assignee) { _assignedTo = assignee; return this; }
     public WorkItemBuilder WithIterationPath(string path) { _iterationPath = IterationPath.Parse(path).Value; return this; }
     public WorkItemBuilder WithAreaPath(string path) { _areaPath = AreaPath.Parse(path).Value; return this; }
-    public WorkItemBuilder AsSeed(int daysOld = 0) { _isSeed = true; _seedCreatedAt = DateTimeOffset.UtcNow.AddDays(-daysOld); return this; }
+    /// <summary>
+    /// Marks the item as a staged seed. Wayfinder 0014: a real seed always carries a minted
+    /// <see cref="StagedIdentity"/>, so the builder mints one too -- a fixture without it would
+    /// silently skip the publish path's identity-keyed branches. Pass
+    /// <paramref name="stagedIdentity"/> to pin a specific one.
+    /// </summary>
+    public WorkItemBuilder AsSeed(int daysOld = 0, StagedIdentity? stagedIdentity = null)
+    {
+        _isSeed = true;
+        _seedCreatedAt = DateTimeOffset.UtcNow.AddDays(-daysOld);
+        _stagedIdentity = stagedIdentity ?? StagedIdentity.New();
+        return this;
+    }
     public WorkItemBuilder LastSyncedAt(DateTimeOffset? value) { _lastSyncedAt = value; return this; }
     public WorkItemBuilder Dirty() { _dirty = true; return this; }
 
@@ -75,6 +88,7 @@ public sealed class WorkItemBuilder
             AreaPath = _areaPath,
             IsSeed = _isSeed,
             SeedCreatedAt = _seedCreatedAt,
+            StagedIdentity = _stagedIdentity,
             LastSyncedAt = _lastSyncedAt,
         };
 

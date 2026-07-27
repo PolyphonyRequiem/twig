@@ -26,6 +26,7 @@ public sealed class NewCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     SeedFactory seedFactory,
+    IStagedIdentityRegistry stagedIdentityRegistry,
     RendererFactory? rendererFactory = null,
     ContextChangeService? contextChangeService = null)
 {
@@ -118,6 +119,7 @@ public sealed class NewCommand(
             typeResult.Value,
             areaResult.Value,
             iterResult.Value,
+            await stagedIdentityRegistry.MintAsync(ct),
             config.User.DisplayName,
             parent);
 

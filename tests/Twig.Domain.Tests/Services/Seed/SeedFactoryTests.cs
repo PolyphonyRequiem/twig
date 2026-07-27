@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
@@ -10,11 +10,14 @@ namespace Twig.Domain.Tests.Services.Seed;
 
 public class SeedFactoryTests
 {
-    private static SeedFactory CreateFactory()
-    {
-        var counter = new SeedIdCounter();
-        return new SeedFactory(counter);
-    }
+    private static SeedFactory CreateFactory() => new();
+
+    // Wayfinder 0014: identity is minted, not allocated. These tests mint their own
+    // sequential aliases so assertions about ordering still read the way they used to,
+    // while each seed carries a distinct durable StagedIdentity.
+    private int _aliasFloor;
+    private StagedSeedIdentity NextIdentity() =>
+        new(StagedIdentity.New(), StagedAlias.Below(_aliasFloor--));
 
     // ═══════════════════════════════════════════════════════════════
     //  Valid parent/child — Agile-style
@@ -27,7 +30,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Agile();
         var parent = new WorkItemBuilder(10, "Parent 10").AsUserStory().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("New task", parent, config);
+        var result = factory.Create("New task", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Task);
@@ -43,7 +46,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Agile();
         var parent = new WorkItemBuilder(5, "Parent 5").AsEpic().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("New feature", parent, config);
+        var result = factory.Create("New feature", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Feature);
@@ -60,7 +63,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Scrum();
         var parent = new WorkItemBuilder(20, "Parent 20").AsProductBacklogItem().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("PBI child task", parent, config);
+        var result = factory.Create("PBI child task", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Task);
@@ -77,7 +80,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent 1").AsEpic().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("New issue", parent, config);
+        var result = factory.Create("New issue", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Issue);
@@ -94,7 +97,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Cmmi();
         var parent = new WorkItemBuilder(3, "Parent 3").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("New requirement", parent, config);
+        var result = factory.Create("New requirement", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Requirement);
@@ -112,7 +115,7 @@ public class SeedFactoryTests
         var parent = new WorkItemBuilder(10, "Parent 10").AsTask().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Task has no allowed children
-        var result = factory.Create("Bad seed", parent, config);
+        var result = factory.Create("Bad seed", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldContain("does not allow child items");
@@ -126,7 +129,7 @@ public class SeedFactoryTests
         var parent = new WorkItemBuilder(10, "Parent 10").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Feature allows UserStory and Bug, not Epic
-        var result = factory.Create("Bad seed", parent, config, WorkItemType.Epic);
+        var result = factory.Create("Bad seed", parent, config, NextIdentity(), WorkItemType.Epic);
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldContain("not an allowed child");
@@ -144,7 +147,7 @@ public class SeedFactoryTests
         var parent = new WorkItemBuilder(10, "Parent 10").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Feature allows UserStory and Bug — override to Bug
-        var result = factory.Create("Bug seed", parent, config, WorkItemType.Bug);
+        var result = factory.Create("Bug seed", parent, config, NextIdentity(), WorkItemType.Bug);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Bug);
@@ -160,7 +163,7 @@ public class SeedFactoryTests
         var factory = CreateFactory();
         var config = ProcessConfigBuilder.Agile();
 
-        var result = factory.Create("Orphan seed", null, config);
+        var result = factory.Create("Orphan seed", null, config, NextIdentity());
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldContain("Explicit type is required");
@@ -172,7 +175,7 @@ public class SeedFactoryTests
         var factory = CreateFactory();
         var config = ProcessConfigBuilder.Agile();
 
-        var result = factory.Create("Orphan epic", null, config, WorkItemType.Epic);
+        var result = factory.Create("Orphan epic", null, config, NextIdentity(), WorkItemType.Epic);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Type.ShouldBe(WorkItemType.Epic);
@@ -190,7 +193,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Agile();
         var parent = new WorkItemBuilder(10, "Parent story").AsUserStory().WithAreaPath(@"Project\TeamA").WithIterationPath(@"Project\Sprint1").Build();
 
-        var result = factory.Create("Child task", parent, config);
+        var result = factory.Create("Child task", parent, config, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AreaPath.Value.ShouldBe("Project\\TeamA");
@@ -203,7 +206,7 @@ public class SeedFactoryTests
         var factory = CreateFactory();
         var config = ProcessConfigBuilder.Agile();
 
-        var result = factory.Create("Orphan", null, config, WorkItemType.Epic);
+        var result = factory.Create("Orphan", null, config, NextIdentity(), WorkItemType.Epic);
 
         result.IsSuccess.ShouldBeTrue();
         // Default value of AreaPath/IterationPath — empty struct
@@ -223,7 +226,7 @@ public class SeedFactoryTests
         var factory = CreateFactory();
         var config = ProcessConfigBuilder.Agile();
 
-        var result = factory.Create(title!, null, config, WorkItemType.Epic);
+        var result = factory.Create(title!, null, config, NextIdentity(), WorkItemType.Epic);
 
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldContain("title cannot be empty");
@@ -240,7 +243,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result = factory.Create("New issue", parent, config, assignedTo: "Daniel Green");
+        var result = factory.Create("New issue", parent, config, NextIdentity(), assignedTo: "Daniel Green");
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AssignedTo.ShouldBe("Daniel Green");
@@ -253,7 +256,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result = factory.Create("New issue", parent, config, assignedTo: "Daniel Green");
+        var result = factory.Create("New issue", parent, config, NextIdentity(), assignedTo: "Daniel Green");
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Fields.ShouldContainKey("System.AssignedTo");
@@ -267,7 +270,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result = factory.Create("New issue", parent, config, assignedTo: null);
+        var result = factory.Create("New issue", parent, config, NextIdentity(), assignedTo: null);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AssignedTo.ShouldBeNull();
@@ -281,7 +284,7 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result = factory.Create("New issue", parent, config, assignedTo: "  ");
+        var result = factory.Create("New issue", parent, config, NextIdentity(), assignedTo: "  ");
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AssignedTo.ShouldBe("  ");
@@ -294,7 +297,7 @@ public class SeedFactoryTests
         var factory = CreateFactory();
         var config = ProcessConfigBuilder.Basic();
 
-        var result = factory.Create("Orphan epic", null, config, WorkItemType.Epic, assignedTo: "Daniel Green");
+        var result = factory.Create("Orphan epic", null, config, NextIdentity(), WorkItemType.Epic, assignedTo: "Daniel Green");
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AssignedTo.ShouldBe("Daniel Green");
@@ -312,7 +315,7 @@ public class SeedFactoryTests
         var area = AreaPath.Parse("Proj\\Area").Value;
         var iter = IterationPath.Parse("Proj\\Sprint1").Value;
 
-        var result = factory.CreateUnparented("New Epic", WorkItemType.Epic, area, iter);
+        var result = factory.CreateUnparented("New Epic", WorkItemType.Epic, area, iter, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.IsSeed.ShouldBeTrue();
@@ -328,7 +331,7 @@ public class SeedFactoryTests
         var area = AreaPath.Parse("Proj\\Area").Value;
         var iter = IterationPath.Parse("Proj\\Sprint1").Value;
 
-        var result = factory.CreateUnparented("My Item", WorkItemType.Issue, area, iter);
+        var result = factory.CreateUnparented("My Item", WorkItemType.Issue, area, iter, NextIdentity());
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AreaPath.Value.ShouldBe("Proj\\Area");
@@ -342,7 +345,7 @@ public class SeedFactoryTests
         var area = AreaPath.Parse("Proj").Value;
         var iter = IterationPath.Parse("Proj").Value;
 
-        var result = factory.CreateUnparented("Epic", WorkItemType.Epic, area, iter, "Daniel Green");
+        var result = factory.CreateUnparented("Epic", WorkItemType.Epic, area, iter, NextIdentity(), "Daniel Green");
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.AssignedTo.ShouldBe("Daniel Green");
@@ -356,7 +359,7 @@ public class SeedFactoryTests
         var area = AreaPath.Parse("Proj\\Area").Value;
         var iter = IterationPath.Parse("Proj\\Sprint1").Value;
 
-        var result = factory.CreateUnparented("Child Task", WorkItemType.Task, area, iter, parentId: 42);
+        var result = factory.CreateUnparented("Child Task", WorkItemType.Task, area, iter, NextIdentity(), parentId: 42);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.ParentId.ShouldBe(42);
@@ -369,13 +372,13 @@ public class SeedFactoryTests
         var area = AreaPath.Parse("Proj").Value;
         var iter = IterationPath.Parse("Proj").Value;
 
-        var result = factory.CreateUnparented("", WorkItemType.Epic, area, iter);
+        var result = factory.CreateUnparented("", WorkItemType.Epic, area, iter, NextIdentity());
 
         result.IsSuccess.ShouldBeFalse();
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Seed ID generation via ISeedIdCounter
+    //  Seed identity minting (wayfinder 0014)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -385,8 +388,8 @@ public class SeedFactoryTests
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result1 = factory.Create("Seed 1", parent, config);
-        var result2 = factory.Create("Seed 2", parent, config);
+        var result1 = factory.Create("Seed 1", parent, config, NextIdentity());
+        var result2 = factory.Create("Seed 2", parent, config, NextIdentity());
 
         result1.IsSuccess.ShouldBeTrue();
         result2.IsSuccess.ShouldBeTrue();
@@ -394,35 +397,43 @@ public class SeedFactoryTests
         result2.Value.Id.ShouldBeLessThan(result1.Value.Id);
     }
 
+    // Wayfinder 0014 replaced the counter with a minted identity. The two tests that lived
+    // here -- InitializeSeedCounter_SetsCounterBelowMinExistingId and
+    // SeparateInstances_HaveIsolatedCounters -- described the counter's *initialization*
+    // contract, which no longer exists: there is nothing to initialize. What replaces them is
+    // the property that made the counter unnecessary in the first place.
+
     [Fact]
-    public void InitializeSeedCounter_SetsCounterBelowMinExistingId()
+    public void Create_StampsTheMintedIdentity_AndTheAliasIsOnlyTheDisplayId()
     {
         var factory = CreateFactory();
-        factory.InitializeSeedCounter(-5);
-
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result = factory.Create("After init", parent, config);
+        var identity = NextIdentity();
+        var result = factory.Create("Seed", parent, config, identity);
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.Id.ShouldBeLessThan(-5);
+        result.Value.StagedIdentity.ShouldBe(identity.Identity);
+        result.Value.Id.ShouldBe(identity.Alias.Value);
     }
 
     [Fact]
-    public void SeparateInstances_HaveIsolatedCounters()
+    public void Create_TwoFactories_StillProduceDistinctIdentities_WithNoSharedState()
     {
+        // The old counter was per-instance, so two factories both issued -1 and collided.
+        // Identity is now self-contained: no shared state, and still no collision. This is
+        // the deletion test for ISeedIdCounter expressed as a property (0003 §2).
         var factory1 = CreateFactory();
         var factory2 = CreateFactory();
         var config = ProcessConfigBuilder.Basic();
         var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
 
-        var result1 = factory1.Create("From factory 1", parent, config);
-        var result2 = factory2.Create("From factory 2", parent, config);
+        var result1 = factory1.Create("From factory 1", parent, config, new StagedSeedIdentity(StagedIdentity.New(), StagedAlias.Below(0)));
+        var result2 = factory2.Create("From factory 2", parent, config, new StagedSeedIdentity(StagedIdentity.New(), StagedAlias.Below(0)));
 
         result1.IsSuccess.ShouldBeTrue();
         result2.IsSuccess.ShouldBeTrue();
-        // Both start from 0 and decrement, so both get -1
-        result1.Value.Id.ShouldBe(result2.Value.Id);
+        result1.Value.StagedIdentity.ShouldNotBe(result2.Value.StagedIdentity);
     }
 }

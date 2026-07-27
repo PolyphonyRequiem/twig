@@ -8,6 +8,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -100,16 +101,15 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(100);
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         // ── Step 1: twig seed new ──────────────────────────────────────
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var seedIdCounter = new SeedIdCounter();
+        var stagedIdentityRegistry = new FakeStagedIdentityRegistry();
         var seedNewCmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("My Lifecycle Seed");
@@ -209,17 +209,16 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(200);
         _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("SQLite write error")));
 
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var seedIdCounter2 = new SeedIdCounter();
+        var stagedIdentityRegistry2 = new FakeStagedIdentityRegistry();
         var cmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter2), seedIdCounter2, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry2, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         await Should.ThrowAsync<InvalidOperationException>(
@@ -278,16 +277,15 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(100);
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetMinSeedIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         // ── Step 1: twig seed new ──────────────────────────────────────
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var seedIdCounter = new SeedIdCounter();
+        var stagedIdentityRegistry = new FakeStagedIdentityRegistry();
         var seedNewCmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(seedIdCounter), seedIdCounter, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("Publishable Seed");
@@ -333,7 +331,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         publishOutput.ShouldContain("Publishable Seed");
 
         // ── Step 4: Verify transactional side effects ──────────────────
-        await _publishIdMapRepo.Received().RecordMappingAsync(savedSeed.Id, 500, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received().RecordMappingAsync(savedSeed.StagedIdentity!.Value, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received().DeleteByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>());
         await _workItemRepo.Received().SaveAsync(
             Arg.Is<WorkItem>(w => w.Id == 500),

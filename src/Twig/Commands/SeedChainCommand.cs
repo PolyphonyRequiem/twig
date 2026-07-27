@@ -36,7 +36,7 @@ public sealed class SeedChainCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     SeedFactory seedFactory,
-    ISeedIdCounter seedIdCounter,
+    IStagedIdentityRegistry stagedIdentityRegistry,
     RendererFactory? rendererFactory = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
@@ -81,9 +81,7 @@ public sealed class SeedChainCommand(
             typeOverride = typeResult.Value;
         }
 
-        var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            seedIdCounter.Initialize(minSeedId.Value);
+        // Wayfinder 0014: no counter to initialize — each seed mints its own identity below.
 
         var createdSeeds = new List<WorkItem>();
 
@@ -108,7 +106,8 @@ public sealed class SeedChainCommand(
 
         foreach (var title in GetTitleSource())
         {
-            var seedResult = seedFactory.Create(title, parent, processConfig, typeOverride);
+            var seedResult = seedFactory.Create(
+                title, parent, processConfig, await stagedIdentityRegistry.MintAsync(ct), typeOverride);
             if (!seedResult.IsSuccess)
             {
                 if (createdSeeds.Count > 0)

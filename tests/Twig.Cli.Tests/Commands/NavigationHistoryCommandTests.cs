@@ -274,7 +274,7 @@ public class NavigationHistoryCommandTests
     public async Task Back_NegativeSeedId_ResolvesToPublishedId()
     {
         _historyStore.GoBackAsync(Arg.Any<CancellationToken>()).Returns(-1);
-        _publishIdMapRepo.GetNewIdAsync(-1, Arg.Any<CancellationToken>()).Returns(100);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-1), Arg.Any<CancellationToken>()).Returns(100);
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Published Item"));
 
         var result = await _cmd.BackAsync();
@@ -288,7 +288,7 @@ public class NavigationHistoryCommandTests
     public async Task Back_NegativeSeedId_NoMapping_UsesOriginalId()
     {
         _historyStore.GoBackAsync(Arg.Any<CancellationToken>()).Returns(-5);
-        _publishIdMapRepo.GetNewIdAsync(-5, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-5), Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(-5, "Local Seed"));
 
         var result = await _cmd.BackAsync();
@@ -305,7 +305,7 @@ public class NavigationHistoryCommandTests
 
         await _cmd.BackAsync();
 
-        await _publishIdMapRepo.DidNotReceive().GetNewIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.DidNotReceive().GetNewIdByAliasAsync(Arg.Any<StagedAlias>(), Arg.Any<CancellationToken>());
     }
 
     // ── Seed ID resolution (Fore) ───────────────────────────────────
@@ -314,7 +314,7 @@ public class NavigationHistoryCommandTests
     public async Task Fore_NegativeSeedId_ResolvesToPublishedId()
     {
         _historyStore.GoForwardAsync(Arg.Any<CancellationToken>()).Returns(-2);
-        _publishIdMapRepo.GetNewIdAsync(-2, Arg.Any<CancellationToken>()).Returns(200);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-2), Arg.Any<CancellationToken>()).Returns(200);
         _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(200, "Published Item"));
 
         var result = await _cmd.ForeAsync();
@@ -328,7 +328,7 @@ public class NavigationHistoryCommandTests
     public async Task Fore_NegativeSeedId_NoMapping_UsesOriginalId()
     {
         _historyStore.GoForwardAsync(Arg.Any<CancellationToken>()).Returns(-3);
-        _publishIdMapRepo.GetNewIdAsync(-3, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-3), Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetByIdAsync(-3, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(-3, "Local Seed"));
 
         var result = await _cmd.ForeAsync();
@@ -345,7 +345,7 @@ public class NavigationHistoryCommandTests
 
         await _cmd.ForeAsync();
 
-        await _publishIdMapRepo.DidNotReceive().GetNewIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.DidNotReceive().GetNewIdByAliasAsync(Arg.Any<StagedAlias>(), Arg.Any<CancellationToken>());
     }
 
     // ── Output format tests ─────────────────────────────────────────
@@ -476,13 +476,13 @@ public class NavigationHistoryCommandTests
         };
         _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
             .Returns((entries, (int?)1));
-        _publishIdMapRepo.GetNewIdAsync(-1, Arg.Any<CancellationToken>()).Returns(100);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-1), Arg.Any<CancellationToken>()).Returns(100);
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Published Item"));
 
         var result = await _cmd.HistoryAsync(nonInteractive: true);
 
         result.ShouldBe(0);
-        await _publishIdMapRepo.Received(1).GetNewIdAsync(-1, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received(1).GetNewIdByAliasAsync(Alias(-1), Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).GetByIdAsync(100, Arg.Any<CancellationToken>());
     }
 
@@ -495,7 +495,7 @@ public class NavigationHistoryCommandTests
         };
         _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
             .Returns((entries, (int?)1));
-        _publishIdMapRepo.GetNewIdAsync(-5, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-5), Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
         var result = await _cmd.HistoryAsync(nonInteractive: true);
@@ -517,7 +517,7 @@ public class NavigationHistoryCommandTests
 
         await _cmd.HistoryAsync(nonInteractive: true);
 
-        await _publishIdMapRepo.DidNotReceive().GetNewIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.DidNotReceive().GetNewIdByAliasAsync(Arg.Any<StagedAlias>(), Arg.Any<CancellationToken>());
     }
 
     // ── HistoryAsync: JSON output format ─────────────────────────────
@@ -560,13 +560,13 @@ public class NavigationHistoryCommandTests
         };
         _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
             .Returns((entries, (int?)1));
-        _publishIdMapRepo.GetNewIdAsync(-1, Arg.Any<CancellationToken>()).Returns(200);
+        _publishIdMapRepo.GetNewIdByAliasAsync(Alias(-1), Arg.Any<CancellationToken>()).Returns(200);
         _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(200, "Resolved"));
 
         var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "json");
 
         result.ShouldBe(0);
-        await _publishIdMapRepo.Received(1).GetNewIdAsync(-1, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received(1).GetNewIdByAliasAsync(Alias(-1), Arg.Any<CancellationToken>());
     }
 
     // ── HistoryAsync: minimal output format ──────────────────────────
@@ -698,6 +698,12 @@ public class NavigationHistoryCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    private static StagedAlias Alias(int value)
+    {
+        StagedAlias.TryFrom(value, out var alias).ShouldBeTrue();
+        return alias;
     }
 }
 

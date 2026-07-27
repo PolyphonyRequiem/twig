@@ -1,4 +1,4 @@
-using NSubstitute;
+﻿using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -190,7 +190,8 @@ public class SeedPublishOrchestratorTests
 
         // Verify transactional flow
         await _unitOfWork.Received(1).BeginAsync(Arg.Any<CancellationToken>());
-        await _publishIdMapRepo.Received(1).RecordMappingAsync(-1, 500, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received(1).RecordMappingAsync(
+            Arg.Is<StagedIdentity>(i => i == seed.StagedIdentity!.Value), 500, Arg.Any<CancellationToken>());
         await _seedLinkRepo.Received(1).RemapIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).RemapParentIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
@@ -233,7 +234,7 @@ public class SeedPublishOrchestratorTests
         SetupSuccessfulAdoFlow(-1, 500);
 
         // Simulate failure during transaction
-        _publishIdMapRepo.RecordMappingAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _publishIdMapRepo.RecordMappingAsync(Arg.Any<StagedIdentity>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("DB error")));
 
         await Should.ThrowAsync<InvalidOperationException>(
@@ -287,7 +288,8 @@ public class SeedPublishOrchestratorTests
         result.Status.ShouldBe(SeedPublishStatus.Error);
         result.NewId.ShouldBe(500);
         result.ErrorMessage!.ShouldContain("did not persist intended parent #100");
-        await _publishIdMapRepo.Received(1).RecordMappingAsync(-1, 500, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received(1).RecordMappingAsync(
+            Arg.Is<StagedIdentity>(i => i == seed.StagedIdentity!.Value), 500, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -352,7 +354,8 @@ public class SeedPublishOrchestratorTests
         result.IsSuccess.ShouldBeFalse();
         result.NewId.ShouldBe(500);
         result.ErrorMessage!.ShouldContain("did not persist intended parent #100");
-        await _publishIdMapRepo.Received(1).RecordMappingAsync(-1, 500, Arg.Any<CancellationToken>());
+        await _publishIdMapRepo.Received(1).RecordMappingAsync(
+            Arg.Is<StagedIdentity>(i => i == seed.StagedIdentity!.Value), 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
     }
 

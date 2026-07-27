@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -65,7 +66,7 @@ public class NewCommandTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
-            new SeedFactory(new SeedIdCounter()));
+            new SeedFactory(), new FakeStagedIdentityRegistry());
     }
 
     public void Dispose()
@@ -297,7 +298,7 @@ public class NewCommandTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, configNoDefaults,
-            new SeedFactory(new SeedIdCounter()));
+            new SeedFactory(), new FakeStagedIdentityRegistry());
 
         ArrangeCreateSuccess();
 

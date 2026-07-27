@@ -208,7 +208,9 @@ public abstract class ReadToolsTestBase
             patchWorkflow,
             sprintIterationResolver,
             processTypeStore, fieldDefinitionStore,
-            seedLinkRepo, publishIdMapRepo, seedPublishRulesProvider, unitOfWork,
+            seedLinkRepo, publishIdMapRepo,
+            new Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry(cacheStore),
+            seedPublishRulesProvider, unitOfWork,
             trackingRepo,
             branchLinkService);
     }

@@ -185,12 +185,16 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTwigTag(operations);
+        InjectTwigTag(operations, request.IdempotencyTag);
 
         return operations;
     }
 
-    private static void InjectTwigTag(List<AdoPatchOperation> operations)
+    // Stamps the constant "twig" marker plus, when supplied, the per-create idempotency tag
+    // (wayfinder 0015). The idempotency tag is what makes an ambiguous create recoverable:
+    // ADO offers no idempotency key of its own, so this is the only thing a recovery query can
+    // match on to answer "did my create already happen?" without duplicating the item.
+    private static void InjectTwigTag(List<AdoPatchOperation> operations, string? idempotencyTag = null)
     {
         const string tagPath = "/fields/System.Tags";
         const string twigTag = "twig";
@@ -201,15 +205,22 @@ internal static class AdoResponseMapper
         if (existingIndex >= 0)
         {
             var current = operations[existingIndex].Value?.GetValue<string>() ?? "";
-            operations[existingIndex].Value = JsonValue.Create(MergeTwigTag(current, twigTag));
+            var merged = MergeTwigTag(current, twigTag);
+            if (!string.IsNullOrWhiteSpace(idempotencyTag))
+                merged = MergeTwigTag(merged, idempotencyTag);
+            operations[existingIndex].Value = JsonValue.Create(merged);
         }
         else
         {
+            var value = string.IsNullOrWhiteSpace(idempotencyTag)
+                ? twigTag
+                : MergeTwigTag(twigTag, idempotencyTag);
+
             operations.Add(new AdoPatchOperation
             {
                 Op = "add",
                 Path = tagPath,
-                Value = JsonValue.Create(twigTag),
+                Value = JsonValue.Create(value),
             });
         }
     }

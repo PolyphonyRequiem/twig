@@ -319,6 +319,23 @@ public sealed class AdoResponseMapperTests
         result.ShouldNotContain(op => op.Path == "/relations/-");
     }
 
+    // Wayfinder 0015: the stamped idempotency tag is what lets twig ask ADO "did my create
+    // already happen?" after an ambiguous failure. If it never reaches the payload, the
+    // recovery query has nothing to match and #270's duplicate comes back.
+    [Fact]
+    public void MapSeedToCreatePayload_WithIdempotencyTag_StampsItAlongsideTheTwigTag()
+    {
+        var identity = StagedIdentity.New();
+        var seed = new WorkItemBuilder(-1, "New Task").AsSeed(stagedIdentity: identity).Build();
+        var request = seed.ToCreateRequest() with { IdempotencyTag = PublishIntent.TagFor(identity) };
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/myorg");
+
+        var tags = result.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
+        tags.ShouldContain("twig");
+        tags.ShouldContain(PublishIntent.TagFor(identity));
+    }
+
     [Fact]
     public void MapSeedToCreatePayload_WithParent_ContainsRelationLink()
     {

@@ -205,6 +205,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var seedLinkRepo = new SqliteSeedLinkRepository(cacheStore);
         var stagedIdentityRegistry = new SqliteStagedIdentityRegistry(cacheStore);
         var publishIdMapRepo = new SqlitePublishIdMapRepository(cacheStore, stagedIdentityRegistry);
+        var publishIntentRepo = new SqlitePublishIntentRepository(cacheStore);
         var seedPublishRulesProvider = new FileSeedPublishRulesProvider(paths.TwigDir);
         var unitOfWork = new SqliteUnitOfWork(cacheStore);
 
@@ -257,6 +258,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             fieldDefStore,
             seedLinkRepo,
             publishIdMapRepo,
+            publishIntentRepo,
             stagedIdentityRegistry,
             seedPublishRulesProvider,
             unitOfWork,

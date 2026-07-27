@@ -258,7 +258,7 @@ public sealed class McpHintProviderTests
             patchWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
-            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<IStagedIdentityRegistry>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
+            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<IPublishIntentRepository>(), Substitute.For<IStagedIdentityRegistry>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
     }
 
     private static JsonElement ParseJson(CallToolResult result)

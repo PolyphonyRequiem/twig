@@ -122,6 +122,25 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.Id;
     }
 
+    public async Task<int?> FindByIdempotencyTagAsync(string idempotencyTag, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyTag))
+            return null;
+
+        // `Contains` is the documented operator for tag clauses. The tag carries a GUIDv7, so a
+        // substring match cannot collide across seeds. Single quotes are doubled per WIQL string
+        // escaping; the tag is machine-generated, but escaping it keeps the query well-formed
+        // rather than relying on that.
+        var escaped = idempotencyTag.Replace("'", "''");
+        var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '{escaped}'";
+        var ids = await QueryByWiqlAsync(wiql, ct);
+
+        // More than one match means the duplicate this mechanism exists to prevent already
+        // happened. Return the lowest — the first create — so recovery adopts the original
+        // rather than an accidental copy, and the extras stay visible in ADO for the user.
+        return ids.Count == 0 ? null : ids.Min();
+    }
+
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={CommentApiVersion}";

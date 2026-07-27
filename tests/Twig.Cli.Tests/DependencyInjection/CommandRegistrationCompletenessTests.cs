@@ -60,6 +60,7 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IFieldDefinitionStore>());
         services.AddSingleton(Substitute.For<ISeedLinkRepository>());
         services.AddSingleton(Substitute.For<IPublishIdMapRepository>());
+        services.AddSingleton(Substitute.For<IPublishIntentRepository>());
         services.AddSingleton(Substitute.For<ISeedPublishRulesProvider>());
         services.AddSingleton(Substitute.For<IUnitOfWork>());
         services.AddSingleton(Substitute.For<IConsoleInput>());

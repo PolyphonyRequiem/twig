@@ -66,6 +66,12 @@ public sealed class WorkspaceContext : IDisposable
     public IPublishIdMapRepository PublishIdMapRepo { get; }
 
     /// <summary>
+    /// The durable intent ledger that records a publish before the ADO call and its outcome
+    /// after it (wayfinder 0015).
+    /// </summary>
+    public IPublishIntentRepository PublishIntentRepo { get; }
+
+    /// <summary>
     /// The durable register that mints staged seed identities and their display aliases
     /// (wayfinder 0014).
     /// </summary>
@@ -113,6 +119,7 @@ public sealed class WorkspaceContext : IDisposable
         IFieldDefinitionStore fieldDefinitionStore,
         ISeedLinkRepository seedLinkRepo,
         IPublishIdMapRepository publishIdMapRepo,
+        IPublishIntentRepository publishIntentRepo,
         IStagedIdentityRegistry stagedIdentityRegistry,
         ISeedPublishRulesProvider seedPublishRulesProvider,
         IUnitOfWork unitOfWork,
@@ -148,6 +155,7 @@ public sealed class WorkspaceContext : IDisposable
         FieldDefinitionStore = fieldDefinitionStore;
         SeedLinkRepo = seedLinkRepo;
         PublishIdMapRepo = publishIdMapRepo;
+        PublishIntentRepo = publishIntentRepo;
         StagedIdentityRegistry = stagedIdentityRegistry;
         SeedPublishRulesProvider = seedPublishRulesProvider;
         UnitOfWork = unitOfWork;

@@ -26,6 +26,7 @@ public sealed class SeedPublishOrchestrator
     private readonly SeedLinkPromoter _linkPromoter;
     private readonly BacklogOrderer _backlogOrderer;
     private readonly IPendingChangeStore? _pendingChangeStore;
+    private readonly IPublishIntentRepository? _publishIntentRepo;
 
     [Obsolete("Use the overload that accepts IWorkItemLinkRepository to refresh published relationships.")]
     public SeedPublishOrchestrator(
@@ -95,6 +96,40 @@ public sealed class SeedPublishOrchestrator
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer,
         IPendingChangeStore? pendingChangeStore)
+        : this(
+            workItemRepo,
+            adoService,
+            seedLinkRepo,
+            workItemLinkRepo,
+            publishIdMapRepo,
+            rulesProvider,
+            unitOfWork,
+            backlogOrderer,
+            pendingChangeStore,
+            publishIntentRepo: null)
+    {
+    }
+
+    /// <summary>
+    /// Creates an orchestrator that records the publish intent durably before the ADO call and
+    /// the outcome after it, closing the 7→10 window (wayfinder 0015, from 0001 §4).
+    /// </summary>
+    /// <remarks>
+    /// Without an <see cref="IPublishIntentRepository"/> the create at step 7 remains outside
+    /// any durable record, so a crash before step 10 commits orphans a real ADO work item and
+    /// every retry creates another duplicate (PolyphonyRequiem/twig#270). Prefer this overload.
+    /// </remarks>
+    public SeedPublishOrchestrator(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ISeedLinkRepository seedLinkRepo,
+        IWorkItemLinkRepository workItemLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider rulesProvider,
+        IUnitOfWork unitOfWork,
+        BacklogOrderer backlogOrderer,
+        IPendingChangeStore? pendingChangeStore,
+        IPublishIntentRepository? publishIntentRepo)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -106,6 +141,7 @@ public sealed class SeedPublishOrchestrator
         _linkPromoter = new SeedLinkPromoter(seedLinkRepo, adoService);
         _backlogOrderer = backlogOrderer;
         _pendingChangeStore = pendingChangeStore;
+        _publishIntentRepo = publishIntentRepo;
     }
 
     /// <summary>
@@ -220,8 +256,47 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
-        // Step 7: Create in ADO
-        var newId = await _adoService.CreateAsync(seed.ToCreateRequest(), ct);
+        // Step 7: Record intent durably BEFORE the ADO call, then make the call (0001 §4).
+        //
+        // THIS IS THE 7->10 WINDOW. The create at this step produces remote state; the local
+        // half is not committed until step 10. A crash in between used to orphan a real ADO
+        // work item with no local trace at all, so every retry created another duplicate
+        // (PolyphonyRequiem/twig#270). #270 fixed the FK ordering *inside* step 10; the window
+        // itself stayed open until this ticket.
+        //
+        // The intent is written outside the step-10 transaction ON PURPOSE. A record that
+        // rolled back with the local half would be erased by exactly the crash it exists to
+        // survive — it must outlive the failure to be evidence of it.
+        //
+        // A seed with no StagedIdentity predates 0014 and cannot be keyed, so it takes the old
+        // unprotected path rather than being silently given a fresh identity that would not
+        // match anything already in ADO.
+        int newId;
+        var identity = seed.StagedIdentity;
+
+        if (_publishIntentRepo is not null && identity is { } intentIdentity)
+        {
+            var intent = await _publishIntentRepo.RecordIntentAsync(intentIdentity, ct);
+
+            // A prior attempt may have created the item before dying. Ask ADO before creating
+            // anything: this is the whole point of stamping the tag, and it is the only way to
+            // tell an ambiguous timeout from a genuine failure, because ADO documents no
+            // idempotency key for creates.
+            var alreadyLanded = await _adoService.FindByIdempotencyTagAsync(intent.IdempotencyTag, ct);
+
+            newId = alreadyLanded
+                ?? await _adoService.CreateAsync(
+                    seed.ToCreateRequest() with { IdempotencyTag = intent.IdempotencyTag },
+                    ct);
+
+            // Record the outcome immediately, still outside the transaction. From here on the
+            // remote item is accounted for even if every step below fails.
+            await _publishIntentRepo.CompleteIntentAsync(intentIdentity, newId, ct);
+        }
+        else
+        {
+            newId = await _adoService.CreateAsync(seed.ToCreateRequest(), ct);
+        }
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);

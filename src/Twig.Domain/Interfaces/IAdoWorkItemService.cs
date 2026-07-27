@@ -14,6 +14,19 @@ public interface IAdoWorkItemService
     Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default);
     Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
     Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Asks ADO whether a create stamped with <paramref name="idempotencyTag"/> already landed,
+    /// returning its id or <see langword="null"/> (wayfinder 0015, from 0001 §4).
+    /// </summary>
+    /// <remarks>
+    /// This is the recovery half of the intent record. ADO documents no idempotency key for
+    /// creates, so an ambiguous outcome — a timeout, a 429 mid-flight, a dropped connection —
+    /// cannot be distinguished from a failure, and a blind retry duplicates the work item
+    /// (PolyphonyRequiem/twig#270). Querying for the stamped tag is the documented-safe way to
+    /// settle the question before retrying.
+    /// </remarks>
+    Task<int?> FindByIdempotencyTagAsync(string idempotencyTag, CancellationToken ct = default);
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default);

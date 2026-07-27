@@ -209,6 +209,7 @@ public abstract class ReadToolsTestBase
             sprintIterationResolver,
             processTypeStore, fieldDefinitionStore,
             seedLinkRepo, publishIdMapRepo,
+            new Twig.Infrastructure.Persistence.SqlitePublishIntentRepository(cacheStore),
             new Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry(cacheStore),
             seedPublishRulesProvider, unitOfWork,
             trackingRepo,

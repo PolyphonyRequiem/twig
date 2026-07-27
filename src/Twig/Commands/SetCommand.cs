@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SpectreMarkup = Spectre.Console.Markup;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -32,20 +33,11 @@ public sealed class SetCommand(
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("set", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        try
-        {
-            exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
-            scope.Complete(exitCode);
-            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "set", outputFormat, exitCode, scope.StartTimestamp);
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            scope.Fail(ex);
-            throw;
-        }
+        exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "set", outputFormat, exitCode, startTimestamp);
+        return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(string idOrPattern, string outputFormat, CancellationToken ct)

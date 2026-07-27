@@ -2,7 +2,6 @@ using Spectre.Console;
 using Spectre.Console.Rendering;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Diagnostics;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Field;
@@ -676,7 +675,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<int, Task<int?>>? getSiblingCount = null,
         Func<Task<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>>? getLinks = null)
     {
-        using var activity = ActivityHelper.StartRenderOperation("tree");
 
         // Stage 1: Load focused item and parent chain
         var focusedItem = await getFocusedItem();
@@ -1492,7 +1490,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<SyncResult, Task<IRenderable?>> buildRevisedView,
         CancellationToken ct)
     {
-        using var activity = ActivityHelper.StartRenderOperation("sync_view");
 
         var cachedView = await buildCachedView();
 

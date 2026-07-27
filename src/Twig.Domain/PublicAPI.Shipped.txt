@@ -24,17 +24,6 @@
 ~override Twig.Domain.ValueObjects.WorkItemLink.Equals(object obj) -> bool
 ~override Twig.Domain.ValueObjects.WorkItemLink.ToString() -> string
 ~override Twig.Domain.ValueObjects.WorkItemType.Equals(object obj) -> bool
-const Twig.Domain.Diagnostics.TraceTags.CacheHit = "twig.cache_hit" -> string!
-const Twig.Domain.Diagnostics.TraceTags.Command = "twig.command" -> string!
-const Twig.Domain.Diagnostics.TraceTags.ExceptionKind = "twig.exception_kind" -> string!
-const Twig.Domain.Diagnostics.TraceTags.ExitCode = "twig.exit_code" -> string!
-const Twig.Domain.Diagnostics.TraceTags.ItemCount = "twig.item_count" -> string!
-const Twig.Domain.Diagnostics.TraceTags.Operation = "twig.operation" -> string!
-const Twig.Domain.Diagnostics.TraceTags.OutputFormat = "twig.output_format" -> string!
-const Twig.Domain.Diagnostics.TraceTags.Result = "twig.result" -> string!
-const Twig.Domain.Diagnostics.TraceTags.RetryCount = "twig.retry_count" -> string!
-const Twig.Domain.Diagnostics.TraceTags.StatusCodeClass = "twig.status_code_class" -> string!
-const Twig.Domain.Diagnostics.TwigActivitySource.SourceName = "Twig" -> string!
 const Twig.Domain.ValueObjects.BranchNameTemplate.DefaultPattern = "(?:^|/)(?<id>\\d{3,})(?:-|/|$)" -> string!
 const Twig.Domain.ValueObjects.BranchNameTemplate.DefaultTemplate = "feature/{id}-{title}" -> string!
 const Twig.Domain.ValueObjects.LinkTypes.Predecessor = "Predecessor" -> string!
@@ -236,8 +225,6 @@ override Twig.Domain.ValueObjects.WorkItemType.ToString() -> string!
 override Twig.Domain.ValueObjects.WorkItemTypeAppearance.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.WorkItemTypeAppearance.GetHashCode() -> int
 override Twig.Domain.ValueObjects.WorkItemTypeAppearance.ToString() -> string!
-static readonly Twig.Domain.Diagnostics.TraceTags.AllowedKeys -> System.Collections.Generic.IReadOnlySet<string!>!
-static readonly Twig.Domain.Diagnostics.TwigActivitySource.Source -> System.Diagnostics.ActivitySource!
 static readonly Twig.Domain.ValueObjects.SeedLinkTypes.All -> System.Collections.Generic.IReadOnlyList<string!>!
 static readonly Twig.Domain.ValueObjects.SeedPublishRules.Default -> Twig.Domain.ValueObjects.SeedPublishRules!
 static readonly Twig.Domain.ValueObjects.WorkItemType.Bug -> Twig.Domain.ValueObjects.WorkItemType
@@ -267,14 +254,6 @@ static Twig.Domain.Common.Result<T>.Fail(string! error) -> Twig.Domain.Common.Re
 static Twig.Domain.Common.Result<T>.Ok(T value) -> Twig.Domain.Common.Result<T>
 static Twig.Domain.Common.Result<T>.operator !=(Twig.Domain.Common.Result<T> left, Twig.Domain.Common.Result<T> right) -> bool
 static Twig.Domain.Common.Result<T>.operator ==(Twig.Domain.Common.Result<T> left, Twig.Domain.Common.Result<T> right) -> bool
-static Twig.Domain.Diagnostics.ActivityHelper.Complete(System.Diagnostics.Activity? activity, int exitCode) -> void
-static Twig.Domain.Diagnostics.ActivityHelper.Fail(System.Diagnostics.Activity? activity, System.Exception! ex) -> void
-static Twig.Domain.Diagnostics.ActivityHelper.SetItemCount(System.Diagnostics.Activity? activity, int count) -> void
-static Twig.Domain.Diagnostics.ActivityHelper.SetStatusCodeClass(System.Diagnostics.Activity? activity, int httpStatusCode) -> void
-static Twig.Domain.Diagnostics.ActivityHelper.StartAdoOperation(string! operation) -> System.Diagnostics.Activity?
-static Twig.Domain.Diagnostics.ActivityHelper.StartCommand(string! commandName, string! outputFormat) -> System.Diagnostics.Activity?
-static Twig.Domain.Diagnostics.ActivityHelper.StartRenderOperation(string! operation) -> System.Diagnostics.Activity?
-static Twig.Domain.Diagnostics.ActivityHelper.StartSqliteOperation(string! operation) -> System.Diagnostics.Activity?
 static Twig.Domain.Extensions.WorkItemExtensions.ToCreateRequest(this Twig.Domain.Aggregates.WorkItem! seed) -> Twig.Domain.ValueObjects.CreateWorkItemRequest!
 static Twig.Domain.Interfaces.GitHubReleaseAssetInfo.operator !=(Twig.Domain.Interfaces.GitHubReleaseAssetInfo? left, Twig.Domain.Interfaces.GitHubReleaseAssetInfo? right) -> bool
 static Twig.Domain.Interfaces.GitHubReleaseAssetInfo.operator ==(Twig.Domain.Interfaces.GitHubReleaseAssetInfo? left, Twig.Domain.Interfaces.GitHubReleaseAssetInfo? right) -> bool
@@ -574,9 +553,6 @@ Twig.Domain.Common.Result<T>.Error.get -> string!
 Twig.Domain.Common.Result<T>.IsSuccess.get -> bool
 Twig.Domain.Common.Result<T>.Result() -> void
 Twig.Domain.Common.Result<T>.Value.get -> T
-Twig.Domain.Diagnostics.ActivityHelper
-Twig.Domain.Diagnostics.TraceTags
-Twig.Domain.Diagnostics.TwigActivitySource
 Twig.Domain.Enums.StateCategory
 Twig.Domain.Enums.StateCategory.Completed = 3 -> Twig.Domain.Enums.StateCategory
 Twig.Domain.Enums.StateCategory.InProgress = 1 -> Twig.Domain.Enums.StateCategory

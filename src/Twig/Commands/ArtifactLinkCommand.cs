@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -36,20 +37,11 @@ public sealed class ArtifactLinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        using var scope = new CommandActivityScope("link-artifact", outputFormat);
+        var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        try
-        {
-            exitCode = await ExecuteCoreAsync(url, name, id, outputFormat, ct);
-            scope.Complete(exitCode);
-            TelemetryHelper.TrackCommand(telemetryClient, "link-artifact", outputFormat, exitCode, scope.StartTimestamp);
-            return exitCode;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            scope.Fail(ex);
-            throw;
-        }
+        exitCode = await ExecuteCoreAsync(url, name, id, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-artifact", outputFormat, exitCode, startTimestamp);
+        return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(

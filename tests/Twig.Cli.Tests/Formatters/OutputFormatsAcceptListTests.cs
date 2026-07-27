@@ -188,18 +188,24 @@ public class OutputFormatsAcceptListTests
 
         // Breaking-change rule 2 from 0010: an accepted value must not change
         // which family (human vs machine) it resolves to.
-        var machineFormats = new[] { "json", "json-full", "json-compact", "minimal", "ids" };
-
+        //
+        // The family is derived from the accept-list itself, NOT restated as a literal.
+        // A restated list fails OPEN: adding "yaml" to Accepted without a RendererFactory
+        // arm would fall to the catch-all SpectreNodeRenderer, land in the "human" branch
+        // and pass — green while reproducing the very bug 0019 closed. Only the default
+        // is human; everything else on the list must resolve to a machine renderer.
         foreach (var accepted in OutputFormats.Accepted)
         {
             using var writer = new StringWriter();
             var renderer = factory.GetRenderer(accepted, writer);
             var isHuman = renderer is SpectreNodeRenderer;
 
-            if (machineFormats.Contains(accepted))
-                isHuman.ShouldBeFalse($"'{accepted}' is a machine format and must not render as human");
-            else
-                isHuman.ShouldBeTrue($"'{accepted}' is a human format");
+            isHuman.ShouldBe(
+                accepted == OutputFormats.Default,
+                $"'{accepted}' resolved to the {(isHuman ? "human" : "machine")} family. "
+                + $"Only '{OutputFormats.Default}' may render as human; every other accepted "
+                + "value needs its own RendererFactory arm. A value on the accept-list with no "
+                + "arm silently falls through to the human catch-all — the 0019 bug.");
         }
     }
 

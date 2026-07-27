@@ -15,13 +15,28 @@ namespace Twig.Formatters;
 /// </summary>
 public sealed class OutputFormatterFactory(HumanOutputFormatter human)
 {
-    public const string DefaultFormat = "human";
+    /// <summary>
+    /// The default format. Kept as a constant because it is the default value
+    /// of every command's <c>output</c> parameter; it forwards to the single
+    /// accept-list in <see cref="OutputFormats"/>.
+    /// </summary>
+    public const string DefaultFormat = OutputFormats.Default;
 
     private readonly IOutputFormatter _plain = new PlainOutputFormatter(human);
 
+    /// <summary>
+    /// Resolves a formatter for <paramref name="format"/>.
+    /// </summary>
+    /// <remarks>
+    /// Wayfinder 0019: membership is decided by <see cref="OutputFormats"/>, not
+    /// by a restated arm list. Unknown values are rejected at the entrypoint
+    /// (<see cref="OutputFormatArgumentValidator"/>) and cannot reach this
+    /// method from the CLI; the human fallback below therefore only covers
+    /// in-process callers, and no longer masks a user typo with exit 0.
+    /// </remarks>
     public IOutputFormatter GetFormatter(string format)
     {
-        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        return OutputFormats.Normalize(format) switch
         {
             "json"         => _plain,
             "json-full"    => _plain,

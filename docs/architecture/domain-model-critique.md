@@ -199,9 +199,10 @@ and the "where does this go?" problem grows with every addition.
 > `SyncCoordinator.cs` 281 (was 211), `RefreshOrchestrator.cs` 191 (was 193),
 > `SeedPublishOrchestrator.cs` **616** (was 245), `SeedReconcileOrchestrator.cs` 117 (was 110).
 > `SyncCoordinatorFactory` still exists un-renamed (`Services/Sync/SyncCoordinatorFactory.cs`).
-> STILL TRUE / new: a **sixth** orchestrator has since been added —
-> `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines) — so proliferation
-> resumed after the audit closed.
+> STILL TRUE / new: a **sixth** orchestrator exists that the audit never covered —
+> `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines), created in `55ad9c2b`
+> on 2026-04-28, the day *after* the audit was written to this document in `f8bee61c`
+> (2026-04-27). Tracked as #318.
 > STILL TRUE: wayfinder ticket 0004 ruled that reconciliation becomes a named module and that
 > `SeedReconcileOrchestrator` be renamed to reflect that it is a seed-link GC
 > (`wayfinder/tickets/0004-does-reconciliation-exist.md:185-192`, scope explicitly "decision only").
@@ -329,9 +330,9 @@ The codebase has 9+ distinct result types with incompatible patterns: `Result<T>
 > (`src/Twig/Commands/CommandContext.cs:13`), and inline infrastructure access was pulled into
 > `src/Twig/Commands/StatusFieldConfigReader.cs:8`.
 > STILL TRUE as a class-level finding: the bloat relocated rather than disappeared.
-> `WorkspaceCommand` now takes **15** constructor parameters over 851 lines
+> `WorkspaceCommand` now takes **14** constructor parameters over 851 lines
 > (`src/Twig/Commands/WorkspaceCommand.cs:34-48`), and `ShowCommand.cs` (792) and `InitCommand.cs`
-> (739) are the same shape. No `CommandRenderingPipeline` exists.
+> (739) are the same shape. No `CommandRenderingPipeline` exists. Tracked as #319.
 
 
 `StatusCommand` and `SetCommand` each take 15–17 constructor parameters. Method
@@ -453,9 +454,9 @@ methods on a read model. Read models should be inert projections.
 
 > **Status (2026-07, re-baselined at `55b02d32`)**: mostly obsolete. Items **2, 3, 4, 5, 10** are
 > FIXED and drop off the list entirely. Item **6** is *not* "completed April 2026" as this list's ninth entry claims:
-> the audit completed, but a sixth orchestrator has since been added
-> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`) and wayfinder 0004's named
-> reconciliation module has not landed. Item **7** is no longer "in progress" — both scheduled
+> the audit completed, but a sixth orchestrator it never covered exists
+> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`, #318) and wayfinder 0004's named
+> reconciliation module has not landed (#320). Item **7** is no longer "in progress" — both scheduled
 > migrations shipped (`Services/Workspace/StatusResult.cs:25`,
 > `ValueObjects/BranchLinkResult.cs:32`); only the explicitly deferred seed result types remain.
 > Item **11** is FIXED and also drops off (ruled 2026-07-27: extension-method placement discharges

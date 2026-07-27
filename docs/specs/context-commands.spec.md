@@ -8,7 +8,7 @@
 
 1. **Separation of concerns** — `set` changes context, `show` displays it.
    `set` does not render dashboards. `show` does not change context.
-2. **Sync-first for machine output** — JSON/jsonc/minimal formats sync
+2. **Sync-first for machine output** — JSON/minimal formats sync
    synchronously before emitting a single complete output. No streaming,
    no async re-render.
 3. **Cache-only is opt-in** — `--no-refresh` skips sync for both human and
@@ -33,7 +33,7 @@ twig set <idOrPattern> [--output <format>]
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `idOrPattern` | string | required | Numeric ID or title pattern (wildcard substring search) |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
 
@@ -105,7 +105,7 @@ twig show [<id>] [--output <format>] [--no-refresh] [--batch <ids>]
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `id` | int? | null | Work item ID. Omit to show the active item. |
-| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+| `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 | `--no-refresh` | bool | false | Skip sync pass — show only cached data |
 | `--batch` | string | null | Comma-separated IDs for batch mode |
 
@@ -120,7 +120,7 @@ twig show [<id>] [--output <format>] [--no-refresh] [--batch <ids>]
    - Fetch fails → exit 1: `"Work item #X not found. Run 'twig set X' to refresh."`
 
 2. **Sync (unless `--no-refresh`)**
-   - **Machine formats (json, jsonc, minimal):** sync synchronously, then output
+   - **Machine formats (json, minimal):** sync synchronously, then output
    - **Human format (TTY):** render cached data immediately → sync in background →
      re-render with fresh data when sync completes
    - **Human format (non-TTY):** sync synchronously, then output

@@ -20,7 +20,6 @@ explicitly noted (e.g., pure-utility commands like `upgrade`).
 ```
 --output human       # Default. Rich ANSI, Spectre tables, icons.
 --output json        # Full structured JSON. Machine-consumable.
---output jsonc       # Compact JSON (json-compact). Reduced schema.
 --output minimal     # Pipe-friendly. Key fields, tab-separated, one per line.
 --output ids         # Bare numeric IDs, one per line. For piping to other commands.
 ```
@@ -39,7 +38,7 @@ public async Task<int> ExecuteAsync(
 }
 ```
 
-**Machine format behavior (json, jsonc, minimal):**
+**Machine format behavior (json, minimal):**
 - MUST NOT use the render/async-update/re-render pattern
 - MUST NOT use Spectre Live regions or async rendering
 - MUST sync first, then produce output in a single write
@@ -73,7 +72,7 @@ Required elements:
 **Pattern (in Program.cs):**
 ```csharp
 /// <summary>Show the active work item with full detail.</summary>
-/// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+/// <param name="output">-o, Output format: human, json, minimal.</param>
 /// <param name="noRefresh">Skip background sync after display.</param>
 /// <param name="depth">Maximum tree depth for child display.</param>
 [Command("show")]
@@ -227,7 +226,7 @@ work items should have corresponding tools in `src/Twig.Mcp/`.
 
 This applies to: `show`, `status`, `tree`, `workspace`
 
-Machine output formats (json, jsonc, minimal) should sync-then-output
+Machine output formats (json, minimal) should sync-then-output
 synchronously — no background refresh needed. `--no-refresh` is primarily
 for human format when the user wants instant cached results.
 
@@ -238,7 +237,7 @@ for human format when the user wants instant cached results.
 When auditing or reviewing a command, verify each item:
 
 ```
-□ --output support (human, json, jsonc, minimal)
+□ --output support (human, json, minimal)
 □ Machine formats sync-then-output (no async rendering)
 □ Help text: summary, all param docs, 2+ examples
 □ Examples registered in CommandExamples.cs

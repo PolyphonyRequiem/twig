@@ -49,7 +49,7 @@ public sealed class PatchCommand(
     /// <param name="json">JSON object with field name → value pairs.</param>
     /// <param name="readStdin">When true, read JSON from stdin instead of --json.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="outputFormat">Output format: human, json, jsonc, minimal.</param>
+    /// <param name="outputFormat">Output format: human, json, minimal.</param>
     /// <param name="format">Convert values before sending. Supported: "markdown".</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<int> ExecuteAsync(

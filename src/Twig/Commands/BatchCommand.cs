@@ -36,8 +36,7 @@ public sealed record BatchItemResult(
 /// the structured JSON output continues to be emitted by the existing
 /// <see cref="FormatBatchResultJson"/> path (wire format committed). Per-item human
 /// success lines and the final summary line are now routed through the renderer using
-/// "human" format explicitly to preserve the documented "jsonc uses human-readable
-/// output" quirk. Hints and stderr errors continue to use the legacy formatter.
+/// "human" format explicitly. Hints and stderr errors continue to use the legacy formatter.
 /// </remarks>
 public sealed class BatchCommand(
     CommandContext ctx,
@@ -64,7 +63,7 @@ public sealed class BatchCommand(
     /// <param name="note">Comment text to add after the PATCH.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
     /// <param name="ids">Comma-separated IDs for multi-item batch.</param>
-    /// <param name="outputFormat">Output format: human, json, jsonc, minimal.</param>
+    /// <param name="outputFormat">Output format: human, json, minimal.</param>
     /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<int> ExecuteAsync(
@@ -257,7 +256,7 @@ public sealed class BatchCommand(
         }
         else
         {
-            // Render per-item results (human/minimal/jsonc — jsonc intentionally uses human-readable output)
+            // Render per-item results (human/minimal)
             foreach (var result in results)
             {
                 if (result.Success)
@@ -300,7 +299,7 @@ public sealed class BatchCommand(
     private void RenderHumanText(string message, Severity severity)
     {
         // Always render as human format - the JSON branch handles json explicitly above,
-        // and jsonc/minimal intentionally use human-readable output here.
+        // and minimal uses human-readable output here.
         _rendererFactory.GetRenderer("human").Render(new RenderTree.RenderTree(new[]
         {
             (RenderNode)new RenderNode.Text(message, severity),

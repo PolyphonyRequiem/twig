@@ -15,7 +15,7 @@ namespace Twig.Cli.Tests.Commands;
 
 /// <summary>
 /// Tests verifying the slimmed SetCommand outputs the correct confirmation format
-/// for each output mode (human, json, jsonc, minimal) and does NOT emit hints.
+/// for each output mode (human, json, minimal) and does NOT emit hints.
 /// Covers acceptance criteria from plan task T-2.5.
 /// </summary>
 public sealed class SetCommand_SlimTests : IDisposable

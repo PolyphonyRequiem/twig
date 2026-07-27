@@ -422,7 +422,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="team">Team name within the project (defaults to project default team).</param>
     /// <param name="gitProject">ADO project that hosts the git repository, if different from the work-item project.</param>
     /// <param name="force">Overwrite existing workspace configuration.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
     /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
     public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
@@ -430,13 +430,13 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
     /// <param name="idOrPattern">Work item ID (e.g., 1234) or title substring to match.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
     /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default)
@@ -444,7 +444,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("show-batch")]
     public async Task<int> ShowBatch(string batch, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(batch, output, ct);
@@ -461,25 +461,25 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="createdSince">Show items created after this date (e.g., 2024-01-01, 7d, 2w).</param>
     /// <param name="changedSince">Show items changed after this date (e.g., 2024-01-01, 7d, 2w).</param>
     /// <param name="top">Maximum number of results to return.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
 
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct);
 
     /// <summary>List available workflow states for the active work item's type.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     public async Task<int> States(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessCommand>().ExecuteStatesAsync(output, ct);
@@ -494,7 +494,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="set">Set the new work item as the active context after creation.</param>
     /// <param name="editor">Open an external editor to fill in fields.</param>
     /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
     {
         var resolvedTitle = JoinTrailingText(title, titleParts);
@@ -503,7 +503,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
     /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
@@ -515,7 +515,7 @@ public sealed class TwigCommands(IServiceProvider services)
             : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct, depth, noLive);
 
     /// <summary>Navigate to the parent work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav up")]
     public async Task<int> NavUp(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
@@ -527,38 +527,38 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Navigate to a child work item.</summary>
     /// <param name="idOrPattern">Child work item ID or title substring to match.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav down")]
     public async Task<int> NavDown([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
 
     /// <summary>Navigate to the next sibling work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav next")]
     public async Task<int> NavNext(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
 
     /// <summary>Navigate to the previous sibling work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav prev")]
     public async Task<int> NavPrev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
 
     /// <summary>Navigate backward in navigation history.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav back")]
     public async Task<int> NavBack(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
 
     /// <summary>Navigate forward in navigation history.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav fore")]
     public async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
 
     /// <summary>Display the navigation history.</summary>
     /// <param name="nonInteractive">Skip interactive selection and print the history list.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav history")]
     public async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
@@ -599,7 +599,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="id">Work item ID whose history to display (required).</param>
     /// <param name="detail">Comma-delimited update IDs, or 'all', to show full field deltas for.</param>
     /// <param name="field">Comma-delimited ADO field reference names to restrict deltas to.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> History([Argument] int? id = null, string? detail = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         // The bare `history` verb was a hidden backward-compat alias for `nav history`.
@@ -616,7 +616,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Open the active work item in the browser.</summary>
     /// <param name="id">Work item ID to open; defaults to the active item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Web([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<WebCommand>().ExecuteAsync(id, output, ct);
 
@@ -631,14 +631,14 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="editor">Open an external editor to fill in seed fields.</param>
     /// <param name="parent">Parent work item ID. Defaults to the active work item.</param>
     /// <param name="noParent">Create the seed with no parent. Requires --type.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed new")]
     public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, output, ct);
 
     /// <summary>Edit seed fields in an external editor.</summary>
     /// <param name="id">Seed ID to edit.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed edit")]
     public async Task<int> SeedEdit([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedEditCommand>().ExecuteAsync(id, output, ct);
@@ -646,13 +646,13 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Discard (delete) a local seed.</summary>
     /// <param name="id">Seed ID to discard.</param>
     /// <param name="yes">Skip confirmation prompt.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed discard")]
     public async Task<int> SeedDiscard([Argument] int id, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedDiscardCommand>().ExecuteAsync(id, yes, output, ct);
 
     /// <summary>Show seed dashboard grouped by parent.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed view")]
     public async Task<int> SeedView(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
@@ -661,7 +661,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="sourceId">Source item ID for the link.</param>
     /// <param name="targetId">Target item ID for the link.</param>
     /// <param name="type">Link type: parent-child, blocks, blocked-by, depends-on, depended-on-by, related (default), successor, or predecessor. For parent-child, source is the child and target is the parent.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed link")]
     public async Task<int> SeedLink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedLinkCommand>().LinkAsync(sourceId, targetId, type, output, ct);
@@ -670,14 +670,14 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="sourceId">Source item ID of the link to remove.</param>
     /// <param name="targetId">Target item ID of the link to remove.</param>
     /// <param name="type">Link type to remove: parent-child, blocks, blocked-by, depends-on, depended-on-by, related (default), successor, or predecessor. For parent-child, source is the child and target is the parent.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed unlink")]
     public async Task<int> SeedUnlink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedLinkCommand>().UnlinkAsync(sourceId, targetId, type, output, ct);
 
     /// <summary>List virtual links, optionally filtered by item ID.</summary>
     /// <param name="id">Item ID to filter links for; omit to show all links.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed links")]
     public async Task<int> SeedLinks([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
@@ -685,7 +685,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Create a chain of linked seeds — interactively or from explicit titles.</summary>
     /// <param name="parent">Parent work item ID to link the chain under.</param>
     /// <param name="type">Work item type for each seed in the chain.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="titles">One or more seed titles to create in order.</param>
     [Command("seed chain")]
     public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titles)
@@ -693,7 +693,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Validate seeds against publish rules.</summary>
     /// <param name="id">Seed ID to validate; omit to validate all seeds.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed validate")]
     public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
@@ -705,13 +705,13 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="dryRun">Preview what would be published without making changes.</param>
     /// <param name="linkBranch">Link published work items to this branch name (e.g. feature/my-branch). Creates an ADO artifact link to the branch ref.</param>
     /// <param name="repo">Repository name for branch linking. When omitted, uses the default repository for the project.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed publish")]
     public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string? repo = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, repo, ct);
 
     /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed reconcile")]
     public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedReconcileCommand>().ExecuteAsync(output, ct);
@@ -720,20 +720,20 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Set the parent of the active work item.</summary>
     /// <param name="targetId">Work item ID to set as the parent.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link parent")]
     public async Task<int> LinkParent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, output, ct);
 
     /// <summary>Remove the parent link from the active work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link unparent")]
     public async Task<int> LinkUnparent(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnparentAsync(output, ct);
 
     /// <summary>Remove the current parent and set a new one.</summary>
     /// <param name="targetId">Work item ID to set as the new parent.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link reparent")]
     public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
@@ -742,7 +742,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="url">Artifact URL (http/https) or vstfs:// URI.</param>
     /// <param name="name">Display name for the link.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link artifact")]
     public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
@@ -753,7 +753,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="note">Comment text to add after the update.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
     /// <param name="ids">Comma-separated IDs for multi-item batch (e.g. 1234,5678).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
     [Command("batch")]
     public async Task<int> Batch(string? state = null, string[]? set = null, string? note = null, int? id = null, string? ids = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
@@ -761,7 +761,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="text">Note text to add; omit to open an editor.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="format">Convert the note text before sending. Supported: "raw" to send pre-rendered HTML or plain text unchanged; "markdown" (default) converts Markdown to HTML.</param>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default, params string[] textParts)
@@ -770,7 +770,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
     /// <param name="value">New value for the field; omit when using --file or --stdin.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (force-convert), "raw" (pass through unchanged). Default: auto — converts only when the field is HTML-typed in ADO.</param>
     /// <param name="file">Read the field value from a file instead of an inline argument.</param>
     /// <param name="stdin">Read the field value from piped standard input.</param>
@@ -785,13 +785,13 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="format">Convert values before sending. Supported: "markdown" (force-convert all fields), "raw" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.</param>
     /// <param name="workItemId">Work item ID as a positional argument (e.g. 'twig patch 1234 --json ...'), matching 'twig show'/'set'/'state'. Omit to use --id or the active work item.</param>
     /// <param name="id">Work item ID to target; equivalent to the positional form. Omit to use the active work item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Patch([Argument] int? workItemId = null, string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
@@ -799,14 +799,14 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="id">Work item ID to discard changes for.</param>
     /// <param name="all">Discard all pending changes (excludes seeds).</param>
     /// <param name="yes">Skip confirmation prompt.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
 
     /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
     /// <param name="id">Work item ID to delete (required).</param>
     /// <param name="force">Skip the interactive confirmation prompt.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("delete")]
     public async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
@@ -821,7 +821,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="force">Force a full refresh even if the cache is current.</param>
     /// <param name="pullOnly">Skip the flush phase and only pull (refresh) from ADO.</param>
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, bool pullOnly = false, CancellationToken ct = default)
@@ -833,7 +833,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, pullOnly: true, ct);
 
     /// <summary>Show the current workspace.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
@@ -843,7 +843,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
 
     /// <summary>Show the current workspace (short alias).</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
@@ -854,34 +854,34 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace track")]
     public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct);
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace track-tree")]
     public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct);
 
     /// <summary>Remove a work item from tracking.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace untrack")]
     public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct);
 
     /// <summary>Exclude a work item from workspace view.</summary>
     /// <param name="id">Work item ID to exclude.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace exclude")]
     public async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().ExcludeAsync(id, output, ct);
 
     /// <summary>List all excluded work items.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="clear">Remove all exclusions.</param>
     /// <param name="remove">Remove a specific exclusion by work item ID.</param>
     [Command("workspace exclusions")]
@@ -891,7 +891,7 @@ public sealed class TwigCommands(IServiceProvider services)
     // ── Workspace Area Path Management ──
 
     /// <summary>Show the area-filtered workspace view.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area")]
     public async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
@@ -899,26 +899,26 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Add an area path to workspace configuration.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area add")]
     public async Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
 
     /// <summary>Remove an area path from workspace configuration.</summary>
     /// <param name="path">Area path to remove.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area remove")]
     public async Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
 
     /// <summary>List configured area paths with match semantics.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area list")]
     public async Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
 
     /// <summary>Fetch team area paths from ADO and replace configuration.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace area sync")]
     public async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
@@ -927,20 +927,20 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Add a sprint iteration expression to workspace configuration.</summary>
     /// <param name="expression">Sprint expression (e.g., "@current", "@current-1", "Project\Sprint 5").</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint add")]
     public async Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SprintCommand>().AddAsync(expression, output, ct);
 
     /// <summary>Remove a sprint iteration expression from workspace configuration.</summary>
     /// <param name="expression">Sprint expression to remove.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint remove")]
     public async Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SprintCommand>().RemoveAsync(expression, output, ct);
 
     /// <summary>List configured sprint iteration expressions.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("workspace sprint list")]
     public async Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SprintCommand>().ListAsync(output, ct);
@@ -948,7 +948,7 @@ public sealed class TwigCommands(IServiceProvider services)
     // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
     /// <summary>Show the area-filtered workspace view. Deprecated — use 'twig workspace area' instead.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area")]
     public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -960,7 +960,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Add an area path. Deprecated — use 'twig workspace area add' instead.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area add")]
     public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -971,7 +971,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Remove an area path. Deprecated — use 'twig workspace area remove' instead.</summary>
     /// <param name="path">Area path to remove.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area remove")]
     public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -981,7 +981,7 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>List configured area paths. Deprecated — use 'twig workspace area list' instead.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area list")]
     public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -991,7 +991,7 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Fetch team area paths from ADO. Deprecated — use 'twig workspace area sync' instead.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
     [Command("area sync")]
     public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -1001,7 +1001,7 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
@@ -1012,32 +1012,32 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
     /// <param name="value">Value to set; omit to read the current value.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("config")]
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output, ct);
 
     /// <summary>Split a legacy .twig/config into a committed twig.json (repo coords) and gitignored .twig/config (user prefs). AB#3296.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="dryRun">Preview the changes without modifying any files.</param>
     [Command("migrate-config")]
     public async Task<int> MigrateConfig(string output = OutputFormatterFactory.DefaultFormat, bool dryRun = false, CancellationToken ct = default)
         => await services.GetRequiredService<MigrateConfigCommand>().ExecuteAsync(output, dryRun, ct);
 
     /// <summary>Configure which fields appear in status view.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("config status-fields")]
     public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Inspect the cached ADO access token (audience, expiry, principal). Diagnoses 403s caused by wrong-audience tokens.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth status")]
     public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AuthStatusCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Wipe the cached ADO access token. Use after auth changes or to recover from a poisoned cache.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth clear")]
     public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
@@ -1046,7 +1046,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
     /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
     /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth login")]
     public async Task<int> AuthLogin(
         bool deviceCode = false,
@@ -1070,7 +1070,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Display recent release notes from GitHub Releases.</summary>
     /// <param name="count">Number of releases to display.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
     public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
 

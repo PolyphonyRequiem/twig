@@ -20,12 +20,12 @@ public class SqliteCacheStoreTests
         // Verify all tables exist
         TableExists(conn, "metadata").ShouldBeTrue();
         TableExists(conn, "work_items").ShouldBeTrue();
-        TableExists(conn, "pending_changes").ShouldBeTrue();
+        DurableTableExists(conn, "pending_changes").ShouldBeTrue();
         TableExists(conn, "process_types").ShouldBeTrue();
         TableExists(conn, "context").ShouldBeTrue();
         TableExists(conn, "field_definitions").ShouldBeTrue();
         TableExists(conn, "work_item_links").ShouldBeTrue();
-        TableExists(conn, "seed_links").ShouldBeTrue();
+        DurableTableExists(conn, "seed_links").ShouldBeTrue();
         TableExists(conn, "navigation_history").ShouldBeTrue();
     }
 
@@ -159,7 +159,19 @@ public class SqliteCacheStoreTests
     private static bool TableExists(SqliteConnection conn, string tableName)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@name;";
+        cmd.CommandText = "SELECT name FROM main.sqlite_master WHERE type='table' AND name=@name;";
+        cmd.Parameters.AddWithValue("@name", tableName);
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    /// <summary>
+    /// Whether a table exists in the attached durable store (<c>pending.db</c>) rather than the
+    /// disposable mirror. <c>sqlite_master</c> is per-schema, so the two are unambiguous.
+    /// </summary>
+    private static bool DurableTableExists(SqliteConnection conn, string tableName)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM pending.sqlite_master WHERE type='table' AND name=@name;";
         cmd.Parameters.AddWithValue("@name", tableName);
         return cmd.ExecuteScalar() is not null;
     }
@@ -230,13 +242,130 @@ public class SqliteCacheStoreTests
             Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(1, "Only default workspace_mode row should exist after rebuild");
         }
 
-        // Verify all expected tables exist with correct schema
+        // Mirror tables
         TableExists(conn, "metadata").ShouldBeTrue();
         TableExists(conn, "work_items").ShouldBeTrue();
-        TableExists(conn, "pending_changes").ShouldBeTrue();
         TableExists(conn, "process_types").ShouldBeTrue();
         TableExists(conn, "context").ShouldBeTrue();
         TableExists(conn, "field_definitions").ShouldBeTrue();
+        TableExists(conn, "work_item_links").ShouldBeTrue();
+        TableExists(conn, "navigation_history").ShouldBeTrue();
+
+        // Durable tables live in the attached store, NOT the mirror (0013).
+        DurableTableExists(conn, "pending_changes").ShouldBeTrue();
+        DurableTableExists(conn, "publish_id_map").ShouldBeTrue();
+        DurableTableExists(conn, "seed_links").ShouldBeTrue();
+        TableExists(conn, "pending_changes").ShouldBeFalse();
+        TableExists(conn, "publish_id_map").ShouldBeFalse();
+        TableExists(conn, "seed_links").ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The completeness guard for wayfinder 0013's durability line: every table is in exactly one
+    /// store, and each is in the right one per 0005 §3a's "can ADO rebuild it?" test.
+    /// <para>
+    /// A new table added to the wrong store fails here rather than silently becoming droppable
+    /// durable state — the #271 failure shape this map exists to remove.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Schema_PlacesEveryTableInExactlyOneStore_ByDurability()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var conn = store.GetConnection();
+
+        string[] expectedMirror =
+            ["metadata", "work_items", "process_types", "context", "field_definitions",
+             "work_item_links", "navigation_history", "tracked_items", "excluded_items"];
+        string[] expectedDurable = ["pending_changes", "publish_id_map", "seed_links"];
+
+        ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
+        ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
+    }
+
+    /// <summary>The durable store carries its own version, independent of <c>SchemaVersion</c>.</summary>
+    [Fact]
+    public void DurableStore_RecordsItsOwnSchemaVersion()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        using var cmd = store.GetConnection().CreateCommand();
+        cmd.CommandText = "PRAGMA pending.user_version;";
+        Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+    }
+
+    /// <summary>
+    /// The clean-break guard (wayfinder 0013 / 0005 §5). No data migration is written from the
+    /// pre-split layout, so a version-mismatch rebuild must REFUSE while the legacy mirror still
+    /// holds staged work, rather than silently dropping it — #271 recurring.
+    /// </summary>
+    [Fact]
+    public void Constructor_LegacyPendingSetNonEmpty_RefusesToRebuild()
+    {
+        var connStr = $"Data Source=LegacyPending_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+
+        using var setupConn = new SqliteConnection(connStr);
+        setupConn.Open();
+        using (var cmd = setupConn.CreateCommand())
+        {
+            cmd.CommandText = """
+                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO metadata (key, value) VALUES ('schema_version', '10');
+                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY, work_item_id INTEGER);
+                INSERT INTO pending_changes (id, work_item_id) VALUES (1, 42);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        var ex = Should.Throw<InvalidOperationException>(() => new SqliteCacheStore(connStr));
+        ex.Message.ShouldContain("pending change");
+        ex.Message.ShouldContain("twig sync");
+
+        // The staged row is still there — the guard refused before dropping anything.
+        using var verify = setupConn.CreateCommand();
+        verify.CommandText = "SELECT COUNT(*) FROM pending_changes;";
+        Convert.ToInt32(verify.ExecuteScalar()).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// An EMPTY legacy table has nothing to lose, so the rebuild proceeds — and the stale copy
+    /// must be dropped, or it would shadow the durable table under SQLite name resolution.
+    /// </summary>
+    [Fact]
+    public void Constructor_LegacyPendingSetEmpty_RebuildsAndDropsTheShadowTable()
+    {
+        var connStr = $"LegacyEmpty_{Guid.NewGuid():N}";
+        var full = $"Data Source={connStr};Mode=Memory;Cache=Shared";
+
+        using var setupConn = new SqliteConnection(full);
+        setupConn.Open();
+        using (var cmd = setupConn.CreateCommand())
+        {
+            cmd.CommandText = """
+                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO metadata (key, value) VALUES ('schema_version', '10');
+                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY, work_item_id INTEGER);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using var store = new SqliteCacheStore(full);
+
+        store.SchemaWasRebuilt.ShouldBeTrue();
+        TableExists(store.GetConnection(), "pending_changes")
+            .ShouldBeFalse("the legacy mirror copy must not shadow the durable table");
+        DurableTableExists(store.GetConnection(), "pending_changes").ShouldBeTrue();
+    }
+
+    private static List<string> ReadTables(SqliteConnection conn, string schema)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            $"SELECT name FROM {schema}.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';";
+        var names = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            names.Add(reader.GetString(0));
+        return names;
     }
 
     [Fact]

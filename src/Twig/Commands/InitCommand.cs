@@ -161,33 +161,41 @@ public sealed class InitCommand
             return (1, false, 0);
         }
 
-        // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree
+        // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree.
+        // wayfinder 0013: --force now drops only the DISPOSABLE mirror. The durable store
+        // (pending.db) is never deleted here, and a non-empty pending set REFUSES the reinit
+        // rather than warning past it — a healthy-cache rebuild that destroys unpushed work is
+        // exactly #271, the failure this split exists to remove.
         if (force && Directory.Exists(twigDir))
         {
             if (File.Exists(contextPaths.DbPath))
             {
-                // Warn if pending changes exist before deleting
-                var hasPending = false;
+                var pendingCount = 0;
                 try
                 {
                     using var probe = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
                     var conn = probe.GetConnection();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";
-                    var count = Convert.ToInt32(cmd.ExecuteScalar());
-                    hasPending = count > 0;
+                    pendingCount = Convert.ToInt32(cmd.ExecuteScalar());
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // DB may be corrupt or inaccessible — that's fine, we'll delete and reinitialize it
                 }
 
-                if (hasPending)
-                    Console.WriteLine("\u26a0 Pending changes exist and will be lost.");
+                if (pendingCount > 0)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(
+                        $"{pendingCount} pending change(s) are staged and would be left orphaned by a reinit.\n" +
+                        "Push them with 'twig sync' or abandon them with 'twig discard', then re-run."));
+                    return (1, false, 0);
+                }
 
                 // Release pooled connections before deleting the file
                 SqliteConnection.ClearAllPools();
 
+                // Only the mirror: pending.db is durable and is deliberately left in place.
                 File.Delete(contextPaths.DbPath);
                 // Also delete WAL/SHM journal files
                 var walPath = contextPaths.DbPath + "-wal";

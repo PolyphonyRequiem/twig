@@ -334,6 +334,68 @@ public class InitCommandTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// wayfinder 0013's clean-break guard, the load-bearing half. <c>init --force</c> used to
+    /// print "Pending changes exist and will be lost" and delete the DB anyway. That is #271:
+    /// a healthy-cache rebuild that destroys unpushed work. It must now REFUSE.
+    /// </summary>
+    [Fact]
+    public async Task Init_Force_WithNonEmptyPendingSet_RefusesAndPreservesTheWork()
+    {
+        const string org = "https://dev.azure.com/org";
+        const string project = "MyProject";
+
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        (await cmd.ExecuteAsync(org, project)).ShouldBe(0);
+
+        var dbPath = TwigPaths.GetContextDbPath(_twigDir, org, project);
+        using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+        {
+            var changes = new Twig.Infrastructure.Persistence.SqlitePendingChangeStore(store);
+            await changes.AddChangeAsync(42, "note", null, null, "a note I have not pushed");
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var result = await cmd2.ExecuteAsync(org, project, force: true);
+
+        result.ShouldBe(1, "a non-empty pending set must refuse the reinit, not warn past it");
+
+        // The staged note survives, and so does the mirror it was about to delete.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        File.Exists(dbPath).ShouldBeTrue();
+        using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+        {
+            var changes = new Twig.Infrastructure.Persistence.SqlitePendingChangeStore(store);
+            (await changes.GetChangesAsync(42)).Count.ShouldBe(1);
+        }
+    }
+
+    /// <summary>
+    /// The other half: <c>--force</c> drops only the disposable mirror. <c>pending.db</c> is the
+    /// durable store and must survive a reinit that legitimately proceeds.
+    /// </summary>
+    [Fact]
+    public async Task Init_Force_DeletesOnlyTheMirror_AndKeepsTheDurableStoreFile()
+    {
+        const string org = "https://dev.azure.com/org";
+        const string project = "MyProject";
+
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        (await cmd.ExecuteAsync(org, project)).ShouldBe(0);
+
+        var dbPath = TwigPaths.GetContextDbPath(_twigDir, org, project);
+        var pendingDbPath = Path.Combine(Path.GetDirectoryName(dbPath)!, "pending.db");
+        File.Exists(pendingDbPath).ShouldBeTrue("the durable store is created alongside the mirror");
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        (await cmd2.ExecuteAsync(org, project, force: true)).ShouldBe(0);
+
+        File.Exists(pendingDbPath).ShouldBeTrue("pending.db is never deleted by --force");
+    }
+
     [Fact]
     public async Task Init_PersistsTypeAppearances_InProcessTypesCache_AB3296PR3()
     {

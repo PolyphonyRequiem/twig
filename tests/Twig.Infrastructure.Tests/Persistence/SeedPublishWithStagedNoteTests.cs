@@ -81,41 +81,44 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
             withPendingChangeStore ? _changeStore : null);
 
     /// <summary>
-    /// Fixture guard: proves the FK is really enforced here. Without this the whole class
-    /// could pass vacuously — the failure mode that made two of three #251 tests worthless.
+    /// Fixture guard, inverted by wayfinder 0013. The FK that made this bug reachable is gone:
+    /// <c>pending_changes</c> now lives in the durable store, so it cannot declare a foreign key
+    /// into <c>work_items</c> in the mirror. Deleting a work item that carries staged changes is
+    /// no longer a constraint violation — the failure class is unexpressible, not merely fixed.
     /// </summary>
     [Fact]
-    public async Task Fixture_ForeignKeyIsEnforced_SoTheBugIsReachable()
+    public async Task Fixture_ForeignKeyIsGone_SoTheFailureClassIsUnexpressible()
     {
         await SaveSeedAsync();
         await _changeStore.AddChangeAsync(SeedId, "note", null, null, "staged note");
 
-        var ex = await Should.ThrowAsync<Microsoft.Data.Sqlite.SqliteException>(
-            async () => await _repo.DeleteByIdAsync(SeedId));
+        await Should.NotThrowAsync(async () => await _repo.DeleteByIdAsync(SeedId));
 
-        ex.Message.ShouldContain("FOREIGN KEY constraint failed");
+        // The staged note outlives the row it pointed at — that is the durable store's whole point.
+        (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
+        (await _changeStore.GetChangesAsync(SeedId)).Count.ShouldBe(1);
     }
 
     /// <summary>
-    /// The unfixed sequence, reproduced explicitly: with no pending-change store the publish
-    /// still throws. This pins the pre-fix behaviour so the fixed test below is non-vacuous.
+    /// The #270 sequence with no pending-change store. It used to throw
+    /// <c>FOREIGN KEY constraint failed</c>, orphaning the freshly created ADO item with an empty
+    /// <c>publish_id_map</c> so every retry duplicated it. With the FK deleted the publish now
+    /// completes, which is what removes the duplicate-creation trap.
     /// </summary>
     [Fact]
-    public async Task PublishSeed_WithStagedNote_WithoutPendingChangeStore_StillThrows()
+    public async Task PublishSeed_WithStagedNote_WithoutPendingChangeStore_NoLongerThrows()
     {
         await SaveSeedAsync();
         await _changeStore.AddChangeAsync(SeedId, "note", null, null, "a note I still want");
 
-        var ex = await Should.ThrowAsync<Microsoft.Data.Sqlite.SqliteException>(
-            async () => await CreateOrchestrator(withPendingChangeStore: false).PublishAsync(SeedId));
+        var result = await CreateOrchestrator(withPendingChangeStore: false).PublishAsync(SeedId);
 
-        ex.Message.ShouldContain("FOREIGN KEY constraint failed");
-
-        // This is the duplicate-creation trap: the ADO item exists, but the rollback left the
-        // seed in place and publish_id_map empty, so a retry would create a second item.
+        result.Status.ShouldBe(SeedPublishStatus.Created);
         await _adoService.Received(1).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
-        (await _repo.GetByIdAsync(SeedId)).ShouldNotBeNull();
-        (await _publishIdMapRepo.GetNewIdAsync(SeedId)).ShouldBeNull();
+
+        // The map entry now lands, so a retry cannot create a second ADO item.
+        (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
+        (await _publishIdMapRepo.GetNewIdAsync(SeedId)).ShouldBe(PublishedId);
     }
 
     [Fact]

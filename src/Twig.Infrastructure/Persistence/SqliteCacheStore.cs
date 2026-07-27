@@ -12,7 +12,21 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 10;
+    internal const int SchemaVersion = 11;
+
+    /// <summary>
+    /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
+    /// <see cref="SchemaVersion"/>.
+    /// <para>
+    /// Unlike the mirror, the durable store is <b>never dropped and recreated</b> — it holds the
+    /// only copy of work that ADO has never seen. Every future shape change here must be an
+    /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
+    /// </para>
+    /// </summary>
+    internal const int DurableSchemaVersion = 1;
+
+    /// <summary>The schema name the durable store is ATTACHed under.</summary>
+    internal const string DurableSchema = "pending";
 
     private readonly SqliteConnection _connection;
     private bool _schemaRebuilt;
@@ -23,9 +37,30 @@ public sealed class SqliteCacheStore : IDisposable
     }
 
     /// <summary>
+    /// Derives the durable store's path from the mirror's. A file-backed mirror gets a sibling
+    /// <c>pending.db</c>; an in-memory mirror gets a private in-memory durable store, so tests
+    /// and benchmarks need no second path.
+    /// </summary>
+    internal static string DeriveDurableDataSource(string mirrorDataSource)
+    {
+        if (string.IsNullOrWhiteSpace(mirrorDataSource))
+            return ":memory:";
+
+        // ":memory:" and the "file::memory:" / "mode=memory" family have no directory to be a
+        // sibling of. A bare ":memory:" ATTACH is a distinct private database, which is the
+        // correct disposable-mirror/durable-store pairing for an in-memory cache.
+        if (mirrorDataSource.Contains(":memory:", StringComparison.OrdinalIgnoreCase)
+            || mirrorDataSource.Contains("mode=memory", StringComparison.OrdinalIgnoreCase))
+            return ":memory:";
+
+        var dir = Path.GetDirectoryName(mirrorDataSource);
+        return string.IsNullOrEmpty(dir) ? "pending.db" : Path.Combine(dir, "pending.db");
+    }
+
+    /// <summary>
     /// Opens (or creates) the SQLite database at the given connection string.
-    /// Enables WAL mode, checks schema version, and creates/rebuilds tables as needed.
-    /// Wraps open in try-catch for corruption detection (FM-008).
+    /// Enables WAL mode, attaches the durable store, checks schema version, and creates/rebuilds
+    /// tables as needed. Wraps open in try-catch for corruption detection (FM-008).
     /// </summary>
     /// <param name="connectionString">SQLite connection string (e.g., "Data Source=.twig/twig.db" or "Data Source=:memory:").</param>
     public SqliteCacheStore(string connectionString)
@@ -35,7 +70,9 @@ public sealed class SqliteCacheStore : IDisposable
         {
             _connection.Open();
             EnableWalMode();
+            AttachDurableStore();
             EnsureSchema();
+            EnsureDurableSchema();
         }
         catch (SqliteException ex)
         {
@@ -81,16 +118,206 @@ public sealed class SqliteCacheStore : IDisposable
         busyCmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Attaches the durable store as schema <c>pending</c>, next to the pragmas.
+    /// <para>
+    /// 0005 §4 measured that one <c>BeginTransaction</c> spans both files and that rollback
+    /// undoes both under WAL, so <see cref="SqliteUnitOfWork"/> and the publish transaction keep
+    /// their semantics. Because SQLite resolves an unqualified table name across every attached
+    /// schema, repository SQL referring to durable tables needs no schema prefix.
+    /// </para>
+    /// </summary>
+    private void AttachDurableStore()
+    {
+        var dataSource = new SqliteConnectionStringBuilder(_connection.ConnectionString).DataSource;
+        var durableSource = DeriveDurableDataSource(dataSource);
+
+        // Microsoft.Data.Sqlite pools connections by connection string, and a pooled connection
+        // keeps its ATTACHes. Re-attaching would fail with "database pending is already in use",
+        // and a stale attach could point at a since-deleted file, so detach first.
+        DetachDurableStoreIfAttached();
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"ATTACH DATABASE @path AS {DurableSchema};";
+        cmd.Parameters.AddWithValue("@path", durableSource);
+        cmd.ExecuteNonQuery();
+
+        // WAL is per-database: the attached file needs its own journal_mode.
+        using var walCmd = _connection.CreateCommand();
+        walCmd.CommandText = $"PRAGMA {DurableSchema}.journal_mode=WAL;";
+        walCmd.ExecuteNonQuery();
+    }
+
+    private void DetachDurableStoreIfAttached()
+    {
+        using (var listCmd = _connection.CreateCommand())
+        {
+            listCmd.CommandText = "SELECT name FROM pragma_database_list WHERE name = @name;";
+            listCmd.Parameters.AddWithValue("@name", DurableSchema);
+            if (listCmd.ExecuteScalar() is null)
+                return;
+        }
+
+        using var detachCmd = _connection.CreateCommand();
+        detachCmd.CommandText = $"DETACH DATABASE {DurableSchema};";
+        detachCmd.ExecuteNonQuery();
+    }
+
     private void EnsureSchema()
     {
         if (!SchemaExists() || !SchemaVersionMatches())
         {
+            GuardLegacyPendingSet();
             DropAllTables();
+            DropLegacyDurableTables();
             CreateSchema();
             WriteSchemaVersion();
             _schemaRebuilt = true;
         }
     }
+
+    /// <summary>
+    /// The clean-break guard (0005 §5, wayfinder 0013 — <b>not optional</b>).
+    /// <para>
+    /// No data migration is written from the pre-split layout, so a rebuild would silently
+    /// destroy staged notes and field edits that live only in the old <c>twig.db</c>. That is
+    /// #271 recurring: a healthy-cache rebuild that eats unpushed work. So when the legacy
+    /// mirror still holds a non-empty pending set, refuse to rebuild and tell the user to push
+    /// or discard first.
+    /// </para>
+    /// </summary>
+    private void GuardLegacyPendingSet()
+    {
+        if (!LegacyMirrorTableExists("pending_changes"))
+            return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM main.pending_changes;";
+        var pending = Convert.ToInt32(cmd.ExecuteScalar());
+        if (pending == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"This twig cache holds {pending} pending change(s) staged under the previous storage " +
+            "layout, and upgrading would discard them.\n\n" +
+            "Push or discard them with the previous twig version first:\n" +
+            "  twig sync      # push staged changes to Azure DevOps\n" +
+            "  twig discard   # abandon them\n\n" +
+            "Then re-run this command.");
+    }
+
+    /// <summary>
+    /// Removes empty pre-split copies of the durable tables from the mirror. SQLite resolves an
+    /// unqualified name against <c>main</c> first, so a leftover legacy table would shadow the
+    /// durable one and silently take the writes.
+    /// </summary>
+    private void DropLegacyDurableTables()
+    {
+        foreach (var table in new[] { "pending_changes", "publish_id_map", "seed_links" })
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = $"DROP TABLE IF EXISTS main.{table};";
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private bool LegacyMirrorTableExists(string table)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT name FROM main.sqlite_master WHERE type='table' AND name=@name;";
+        cmd.Parameters.AddWithValue("@name", table);
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    /// <summary>
+    /// Brings the durable store up to <see cref="DurableSchemaVersion"/> by applying each
+    /// outstanding migration in order inside one transaction.
+    /// <para>
+    /// <b>This store is never dropped.</b> Migrations are additive (CREATE / ALTER / backfill)
+    /// and must stay idempotent-safe in ordering: the applied version is the only state that
+    /// decides what runs.
+    /// </para>
+    /// </summary>
+    private void EnsureDurableSchema()
+    {
+        var from = ReadDurableSchemaVersion();
+        if (from >= DurableSchemaVersion)
+            return;
+
+        using var tx = _connection.BeginTransaction();
+        try
+        {
+            for (var v = from + 1; v <= DurableSchemaVersion; v++)
+            {
+                if (!DurableMigrations.TryGetValue(v, out var sql))
+                    throw new InvalidOperationException(
+                        $"No migration registered for durable schema version {v}. " +
+                        "DurableSchemaVersion was bumped without adding its migration.");
+
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var versionCmd = _connection.CreateCommand())
+            {
+                versionCmd.Transaction = tx;
+                versionCmd.CommandText = $"PRAGMA {DurableSchema}.user_version = {DurableSchemaVersion};";
+                versionCmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private int ReadDurableSchemaVersion()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA {DurableSchema}.user_version;";
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// The durable store's migration ledger, keyed by the version each one produces.
+    /// Version 1 is the initial shape; later entries must be ALTER + backfill, never a rebuild.
+    /// </summary>
+    private static readonly Dictionary<int, string> DurableMigrations = new()
+    {
+        [1] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.pending_changes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_item_id INTEGER NOT NULL,
+                change_type TEXT NOT NULL,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_pending_changes_item ON pending_changes(work_item_id);
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.publish_id_map (
+                old_id INTEGER PRIMARY KEY,
+                new_id INTEGER NOT NULL,
+                published_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.seed_links (
+                source_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                link_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (source_id, target_id, link_type)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_seed_links_source ON seed_links(source_id);
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_seed_links_target ON seed_links(target_id);
+            """,
+    };
 
     private bool SchemaExists()
     {
@@ -111,11 +338,15 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history", "tracked_items", "excluded_items"];
+        //
+        // 0013: this list is the DISPOSABLE mirror only. Durable tables (pending_changes,
+        // publish_id_map, seed_links) live in the attached `pending` schema and are NEVER
+        // dropped — a SchemaVersion bump must not be able to reach them.
+        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "tracked_items", "excluded_items"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText = $"DROP TABLE IF EXISTS {table};";
+            cmd.CommandText = $"DROP TABLE IF EXISTS main.{table};";
             cmd.ExecuteNonQuery();
         }
     }
@@ -163,17 +394,6 @@ public sealed class SqliteCacheStore : IDisposable
             last_synced_at TEXT NOT NULL
         );
 
-        CREATE TABLE pending_changes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            work_item_id INTEGER NOT NULL,
-            change_type TEXT NOT NULL,
-            field_name TEXT,
-            old_value TEXT,
-            new_value TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (work_item_id) REFERENCES work_items(id)
-        );
-
         CREATE TABLE process_types (
             type_name TEXT PRIMARY KEY,
             states_json TEXT NOT NULL,
@@ -196,7 +416,6 @@ public sealed class SqliteCacheStore : IDisposable
         CREATE INDEX idx_work_items_dirty ON work_items(is_dirty) WHERE is_dirty = 1;
         CREATE INDEX idx_work_items_area ON work_items(area_path);
         CREATE INDEX idx_work_items_seed ON work_items(is_seed) WHERE is_seed = 1;
-        CREATE INDEX idx_pending_changes_item ON pending_changes(work_item_id);
 
         CREATE TABLE field_definitions (
             ref_name TEXT PRIMARY KEY,
@@ -213,22 +432,6 @@ public sealed class SqliteCacheStore : IDisposable
             PRIMARY KEY (source_id, target_id, link_type)
         );
         CREATE INDEX idx_work_item_links_source ON work_item_links(source_id);
-
-        CREATE TABLE seed_links (
-            source_id INTEGER NOT NULL,
-            target_id INTEGER NOT NULL,
-            link_type TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            PRIMARY KEY (source_id, target_id, link_type)
-        );
-        CREATE INDEX idx_seed_links_source ON seed_links(source_id);
-        CREATE INDEX idx_seed_links_target ON seed_links(target_id);
-
-        CREATE TABLE publish_id_map (
-            old_id INTEGER PRIMARY KEY,
-            new_id INTEGER NOT NULL,
-            published_at TEXT NOT NULL
-        );
 
         CREATE TABLE navigation_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

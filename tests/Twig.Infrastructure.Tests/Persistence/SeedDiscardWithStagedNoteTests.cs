@@ -45,19 +45,19 @@ public sealed class SeedDiscardWithStagedNoteTests : IDisposable
         new(_repo, _seedLinkRepo, _contextStore, _changeStore);
 
     /// <summary>
-    /// Guard for the fixture: proves the FK is actually enforced. Without enforcement this
-    /// whole class would pass vacuously against the unfixed code.
+    /// Fixture guard, inverted by wayfinder 0013: the FK is gone by construction, so deleting a
+    /// seed that carries staged changes is no longer a constraint violation.
     /// </summary>
     [Fact]
-    public async Task Fixture_ForeignKeyIsEnforced_SoTheBugIsReachable()
+    public async Task Fixture_ForeignKeyIsGone_SoTheFailureClassIsUnexpressible()
     {
         await SaveSeedAsync(-1);
         await _changeStore.AddChangeAsync(-1, "note", null, null, "staged note");
 
-        var ex = await Should.ThrowAsync<Microsoft.Data.Sqlite.SqliteException>(
-            async () => await _repo.DeleteByIdAsync(-1));
+        await Should.NotThrowAsync(async () => await _repo.DeleteByIdAsync(-1));
 
-        ex.Message.ShouldContain("FOREIGN KEY constraint failed");
+        (await _repo.GetByIdAsync(-1)).ShouldBeNull();
+        (await _changeStore.GetChangesAsync(-1)).Count.ShouldBe(1);
     }
 
     [Fact]

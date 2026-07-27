@@ -21,11 +21,16 @@ public interface IPublishIntentRepository
 {
     /// <summary>
     /// Durably records the intent to create an ADO item for <paramref name="identity"/>, and
-    /// returns it. Re-recording an identity whose intent is still open returns the existing
-    /// record rather than minting a second one, so a retry keeps the original idempotency tag —
-    /// which is what makes the recovery query able to find a create that already landed.
+    /// returns it. Re-recording an identity whose intent is still open returns the EXISTING
+    /// record rather than replacing it, so a retry keeps the original <c>RecordedAt</c> — which
+    /// is the lower bound the recovery query fences on. Re-stamping it would move the fence past
+    /// the create it is meant to find.
     /// </summary>
-    Task<PublishIntent> RecordIntentAsync(StagedIdentity identity, CancellationToken ct = default);
+    Task<PublishIntent> RecordIntentAsync(
+        StagedIdentity identity,
+        string title,
+        string typeName,
+        CancellationToken ct = default);
 
     /// <summary>Records the outcome of a create that is known to have landed as <paramref name="publishedId"/>.</summary>
     Task CompleteIntentAsync(StagedIdentity identity, int publishedId, CancellationToken ct = default);

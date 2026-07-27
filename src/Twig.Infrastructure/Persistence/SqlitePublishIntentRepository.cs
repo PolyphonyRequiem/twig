@@ -18,12 +18,16 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
 
     public SqlitePublishIntentRepository(SqliteCacheStore store) => _store = store;
 
-    public async Task<PublishIntent> RecordIntentAsync(StagedIdentity identity, CancellationToken ct = default)
+    public async Task<PublishIntent> RecordIntentAsync(
+        StagedIdentity identity,
+        string title,
+        string typeName,
+        CancellationToken ct = default)
     {
-        // An open intent is returned as-is rather than replaced. Re-minting would change the
-        // idempotency tag, and the recovery query would then look for a tag that is not on the
-        // item the first attempt may already have created — reintroducing the duplicate this
-        // ledger exists to prevent.
+        // An open intent is returned as-is rather than replaced. Re-stamping RecordedAt would
+        // move the lower bound the recovery query fences on PAST the create the first attempt
+        // may already have made, so the orphan would stop being findable — reintroducing the
+        // duplicate this ledger exists to prevent.
         var existing = await GetIntentAsync(identity, ct);
         if (existing is { IsOpen: true })
             return existing;
@@ -31,7 +35,8 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         var intent = new PublishIntent
         {
             Identity = identity,
-            IdempotencyTag = PublishIntent.TagFor(identity),
+            Title = title,
+            TypeName = typeName,
             RecordedAt = DateTimeOffset.UtcNow,
         };
 
@@ -39,16 +44,18 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
-            INSERT INTO publish_intents (staged_identity, idempotency_tag, recorded_at, published_id, completed_at)
-            VALUES (@identity, @tag, @recordedAt, NULL, NULL)
+            INSERT INTO publish_intents (staged_identity, title, type_name, recorded_at, published_id, completed_at)
+            VALUES (@identity, @title, @typeName, @recordedAt, NULL, NULL)
             ON CONFLICT(staged_identity) DO UPDATE SET
-                idempotency_tag = excluded.idempotency_tag,
+                title = excluded.title,
+                type_name = excluded.type_name,
                 recorded_at = excluded.recorded_at,
                 published_id = NULL,
                 completed_at = NULL;
             """;
         cmd.Parameters.AddWithValue("@identity", identity.ToString());
-        cmd.Parameters.AddWithValue("@tag", intent.IdempotencyTag);
+        cmd.Parameters.AddWithValue("@title", intent.Title);
+        cmd.Parameters.AddWithValue("@typeName", intent.TypeName);
         cmd.Parameters.AddWithValue("@recordedAt", intent.RecordedAt.ToString("o"));
         cmd.ExecuteNonQuery();
 
@@ -79,7 +86,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
-            SELECT staged_identity, idempotency_tag, recorded_at, published_id, completed_at
+            SELECT staged_identity, title, type_name, recorded_at, published_id, completed_at
             FROM publish_intents
             WHERE staged_identity = @identity;
             """;
@@ -95,7 +102,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
-            SELECT staged_identity, idempotency_tag, recorded_at, published_id, completed_at
+            SELECT staged_identity, title, type_name, recorded_at, published_id, completed_at
             FROM publish_intents
             WHERE published_id IS NULL
             ORDER BY recorded_at;
@@ -121,10 +128,11 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         return new PublishIntent
         {
             Identity = identity,
-            IdempotencyTag = reader.GetString(1),
-            RecordedAt = DateTimeOffset.Parse(reader.GetString(2)),
-            PublishedId = reader.IsDBNull(3) ? null : reader.GetInt32(3),
-            CompletedAt = reader.IsDBNull(4) ? null : DateTimeOffset.Parse(reader.GetString(4)),
+            Title = reader.GetString(1),
+            TypeName = reader.GetString(2),
+            RecordedAt = DateTimeOffset.Parse(reader.GetString(3)),
+            PublishedId = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+            CompletedAt = reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5)),
         };
     }
 }

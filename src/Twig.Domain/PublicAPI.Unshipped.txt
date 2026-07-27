@@ -682,29 +682,21 @@ Twig.Domain.ValueObjects.WorkItemSnapshot.StagedIdentity.init -> void
 *REMOVED*Twig.Domain.Diagnostics.ActivityHelper
 *REMOVED*Twig.Domain.Diagnostics.TraceTags
 *REMOVED*Twig.Domain.Diagnostics.TwigActivitySource
-const Twig.Domain.ValueObjects.PublishIntent.TagPrefix = "twig-intent:" -> string!
 override Twig.Domain.ValueObjects.PublishIntent.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.PublishIntent.GetHashCode() -> int
 override Twig.Domain.ValueObjects.PublishIntent.ToString() -> string!
 static Twig.Domain.ValueObjects.PublishIntent.operator !=(Twig.Domain.ValueObjects.PublishIntent? left, Twig.Domain.ValueObjects.PublishIntent? right) -> bool
 static Twig.Domain.ValueObjects.PublishIntent.operator ==(Twig.Domain.ValueObjects.PublishIntent? left, Twig.Domain.ValueObjects.PublishIntent? right) -> bool
-static Twig.Domain.ValueObjects.PublishIntent.TagFor(Twig.Domain.ValueObjects.StagedIdentity identity) -> string!
-Twig.Domain.Interfaces.IAdoWorkItemService.FindByIdempotencyTagAsync(string! idempotencyTag, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
 Twig.Domain.Interfaces.IPublishIntentRepository
 Twig.Domain.Interfaces.IPublishIntentRepository.CompleteIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, int publishedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IPublishIntentRepository.GetIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.PublishIntent?>!
 Twig.Domain.Interfaces.IPublishIntentRepository.GetOpenIntentsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PublishIntent!>!>!
-Twig.Domain.Interfaces.IPublishIntentRepository.RecordIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.PublishIntent!>!
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer, Twig.Domain.Interfaces.IPendingChangeStore? pendingChangeStore, Twig.Domain.Interfaces.IPublishIntentRepository? publishIntentRepo) -> void
-Twig.Domain.ValueObjects.CreateWorkItemRequest.IdempotencyTag.get -> string?
-Twig.Domain.ValueObjects.CreateWorkItemRequest.IdempotencyTag.init -> void
 Twig.Domain.ValueObjects.PublishIntent
 Twig.Domain.ValueObjects.PublishIntent.<Clone>$() -> Twig.Domain.ValueObjects.PublishIntent!
 Twig.Domain.ValueObjects.PublishIntent.CompletedAt.get -> System.DateTimeOffset?
 Twig.Domain.ValueObjects.PublishIntent.CompletedAt.init -> void
 Twig.Domain.ValueObjects.PublishIntent.Equals(Twig.Domain.ValueObjects.PublishIntent? other) -> bool
-Twig.Domain.ValueObjects.PublishIntent.IdempotencyTag.get -> string!
-Twig.Domain.ValueObjects.PublishIntent.IdempotencyTag.init -> void
 Twig.Domain.ValueObjects.PublishIntent.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
 Twig.Domain.ValueObjects.PublishIntent.Identity.init -> void
 Twig.Domain.ValueObjects.PublishIntent.IsOpen.get -> bool
@@ -713,3 +705,13 @@ Twig.Domain.ValueObjects.PublishIntent.PublishedId.init -> void
 Twig.Domain.ValueObjects.PublishIntent.PublishIntent() -> void
 Twig.Domain.ValueObjects.PublishIntent.RecordedAt.get -> System.DateTimeOffset
 Twig.Domain.ValueObjects.PublishIntent.RecordedAt.init -> void
+Twig.Domain.Interfaces.IAdoWorkItemService.ClearIntentTagAsync(int id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IAdoWorkItemService.FindPublishedIntentAsync(string! title, string! typeName, System.DateTimeOffset createdAtOrAfter, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Domain.Interfaces.IPublishIntentRepository.RecordIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, string! title, string! typeName, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.PublishIntent!>!
+Twig.Domain.ValueObjects.CreateWorkItemRequest.StampIntentTag.get -> bool
+Twig.Domain.ValueObjects.CreateWorkItemRequest.StampIntentTag.init -> void
+Twig.Domain.ValueObjects.PublishIntent.Title.get -> string!
+Twig.Domain.ValueObjects.PublishIntent.Title.init -> void
+Twig.Domain.ValueObjects.PublishIntent.TypeName.get -> string!
+Twig.Domain.ValueObjects.PublishIntent.TypeName.init -> void
+const Twig.Domain.ValueObjects.PublishIntent.IntentTag = "twig-publishing" -> string!

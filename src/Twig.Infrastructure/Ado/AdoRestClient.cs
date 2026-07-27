@@ -122,23 +122,79 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.Id;
     }
 
-    public async Task<int?> FindByIdempotencyTagAsync(string idempotencyTag, CancellationToken ct = default)
+    public async Task<int?> FindPublishedIntentAsync(
+        string title,
+        string typeName,
+        DateTimeOffset createdAtOrAfter,
+        CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(idempotencyTag))
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(typeName))
             return null;
 
-        // `Contains` is the documented operator for tag clauses. The tag carries a GUIDv7, so a
-        // substring match cannot collide across seeds. Single quotes are doubled per WIQL string
-        // escaping; the tag is machine-generated, but escaping it keeps the query well-formed
-        // rather than relying on that.
-        var escaped = idempotencyTag.Replace("'", "''");
-        var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '{escaped}'";
+        // The constant tag narrows to items twig had in flight; title + type + the creation
+        // fence identify which one. The fence matters: the tag is reused across publishes, so
+        // without it an older item bearing a stale tag could be mistaken for this create.
+        //
+        // WIQL escapes a single quote by doubling it. Titles are user-supplied, so this is not
+        // optional.
+        var escapedTitle = title.Replace("'", "''");
+        var escapedType = typeName.Replace("'", "''");
+        var escapedTag = PublishIntent.IntentTag.Replace("'", "''");
+
+        // ADO compares System.CreatedDate at whole-second resolution, so a sub-second fence can
+        // exclude the very item it is meant to find. Round DOWN to be inclusive; a slightly
+        // loose lower bound is safe because title + type still have to match.
+        var fence = createdAtOrAfter.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        var wiql =
+            $"SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '{escapedTag}' " +
+            $"AND [System.Title] = '{escapedTitle}' " +
+            $"AND [System.WorkItemType] = '{escapedType}' " +
+            $"AND [System.CreatedDate] >= '{fence}'";
+
         var ids = await QueryByWiqlAsync(wiql, ct);
 
         // More than one match means the duplicate this mechanism exists to prevent already
         // happened. Return the lowest — the first create — so recovery adopts the original
         // rather than an accidental copy, and the extras stay visible in ADO for the user.
         return ids.Count == 0 ? null : ids.Min();
+    }
+
+    /// <summary>
+    /// Removes the in-flight publish tag from a work item once its publish is recorded locally.
+    /// Best-effort by contract: the caller must treat a failure as non-fatal, because the
+    /// publish itself has already succeeded and the stale tag is cosmetic.
+    /// </summary>
+    public async Task ClearIntentTagAsync(int id, CancellationToken ct = default)
+    {
+        // Read current tags rather than blind-writing: System.Tags is a single delimited string,
+        // so a replace would clobber any tag a human added to the item.
+        var item = await FetchAsync(id, ct);
+        if (!item.Fields.TryGetValue("System.Tags", out var current) || current is null)
+            return;
+
+        var remaining = current
+            .Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !string.Equals(t, PublishIntent.IntentTag, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (remaining.Count == current.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Length)
+            return;
+
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            new()
+            {
+                Op = "add",
+                Path = "/fields/System.Tags",
+                Value = System.Text.Json.Nodes.JsonValue.Create(string.Join("; ", remaining)),
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
     }
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)

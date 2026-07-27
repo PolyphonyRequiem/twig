@@ -46,25 +46,46 @@ ticket** -- it is unanswerable in the abstract and quick to settle with the ADO 
 `StagedIdentity` (0014), written BEFORE the ADO call and completed after it. This is the record
 0003 §3 and 0004 §4 both required -- not a second one.
 
-### The idempotency key: an ADO **tag**. No process-template change required.
+### The idempotency key: a **single constant ADO tag** plus local disambiguation
 
 The three candidates, settled with the API in hand:
 
 - **ADO-side dedupe -- does not exist.** `research-ado-batch-push.md` §5 and §Gaps#7: creates have
-  no `clientRequestId`, no dedupe token, no conditional-create. Verified absent, not merely
-  undocumented. An ambiguous timeout is indistinguishable from a failure, and *"twig must
-  reconcile by query before retrying creates."*
+  no `clientRequestId`, no dedupe token, no conditional-create. Verified absent, so
+  push-and-recover is not a design preference -- the API leaves no alternative.
 - **A custom field -- would require changing the owner's ADO process template.** That is an
   organisational decision, not a code one, so it was not taken and is not recommended.
 - **A tag -- chosen.** Tags are per-work-item *data*, not schema. Microsoft Learn ("Add work item
-  tags") records `Create tag definition` as a default Contributor permission, and tags are
-  WIQL-queryable via `Contains`. Stamping one changes nothing about the process template, so this
-  was safe to implement without escalating.
+  tags") records `Create tag definition` as a default Contributor permission, so this needed no
+  template change and no escalation.
 
-Format `twig-intent:<GUIDv7>`, derived deterministically from the `StagedIdentity`. Shape
-constrained by the docs: no leading `@` (ADO reads it as a query macro, which makes the tag
-unqueryable -- and an unqueryable tag cannot answer the question it exists to answer), no `;` or
-`,` (tag separators would split one tag into two), under ADO's 400-character cap. Asserted.
+**The tag must be a CONSTANT, not per-create.** The first implementation stamped
+`twig-intent:<GUIDv7>`, one unique tag per published item. That is wrong twice over: it grows the
+project's unique-tag set without bound (ADO caps a project at roughly 5,000), and it writes
+twig's private bookkeeping into a namespace **shared with every human in the project**, who then
+see it in their tag picker and autocomplete. 0001 §1 already forbids exactly this -- the shared
+substrate is ADO, and twig owns only the pending set. A single-user tool must not colonise a
+shared vocabulary to track its own state. Caught in review before merge.
+
+So the mechanism splits: the tag **narrows**, local state **identifies**.
+
+- `twig-publishing` is stamped on create and **removed once the publish is recorded**, so the
+  in-use set is bounded by what is actually in flight -- normally one, since publishing is serial
+  and topologically ordered. Twig's permanent contribution to the project tag vocabulary is
+  **one** tag, not one per item.
+- The intent row carries `title`, `type_name` and `recorded_at`. Recovery queries the tag, then
+  matches title + type + `System.CreatedDate >= recorded_at`. Titles rarely overlap
+  (owner-confirmed), and because `recorded_at` is written *before* the call it is a sound lower
+  bound -- which is what stops a reused tag matching an older item. `recorded_at` is never
+  re-stamped while an intent is open, since moving the fence forward would push it past the very
+  create it exists to find.
+
+Tag shape is otherwise constrained by the docs and asserted: no leading `@` (ADO reads it as a
+query macro, making the tag unqueryable -- and an unqueryable key cannot answer the one question
+it exists for), no `;` or `,` (tag separators), under the 400-character cap.
+
+Removing the tag is **best-effort**: by that point the publish has succeeded, so a failure there
+must not turn a successful publish into a reported failure. A leftover tag is cosmetic.
 
 ### What closes the 7->10 window
 
@@ -82,8 +103,9 @@ being given a fresh identity that would match nothing already in ADO.
 
 ### Evidence
 
-Suite green, all four projects exit 0: **7,394 passing** (Cli 2883 / Infra 1362 / Mcp 1313 /
-Domain 1836), against a re-measured `e899de46` baseline of 7,379.
+Suite green, all four projects exit 0: **7,388 passing** (Cli 2887 / Infra 1365 / Mcp 1313 /
+Domain 1823), against a re-measured `e899de46` baseline of 7,379. (Counts shift against that
+baseline because sibling PRs #306 and #307 landed underneath during the rebase.)
 
 The regression tests fail on the unfixed code. Verified in a detached worktree at `e899de46`
 with a probe using only symbols that existed then: the unfixed orchestrator calls `CreateAsync`

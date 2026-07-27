@@ -27,10 +27,11 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     {
         var identity = StagedIdentity.New();
 
-        var intent = await _repo.RecordIntentAsync(identity);
+        var intent = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
         intent.Identity.ShouldBe(identity);
-        intent.IdempotencyTag.ShouldBe(PublishIntent.TagFor(identity));
+        intent.Title.ShouldBe("Ship the thing");
+        intent.TypeName.ShouldBe("Task");
         intent.IsOpen.ShouldBeTrue();
         intent.PublishedId.ShouldBeNull();
         intent.CompletedAt.ShouldBeNull();
@@ -40,7 +41,7 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     public async Task RecordIntent_ThenComplete_ClosesTheIntent()
     {
         var identity = StagedIdentity.New();
-        await _repo.RecordIntentAsync(identity);
+        await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
         await _repo.CompleteIntentAsync(identity, 4242);
 
@@ -57,8 +58,8 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
         var open = StagedIdentity.New();
         var closed = StagedIdentity.New();
 
-        await _repo.RecordIntentAsync(open);
-        await _repo.RecordIntentAsync(closed);
+        await _repo.RecordIntentAsync(open, "Open one", "Task");
+        await _repo.RecordIntentAsync(closed, "Closed one", "Bug");
         await _repo.CompleteIntentAsync(closed, 7);
 
         var openIntents = await _repo.GetOpenIntentsAsync();
@@ -67,18 +68,37 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task RecordIntent_OnAnAlreadyOpenIntent_KeepsTheOriginalTag()
+    public async Task RecordIntent_OnAnAlreadyOpenIntent_KeepsTheOriginalRecordedAt()
     {
-        // A retry must not re-mint the tag: the recovery query would then look for a tag that
-        // is not on the item the first attempt may already have created, and the duplicate this
-        // ledger exists to prevent would happen anyway (PolyphonyRequiem/twig#270).
+        // A retry must not re-stamp RecordedAt. It is the lower bound the recovery query fences
+        // on, so moving it forward would push the fence PAST the create the first attempt may
+        // already have made — the orphan stops being findable and the duplicate this ledger
+        // exists to prevent happens anyway (PolyphonyRequiem/twig#270).
         var identity = StagedIdentity.New();
-        var first = await _repo.RecordIntentAsync(identity);
+        var first = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
-        var second = await _repo.RecordIntentAsync(identity);
+        var second = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
 
-        second.IdempotencyTag.ShouldBe(first.IdempotencyTag);
         second.RecordedAt.ShouldBe(first.RecordedAt);
+    }
+
+    [Fact]
+    public async Task RecordIntent_AfterCompletion_StartsAFreshIntent()
+    {
+        // Fixture guard for the test above: the "keep the original" rule applies ONLY while the
+        // intent is open. Once completed, a later publish of the same identity is a NEW create
+        // and must get its own fence — otherwise this test and the one above could both pass
+        // against an implementation that simply never updates the row.
+        var identity = StagedIdentity.New();
+        var first = await _repo.RecordIntentAsync(identity, "Ship the thing", "Task");
+        await _repo.CompleteIntentAsync(identity, 11);
+
+        var second = await _repo.RecordIntentAsync(identity, "Ship it again", "Bug");
+
+        second.IsOpen.ShouldBeTrue();
+        second.Title.ShouldBe("Ship it again");
+        second.TypeName.ShouldBe("Bug");
+        second.RecordedAt.ShouldBeGreaterThanOrEqualTo(first.RecordedAt);
     }
 
     [Fact]
@@ -109,7 +129,8 @@ public class SqlitePublishIntentRepositoryTests : IDisposable
 
             using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
             {
-                await new SqlitePublishIntentRepository(store).RecordIntentAsync(identity);
+                await new SqlitePublishIntentRepository(store)
+                    .RecordIntentAsync(identity, "Ship the thing", "Task");
 
                 // Force the mirror to be dropped and recreated on the next open.
                 using var bump = store.GetConnection().CreateCommand();

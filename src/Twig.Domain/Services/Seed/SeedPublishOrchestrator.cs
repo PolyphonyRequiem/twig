@@ -276,22 +276,44 @@ public sealed class SeedPublishOrchestrator
 
         if (_publishIntentRepo is not null && identity is { } intentIdentity)
         {
-            var intent = await _publishIntentRepo.RecordIntentAsync(intentIdentity, ct);
+            var intent = await _publishIntentRepo.RecordIntentAsync(
+                intentIdentity, seed.Title, seed.Type.Value, ct);
 
             // A prior attempt may have created the item before dying. Ask ADO before creating
             // anything: this is the whole point of stamping the tag, and it is the only way to
             // tell an ambiguous timeout from a genuine failure, because ADO documents no
             // idempotency key for creates.
-            var alreadyLanded = await _adoService.FindByIdempotencyTagAsync(intent.IdempotencyTag, ct);
+            //
+            // The tag is a single constant, so it only NARROWS to what twig had in flight;
+            // title + type + the intent's own RecordedAt identify which item is this create.
+            var alreadyLanded = await _adoService.FindPublishedIntentAsync(
+                intent.Title, intent.TypeName, intent.RecordedAt, ct);
 
             newId = alreadyLanded
                 ?? await _adoService.CreateAsync(
-                    seed.ToCreateRequest() with { IdempotencyTag = intent.IdempotencyTag },
+                    seed.ToCreateRequest() with { StampIntentTag = true },
                     ct);
 
             // Record the outcome immediately, still outside the transaction. From here on the
             // remote item is accounted for even if every step below fails.
             await _publishIntentRepo.CompleteIntentAsync(intentIdentity, newId, ct);
+
+            // The item is no longer in flight, so drop the tag — it marks in-flight state, not
+            // provenance (the constant "twig" tag already carries that). Best-effort: the
+            // publish has succeeded by now, so a failure here must not fail the publish. A tag
+            // left behind is cosmetic and self-corrects on the next publish of the same seed.
+            try
+            {
+                await _adoService.ClearIntentTagAsync(newId, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Intentionally swallowed — see above.
+            }
         }
         else
         {

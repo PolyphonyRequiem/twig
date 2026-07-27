@@ -319,21 +319,51 @@ public sealed class AdoResponseMapperTests
         result.ShouldNotContain(op => op.Path == "/relations/-");
     }
 
-    // Wayfinder 0015: the stamped idempotency tag is what lets twig ask ADO "did my create
-    // already happen?" after an ambiguous failure. If it never reaches the payload, the
-    // recovery query has nothing to match and #270's duplicate comes back.
+    // Wayfinder 0015: the stamped tag is what lets twig ask ADO "did my create already happen?"
+    // after an ambiguous failure. If it never reaches the payload, the recovery query has
+    // nothing to narrow on and #270's duplicate comes back.
     [Fact]
-    public void MapSeedToCreatePayload_WithIdempotencyTag_StampsItAlongsideTheTwigTag()
+    public void MapSeedToCreatePayload_WhenStamping_AddsTheIntentTagAlongsideTheTwigTag()
     {
-        var identity = StagedIdentity.New();
-        var seed = new WorkItemBuilder(-1, "New Task").AsSeed(stagedIdentity: identity).Build();
-        var request = seed.ToCreateRequest() with { IdempotencyTag = PublishIntent.TagFor(identity) };
+        var seed = new WorkItemBuilder(-1, "New Task").AsSeed().Build();
+        var request = seed.ToCreateRequest() with { StampIntentTag = true };
 
         var result = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/myorg");
 
         var tags = result.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
         tags.ShouldContain("twig");
-        tags.ShouldContain(PublishIntent.TagFor(identity));
+        tags.ShouldContain(PublishIntent.IntentTag);
+    }
+
+    // The tag vocabulary is a SHARED project resource with a finite cap, so twig's contribution
+    // to it must not scale with the number of items published.
+    [Fact]
+    public void MapSeedToCreatePayload_StampsTheSameTag_ForEverySeed()
+    {
+        static string TagsFor(string title)
+        {
+            var seed = new WorkItemBuilder(-1, title).AsSeed().Build();
+            var request = seed.ToCreateRequest() with { StampIntentTag = true };
+            return AdoResponseMapper
+                .MapSeedToCreatePayload(request, "https://dev.azure.com/myorg")
+                .Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
+        }
+
+        // Two different seeds, byte-identical tag strings: publishing N items adds at most two
+        // entries to the project's tag vocabulary, not N.
+        TagsFor("First seed").ShouldBe(TagsFor("Second seed"));
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_WhenNotStamping_OnlyCarriesTheTwigTag()
+    {
+        var seed = new WorkItemBuilder(-1, "New Task").AsSeed().Build();
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(
+            seed.ToCreateRequest(), "https://dev.azure.com/myorg");
+
+        var tags = result.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
+        tags.ShouldBe("twig");
     }
 
     [Fact]

@@ -185,15 +185,14 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTwigTag(operations, request.IdempotencyTag);
+        InjectTwigTag(operations, request.StampIntentTag ? PublishIntent.IntentTag : null);
 
         return operations;
     }
 
-    // Stamps the constant "twig" marker plus, when supplied, the per-create idempotency tag
-    // (wayfinder 0015). The idempotency tag is what makes an ambiguous create recoverable:
-    // ADO offers no idempotency key of its own, so this is the only thing a recovery query can
-    // match on to answer "did my create already happen?" without duplicating the item.
+    // Stamps the constant "twig" marker plus, when the create is being tracked, the constant
+    // in-flight intent tag (wayfinder 0015). Both are constants, so publishing N items adds at
+    // most two entries to the project's shared tag vocabulary — not N.
     private static void InjectTwigTag(List<AdoPatchOperation> operations, string? idempotencyTag = null)
     {
         const string tagPath = "/fields/System.Tags";

@@ -38,22 +38,28 @@ public class SeedPublishIntentTests
 
     private readonly SeedPublishOrchestrator _orchestrator;
     private readonly StagedIdentity _identity = StagedIdentity.New();
+    private readonly DateTimeOffset _recordedAt = DateTimeOffset.UtcNow;
 
     public SeedPublishIntentTests()
     {
         _unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(_transaction);
         _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>()).Returns(SeedPublishRules.Default);
 
-        // The default is "ADO has never seen this tag" — the ordinary first-attempt path.
-        _adoService.FindByIdempotencyTagAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        // The default is "ADO has no matching in-flight item" — the ordinary first-attempt path.
+        _adoService.FindPublishedIntentAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
             .Returns((int?)null);
 
-        _intentRepo.RecordIntentAsync(Arg.Any<StagedIdentity>(), Arg.Any<CancellationToken>())
+        _intentRepo.RecordIntentAsync(
+                Arg.Any<StagedIdentity>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
             .Returns(ci => new PublishIntent
             {
-                Identity = ci.Arg<StagedIdentity>(),
-                IdempotencyTag = PublishIntent.TagFor(ci.Arg<StagedIdentity>()),
-                RecordedAt = DateTimeOffset.UtcNow,
+                Identity = ci.ArgAt<StagedIdentity>(0),
+                Title = ci.ArgAt<string>(1),
+                TypeName = ci.ArgAt<string>(2),
+                RecordedAt = _recordedAt,
             });
 
         _orchestrator = new SeedPublishOrchestrator(
@@ -107,7 +113,8 @@ public class SeedPublishIntentTests
 
         Received.InOrder(() =>
         {
-            _intentRepo.RecordIntentAsync(_identity, Arg.Any<CancellationToken>());
+            _intentRepo.RecordIntentAsync(
+                _identity, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
             _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
         });
     }
@@ -129,15 +136,48 @@ public class SeedPublishIntentTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task PublishAsync_StampsTheIdempotencyTagOnTheCreateRequest()
+    public async Task PublishAsync_StampsTheIntentTagOnTheCreateRequest()
     {
         ArrangeSeed();
 
         await _orchestrator.PublishAsync(-1);
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<CreateWorkItemRequest>(r => r.IdempotencyTag == PublishIntent.TagFor(_identity)),
+            Arg.Is<CreateWorkItemRequest>(r => r.StampIntentTag),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAsync_ClearsTheIntentTagOnceThePublishIsRecorded()
+    {
+        ArrangeSeed();
+
+        await _orchestrator.PublishAsync(-1);
+
+        // The tag marks IN-FLIGHT state, not provenance. Leaving it behind would make every
+        // published item look permanently in flight and would keep twig's private bookkeeping
+        // visible in the project's shared tag vocabulary.
+        Received.InOrder(() =>
+        {
+            _intentRepo.CompleteIntentAsync(_identity, 500, Arg.Any<CancellationToken>());
+            _adoService.ClearIntentTagAsync(500, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task PublishAsync_WhenClearingTheTagFails_ThePublishStillSucceeds()
+    {
+        ArrangeSeed();
+        _adoService
+            .When(a => a.ClearIntentTagAsync(500, Arg.Any<CancellationToken>()))
+            .Do(_ => throw new HttpRequestException("ADO unreachable"));
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        // The publish has already succeeded by this point; a stale cosmetic tag must not turn
+        // it into a reported failure.
+        result.Status.ShouldBe(SeedPublishStatus.Created);
+        result.NewId.ShouldBe(500);
     }
 
     [Fact]
@@ -149,8 +189,8 @@ public class SeedPublishIntentTests
 
         Received.InOrder(() =>
         {
-            _adoService.FindByIdempotencyTagAsync(
-                PublishIntent.TagFor(_identity), Arg.Any<CancellationToken>());
+            _adoService.FindPublishedIntentAsync(
+                "A staged seed", Arg.Any<string>(), _recordedAt, Arg.Any<CancellationToken>());
             _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
         });
     }
@@ -167,8 +207,8 @@ public class SeedPublishIntentTests
 
         // The previous attempt's create landed in ADO but the process died before step 10
         // committed. The stamped tag is the only evidence it happened.
-        _adoService.FindByIdempotencyTagAsync(
-                PublishIntent.TagFor(_identity), Arg.Any<CancellationToken>())
+        _adoService.FindPublishedIntentAsync(
+                "A staged seed", Arg.Any<string>(), _recordedAt, Arg.Any<CancellationToken>())
             .Returns(500);
 
         var result = await _orchestrator.PublishAsync(-1);
@@ -207,20 +247,32 @@ public class SeedPublishIntentTests
     //  Tag shape — it must stay queryable in ADO
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public void TagFor_IsDeterministicAndCarriesTheIdentity()
-    {
-        var tag = PublishIntent.TagFor(_identity);
+    // ═══════════════════════════════════════════════════════════════
+    //  Tag CARDINALITY — the project tag vocabulary is a SHARED resource
+    // ═══════════════════════════════════════════════════════════════
 
-        tag.ShouldBe(PublishIntent.TagFor(_identity));
-        tag.ShouldStartWith(PublishIntent.TagPrefix);
-        tag.ShouldContain(_identity.ToString());
+    [Fact]
+    public void IntentTag_IsAConstant_SoPublishingDoesNotGrowTheProjectTagVocabulary()
+    {
+        // A per-create unique tag (e.g. one carrying the StagedIdentity) mints one NEW
+        // project-wide tag per published item, forever — unbounded against ADO's ~5,000
+        // unique-tag project cap, and it writes twig's private bookkeeping into a namespace
+        // every human in the project sees. 0001 §1: the shared substrate is ADO, and twig owns
+        // only the pending set.
+        //
+        // Whatever the tag is, it must not vary per seed. This asserts that directly.
+        var forOneSeed = PublishIntent.IntentTag;
+        var forAnotherSeed = PublishIntent.IntentTag;
+
+        forOneSeed.ShouldBe(forAnotherSeed);
+        forOneSeed.ShouldNotContain(_identity.ToString());
+        forOneSeed.ShouldNotContain(StagedIdentity.New().ToString());
     }
 
     [Fact]
-    public void TagFor_AvoidsCharactersAdoRejectsOrMisreads()
+    public void IntentTag_AvoidsCharactersAdoRejectsOrMisreads()
     {
-        var tag = PublishIntent.TagFor(_identity);
+        var tag = PublishIntent.IntentTag;
 
         // ADO reads a leading '@' as a query macro, which makes the tag unqueryable — and an
         // unqueryable tag cannot answer "did my create already happen?".

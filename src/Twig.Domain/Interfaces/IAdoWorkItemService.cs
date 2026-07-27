@@ -16,17 +16,41 @@ public interface IAdoWorkItemService
     Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);
 
     /// <summary>
-    /// Asks ADO whether a create stamped with <paramref name="idempotencyTag"/> already landed,
-    /// returning its id or <see langword="null"/> (wayfinder 0015, from 0001 §4).
+    /// Asks ADO whether a create twig issued already landed, returning its id or
+    /// <see langword="null"/> (wayfinder 0015, from 0001 §4).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This is the recovery half of the intent record. ADO documents no idempotency key for
     /// creates, so an ambiguous outcome — a timeout, a 429 mid-flight, a dropped connection —
     /// cannot be distinguished from a failure, and a blind retry duplicates the work item
-    /// (PolyphonyRequiem/twig#270). Querying for the stamped tag is the documented-safe way to
-    /// settle the question before retrying.
+    /// (PolyphonyRequiem/twig#270).
+    /// </para>
+    /// <para>
+    /// The match is a single constant tag (<see cref="ValueObjects.PublishIntent.IntentTag"/>)
+    /// to narrow, then <paramref name="title"/> + <paramref name="typeName"/> +
+    /// <paramref name="createdAtOrAfter"/> to identify. A per-create unique tag would be a
+    /// stronger key but mints one new project-wide tag per published item forever, which ADO's
+    /// unique-tag cap and 0001 §1's "twig owns only the pending set" both rule out.
+    /// </para>
     /// </remarks>
-    Task<int?> FindByIdempotencyTagAsync(string idempotencyTag, CancellationToken ct = default);
+    Task<int?> FindPublishedIntentAsync(
+        string title,
+        string typeName,
+        DateTimeOffset createdAtOrAfter,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the in-flight publish tag from a work item once the publish is recorded locally,
+    /// so the tag marks only what is actually in flight (wayfinder 0015).
+    /// </summary>
+    /// <remarks>
+    /// Best-effort by contract — callers must treat failure as non-fatal. The publish has
+    /// already succeeded by this point and a stale tag is cosmetic, so throwing here would turn
+    /// a successful publish into a reported failure. Implementations must preserve other tags.
+    /// </remarks>
+    Task ClearIntentTagAsync(int id, CancellationToken ct = default);
+
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default);

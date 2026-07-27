@@ -70,8 +70,9 @@ has no preamble to forget.**
 
 A value object minted at seed creation, self-contained and collision-free without
 consulting existing state (ULID/GUIDv7 — sortable, so creation order survives). It carries
-its own display alias; the negative integer becomes a *rendering* concern, allocated per
-view, never persisted as a key and never joined on.
+its own display alias; the negative integer becomes a *display* concern — persisted on the
+seed row and stable across sessions (owner veto, 2026-07-27 — see §5a), but never a key,
+never joined on, and never recycled.
 
 Consequences that make the bug class impossible rather than guarded:
 
@@ -110,9 +111,35 @@ model). **0005 owns the implementation; 0003 fixes the model it must implement.*
 union query stays in place until then — it is correct for the paths it covers and removing
 it early would reopen #280.
 
-Two calls made on engineering grounds, open to veto:
+Two calls were made on engineering grounds and offered for veto. **Both were answered by
+the owner on 2026-07-27; one stands, one was vetoed.**
 
-- **ULID/GUIDv7 over plain GUID** — sortable, so "first seed created" stays answerable
-  without a separate sequence column.
-- **The negative-int alias is allocated per view, not persisted.** Persisting it would
-  reintroduce a durable allocator through the back door.
+- **ULID/GUIDv7 over plain GUID — STANDS.** Sortable, so "first seed created" stays
+  answerable without a separate sequence column.
+- **The negative-int alias is PERSISTED, not allocated per view — VETOED, owner
+  2026-07-27.** The alias is a durable column on the seed row, minted once at creation,
+  never recycled, and stable across sessions so it can be referenced from a script.
+
+### 5a. Why persisting the alias does not reopen the allocator ruling
+
+The veto collides, on its face, with §2's rejection of allocators as a class: a persisted
+alias must know the next free number, and that is a floor. The collision is real and is
+resolved here rather than left implicit, because 0005 reads this ticket as its spec.
+
+**The original objection was contingent, not principled.** §2 rejected allocators because
+"every allocator needs a durable floor twig has nowhere to keep." That premise was true
+when written and is false after this ticket: `StagedIdentity` plus 0005's schema work give
+seeds durable storage, so the floor now has a home. The objection expired at the moment the
+decision was taken, and was not noticed.
+
+**More importantly, a recycled alias is no longer a correctness defect.** #280's failure
+depended on the negative integer *being the key*: reuse silently resolved a reference to a
+previous owner. Once `StagedIdentity` is the key and the alias is a label hanging off it,
+nothing joins on the alias and a collision degrades to a display annoyance. The allocator
+became safe to keep precisely when it stopped being load-bearing — which is the same
+reasoning §2 used to reject it, applied to the changed facts.
+
+The constraints that survive: the alias is **never a key, never joined on, never a foreign
+key target**, and is **never recycled** (a discarded seed's alias is retired, not reissued).
+An allocator whose output is decorative may reuse a floor; one whose output is identity may
+not.

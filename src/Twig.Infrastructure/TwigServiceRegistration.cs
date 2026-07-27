@@ -106,6 +106,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IStagedIdentityRegistry>(sp => new SqliteStagedIdentityRegistry(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
+        services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         services.AddSingleton<ITrackingService>(sp => new TrackingService(
             sp.GetRequiredService<ITrackingRepository>(),

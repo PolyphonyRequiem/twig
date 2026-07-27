@@ -281,7 +281,12 @@ public class SqliteCacheStoreTests
         // staged seed's identity, its display alias, and the retirement record that makes
         // "never recycled" structural. Putting it in the mirror would make a durable identity
         // droppable — the exact incoherence 0003 objected to.
-        string[] expectedDurable = ["pending_changes", "publish_id_map", "seed_links", "staged_identities"];
+        // publish_intents is DURABLE (wayfinder 0015): it records a create BEFORE the ADO call
+        // and its outcome after. It is durable by 0005's "can ADO rebuild it?" test — it cannot
+        // be, because it is precisely the record of a call whose outcome ADO may or may not
+        // hold. A droppable copy would be erased by the crash it exists to survive.
+        string[] expectedDurable =
+            ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);

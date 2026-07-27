@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 2;
+    internal const int DurableSchemaVersion = 3;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -360,6 +360,37 @@ public sealed class SqliteCacheStore : IDisposable
                 WHERE si.alias = publish_id_map.old_id
             )
             WHERE staged_identity IS NULL AND old_id < 0;
+            """,
+
+        // Wayfinder 0015. The durable intent record — 0001 §4's "record intent before the call,
+        // record the outcome after it".
+        //
+        // WHY IT IS DURABLE by 0005's test ("can ADO rebuild it?"): no. This is the record of a
+        // call whose outcome ADO may or may not hold. A disposable copy would be erased by
+        // exactly the crash it exists to survive.
+        //
+        // `published_id IS NULL` is the reconcilable state: an intent with no outcome. It is a
+        // nullable column rather than a status enum so the open set is an index range, and so
+        // there is no third state a writer could leave behind.
+        //
+        // title / type_name / recorded_at are the LOCAL disambiguation. The stamped ADO tag is a
+        // single constant (PublishIntent.IntentTag) rather than a per-create GUID: a unique tag
+        // per published item grows without bound against ADO's ~5,000 unique-tag project cap and
+        // writes twig's private bookkeeping into a namespace shared with every human in the
+        // project, which 0001 §1 forbids. So the tag narrows, and these three columns identify.
+        // recorded_at is written BEFORE the call, so it is a valid lower bound on the created
+        // item's System.CreatedDate — that is what stops a reused tag matching an older item.
+        [3] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.publish_intents (
+                staged_identity TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                type_name TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                published_id INTEGER,
+                completed_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_publish_intents_open
+                ON publish_intents(published_id);
             """,
     };
 

@@ -122,6 +122,90 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.Id;
     }
 
+    public async Task<int?> FindPublishedIntentAsync(
+        PublishIntent intent,
+        CancellationToken ct = default)
+    {
+        var title = intent.Title;
+        var typeName = intent.TypeName;
+        var createdAtOrAfter = intent.RecordedAt;
+
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(typeName))
+            return null;
+
+        // The constant tag narrows to items twig had in flight; title + type + the creation
+        // fence identify which one. The fence matters: the tag is reused across publishes, so
+        // without it an older item bearing a stale tag could be mistaken for this create.
+        //
+        // WIQL escapes a single quote by doubling it. Titles are user-supplied, so this is not
+        // optional.
+        var escapedTitle = title.Replace("'", "''");
+        var escapedType = typeName.Replace("'", "''");
+        var escapedTag = PublishIntent.IntentTag.Replace("'", "''");
+
+        // Round DOWN to the whole second: the fence is a lower bound, and ADO stores
+        // CreatedDate at ~millisecond resolution, so truncating keeps it inclusive of an item
+        // created in the same second. A slightly loose bound is safe — title + type must match
+        // too. Rounding UP would exclude the very item this query exists to find.
+        var fence = createdAtOrAfter.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        var wiql =
+            $"SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '{escapedTag}' " +
+            $"AND [System.Title] = '{escapedTitle}' " +
+            $"AND [System.WorkItemType] = '{escapedType}' " +
+            $"AND [System.CreatedDate] >= '{fence}'";
+
+        // timePrecision: true — the fence carries a time, which ADO rejects (HTTP 400) unless
+        // this is set. Losing it degrades the query to day granularity at best.
+        var ids = await ExecuteWiqlAsync(wiql, top: null, timePrecision: true, ct);
+
+        // More than one match means the duplicate this mechanism exists to prevent already
+        // happened. Return the lowest — the first create — so recovery adopts the original
+        // rather than an accidental copy, and the extras stay visible in ADO for the user.
+        return ids.Count == 0 ? null : ids.Min();
+    }
+
+    /// <summary>
+    /// Removes the in-flight publish tag from a work item once its publish is recorded locally.
+    /// Best-effort by contract: the caller must treat a failure as non-fatal, because the
+    /// publish itself has already succeeded and the stale tag is cosmetic.
+    /// </summary>
+    public async Task ClearIntentTagAsync(int id, CancellationToken ct = default)
+    {
+        // Read current tags rather than blind-writing: System.Tags is a single delimited string,
+        // so a replace would clobber any tag a human added to the item.
+        var item = await FetchAsync(id, ct);
+        if (!item.Fields.TryGetValue("System.Tags", out var current) || current is null)
+            return;
+
+        // Split ONCE. Two independently-written splits could drift apart, and the second one
+        // drives the no-op short-circuit — a divergence there would silently issue a pointless
+        // PATCH, or worse, skip a needed one.
+        var tags = current.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        var remaining = tags
+            .Where(t => !string.Equals(t, PublishIntent.IntentTag, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (remaining.Count == tags.Length)
+            return;
+
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            new()
+            {
+                Op = "add",
+                Path = "/fields/System.Tags",
+                Value = System.Text.Json.Nodes.JsonValue.Create(string.Join("; ", remaining)),
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
+    }
+
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={CommentApiVersion}";
@@ -138,10 +222,20 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
         => ExecuteWiqlAsync(wiql, top, ct);
 
-    private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(string wiql, int? top, CancellationToken ct)
+    private Task<IReadOnlyList<int>> ExecuteWiqlAsync(string wiql, int? top, CancellationToken ct)
+        => ExecuteWiqlAsync(wiql, top, timePrecision: false, ct);
+
+    // timePrecision is a QUERY-STRING parameter, not a body field. Without it ADO rejects any
+    // date comparison carrying a time component with HTTP 400:
+    //   "You cannot supply a time with the date when running a query using date precision."
+    // Verified against live ADO (dangreen-msft/Twig) — a body-level "timePrecision" is silently
+    // ignored, and the day-granularity fallback loses the sub-day fence entirely.
+    private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(
+        string wiql, int? top, bool timePrecision, CancellationToken ct)
     {
         var topParam = top.HasValue ? $"&$top={top.Value}" : "";
-        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}";
+        var precisionParam = timePrecision ? "&timePrecision=true" : "";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}{precisionParam}";
         var request = new AdoWiqlRequest { Query = wiql };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoWiqlRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");

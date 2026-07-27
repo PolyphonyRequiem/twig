@@ -1,4 +1,4 @@
-using Twig.Domain.Aggregates;
+﻿using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
@@ -26,6 +26,7 @@ public sealed class SeedPublishOrchestrator
     private readonly SeedLinkPromoter _linkPromoter;
     private readonly BacklogOrderer _backlogOrderer;
     private readonly IPendingChangeStore? _pendingChangeStore;
+    private readonly IPublishIntentRepository? _publishIntentRepo;
 
     [Obsolete("Use the overload that accepts IWorkItemLinkRepository to refresh published relationships.")]
     public SeedPublishOrchestrator(
@@ -95,6 +96,40 @@ public sealed class SeedPublishOrchestrator
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer,
         IPendingChangeStore? pendingChangeStore)
+        : this(
+            workItemRepo,
+            adoService,
+            seedLinkRepo,
+            workItemLinkRepo,
+            publishIdMapRepo,
+            rulesProvider,
+            unitOfWork,
+            backlogOrderer,
+            pendingChangeStore,
+            publishIntentRepo: null)
+    {
+    }
+
+    /// <summary>
+    /// Creates an orchestrator that records the publish intent durably before the ADO call and
+    /// the outcome after it, closing the 7→10 window (wayfinder 0015, from 0001 §4).
+    /// </summary>
+    /// <remarks>
+    /// Without an <see cref="IPublishIntentRepository"/> the create at step 7 remains outside
+    /// any durable record, so a crash before step 10 commits orphans a real ADO work item and
+    /// every retry creates another duplicate (PolyphonyRequiem/twig#270). Prefer this overload.
+    /// </remarks>
+    public SeedPublishOrchestrator(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ISeedLinkRepository seedLinkRepo,
+        IWorkItemLinkRepository workItemLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider rulesProvider,
+        IUnitOfWork unitOfWork,
+        BacklogOrderer backlogOrderer,
+        IPendingChangeStore? pendingChangeStore,
+        IPublishIntentRepository? publishIntentRepo)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -106,6 +141,7 @@ public sealed class SeedPublishOrchestrator
         _linkPromoter = new SeedLinkPromoter(seedLinkRepo, adoService);
         _backlogOrderer = backlogOrderer;
         _pendingChangeStore = pendingChangeStore;
+        _publishIntentRepo = publishIntentRepo;
     }
 
     /// <summary>
@@ -220,8 +256,65 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
-        // Step 7: Create in ADO
-        var newId = await _adoService.CreateAsync(seed.ToCreateRequest(), ct);
+        // Step 7: Record intent durably BEFORE the ADO call, then make the call (0001 §4).
+        //
+        // THIS IS THE 7->10 WINDOW. The create at this step produces remote state; the local
+        // half is not committed until step 10. A crash in between used to orphan a real ADO
+        // work item with no local trace at all, so every retry created another duplicate
+        // (PolyphonyRequiem/twig#270). #270 fixed the FK ordering *inside* step 10; the window
+        // itself stayed open until this ticket.
+        //
+        // The intent is written outside the step-10 transaction ON PURPOSE. A record that
+        // rolled back with the local half would be erased by exactly the crash it exists to
+        // survive — it must outlive the failure to be evidence of it.
+        //
+        // A seed with no StagedIdentity predates 0014 and cannot be keyed, so it takes the old
+        // unprotected path rather than being silently given a fresh identity that would not
+        // match anything already in ADO.
+        int newId;
+        var identity = seed.StagedIdentity;
+        var intentIsTracked = false;
+
+        if (_publishIntentRepo is not null && identity is { } intentIdentity)
+        {
+            var intent = await _publishIntentRepo.RecordIntentAsync(
+                intentIdentity, seed.Title, seed.Type.Value, ct);
+
+            // A prior attempt may have created the item before dying. Two places can hold that
+            // evidence, and BOTH must be consulted before creating anything.
+            //
+            // 1. The ledger itself. If a previous attempt completed the intent and then died in
+            //    step 10, the row already names the ADO id. Reading it back is cheaper and
+            //    strictly more reliable than re-deriving it from ADO — and it is the read path
+            //    this ledger was built to serve. (Before review, nothing read it: the ledger was
+            //    write-only, which is precisely why the rollback path duplicated.)
+            // 2. Failing that, ask ADO. The tag is a single constant, so it only NARROWS to what
+            //    twig had in flight; title + type + the intent's own RecordedAt identify which
+            //    item is this create.
+            var alreadyLanded = intent.PublishedId
+                ?? await _adoService.FindPublishedIntentAsync(intent, ct);
+
+            newId = alreadyLanded
+                ?? await _adoService.CreateAsync(
+                    seed.ToCreateRequest() with { StampIntentTag = true },
+                    ct);
+
+            // Record the outcome immediately, still outside the transaction. From here on the
+            // remote item is accounted for even if every step below fails.
+            await _publishIntentRepo.CompleteIntentAsync(intentIdentity, newId, ct);
+
+            // The tag is NOT stripped here. It marks in-flight state, and the publish is still
+            // in flight until the step-10 transaction commits — which is ~30 lines below. An
+            // earlier version cleared it at this point, which disarmed the guard for exactly the
+            // window it exists to protect: a rollback at step 10 left an orphan with no tag, so
+            // the recovery query could not narrow to it and the retry duplicated. See the
+            // post-commit strip after step 10.
+            intentIsTracked = true;
+        }
+        else
+        {
+            newId = await _adoService.CreateAsync(seed.ToCreateRequest(), ct);
+        }
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);
@@ -281,6 +374,34 @@ public sealed class SeedPublishOrchestrator
         finally
         {
             await tx.DisposeAsync();
+        }
+
+        // Step 10h: the local half is COMMITTED, so the publish is no longer in flight — only
+        // now is it safe to drop the in-flight tag.
+        //
+        // Ordering is the whole point. Stripping it before the transaction (as an earlier
+        // version did) disarms the guard for precisely the window it exists to protect: a
+        // rollback above would leave a real ADO item carrying no tag, `FindPublishedIntentAsync`
+        // could not narrow to it, and the retry would create a duplicate — #270, reintroduced
+        // through its own fix.
+        //
+        // Best-effort: the publish has succeeded by now, so a failure here must not fail it. A
+        // leftover tag is cosmetic, and the ledger row (which survives independently) still
+        // names the id, so recovery does not depend on this succeeding.
+        if (intentIsTracked)
+        {
+            try
+            {
+                await _adoService.ClearIntentTagAsync(newId, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // Intentionally swallowed — see above.
+            }
         }
 
         // Step 11: Promote seed links to ADO relations

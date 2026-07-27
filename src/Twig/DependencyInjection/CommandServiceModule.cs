@@ -104,7 +104,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<ISeedPublishRulesProvider>(),
             sp.GetRequiredService<IUnitOfWork>(),
             sp.GetRequiredService<BacklogOrderer>(),
-            sp.GetRequiredService<IPendingChangeStore>()));
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IPublishIntentRepository>()));
         services.AddSingleton<SeedReconcileOrchestrator>(sp => new SeedReconcileOrchestrator(
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),

@@ -495,6 +495,7 @@ public sealed class WorkspaceResolverTests
             fieldDefinitionStore: null!,
             seedLinkRepo: Substitute.For<ISeedLinkRepository>(),
             publishIdMapRepo: Substitute.For<IPublishIdMapRepository>(),
+            publishIntentRepo: Substitute.For<IPublishIntentRepository>(),
             stagedIdentityRegistry: Substitute.For<IStagedIdentityRegistry>(),
             seedPublishRulesProvider: Substitute.For<ISeedPublishRulesProvider>(),
             unitOfWork: Substitute.For<IUnitOfWork>());

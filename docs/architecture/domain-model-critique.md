@@ -199,9 +199,10 @@ and the "where does this go?" problem grows with every addition.
 > `SyncCoordinator.cs` 281 (was 211), `RefreshOrchestrator.cs` 191 (was 193),
 > `SeedPublishOrchestrator.cs` **616** (was 245), `SeedReconcileOrchestrator.cs` 117 (was 110).
 > `SyncCoordinatorFactory` still exists un-renamed (`Services/Sync/SyncCoordinatorFactory.cs`).
-> STILL TRUE / new: a **sixth** orchestrator has since been added —
-> `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines) — so proliferation
-> resumed after the audit closed.
+> STILL TRUE / new: a **sixth** orchestrator exists that the audit never covered —
+> `src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1` (137 lines), created in `55ad9c2b`
+> on 2026-04-28, the day *after* the audit was written to this document in `f8bee61c`
+> (2026-04-27). Tracked as #318.
 > STILL TRUE: wayfinder ticket 0004 ruled that reconciliation becomes a named module and that
 > `SeedReconcileOrchestrator` be renamed to reflect that it is a seed-link GC
 > (`wayfinder/tickets/0004-does-reconciliation-exist.md:185-192`, scope explicitly "decision only").
@@ -329,9 +330,9 @@ The codebase has 9+ distinct result types with incompatible patterns: `Result<T>
 > (`src/Twig/Commands/CommandContext.cs:13`), and inline infrastructure access was pulled into
 > `src/Twig/Commands/StatusFieldConfigReader.cs:8`.
 > STILL TRUE as a class-level finding: the bloat relocated rather than disappeared.
-> `WorkspaceCommand` now takes **15** constructor parameters over 851 lines
+> `WorkspaceCommand` now takes **14** constructor parameters over 851 lines
 > (`src/Twig/Commands/WorkspaceCommand.cs:34-48`), and `ShowCommand.cs` (792) and `InitCommand.cs`
-> (739) are the same shape. No `CommandRenderingPipeline` exists.
+> (739) are the same shape. No `CommandRenderingPipeline` exists. Tracked as #319.
 
 
 `StatusCommand` and `SetCommand` each take 15–17 constructor parameters. Method
@@ -415,16 +416,25 @@ virtual group creation, ceiling-type resolution, and LINQ `.Any()` inside
 ## 11. Workspace Read Model Does Computation
 
 **Severity**: Low | **Blast Radius**: ReadModels/Workspace
-> **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY. The read model is now inert — none of
-> the three methods are members of `Workspace` any more; they are extension methods in
-> `src/Twig.Domain/ReadModels/WorkspaceExtensions.cs:15` (`GetStaleSeeds`), `:32` (`GetDirtyItems`),
-> `:54` (`ListAll`), whose own doc comment states the intent: "Pure computation methods extracted
-> from `Workspace`. Keeps the read model as an inert projection" (`WorkspaceExtensions.cs:5-8`).
-> What did **not** happen is the containment practice as written — the computation was not moved
-> into the building service or a `WorkspaceAnalyzer` (no such type in `src/`); it was relocated to
-> extensions in the same `ReadModels` namespace. Whether that discharges the finding is a judgement
-> call, not a code fact. The "callers are few" claim is also now stale: there are 8 call sites
-> across `src/Twig.Mcp/Services/McpResultBuilder.cs:180`, `:189`,
+> **Status (2026-07, re-baselined at `55b02d32`)**: FIXED. The finding is that a read model does
+> computation; it no longer does. `src/Twig.Domain/ReadModels/Workspace.cs` is 78 lines of
+> init-only projection state (`:13-31`) plus a `Build` factory (`:54`) and one trivial
+> `IsTracked` membership check (`:69`) — none of `GetStaleSeeds`, `GetDirtyItems`, or `ListAll`
+> is a member. They are extension methods in
+> `src/Twig.Domain/ReadModels/WorkspaceExtensions.cs:15`, `:32`, and `:54`, whose own doc comment
+> states the intent: "Pure computation methods extracted from `Workspace`. Keeps the read model
+> as an inert projection" (`WorkspaceExtensions.cs:5-8`).
+>
+> Recorded deliberately: this is *not* the containment practice as written, which asked for the
+> computation to move into the building service or a `WorkspaceAnalyzer` (no such type exists in
+> `src/`). It went to extensions in the same `ReadModels` namespace instead. That was judged to
+> discharge the finding on 2026-07-27 — the stated defect was inertness of the read model, and
+> the extension-method placement achieves it; `WorkspaceAnalyzer` was one suggested means, not
+> the finding itself. Reopen if the extensions start accumulating state or policy.
+>
+> One sub-claim is stale rather than fixed: "callers that invoke these methods are few — grep
+> before changing" now understates it at 8 call sites —
+> `src/Twig.Mcp/Services/McpResultBuilder.cs:180`, `:189`,
 > `src/Twig/Commands/WorkspaceCommand.cs:687`, `:702`, `:741`, and
 > `src/Twig/Formatters/HumanOutputFormatter.cs:491`, `:521`, `:677`.
 
@@ -444,17 +454,17 @@ methods on a read model. Read models should be inert projections.
 
 > **Status (2026-07, re-baselined at `55b02d32`)**: mostly obsolete. Items **2, 3, 4, 5, 10** are
 > FIXED and drop off the list entirely. Item **6** is *not* "completed April 2026" as this list's ninth entry claims:
-> the audit completed, but a sixth orchestrator has since been added
-> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`) and wayfinder 0004's named
-> reconciliation module has not landed. Item **7** is no longer "in progress" — both scheduled
+> the audit completed, but a sixth orchestrator it never covered exists
+> (`src/Twig.Domain/Services/Seed/SeedDiscardOrchestrator.cs:1`, #318) and wayfinder 0004's named
+> reconciliation module has not landed (#320). Item **7** is no longer "in progress" — both scheduled
 > migrations shipped (`Services/Workspace/StatusResult.cs:25`,
 > `ValueObjects/BranchLinkResult.cs:32`); only the explicitly deferred seed result types remain.
-> Item **11** is substantially done. What actually remains, in the order this section's own
-> risk-ordering logic implies: **11** (decide whether extensions discharge it), **1**'s residual
-> aggregate-boundary question, **8** (bloat relocated to `WorkspaceCommand`/`ShowCommand`/
-> `InitCommand`), **6**'s reconciliation module, and **9** — which the original ordering placed
-> last on the grounds that Item 1's copy consolidation had to come first, and that precondition is
-> now met.
+> Item **11** is FIXED and also drops off (ruled 2026-07-27: extension-method placement discharges
+> the inertness finding even though `WorkspaceAnalyzer` was never built). What actually remains, in
+> the order this section's own risk-ordering logic implies: **1**'s residual aggregate-boundary
+> question, **8** (bloat relocated to `WorkspaceCommand`/`ShowCommand`/`InitCommand`), **6**'s
+> reconciliation module, and **9** — which the original ordering placed last on the grounds that
+> Item 1's copy consolidation had to come first, and that precondition is now met.
 
 1. **Item 3** (Process assumptions) — smallest, most surgical
 2. **Item 4** (Value object cleanup) — isolated, low risk

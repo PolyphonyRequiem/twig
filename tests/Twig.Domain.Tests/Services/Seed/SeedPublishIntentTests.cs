@@ -69,7 +69,7 @@ public class SeedPublishIntentTests
             _rulesProvider,
             _unitOfWork,
             new BacklogOrderer(_adoService, _fieldDefinitionStore),
-            pendingChangeStore: null,
+            pendingChangeStore: Substitute.For<IPendingChangeStore>(),
             publishIntentRepo: _intentRepo);
     }
 

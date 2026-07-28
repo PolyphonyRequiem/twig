@@ -1005,7 +1005,6 @@ Twig.Domain.Services.Seed.SeedDependencyGraph
 Twig.Domain.Services.Seed.SeedDiscardOrchestrator
 Twig.Domain.Services.Seed.SeedDiscardOrchestrator.BuildDiscardPlanAsync(int seedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedDiscardPlan?>!
 Twig.Domain.Services.Seed.SeedDiscardOrchestrator.ExecuteDiscardAsync(Twig.Domain.ValueObjects.SeedDiscardPlan! plan, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Domain.Services.Seed.SeedDiscardOrchestrator.SeedDiscardOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IContextStore! contextStore) -> void
 Twig.Domain.Services.Seed.SeedEditorFormat
 Twig.Domain.Services.Seed.SeedFactory
 Twig.Domain.Services.Seed.SeedFactory.Create(string! title, Twig.Domain.Aggregates.WorkItem? parentContext, Twig.Domain.Aggregates.ProcessConfiguration! processConfig, Twig.Domain.ValueObjects.WorkItemType? typeOverride = null, string? assignedTo = null) -> Twig.Domain.Common.Result<Twig.Domain.Aggregates.WorkItem!>
@@ -1024,7 +1023,6 @@ Twig.Domain.Services.Seed.SeedLinkTypeMapper
 Twig.Domain.Services.Seed.SeedPublishOrchestrator
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.PublishAllAsync(bool force = false, bool dryRun = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedPublishBatchResult!>!
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.PublishAsync(int seedId, bool force = false, bool dryRun = false, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedPublishResult!>!
-Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer) -> void
 Twig.Domain.Services.Seed.SeedLinkRepair
 Twig.Domain.Services.Seed.SeedLinkRepair.RepairAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.SeedLinkRepairResult!>!
 Twig.Domain.Services.Seed.SeedLinkRepair.SeedLinkRepair(Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo) -> void

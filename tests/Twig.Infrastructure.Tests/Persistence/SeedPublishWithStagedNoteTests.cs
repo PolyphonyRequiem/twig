@@ -71,7 +71,7 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private SeedPublishOrchestrator CreateOrchestrator(bool withPendingChangeStore = true) =>
+    private SeedPublishOrchestrator CreateOrchestrator() =>
         new(
             _repo,
             _adoService,
@@ -81,7 +81,8 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
             _rulesProvider,
             _unitOfWork,
             new BacklogOrderer(_adoService, _fieldDefinitionStore),
-            withPendingChangeStore ? _changeStore : null);
+            _changeStore,
+            null);
 
     /// <summary>
     /// Fixture guard, inverted by wayfinder 0013. The FK that made this bug reachable is gone:
@@ -100,28 +101,6 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
         // The staged note outlives the row it pointed at — that is the durable store's whole point.
         (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
         (await _changeStore.GetChangesAsync(SeedId)).Count.ShouldBe(1);
-    }
-
-    /// <summary>
-    /// The #270 sequence with no pending-change store. It used to throw
-    /// <c>FOREIGN KEY constraint failed</c>, orphaning the freshly created ADO item with an empty
-    /// <c>publish_id_map</c> so every retry duplicated it. With the FK deleted the publish now
-    /// completes, which is what removes the duplicate-creation trap.
-    /// </summary>
-    [Fact]
-    public async Task PublishSeed_WithStagedNote_WithoutPendingChangeStore_NoLongerThrows()
-    {
-        await SaveSeedAsync();
-        await _changeStore.AddChangeAsync(SeedId, "note", null, null, "a note I still want");
-
-        var result = await CreateOrchestrator(withPendingChangeStore: false).PublishAsync(SeedId);
-
-        result.Status.ShouldBe(SeedPublishStatus.Created);
-        await _adoService.Received(1).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
-
-        // The map entry now lands, so a retry cannot create a second ADO item.
-        (await _repo.GetByIdAsync(SeedId)).ShouldBeNull();
-        (await _publishIdMapRepo.GetNewIdAsync(_seedIdentity)).ShouldBe(PublishedId);
     }
 
     [Fact]

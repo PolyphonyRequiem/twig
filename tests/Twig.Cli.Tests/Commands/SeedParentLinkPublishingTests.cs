@@ -56,7 +56,9 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
             publishIdMapRepo,
             rulesProvider,
             unitOfWork,
-            new BacklogOrderer(adoService, fieldDefinitionStore));
+            new BacklogOrderer(adoService, fieldDefinitionStore),
+            Substitute.For<IPendingChangeStore>(),
+            null);
 
         var publishResult = await orchestrator.PublishAsync(-1);
 
@@ -101,7 +103,9 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
             publishIdMapRepo,
             rulesProvider,
             unitOfWork,
-            new BacklogOrderer(adoService, fieldDefinitionStore));
+            new BacklogOrderer(adoService, fieldDefinitionStore),
+            Substitute.For<IPendingChangeStore>(),
+            null);
 
         var publishResult = await orchestrator.PublishAsync(-1);
         var cachedLinks = await workItemLinkRepo.GetLinksAsync(500);

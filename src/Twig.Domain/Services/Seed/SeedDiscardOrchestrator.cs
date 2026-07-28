@@ -12,35 +12,24 @@ public sealed class SeedDiscardOrchestrator
     private readonly IWorkItemRepository _workItemRepo;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IContextStore _contextStore;
-    private readonly IPendingChangeStore? _pendingChangeStore;
-
-    /// <summary>
-    /// Creates an orchestrator that does not clear staged pending changes.
-    /// </summary>
-    /// <remarks>
-    /// Retained for binary compatibility with the shipped public API. Prefer the overload
-    /// that accepts an <see cref="IPendingChangeStore"/>: without it, discarding a seed that
-    /// has a staged note or field edit fails with a SQLite foreign-key violation, because
-    /// <c>pending_changes.work_item_id</c> references <c>work_items(id)</c>
-    /// (PolyphonyRequiem/twig#268).
-    /// </remarks>
-    public SeedDiscardOrchestrator(
-        IWorkItemRepository workItemRepo,
-        ISeedLinkRepository seedLinkRepo,
-        IContextStore contextStore)
-        : this(workItemRepo, seedLinkRepo, contextStore, pendingChangeStore: null)
-    {
-    }
+    private readonly IPendingChangeStore _pendingChangeStore;
 
     /// <summary>
     /// Creates an orchestrator that clears staged pending changes before deleting each
     /// seed row, so a seed carrying a staged note or field edit can be discarded.
     /// </summary>
+    /// <remarks>
+    /// <see cref="IPendingChangeStore"/> is required, not optional (wayfinder 0004 §4).
+    /// The former store-less overload made correctness depend on every construction site
+    /// picking the right constructor: omitting the store left staged edits orphaned in
+    /// <c>pending.db</c> on discard (PolyphonyRequiem/twig#268).
+    /// A dependency correctness depends on is not optional.
+    /// </remarks>
     public SeedDiscardOrchestrator(
         IWorkItemRepository workItemRepo,
         ISeedLinkRepository seedLinkRepo,
         IContextStore contextStore,
-        IPendingChangeStore? pendingChangeStore)
+        IPendingChangeStore pendingChangeStore)
     {
         _workItemRepo = workItemRepo;
         _seedLinkRepo = seedLinkRepo;
@@ -128,8 +117,7 @@ public sealed class SeedDiscardOrchestrator
             // Wayfinder 0013 deleted that FK by moving pending_changes to the durable store, so
             // the crash is now unexpressible. Clearing first is retained deliberately: discard
             // means the staged edits go too, and leaving them would orphan them in pending.db.
-            if (_pendingChangeStore is not null)
-                await _pendingChangeStore.ClearChangesAsync(id, ct);
+            await _pendingChangeStore.ClearChangesAsync(id, ct);
             await _seedLinkRepo.DeleteLinksForItemAsync(id, ct);
             await _workItemRepo.DeleteByIdAsync(id, ct);
         }

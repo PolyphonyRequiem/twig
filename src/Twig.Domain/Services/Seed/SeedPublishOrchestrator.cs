@@ -25,99 +25,27 @@ public sealed class SeedPublishOrchestrator
     private readonly IUnitOfWork _unitOfWork;
     private readonly SeedLinkPromoter _linkPromoter;
     private readonly BacklogOrderer _backlogOrderer;
-    private readonly IPendingChangeStore? _pendingChangeStore;
+    private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IPublishIntentRepository? _publishIntentRepo;
 
-    [Obsolete("Use the overload that accepts IWorkItemLinkRepository to refresh published relationships.")]
-    public SeedPublishOrchestrator(
-        IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
-        ISeedLinkRepository seedLinkRepo,
-        IPublishIdMapRepository publishIdMapRepo,
-        ISeedPublishRulesProvider rulesProvider,
-        IUnitOfWork unitOfWork,
-        BacklogOrderer backlogOrderer)
-        : this(
-            workItemRepo,
-            adoService,
-            seedLinkRepo,
-            NoOpWorkItemLinkRepository.Instance,
-            publishIdMapRepo,
-            rulesProvider,
-            unitOfWork,
-            backlogOrderer)
-    {
-    }
-
     /// <summary>
-    /// Creates an orchestrator that does not migrate staged pending changes across a publish.
+    /// Creates an orchestrator that migrates staged pending changes onto the published ID and
+    /// records the publish intent durably before the ADO call, closing the 7→10 window
+    /// (wayfinder 0015, from 0001 §4).
     /// </summary>
     /// <remarks>
-    /// Retained for binary compatibility with the shipped public API. Prefer the overload
-    /// that accepts an <see cref="IPendingChangeStore"/>: without it, publishing a seed that
-    /// carries a staged note or field edit creates the ADO work item and then fails locally
-    /// with a SQLite foreign-key violation, so every retry creates a duplicate ADO item
-    /// (PolyphonyRequiem/twig#270).
-    /// </remarks>
-    public SeedPublishOrchestrator(
-        IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
-        ISeedLinkRepository seedLinkRepo,
-        IWorkItemLinkRepository workItemLinkRepo,
-        IPublishIdMapRepository publishIdMapRepo,
-        ISeedPublishRulesProvider rulesProvider,
-        IUnitOfWork unitOfWork,
-        BacklogOrderer backlogOrderer)
-        : this(
-            workItemRepo,
-            adoService,
-            seedLinkRepo,
-            workItemLinkRepo,
-            publishIdMapRepo,
-            rulesProvider,
-            unitOfWork,
-            backlogOrderer,
-            pendingChangeStore: null)
-    {
-    }
-
-    /// <summary>
-    /// Creates an orchestrator that migrates staged pending changes onto the published ID,
-    /// so a seed carrying a staged note or field edit publishes cleanly and the staged
-    /// content flushes to the published item on the next sync.
-    /// </summary>
-    public SeedPublishOrchestrator(
-        IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
-        ISeedLinkRepository seedLinkRepo,
-        IWorkItemLinkRepository workItemLinkRepo,
-        IPublishIdMapRepository publishIdMapRepo,
-        ISeedPublishRulesProvider rulesProvider,
-        IUnitOfWork unitOfWork,
-        BacklogOrderer backlogOrderer,
-        IPendingChangeStore? pendingChangeStore)
-        : this(
-            workItemRepo,
-            adoService,
-            seedLinkRepo,
-            workItemLinkRepo,
-            publishIdMapRepo,
-            rulesProvider,
-            unitOfWork,
-            backlogOrderer,
-            pendingChangeStore,
-            publishIntentRepo: null)
-    {
-    }
-
-    /// <summary>
-    /// Creates an orchestrator that records the publish intent durably before the ADO call and
-    /// the outcome after it, closing the 7→10 window (wayfinder 0015, from 0001 §4).
-    /// </summary>
-    /// <remarks>
-    /// Without an <see cref="IPublishIntentRepository"/> the create at step 7 remains outside
-    /// any durable record, so a crash before step 10 commits orphans a real ADO work item and
-    /// every retry creates another duplicate (PolyphonyRequiem/twig#270). Prefer this overload.
+    /// <see cref="IPendingChangeStore"/> is required, not optional (wayfinder 0004 §4). The
+    /// constructor overloads this replaced made correctness depend on every construction site
+    /// picking the right one: without the pending store, publishing a seed carrying a staged
+    /// note or field edit created the ADO work item and then failed locally, so every retry
+    /// duplicated the remote item (PolyphonyRequiem/twig#270). A dependency correctness
+    /// depends on is not optional.
+    /// <para>
+    /// <see cref="IPublishIntentRepository"/> deliberately stays nullable. 0004 §4 names only
+    /// the <see cref="IPendingChangeStore"/> overloads, and requiring the intent ledger is a
+    /// behavioural change — it forces every seed with a <c>StagedIdentity</c> down the
+    /// intent-tracking path — which belongs to wayfinder 0015, not to this cleanup.
+    /// </para>
     /// </remarks>
     public SeedPublishOrchestrator(
         IWorkItemRepository workItemRepo,
@@ -128,7 +56,7 @@ public sealed class SeedPublishOrchestrator
         ISeedPublishRulesProvider rulesProvider,
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer,
-        IPendingChangeStore? pendingChangeStore,
+        IPendingChangeStore pendingChangeStore,
         IPublishIntentRepository? publishIntentRepo)
     {
         _workItemRepo = workItemRepo;
@@ -357,8 +285,7 @@ public sealed class SeedPublishOrchestrator
             // (PolyphonyRequiem/twig#270). The FK is gone, but the migration stays: clearing the
             // rows would fix the crash while silently destroying an unpushed note, and they
             // still need to flush onto the published ID on the next sync.
-            if (_pendingChangeStore is not null)
-                await _pendingChangeStore.RemapWorkItemIdAsync(seedId, newId, ct);
+            await _pendingChangeStore.RemapWorkItemIdAsync(seedId, newId, ct);
 
             // 10f: Delete old seed row
             await _workItemRepo.DeleteByIdAsync(seedId, ct);
@@ -597,20 +524,4 @@ public sealed class SeedPublishOrchestrator
         WorkItem seed,
         IReadOnlyList<SeedLink> links) =>
         SeedParentResolver.Resolve(seed, links);
-
-    private sealed class NoOpWorkItemLinkRepository : IWorkItemLinkRepository
-    {
-        public static readonly NoOpWorkItemLinkRepository Instance = new();
-
-        public Task<IReadOnlyList<WorkItemLink>> GetLinksAsync(
-            int workItemId,
-            CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<WorkItemLink>>([]);
-
-        public Task SaveLinksAsync(
-            int workItemId,
-            IReadOnlyList<WorkItemLink> links,
-            CancellationToken ct = default) =>
-            Task.CompletedTask;
-    }
 }

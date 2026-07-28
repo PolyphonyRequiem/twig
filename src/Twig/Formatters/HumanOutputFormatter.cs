@@ -1403,7 +1403,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
-    public string FormatSeedReconcileResult(SeedReconcileResult result)
+    public string FormatSeedLinkRepairResult(SeedLinkRepairResult result)
     {
         if (result.NothingToDo)
             return $"{Green}Nothing to reconcile.{Reset}";

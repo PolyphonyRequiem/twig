@@ -225,7 +225,7 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<BacklogOrderer>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IPublishIntentRepository>()));
-        services.AddSingleton<SeedReconcileOrchestrator>(sp => new SeedReconcileOrchestrator(
+        services.AddSingleton<SeedLinkRepair>(sp => new SeedLinkRepair(
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPublishIdMapRepository>()));

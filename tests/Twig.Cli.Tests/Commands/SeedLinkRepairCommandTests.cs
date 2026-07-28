@@ -9,16 +9,16 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public class SeedReconcileCommandTests : IDisposable
+public class SeedLinkRepairCommandTests : IDisposable
 {
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly SeedReconcileCommand _cmd;
+    private readonly SeedLinkRepairCommand _cmd;
     private readonly TextWriter _originalOut;
 
-    public SeedReconcileCommandTests()
+    public SeedLinkRepairCommandTests()
     {
         _originalOut = Console.Out;
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
@@ -34,10 +34,10 @@ public class SeedReconcileCommandTests : IDisposable
 
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
-        var orchestrator = new SeedReconcileOrchestrator(
+        var orchestrator = new SeedLinkRepair(
             _seedLinkRepo, _workItemRepo, _publishIdMapRepo);
 
-        _cmd = new SeedReconcileCommand(orchestrator, _formatterFactory);
+        _cmd = new SeedLinkRepairCommand(orchestrator, _formatterFactory);
     }
 
     public void Dispose()

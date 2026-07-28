@@ -16,8 +16,8 @@ namespace Twig.Commands;
 /// labelled summary, minimal is a single key line.
 /// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
 /// </remarks>
-public sealed class SeedReconcileCommand(
-    SeedReconcileOrchestrator orchestrator,
+public sealed class SeedLinkRepairCommand(
+    SeedLinkRepair orchestrator,
     OutputFormatterFactory formatterFactory,
     RendererFactory? rendererFactory = null)
 {
@@ -30,14 +30,14 @@ public sealed class SeedReconcileCommand(
         CancellationToken ct = default)
     {
         _ = _formatterFactory;
-        var result = await orchestrator.ReconcileAsync(ct);
+        var result = await orchestrator.RepairAsync(ct);
 
         var tree = BuildTree(result, outputFormat);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
         return 0;
     }
 
-    private static RenderTree.RenderTree BuildTree(SeedReconcileResult result, string outputFormat)
+    private static RenderTree.RenderTree BuildTree(SeedLinkRepairResult result, string outputFormat)
     {
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
         return lower switch
@@ -50,7 +50,7 @@ public sealed class SeedReconcileCommand(
         };
     }
 
-    private static RenderNode BuildMachineDocument(SeedReconcileResult result)
+    private static RenderNode BuildMachineDocument(SeedLinkRepairResult result)
     {
         var warningsColumns = new List<RenderColumn>
         {
@@ -76,7 +76,7 @@ public sealed class SeedReconcileCommand(
         return new RenderNode.Document("seedReconcile", fields);
     }
 
-    private static RenderNode BuildMinimal(SeedReconcileResult result)
+    private static RenderNode BuildMinimal(SeedLinkRepairResult result)
     {
         if (result.NothingToDo)
             return new RenderNode.Text("RECONCILE NOTHING");
@@ -87,7 +87,7 @@ public sealed class SeedReconcileCommand(
         return new RenderNode.Text($"RECONCILE {string.Join(' ', parts)}");
     }
 
-    private static IReadOnlyList<RenderNode> BuildHuman(SeedReconcileResult result)
+    private static IReadOnlyList<RenderNode> BuildHuman(SeedLinkRepairResult result)
     {
         if (result.NothingToDo)
             return new[] { (RenderNode)new RenderNode.Text("Nothing to reconcile.", Severity.Success) };

@@ -5,16 +5,24 @@ namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Repairs orphaned and stale seed links after partial publishes or external changes.
-/// 3 dependencies, 1 consumer (<see cref="SeedReconcileCommand"/>).
+/// 3 dependencies, 1 consumer (<see cref="SeedLinkRepairCommand"/>).
 /// Retained as a separate orchestrator — focused scope with no overlap with other services.
 /// </summary>
-public sealed class SeedReconcileOrchestrator
+/// <remarks>
+/// Renamed from <c>SeedReconcileOrchestrator</c> per wayfinder 0004 §4: this type is a
+/// seed-ID garbage collector, not local/remote reconciliation, and the old name squatted
+/// the concept 0004 names. It resolves stale negative aliases through the publish_id_map;
+/// it never observes a remote revision and never consults <c>ConflictResolver</c>.
+/// The <c>twig seed reconcile</c> CLI verb and the <c>twig_seed_reconcile</c> MCP tool
+/// keep their public names — MCP surface is frozen by 0012 and the rename is type-level only.
+/// </remarks>
+public sealed class SeedLinkRepair
 {
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
 
-    public SeedReconcileOrchestrator(
+    public SeedLinkRepair(
         ISeedLinkRepository seedLinkRepo,
         IWorkItemRepository workItemRepo,
         IPublishIdMapRepository publishIdMapRepo)
@@ -28,7 +36,7 @@ public sealed class SeedReconcileOrchestrator
     /// Scans all seed_links and work_item parent references, repairing stale negative-ID
     /// references via the publish_id_map and removing orphaned links.
     /// </summary>
-    public async Task<SeedReconcileResult> ReconcileAsync(CancellationToken ct = default)
+    public async Task<SeedLinkRepairResult> RepairAsync(CancellationToken ct = default)
     {
         var linksRepaired = 0;
         var linksRemoved = 0;
@@ -106,7 +114,7 @@ public sealed class SeedReconcileOrchestrator
             }
         }
 
-        return new SeedReconcileResult
+        return new SeedLinkRepairResult
         {
             LinksRepaired = linksRepaired,
             LinksRemoved = linksRemoved,

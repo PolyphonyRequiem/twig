@@ -9,16 +9,16 @@ using Xunit;
 namespace Twig.Domain.Tests.Services.Seed;
 
 /// <summary>
-/// Unit tests for <see cref="SeedReconcileOrchestrator.ReconcileAsync"/>.
+/// Unit tests for <see cref="SeedLinkRepair.RepairAsync"/>.
 /// All dependencies are mocked via NSubstitute.
 /// </summary>
-public class SeedReconcileOrchestratorTests
+public class SeedLinkRepairTests
 {
     private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPublishIdMapRepository _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
 
-    private readonly SeedReconcileOrchestrator _orchestrator;
+    private readonly SeedLinkRepair _orchestrator;
 
     // Wayfinder 0014: publish_id_map is keyed on StagedIdentity. seed_links still stores the
     // negative display alias, so a fixture mapping needs both -- the identity that keys the
@@ -30,7 +30,7 @@ public class SeedReconcileOrchestratorTests
         return new PublishMapping(StagedIdentity.New(), parsed, newId);
     }
 
-    public SeedReconcileOrchestratorTests()
+    public SeedLinkRepairTests()
     {
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
@@ -39,7 +39,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem>());
 
-        _orchestrator = new SeedReconcileOrchestrator(
+        _orchestrator = new SeedLinkRepair(
             _seedLinkRepo, _workItemRepo, _publishIdMapRepo);
     }
 
@@ -48,9 +48,9 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_NoLinksNoSeeds_NothingToDo()
+    public async Task RepairAsync_NoLinksNoSeeds_NothingToDo()
     {
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.NothingToDo.ShouldBeTrue();
         result.LinksRepaired.ShouldBe(0);
@@ -60,7 +60,7 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_AllLinksHealthy_NothingToDo()
+    public async Task RepairAsync_AllLinksHealthy_NothingToDo()
     {
         // Both endpoints exist — nothing stale
         var links = new List<SeedLink>
@@ -71,7 +71,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.NothingToDo.ShouldBeTrue();
     }
@@ -81,7 +81,7 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_StaleSourceId_RemapsViaPublishMap()
+    public async Task RepairAsync_StaleSourceId_RemapsViaPublishMap()
     {
         var links = new List<SeedLink>
         {
@@ -93,7 +93,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRepaired.ShouldBe(1);
         result.LinksRemoved.ShouldBe(0);
@@ -101,7 +101,7 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_StaleTargetId_RemapsViaPublishMap()
+    public async Task RepairAsync_StaleTargetId_RemapsViaPublishMap()
     {
         var links = new List<SeedLink>
         {
@@ -113,14 +113,14 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(100, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(-3, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRepaired.ShouldBe(1);
         await _seedLinkRepo.Received(1).RemapIdAsync(-3, 600, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReconcileAsync_BothEndpointsStaleWithMapping_RemapsBoth()
+    public async Task RepairAsync_BothEndpointsStaleWithMapping_RemapsBoth()
     {
         var links = new List<SeedLink>
         {
@@ -132,7 +132,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRepaired.ShouldBe(2);
         result.LinksRemoved.ShouldBe(0);
@@ -145,7 +145,7 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_OrphanedSourceNoMapping_RemovesLink()
+    public async Task RepairAsync_OrphanedSourceNoMapping_RemovesLink()
     {
         var links = new List<SeedLink>
         {
@@ -155,7 +155,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(false);
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRemoved.ShouldBe(1);
         result.LinksRepaired.ShouldBe(0);
@@ -163,7 +163,7 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_OrphanedTargetNoMapping_RemovesLink()
+    public async Task RepairAsync_OrphanedTargetNoMapping_RemovesLink()
     {
         var links = new List<SeedLink>
         {
@@ -173,14 +173,14 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(100, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRemoved.ShouldBe(1);
         await _seedLinkRepo.Received(1).RemoveLinkAsync(100, -5, SeedLinkTypes.Blocks, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ReconcileAsync_MixedStaleAndOrphaned_HandlesCorrectly()
+    public async Task RepairAsync_MixedStaleAndOrphaned_HandlesCorrectly()
     {
         // Link 1: source stale with mapping → remap
         // Link 2: target stale no mapping → remove
@@ -197,7 +197,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(300, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(-99, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRepaired.ShouldBe(1);
         result.LinksRemoved.ShouldBe(1);
@@ -208,7 +208,7 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_StaleParentIdWithMapping_FixesParent()
+    public async Task RepairAsync_StaleParentIdWithMapping_FixesParent()
     {
         _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<PublishMapping> { Mapping(-10, 700) });
@@ -218,7 +218,7 @@ public class SeedReconcileOrchestratorTests
             .Returns(new List<Domain.Aggregates.WorkItem> { seed });
         _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.ParentIdsFixed.ShouldBe(1);
         result.Warnings.ShouldBeEmpty();
@@ -226,14 +226,14 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_StaleParentIdNoMapping_WarnsAboutDiscard()
+    public async Task RepairAsync_StaleParentIdNoMapping_WarnsAboutDiscard()
     {
         var seed = new WorkItemBuilder(-5, "Orphan child").AsSeed().WithParent(-10).Build();
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem> { seed });
         _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.ParentIdsFixed.ShouldBe(0);
         result.Warnings.Count.ShouldBe(1);
@@ -243,14 +243,14 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_ParentIdStillExists_NoFix()
+    public async Task RepairAsync_ParentIdStillExists_NoFix()
     {
         var seed = new WorkItemBuilder(-5, "Child seed").AsSeed().WithParent(-10).Build();
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem> { seed });
         _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.ParentIdsFixed.ShouldBe(0);
         result.Warnings.ShouldBeEmpty();
@@ -258,13 +258,13 @@ public class SeedReconcileOrchestratorTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_PositiveParentId_Ignored()
+    public async Task RepairAsync_PositiveParentId_Ignored()
     {
         var seed = new WorkItemBuilder(-5, "Published parent").AsSeed().WithParent(100).Build();
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Domain.Aggregates.WorkItem> { seed });
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.NothingToDo.ShouldBeTrue();
     }
@@ -274,7 +274,7 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_SameStaleIdInMultipleLinks_RemapsOnce()
+    public async Task RepairAsync_SameStaleIdInMultipleLinks_RemapsOnce()
     {
         var links = new List<SeedLink>
         {
@@ -288,7 +288,7 @@ public class SeedReconcileOrchestratorTests
         _workItemRepo.ExistsByIdAsync(200, Arg.Any<CancellationToken>()).Returns(true);
         _workItemRepo.ExistsByIdAsync(300, Arg.Any<CancellationToken>()).Returns(true);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         // RemapIdAsync remaps ALL references to -1 in one call, so only counted once
         result.LinksRepaired.ShouldBe(1);
@@ -300,7 +300,7 @@ public class SeedReconcileOrchestratorTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ReconcileAsync_LinksAndParents_CombinedResult()
+    public async Task RepairAsync_LinksAndParents_CombinedResult()
     {
         // One link to remap, one link to remove, one parent to fix
         var links = new List<SeedLink>
@@ -321,7 +321,7 @@ public class SeedReconcileOrchestratorTests
             .Returns(new List<Domain.Aggregates.WorkItem> { seed });
         _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(false);
 
-        var result = await _orchestrator.ReconcileAsync();
+        var result = await _orchestrator.RepairAsync();
 
         result.LinksRepaired.ShouldBe(1);
         result.LinksRemoved.ShouldBe(1);

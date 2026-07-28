@@ -80,7 +80,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetService<IAdoGitService>()));
-        services.AddSingleton<SeedReconcileCommand>();
+        services.AddSingleton<SeedLinkRepairCommand>();
         services.AddSingleton<WebCommand>();
         services.AddSingleton<NoteCommand>();
         services.AddSingleton<UpdateCommand>();

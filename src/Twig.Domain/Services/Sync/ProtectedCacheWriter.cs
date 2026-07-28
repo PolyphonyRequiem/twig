@@ -7,6 +7,14 @@ namespace Twig.Domain.Services.Sync;
 /// Writes work items to the cache while protecting dirty/pending items from overwrite.
 /// Delegates to <see cref="SyncGuard"/> for protected ID resolution.
 /// </summary>
+/// <remarks>
+/// The batch overloads return the skipped <see cref="WorkItem"/>s themselves, not their IDs.
+/// Per wayfinder 0004 §4 a skipped item is precisely the case where local and remote have
+/// both moved, so the freshly fetched remote snapshot is the input reconciliation needs to
+/// hand <see cref="ConflictResolver"/>. Returning only IDs discarded it, and every caller
+/// then reduced even that to a count — the remote side was fetched, examined, and thrown
+/// away in the same statement.
+/// </remarks>
 public sealed class ProtectedCacheWriter
 {
     private readonly IWorkItemRepository _workItemRepo;
@@ -22,45 +30,31 @@ public sealed class ProtectedCacheWriter
 
     /// <summary>
     /// Saves a batch of work items, skipping any that are protected (dirty or have pending changes).
-    /// Returns the list of IDs that were skipped.
+    /// Returns the skipped items — the remote snapshots that were fetched but not written,
+    /// which are the reconciliation inputs for the items whose local state diverged.
     /// </summary>
-    public async Task<IReadOnlyList<int>> SaveBatchProtectedAsync(
+    public async Task<IReadOnlyList<WorkItem>> SaveBatchProtectedAsync(
         IEnumerable<WorkItem> items, CancellationToken ct = default)
     {
         var protectedIds = await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingChangeStore, ct);
-
-        var toSave = new List<WorkItem>();
-        var skippedIds = new List<int>();
-
-        foreach (var item in items)
-        {
-            if (protectedIds.Contains(item.Id))
-                skippedIds.Add(item.Id);
-            else
-                toSave.Add(item);
-        }
-
-        if (toSave.Count > 0)
-            await _workItemRepo.SaveBatchAsync(toSave, ct);
-
-        return skippedIds;
+        return await SaveBatchProtectedAsync(items, protectedIds, ct);
     }
 
     /// <summary>
     /// Saves a batch of work items using pre-computed protected IDs, skipping any that are protected.
     /// Avoids redundant <see cref="SyncGuard"/> queries when the caller has already computed protected IDs.
-    /// Returns the list of IDs that were skipped.
+    /// Returns the skipped items — see the remarks on <see cref="ProtectedCacheWriter"/>.
     /// </summary>
-    public async Task<IReadOnlyList<int>> SaveBatchProtectedAsync(
+    public async Task<IReadOnlyList<WorkItem>> SaveBatchProtectedAsync(
         IEnumerable<WorkItem> items, IReadOnlySet<int> protectedIds, CancellationToken ct = default)
     {
         var toSave = new List<WorkItem>();
-        var skippedIds = new List<int>();
+        var skipped = new List<WorkItem>();
 
         foreach (var item in items)
         {
             if (protectedIds.Contains(item.Id))
-                skippedIds.Add(item.Id);
+                skipped.Add(item);
             else
                 toSave.Add(item);
         }
@@ -68,7 +62,7 @@ public sealed class ProtectedCacheWriter
         if (toSave.Count > 0)
             await _workItemRepo.SaveBatchAsync(toSave, ct);
 
-        return skippedIds;
+        return skipped;
     }
 
     /// <summary>

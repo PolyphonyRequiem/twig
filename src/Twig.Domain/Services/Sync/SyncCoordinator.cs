@@ -164,8 +164,8 @@ public sealed class SyncCoordinator
             .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
             .ToList();
 
-        var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
-        var savedCount = fetchedItems.Length - skippedIds.Count;
+        var skipped = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
+        var savedCount = fetchedItems.Length - skipped.Count;
 
         if (fetchFailures.Count > 0 && fetchedItems.Length > 0)
             return new PartiallyUpdated(savedCount, fetchFailures);
@@ -185,8 +185,8 @@ public sealed class SyncCoordinator
         try
         {
             var children = await _adoService.FetchChildrenAsync(parentId, ct);
-            var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(children, ct);
-            var savedCount = children.Count - skippedIds.Count;
+            var skipped = await _protectedCacheWriter.SaveBatchProtectedAsync(children, ct);
+            var savedCount = children.Count - skipped.Count;
             return new Updated(savedCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -232,8 +232,8 @@ public sealed class SyncCoordinator
 
             if (fetched.Count == 0) return new UpToDate();
 
-            var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetched, ct);
-            var savedCount = fetched.Count - skippedIds.Count;
+            var skipped = await _protectedCacheWriter.SaveBatchProtectedAsync(fetched, ct);
+            var savedCount = fetched.Count - skipped.Count;
             return new Updated(savedCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

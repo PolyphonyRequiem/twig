@@ -26,9 +26,21 @@ export DOTNET_MULTILEVEL_LOOKUP=0
 
 ### Canonical test command
 
-`dotnet test` accepts only **one** project per invocation, and two concurrent runs
-collide over shared build output (producing a bogus `SQLitePCL DllNotFoundException`).
-Run them **serially**:
+**Use `tools/run-tests.sh`.** It runs the four suites serially with the right
+filters and prints a single reconciled verdict per suite:
+
+```bash
+tools/run-tests.sh              # all four
+tools/run-tests.sh Cli Domain   # a subset
+```
+
+It exits non-zero unless every suite is a genuine, unaborted pass. Grep its
+output for `TWIG-VERDICT` — never for `Passed!` (see "Reading test results").
+
+The underlying commands, if you need to run one by hand. `dotnet test` accepts
+only **one** project per invocation, and two concurrent runs collide over shared
+build output (producing a bogus `SQLitePCL DllNotFoundException`). Run them
+**serially**:
 
 ```bash
 dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --nologo --filter "FullyQualifiedName!~BinaryLauncher"
@@ -49,8 +61,21 @@ Do **not** build `Twig.slnx` — `tests/Twig.Benchmarks` fails with a pre-existi
 
 **Trust the process exit code, not the summary line.** An aborted run still prints
 a clean-looking `Passed! - Failed: 0` with a smaller total, and a TRX report's
-counters only describe the portion completed before the host died. Always capture
-the exit code, and include `Aborted` in any grep:
+counters only describe the portion completed before the host died.
+
+`tools/run-tests.sh` exists precisely so this is not a judgement call. It
+reconciles the exit code, the abort markers, and the test total, and emits one
+verdict line that cannot grep as a pass unless the run really passed:
+
+```bash
+tools/run-tests.sh Cli | grep TWIG-VERDICT
+# TWIG-VERDICT Cli: PASSED (2941 tests) [log: artifacts/test-logs/Cli.log]
+# TWIG-VERDICT OVERALL: PASSED
+```
+
+If you must invoke `dotnet test` directly, capture the exit code and include
+`Aborted` in the grep — `grep -E "Passed!|Failed!"` alone matches the false-green
+summary line an aborted run prints:
 
 ```bash
 dotnet test ... > log 2>&1; echo "EXIT=$?"
@@ -58,7 +83,8 @@ grep -E "Passed!|Failed!|Aborted|\[FAIL\]" log
 ```
 
 Reporting "suite green" from a summary grep while the process exits non-zero has
-already cost one bogus issue report (#257, closed as invalid).
+already cost one bogus issue report (#257, closed as invalid), and the underlying
+hang that produced those aborted runs was #311.
 
 ## Testing conventions
 

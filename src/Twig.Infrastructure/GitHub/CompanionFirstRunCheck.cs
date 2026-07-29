@@ -28,6 +28,25 @@ internal sealed class CompanionFirstRunCheck(
         if (processPath is null)
             return;
 
+        // TICKET-0311: the check is only meaningful when the RUNNING PROCESS IS the
+        // twig binary, because "the install dir" is defined as the directory holding
+        // that binary. Under a framework-dependent launch (`dotnet path/to/twig.dll`)
+        // Environment.ProcessPath is the *dotnet host*, so `dir` resolves to the SDK
+        // folder — where companions can never be present and never should be written.
+        //
+        // The old code therefore took the slow path on EVERY `dotnet twig.dll` run: it
+        // made a blocking GitHub call with a 60 s budget and dropped a `.twig-version`
+        // marker into the SDK directory. In the Cli suite, which spawns the CLI exactly
+        // that way, a single slow GitHub response blew the 300 s vstest run timeout and
+        // aborted the host — non-deterministically, because on a healthy network the
+        // call usually returned in milliseconds. "Usually fast" was the bug.
+        //
+        // Gating on the process identity makes the hang structurally impossible rather
+        // than merely unlikely: the network path is now unreachable from a dotnet-hosted
+        // run, so no fixture has to remember to force the offline branch.
+        if (!IsTwigHostProcess(processPath))
+            return;
+
         var dir = Path.GetDirectoryName(processPath);
         if (dir is null)
             return;
@@ -91,5 +110,23 @@ internal sealed class CompanionFirstRunCheck(
         using var markerStream = fileSystem.FileCreate(versionFile);
         using var writer = new StreamWriter(markerStream);
         writer.Write(currentVersion);
+    }
+
+    /// <summary>
+    /// True when <paramref name="processPath"/> is the twig executable itself, rather than
+    /// a generic host (<c>dotnet</c>) running <c>twig.dll</c>.
+    /// </summary>
+    /// <remarks>
+    /// TICKET-0311. Companion binaries live next to the twig executable, so the whole
+    /// notion of "companions are missing from my install dir" is only defined for a
+    /// self-contained/apphost launch. Under <c>dotnet twig.dll</c> the process path names
+    /// the SDK host, and treating that directory as an install dir made the check both
+    /// useless (companions can never be there) and harmful (a blocking 60 s GitHub call on
+    /// every such run, plus a stray marker file written into the SDK folder).
+    /// </remarks>
+    internal static bool IsTwigHostProcess(string processPath)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(processPath);
+        return string.Equals(fileName, "twig", StringComparison.OrdinalIgnoreCase);
     }
 }

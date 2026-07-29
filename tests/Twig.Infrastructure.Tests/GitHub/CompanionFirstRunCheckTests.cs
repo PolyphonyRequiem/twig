@@ -176,6 +176,78 @@ public sealed class CompanionFirstRunCheckTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  TICKET-0311 — dotnet-hosted launches must never take the slow path
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Process paths that name a generic host rather than the twig apphost. Every one of
+    /// these appears as <c>Environment.ProcessPath</c> when twig is launched
+    /// framework-dependent (<c>dotnet path/to/twig.dll</c>) — which is exactly how the
+    /// Cli test suite spawns it.
+    /// </summary>
+    public static TheoryData<string> HostProcessPaths() =>
+        new(
+            Path.Combine(Dir, $"dotnet{ExeExt}"),
+            Path.Combine(Path.GetTempPath(), "some-sdk", $"dotnet{ExeExt}"));
+
+    [Theory]
+    [MemberData(nameof(HostProcessPaths))]
+    public async Task EnsureCompanionsAsync_DotnetHostedLaunch_MakesNoNetworkCall(string hostPath)
+    {
+        // Fixture precondition, asserted explicitly: companions are MISSING and no version
+        // marker exists, so on the unfixed code this reaches Phase 3 and calls GitHub with a
+        // 60 s budget. Without this guard the test could silently degrade into the Phase 1
+        // "all companions present" happy path and prove nothing.
+        SetupMissingCompanions("twig-mcp", "twig-tui");
+        SetupSuccessfulDownload();
+        _fileSystem.FileExists(Path.Combine(Dir, CompanionTools.GetExeName("twig-mcp")))
+            .ShouldBeFalse("fixture must present a MISSING companion or the slow path never runs");
+
+        var sut = CreateSut();
+        await sut.EnsureCompanionsAsync(hostPath, CurrentVersion);
+
+        // The network call is the thing that hung the suite for ~275 s. It must not happen.
+        _releaseService.ReceivedCalls().ShouldBeEmpty(
+            "TICKET-0311: a `dotnet twig.dll` launch must not reach GitHub. Companions live "
+            + "next to the twig apphost, so the dotnet host's directory is never an install "
+            + "dir — yet the pre-fix code treated it as one and paid a blocking 60 s call on "
+            + "every spawned-CLI test, blowing the 300 s vstest wall.");
+        _companionInstaller.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [MemberData(nameof(HostProcessPaths))]
+    public async Task EnsureCompanionsAsync_DotnetHostedLaunch_WritesNoMarkerIntoHostDirectory(
+        string hostPath)
+    {
+        SetupMissingCompanions("twig-mcp", "twig-tui");
+        SetupSuccessfulDownload();
+
+        var sut = CreateSut();
+        await sut.EnsureCompanionsAsync(hostPath, CurrentVersion);
+
+        // The pre-fix code littered a `.twig-version` file into whatever directory hosted
+        // the process — in practice the .NET SDK install folder.
+        _fileSystem.DidNotReceive().FileCreate(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task EnsureCompanionsAsync_RealTwigApphost_StillTakesTheSlowPath()
+    {
+        // Positive control. Without this, the two tests above would still pass if the guard
+        // disabled the companion check entirely, which would silently break real upgrades.
+        SetupMissingCompanions("twig-mcp");
+        SetupSuccessfulDownload();
+
+        var sut = CreateSut();
+        await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
+
+        await _companionInstaller.Received(1).InstallCompanionsOnlyAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(),
+            Dir, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

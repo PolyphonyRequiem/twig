@@ -717,3 +717,25 @@ Twig.Domain.Services.Sync.WorkItemFetcher.FetchWithFallbackAsync(int id, System.
 Twig.Domain.Services.Sync.WorkItemFetcher.FetchChildrenWithFallbackAsync(int parentId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
 Twig.Domain.Services.Seed.SeedDiscardOrchestrator.SeedDiscardOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore) -> void
 Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPublishIntentRepository? publishIntentRepo) -> void
+~override Twig.Domain.Services.Reconciliation.FieldMergeBase.Equals(object obj) -> bool
+~override Twig.Domain.Services.Reconciliation.FieldMergeBase.ToString() -> string
+override Twig.Domain.Services.Reconciliation.FieldMergeBase.GetHashCode() -> int
+static Twig.Domain.Services.Reconciliation.FieldMergeBase.operator !=(Twig.Domain.Services.Reconciliation.FieldMergeBase left, Twig.Domain.Services.Reconciliation.FieldMergeBase right) -> bool
+static Twig.Domain.Services.Reconciliation.FieldMergeBase.operator ==(Twig.Domain.Services.Reconciliation.FieldMergeBase left, Twig.Domain.Services.Reconciliation.FieldMergeBase right) -> bool
+static Twig.Domain.Services.Reconciliation.MergeBase.Empty.get -> Twig.Domain.Services.Reconciliation.MergeBase!
+static Twig.Domain.Services.Reconciliation.MergeBase.FromPendingChanges(System.Collections.Generic.IEnumerable<Twig.Domain.Common.PendingChangeRecord!>! changes) -> Twig.Domain.Services.Reconciliation.MergeBase!
+static Twig.Domain.Services.Reconciliation.ThreeWayMerge.Resolve(Twig.Domain.Aggregates.WorkItem! local, Twig.Domain.Aggregates.WorkItem! remote, Twig.Domain.Services.Reconciliation.MergeBase! mergeBase) -> Twig.Domain.Services.Sync.MergeResult
+Twig.Domain.Services.Reconciliation.FieldMergeBase
+Twig.Domain.Services.Reconciliation.FieldMergeBase.BaseValue.get -> string?
+Twig.Domain.Services.Reconciliation.FieldMergeBase.BaseValue.init -> void
+Twig.Domain.Services.Reconciliation.FieldMergeBase.Deconstruct(out string? BaseValue, out string? LocalValue) -> void
+Twig.Domain.Services.Reconciliation.FieldMergeBase.Equals(Twig.Domain.Services.Reconciliation.FieldMergeBase other) -> bool
+Twig.Domain.Services.Reconciliation.FieldMergeBase.FieldMergeBase() -> void
+Twig.Domain.Services.Reconciliation.FieldMergeBase.FieldMergeBase(string? BaseValue, string? LocalValue) -> void
+Twig.Domain.Services.Reconciliation.FieldMergeBase.LocalValue.get -> string?
+Twig.Domain.Services.Reconciliation.FieldMergeBase.LocalValue.init -> void
+Twig.Domain.Services.Reconciliation.MergeBase
+Twig.Domain.Services.Reconciliation.MergeBase.For(string! fieldName) -> Twig.Domain.Services.Reconciliation.FieldMergeBase?
+Twig.Domain.Services.Reconciliation.MergeBase.IsEmpty.get -> bool
+Twig.Domain.Services.Reconciliation.MergeBase.StagedFields.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+Twig.Domain.Services.Reconciliation.ThreeWayMerge

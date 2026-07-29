@@ -56,6 +56,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
             _fieldDefStore,
             workflow,
             _formatterFactory,
+            _pendingChangeStore,
             telemetryClient: telemetry ?? _telemetryClient,
             stdinReader: stdin,
             stderr: _stderr,
@@ -219,6 +220,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
             _fieldDefStore,
             workflow2,
             _formatterFactory,
+            _pendingChangeStore,
             telemetryClient: null,
             stderr: _stderr,
             stdout: _stdout);

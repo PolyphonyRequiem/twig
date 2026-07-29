@@ -50,6 +50,7 @@ public class UpdateCommandTests
             _workItemRepo, _adoService, _pendingChangeStore);
         return new UpdateCommand(resolver, _workItemRepo, _adoService,
             _consoleInput, _fieldDefStore, formatterFactory, _seedMutationProvider, fieldUpdateWorkflow,
+            _pendingChangeStore,
             stdinReader: stdinReader, stderr: stderr, stdout: stdout);
     }
 
@@ -89,6 +90,10 @@ public class UpdateCommandTests
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local Title edit so
+        // remote's divergence genuinely collides instead of auto-merging.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Change") });
         _consoleInput.ReadLine().Returns("a"); // explicitly abort
 
         var result = await _cmd.ExecuteAsync("System.Title", "New Value");
@@ -109,6 +114,10 @@ public class UpdateCommandTests
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local Title edit so
+        // remote's divergence genuinely collides instead of auto-merging.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Change") });
 
         var result = await _cmd.ExecuteAsync("System.Title", "New Value", "json");
 

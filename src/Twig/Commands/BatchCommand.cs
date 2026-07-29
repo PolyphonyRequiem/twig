@@ -3,6 +3,7 @@ using System.Text.Json;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Reconciliation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -373,8 +374,8 @@ public sealed class BatchCommand(
         {
             // Single-item: interactive conflict resolution
             var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-                item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-                $"#{item.Id} updated from remote.");
+                item, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+                $"#{item.Id} updated from remote.", ct: ct);
 
             if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
                 return new BatchItemResult(item.Id, item.Title, false, "Conflict detected (JSON emitted).", null, null, 0);
@@ -385,8 +386,15 @@ public sealed class BatchCommand(
         }
         else
         {
-            // Multi-item: auto-accept-remote on conflict (DD-3)
-            var mergeResult = ConflictResolver.Resolve(item, remote);
+            // Multi-item: auto-accept-remote on conflict (DD-3).
+            //
+            // 0004 slice 3: this path is non-interactive, so it OVERWRITES the local side
+            // without asking. Two-way ConflictResolver treated every divergence as a conflict,
+            // which meant "remote changed a field the user never touched" silently discarded
+            // the user's staged edits on every other field. Three-way merge only reaches the
+            // overwrite when both sides genuinely moved off the base.
+            var staged = await pendingChangeStore.GetChangesAsync(item.Id, ct);
+            var mergeResult = ThreeWayMerge.Resolve(item, remote, MergeBase.FromPendingChanges(staged));
             if (mergeResult is HasConflicts)
             {
                 await workItemRepo.SaveAsync(remote, ct);

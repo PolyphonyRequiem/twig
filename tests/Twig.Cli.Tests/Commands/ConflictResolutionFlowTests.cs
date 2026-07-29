@@ -2,6 +2,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -21,6 +22,7 @@ public class ConflictResolutionFlowTests
     private readonly IOutputFormatter _fmt;
     private readonly IConsoleInput _consoleInput;
     private readonly IWorkItemRepository _workItemRepo;
+    private readonly IPendingChangeStore _pendingChangeStore;
 
     public ConflictResolutionFlowTests()
     {
@@ -31,6 +33,12 @@ public class ConflictResolutionFlowTests
 
         _consoleInput = Substitute.For<IConsoleInput>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+
+        // No staged edits: the local side has not moved, so any divergence is
+        // remote-only. Tests that need a real merge base override this.
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
     }
 
     [Fact]
@@ -41,7 +49,7 @@ public class ConflictResolutionFlowTests
         var remote = CreateWorkItem(1, "Title", "New");
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Proceed);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
@@ -57,7 +65,7 @@ public class ConflictResolutionFlowTests
         remote.MarkSynced(5); // Different revision + field on local only → AutoMergeable
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Proceed);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
@@ -69,7 +77,7 @@ public class ConflictResolutionFlowTests
         var (local, remote) = CreateConflictingPair();
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "json", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "json", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
     }
@@ -80,7 +88,7 @@ public class ConflictResolutionFlowTests
         var (local, remote) = CreateConflictingPair();
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "JSON", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "JSON", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
     }
@@ -92,7 +100,7 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns("a");
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Aborted);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
@@ -105,7 +113,7 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns((string?)null);
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Aborted);
     }
@@ -117,7 +125,7 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns("r");
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted remote");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted remote");
 
         result.ShouldBe(ConflictOutcome.AcceptedRemote);
         await _workItemRepo.Received(1).SaveAsync(remote, Arg.Any<CancellationToken>());
@@ -135,7 +143,7 @@ public class ConflictResolutionFlowTests
         try
         {
             await ConflictResolutionFlow.ResolveAsync(
-                local, remote, _fmt, "human", _consoleInput, _workItemRepo, "Custom accept message");
+                local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "Custom accept message");
         }
         finally
         {
@@ -163,7 +171,7 @@ public class ConflictResolutionFlowTests
         };
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted", onAcceptRemote);
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted", onAcceptRemote);
 
         result.ShouldBe(ConflictOutcome.AcceptedRemote);
         callOrder.ShouldBe(new[] { "callback", "save" });
@@ -176,7 +184,7 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns("r");
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted", onAcceptRemote: null);
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted", onAcceptRemote: null);
 
         result.ShouldBe(ConflictOutcome.AcceptedRemote);
         await _workItemRepo.Received(1).SaveAsync(remote, Arg.Any<CancellationToken>());
@@ -189,7 +197,7 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns("l");
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Proceed);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
@@ -205,18 +213,41 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns(input);
 
         var result = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, _pendingChangeStore, "accepted");
 
         result.ShouldBe(ConflictOutcome.Aborted);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
-    /// <summary>Creates a pair of WorkItems that will produce HasConflicts from ConflictResolver.</summary>
-    private static (WorkItem Local, WorkItem Remote) CreateConflictingPair()
+    /// <summary>
+    /// Creates a pair of WorkItems that produce HasConflicts from <see cref="ThreeWayMerge"/>,
+    /// and stages the local edit that makes it a genuine conflict.
+    /// </summary>
+    /// <remarks>
+    /// Wayfinder 0004 slice 3: a divergence alone is NO LONGER a conflict. With a merge base,
+    /// "remote changed a field the user never touched" is an auto-merge — that narrowing is the
+    /// point of the module. A conflict requires BOTH sides to have moved off the base, so this
+    /// fixture must stage the local edit; without it these tests would assert the old two-way
+    /// semantics and pass vacuously against a resolver that ignores local intent entirely.
+    /// <para>
+    /// The staged row is also the ONLY source of local intent for a first-class property: Title
+    /// is init-only on <see cref="WorkItem"/>, so staging never writes it to the aggregate.
+    /// </para>
+    /// </remarks>
+    private (WorkItem Local, WorkItem Remote) CreateConflictingPair()
     {
         var local = CreateWorkItem(1, "Local Title", "New");
         var remote = CreateWorkItem(1, "Remote Title", "New");
-        remote.MarkSynced(5); // Different revision + different Title → HasConflicts
+        remote.MarkSynced(5); // Different revision + different Title
+
+        // Base "Base Title" -> local staged "Local Title", remote moved to "Remote Title".
+        // Both sides moved off the base and disagree: a genuine conflict.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title"),
+            });
+
         return (local, remote);
     }
 

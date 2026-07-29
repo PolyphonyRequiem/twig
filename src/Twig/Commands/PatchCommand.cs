@@ -33,6 +33,7 @@ public sealed class PatchCommand(
     IFieldDefinitionStore fieldDefStore,
     PatchWorkflow patchWorkflow,
     OutputFormatterFactory formatterFactory,
+    IPendingChangeStore pendingChangeStore,
     ITelemetryClient? telemetryClient = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
@@ -176,8 +177,8 @@ public sealed class PatchCommand(
         var remote = await adoService.FetchAsync(item.Id, ct);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-            item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-            $"#{item.Id} updated from remote.");
+            item, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+            $"#{item.Id} updated from remote.", ct: ct);
         if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
             return (1, fieldCount);
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)

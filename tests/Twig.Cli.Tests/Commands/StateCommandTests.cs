@@ -59,7 +59,8 @@ public class StateCommandTests
         _cmd = new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            _pendingChangeStore);
     }
 
     [Fact]
@@ -399,7 +400,8 @@ public class StateCommandTests
         return new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService),
+            _pendingChangeStore);
     }
 
     // ═══════════════════════════════════════════════════════════════

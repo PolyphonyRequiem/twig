@@ -94,7 +94,11 @@ public class EditSaveCommandTests
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        // Base is "Title" — the value both sides last agreed on (these fixtures build local and
+        // remote with Title "Title"). It was "Old" while only two-way merge existed, which never
+        // read the base; under 0004 slice 3 an inconsistent base manufactures a reconciliation
+        // conflict that pre-empts the ADO patch-retry path these tests actually cover.
+        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Title", "New");
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
@@ -167,7 +171,11 @@ public class EditSaveCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .Returns(remote, freshRemote, updatedRemote);
 
-        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        // Base is "Title" — the value both sides last agreed on (these fixtures build local and
+        // remote with Title "Title"). It was "Old" while only two-way merge existed, which never
+        // read the base; under 0004 slice 3 an inconsistent base manufactures a reconciliation
+        // conflict that pre-empts the ADO patch-retry path these tests actually cover.
+        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Title", "New");
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
@@ -208,7 +216,11 @@ public class EditSaveCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .Returns(remote, freshRemote);
 
-        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        // Base is "Title" — the value both sides last agreed on (these fixtures build local and
+        // remote with Title "Title"). It was "Old" while only two-way merge existed, which never
+        // read the base; under 0004 slice 3 an inconsistent base manufactures a reconciliation
+        // conflict that pre-empts the ADO patch-retry path these tests actually cover.
+        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Title", "New");
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
@@ -610,6 +622,10 @@ public class EditSaveCommandTests
 
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. These fixtures diverge on
+        // Title, so stage the local Title edit or the divergence correctly auto-merges.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title") });
         _consoleInput.ReadLine().Returns("r");
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -639,6 +655,10 @@ public class EditSaveCommandTests
 
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. These fixtures diverge on
+        // Title, so stage the local Title edit or the divergence correctly auto-merges.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title") });
         _consoleInput.ReadLine().Returns("a");
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -665,6 +685,10 @@ public class EditSaveCommandTests
 
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. These fixtures diverge on
+        // Title, so stage the local Title edit or the divergence correctly auto-merges.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title") });
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");

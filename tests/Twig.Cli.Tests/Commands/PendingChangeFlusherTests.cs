@@ -521,13 +521,22 @@ public sealed class PendingChangeFlusherTests
         AreaPath = AreaPath.Parse("Project").Value,
     };
 
+    /// <summary>
+    /// A remote snapshot that has drifted on the field the tests stage an edit for.
+    /// </summary>
+    /// <remarks>
+    /// Wayfinder 0004 slice 3: under three-way merge a conflict requires BOTH sides to have
+    /// moved off the base. These fixtures stage System.Title with base "Title", so the remote
+    /// must ALSO move off "Title" — previously it kept Title and only drifted IterationPath,
+    /// which is now correctly an auto-merge (the user never touched it) rather than a conflict.
+    /// </remarks>
     private static WorkItem CreateDriftedRemote(int id)
     {
         var remote = new WorkItem
         {
             Id = id,
             Type = WorkItemType.Task,
-            Title = "Title",
+            Title = "Remote Title",
             State = "New",
             IterationPath = IterationPath.Parse("Project\\Sprint 2").Value,
             AreaPath = AreaPath.Parse("Project").Value,

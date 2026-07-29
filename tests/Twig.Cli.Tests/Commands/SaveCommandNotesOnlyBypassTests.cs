@@ -222,13 +222,22 @@ public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
     /// Creates a remote work item with drifted metadata (different IterationPath + higher revision)
     /// to trigger conflict detection when field changes are present.
     /// </summary>
+    /// <summary>
+    /// A remote snapshot that has drifted on the field these tests stage an edit for.
+    /// </summary>
+    /// <remarks>
+    /// Wayfinder 0004 slice 3: a conflict requires BOTH sides off the base. These fixtures stage
+    /// System.Title with base "Title", so the remote must ALSO move off "Title" — it previously
+    /// kept Title and drifted only IterationPath, which is now correctly an auto-merge because
+    /// the user never touched it.
+    /// </remarks>
     private static WorkItem CreateDriftedRemote(int id)
     {
         var remote = new WorkItem
         {
             Id = id,
             Type = WorkItemType.Task,
-            Title = "Title",
+            Title = "Remote Title",
             State = "New",
             IterationPath = IterationPath.Parse("Project\\Sprint 2").Value,
             AreaPath = AreaPath.Parse("Project").Value,

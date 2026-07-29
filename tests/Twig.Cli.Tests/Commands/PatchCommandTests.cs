@@ -56,6 +56,7 @@ public sealed class PatchCommandTests : IDisposable
             _fieldDefStore,
             workflow,
             _formatterFactory,
+            _pendingChangeStore,
             stdinReader: stdin,
             stderr: _stderr,
             stdout: _stdout);

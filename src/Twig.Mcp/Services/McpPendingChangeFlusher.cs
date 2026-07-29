@@ -50,6 +50,10 @@ public sealed class McpPendingChangeFlusher(
             if (pending.Count == 0)
                 continue;
 
+            // Tracks whether anything reached ADO before a later step threw, so the catch below
+            // can report a half-applied flush as such rather than as a bare failure.
+            var pushedToAdo = false;
+
             try
             {
                 var fieldChanges = new List<FieldChange>();
@@ -75,7 +79,10 @@ public sealed class McpPendingChangeFlusher(
                 if (notes.Count > 0)
                 {
                     foreach (var note in notes)
+                    {
                         await adoService.AddCommentAsync(item.Id, note, ct);
+                        pushedToAdo = true;
+                    }
 
                     // Clear only the note rows: the field patch below may still fail.
                     await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
@@ -86,9 +93,16 @@ public sealed class McpPendingChangeFlusher(
                     var remote = await adoService.FetchAsync(item.Id, ct);
                     await ConflictRetryHelper.PatchWithRetryAsync(
                         adoService, item.Id, fieldChanges, remote.Revision, ct);
+                    pushedToAdo = true;
 
-                    // Clear the rows this flush pushed AT the push, not at the end of the
-                    // loop, so the resync guard below sees only what is genuinely unpushed.
+                    // Clear the rows this flush pushed AT the push, not at the end of the loop,
+                    // so the resync guard below sees only what is genuinely unpushed.
+                    //
+                    // This is type-scoped to "field", while the push loop routes any non-note row
+                    // carrying a FieldName into fieldChanges — so rows typed "state"/"set_field"
+                    // are pushed here but not cleared here. That is not a loss: the guard excludes
+                    // them by field NAME, so they do not block the resync and the terminal clear
+                    // removes them. It matches the CLI (PendingChangeFlusher).
                     await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "field", ct);
                 }
 
@@ -96,16 +110,18 @@ public sealed class McpPendingChangeFlusher(
                 // every remaining pending row unconditionally and overwrite the cache with
                 // remote — destroying staged rows this flush never pushed.
                 //
-                // The guard is "is anything still staged that this flush did NOT push?", NOT
-                // "is there a conflict?". A change type outside the field/state/set_field
-                // vocabulary contributes no merge base at all, so it can never produce a
-                // conflict; keying the clear off a conflict outcome would leave exactly the
-                // case this comment claims to protect still being destroyed.
+                // The guard is "is anything still staged that this flush did NOT push?".
+                // Both categories are excluded BY VALUE — by pushed field name, and by pushed
+                // note body — never by change type alone. Excluding a whole type would re-open
+                // the very defect this guard closes: a note staged AFTER the read at the top of
+                // the loop is invisible to the push loop, so a type-scoped exclusion would drop
+                // it from the unpushed set and the blanket clear below would destroy it. So
+                // would a note row with a null NewValue, which is never pushed at all.
                 //
-                // Rows this flush just pushed are excluded BY VALUE: a store re-read may still
-                // report them (they were cleared a statement ago, and ADO echoes the same field
-                // back normalised), and re-litigating a write that already succeeded would
-                // manufacture a failure on an edit that worked.
+                // Rows this flush pushed must be excluded by value rather than by trusting the
+                // store re-read to reflect the type-scoped clears issued above: the read may
+                // still report them, and ADO echoes fields back normalised, so re-litigating a
+                // write that already succeeded would manufacture a failure on an edit that worked.
                 //
                 // This variant is headless and has no IConsoleInput, so it cannot prompt the way
                 // the CLI does. It keeps the documented auto-accept-remote behaviour for genuine
@@ -114,10 +130,12 @@ public sealed class McpPendingChangeFlusher(
                 // caller is told via McpFlushItemFailure.
                 var pushedFields = new HashSet<string>(
                     fieldChanges.Select(f => f.FieldName), StringComparer.OrdinalIgnoreCase);
+                var pushedNotes = new HashSet<string>(notes, StringComparer.Ordinal);
 
                 var unpushed = (await pendingChangeStore.GetChangesAsync(item.Id, ct))
-                    .Where(c => !string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                    .Where(c => c.FieldName is null || !pushedFields.Contains(c.FieldName))
+                    .Where(c => string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase)
+                        ? c.NewValue is null || !pushedNotes.Contains(c.NewValue)
+                        : c.FieldName is null || !pushedFields.Contains(c.FieldName))
                     .ToList();
 
                 if (unpushed.Count > 0)
@@ -127,8 +145,9 @@ public sealed class McpPendingChangeFlusher(
                         WorkItemId = item.Id,
                         Reason =
                             $"#{item.Id} has {unpushed.Count} staged change(s) this flush could not push "
-                            + "(unrecognised change type, or staged during the flush). They were left "
-                            + "staged rather than discarded; the item was not resynced.",
+                            + "(no field name to patch, an unpostable note, or staged concurrently with "
+                            + "the flush). They were left staged rather than discarded; the item was "
+                            + "not resynced.",
                     });
                     continue;
                 }
@@ -140,10 +159,15 @@ public sealed class McpPendingChangeFlusher(
             }
             catch (Exception ex)
             {
+                // If the push already reached ADO, say so. Otherwise the caller sees a bare
+                // store/network message and cannot tell "nothing happened" from "the remote was
+                // updated but the local resync failed" — which needs different remediation.
                 failures.Add(new McpFlushItemFailure
                 {
                     WorkItemId = item.Id,
-                    Reason = ex.Message,
+                    Reason = pushedToAdo
+                        ? $"Changes were pushed to Azure DevOps, but the local resync failed: {ex.Message}"
+                        : ex.Message,
                 });
             }
         }

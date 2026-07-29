@@ -417,7 +417,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Refresh_Force_StillSyncsWorkingSet()
+    public async Task Refresh_UnprotectedItem_StillSyncsWorkingSet()
     {
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
@@ -429,11 +429,11 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await _cmd.ExecuteAsync(force: true);
+        var result = await _cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // --force overrides protection for sprint items but working set sync still runs
-        // (uses SaveBatchAsync for sprint items, SyncWorkingSetAsync for working set)
+        // Nothing is protected here, so ProtectedCacheWriter forwards the batch to the repo
+        // and the working set still syncs. (Before 0004 slice 5 this was the --force path.)
         await _workItemRepo.Received().SaveBatchAsync(
             Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
     }

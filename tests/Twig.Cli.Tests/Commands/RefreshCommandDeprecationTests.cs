@@ -86,11 +86,11 @@ public sealed class RefreshCommandDeprecationTests : RefreshCommandTestBase
             .Returns(new[] { item });
 
         var commands = CreateCommands();
-        var result = await commands.Refresh(force: true, ct: CancellationToken.None);
+        var result = await commands.Refresh(ct: CancellationToken.None);
 
         result.ShouldBe(0);
 
-        // Force bypasses dirty guard — SaveBatchAsync is called
+        // Unprotected item, so ProtectedCacheWriter forwards it to SaveBatchAsync.
         await _workItemRepo.Received().SaveBatchAsync(
             Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
     }

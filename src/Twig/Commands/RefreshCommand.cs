@@ -44,20 +44,20 @@ public sealed class RefreshCommand(
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int itemCount;
         bool hashChanged;
-        (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, force, ct);
+        (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, ct);
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "refresh", outputFormat, exitCode, startTimestamp,
             extraProperties: new Dictionary<string, string> { ["hash_changed"] = hashChanged.ToString() },
             extraMetrics: new Dictionary<string, double> { ["item_count"] = itemCount });
         return exitCode;
     }
 
-    private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, bool force, CancellationToken ct)
+    private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, CancellationToken ct)
     {
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
@@ -134,7 +134,7 @@ public sealed class RefreshCommand(
 
         wiql += " ORDER BY [System.Id]";
 
-        var fetchResult = await orchestrator.FetchItemsAsync(wiql, force, ct);
+        var fetchResult = await orchestrator.FetchItemsAsync(wiql, ct);
 
         if (fetchResult.ItemCount == 0)
         {
@@ -150,7 +150,8 @@ public sealed class RefreshCommand(
                 _stderr.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
                 foreach (var c in fetchResult.Conflicts)
                     _stderr.WriteLine(fmt.FormatError($"  #{c.Id}: local rev {c.LocalRevision} → remote rev {c.RemoteRevision}"));
-                _stderr.WriteLine(fmt.FormatError("Run 'twig sync' first, or use 'twig sync --force' to overwrite."));
+                _stderr.WriteLine(fmt.FormatError(
+                    "Run 'twig sync' to push your staged edits, or 'twig edit <id>' to resolve each item."));
             }
 
             telemetryItemCount = fetchResult.ItemCount;

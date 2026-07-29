@@ -213,10 +213,12 @@ For each dirty item:
 
 1. Build WIQL query from configured sprints + area paths
 2. Fetch matching items from ADO
-3. **Protected items** (dirty OR have pending changes) are NEVER overwritten
-   - Exception: `--force` flag bypasses protection (destructive)
+3. **Protected items** (dirty OR have pending changes) are NEVER overwritten.
+   There is no exception and no flag — wayfinder 0004 slice 5 deleted `--force`.
 4. Save non-protected items to cache
-5. Hydrate ancestor chain (up to 5 levels)
+5. Hydrate ancestor chain (up to 5 levels). Ancestor writes are protected too:
+   until 0004 slice 5 this step used an unguarded batch save and clobbered
+   staged edits on parent items on the DEFAULT path, with no flag involved.
 6. Sync tracked trees (re-fetch subtrees)
 7. Apply cleanup policy (auto-untrack completed items if configured)
 8. Sync process types + field definitions
@@ -248,9 +250,12 @@ twig discard
   → clear dirty flag
   → NO push to ADO (changes lost)
 
-twig refresh --force
-  → overwrite ALL items including dirty (DANGEROUS)
-  → pending_changes NOT cleared (orphaned state)
+(no bypass exists)
+  → an item with pending_changes stays protected until those changes are
+    flushed, discarded, or resolved. `--force` was deleted by 0004 slice 5:
+    it overwrote dirty items while leaving pending_changes orphaned, and it
+    also suppressed the conflict report as a side effect of emptying the
+    protected set.
 ```
 
 ### 2.6 Stash

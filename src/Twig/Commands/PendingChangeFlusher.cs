@@ -38,7 +38,9 @@ public sealed record FlushItemFailure(int ItemId, string Error);
 /// <list type="bullet">
 ///   <item>FR-7: Continues past individual item failures, collecting them in <see cref="FlushResult.Failures"/>.</item>
 ///   <item>FR-9: Notes-only items bypass conflict resolution — notes are additive and cannot conflict.</item>
-///   <item>After each successful push: ClearChangesAsync → FetchAsync → SaveAsync (cache resync).</item>
+///   <item>After each successful push: FetchAsync → resolve against the merge base →
+///   ClearChangesAsync → SaveAsync (cache resync). The resync goes through
+///   <c>ConflictResolutionFlow</c>, not around it (wayfinder 0004 slice 5).</item>
 /// </list>
 /// </remarks>
 public sealed class PendingChangeFlusher(
@@ -140,9 +142,33 @@ public sealed class PendingChangeFlusher(
                     totalFieldChanges += fieldChanges.Count;
                 }
 
-                // Post-push resync: clear local pending state and refresh from ADO.
-                await pendingChangeStore.ClearChangesAsync(item.Id, ct);
+                // Post-push resync. Wayfinder 0004 slice 5: this used to clear every remaining
+                // pending row and then write the fetched remote with a raw SaveAsync — around
+                // the resolver, five lines below a field-change path that goes through it.
+                //
+                // Anything still staged at this point was NOT pushed: a row of an unrecognised
+                // change type, or an edit staged concurrently with this flush. Clearing and
+                // overwriting destroyed it silently, which is the coercion 0003 §4 forbids.
+                // The resync now goes THROUGH the resolver: what is still staged forms the merge
+                // base, and only once that is resolved is the row cleared and the cache written.
                 var updated = await adoService.FetchAsync(item.Id, ct);
+
+                var resyncOutcome = await ConflictResolutionFlow.ResolveAsync(
+                    item, updated, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+                    $"#{item.Id} synced from remote. Pending changes discarded.",
+                    onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id, ct),
+                    ct: ct);
+
+                if (resyncOutcome == ConflictOutcome.ConflictJsonEmitted)
+                {
+                    failures.Add(new FlushItemFailure(item.Id, "Unresolved conflict on post-push resync (JSON emitted)."));
+                    continue;
+                }
+
+                if (resyncOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
+                    continue;
+
+                await pendingChangeStore.ClearChangesAsync(item.Id, ct);
                 await workItemRepo.SaveAsync(updated, ct);
                 itemsFlushed++;
             }

@@ -44,7 +44,6 @@ The standalone `refresh` command is **removed**. Sync absorbs it:
 | Old command | New equivalent | Behavior |
 |-------------|----------------|----------|
 | `twig refresh` | `twig sync --pull-only` | Pull from ADO, skip flush |
-| `twig refresh --force` | `twig sync --pull-only --force` | Pull with dirty guard bypass |
 | `twig sync` | `twig sync` | Flush pending + pull (unchanged) |
 
 ### `states` → `process`
@@ -350,13 +349,12 @@ fresh data from ADO into the local cache. Absorbs the `refresh` command.
 ### Signature
 
 ```
-twig sync [--pull-only] [--force] [--output <format>]
+twig sync [--pull-only] [--output <format>]
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `--pull-only` | bool | false | Skip flush phase, only pull (replaces `refresh`) |
-| `--force` | bool | false | Bypass dirty guard in pull phase |
 | `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
 
 ### Behavior
@@ -367,7 +365,9 @@ twig sync [--pull-only] [--force] [--output <format>]
 2. **Phase 2: Pull**
    - Build WIQL query for current sprint + area paths
    - Fetch items from ADO
-   - Dirty guard: skip items with local modifications (unless `--force`)
+   - Dirty guard: skip items with local modifications. There is no bypass —
+     wayfinder 0004 slice 5 deleted `--force`; overwriting is a resolution
+     outcome reached through the resolver, never a flag that goes around it
    - Conflict detection: report items with newer remote revisions
    - Post-fetch orchestration: tracked trees, cleanup policy, ancestors, working set
    - Refresh process type data and field definitions (concurrent)
@@ -387,7 +387,10 @@ twig sync [--pull-only] [--force] [--output <format>]
 ### Hidden Alias: `refresh`
 
 `twig refresh` maps to `twig sync --pull-only`.
-`twig refresh --force` maps to `twig sync --pull-only --force`.
+
+`--force` no longer exists on either command (wayfinder 0004 slice 5). A caller
+passing it gets a hard `Argument '--force' is not recognized`, deliberately: a
+warning no-op would leave a flag claiming to force something it does not.
 
 ### Telemetry
 

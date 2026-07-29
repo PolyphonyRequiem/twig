@@ -20,13 +20,11 @@ public sealed class SyncCommand(
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
-    /// <param name="force">When true, pass --force to the refresh phase.</param>
     /// <param name="pullOnly">When true, skip the flush phase and go directly to refresh.</param>
     // TODO: Add targetId parameter to scope flush to a single item (T-1342.1 / #1342 AC: `twig sync <id>`).
     // Deferred to a follow-up task — currently flushes all dirty items via FlushAllAsync.
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
-        bool force = false,
         bool pullOnly = false,
         CancellationToken ct = default)
     {
@@ -47,7 +45,7 @@ public sealed class SyncCommand(
         }
 
         // ── Phase 2: Pull ──────────────────────────────────────────
-        var refreshExitCode = await refreshCommand.ExecuteAsync(outputFormat, force, ct);
+        var refreshExitCode = await refreshCommand.ExecuteAsync(outputFormat, ct);
 
         // ── Output summary ─────────────────────────────────────────
         var hasFlushFailures = flushResult?.Failures.Count > 0;

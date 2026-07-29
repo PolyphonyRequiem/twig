@@ -55,7 +55,7 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(0);
         result.Conflicts.ShouldBeEmpty();
@@ -72,7 +72,7 @@ public class RefreshOrchestratorTests
             .Returns(new[] { item1, item2 });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(2);
         await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
@@ -88,7 +88,7 @@ public class RefreshOrchestratorTests
             .Returns(new[] { item });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(1);
         await _adoService.Received(1).FetchBatchAsync(
@@ -111,7 +111,7 @@ public class RefreshOrchestratorTests
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(1);
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
@@ -129,13 +129,18 @@ public class RefreshOrchestratorTests
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        await _orchestrator.FetchItemsAsync("SELECT ...");
 
         await _adoService.DidNotReceive().FetchAsync(2, Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// 0004 slice 5: this asserted that <c>force: true</c> reached a raw
+    /// <c>SaveBatchAsync</c>. There is no such path now; an unprotected item still lands in
+    /// the repo, but only because <c>ProtectedCacheWriter</c> forwarded it.
+    /// </summary>
     [Fact]
-    public async Task FetchItems_Force_UsesDirectSave()
+    public async Task FetchItems_UnprotectedItem_ReachesTheRepoThroughTheProtectedWriter()
     {
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
@@ -144,7 +149,7 @@ public class RefreshOrchestratorTests
             .Returns(new[] { item });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        await _orchestrator.FetchItemsAsync("SELECT ...", force: true);
+        await _orchestrator.FetchItemsAsync("SELECT ...");
 
         await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
     }
@@ -168,7 +173,7 @@ public class RefreshOrchestratorTests
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(new[] { local });
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(local);
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.Conflicts.Count.ShouldBe(1);
         result.Conflicts[0].Id.ShouldBe(1);
@@ -208,7 +213,7 @@ public class RefreshOrchestratorTests
                 return (IReadOnlyList<WorkItem>)new[] { child };
             });
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         // Both calls should have been initiated before either completed
         await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
@@ -271,7 +276,7 @@ public class RefreshOrchestratorTests
             .Returns(new[] { item });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        await _orchestrator.FetchItemsAsync("SELECT ...");
 
         await _workItemRepo.Received(1).ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
     }
@@ -289,7 +294,7 @@ public class RefreshOrchestratorTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(count);
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.PhantomsCleansed.ShouldBe(count);
     }
@@ -300,7 +305,7 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.PhantomsCleansed.ShouldBe(0);
         await _workItemRepo.DidNotReceive().ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());

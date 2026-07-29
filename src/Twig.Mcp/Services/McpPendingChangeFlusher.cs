@@ -13,6 +13,8 @@ namespace Twig.Mcp.Services;
 ///   <item>Does not implement <c>IPendingChangeFlusher</c> (that interface has CLI-specific parameters)</item>
 /// </list>
 /// On conflict, auto-accepts the remote revision and retries via <see cref="ConflictRetryHelper"/>.
+/// The post-push resync never clears rows this flush did not push (#329): if any remain staged,
+/// the item keeps its pending state, is not counted as flushed, and is reported as a failure.
 /// Returns <see cref="McpFlushSummary"/> for MCP tool response formatting (FR-8).
 /// </summary>
 public sealed class McpPendingChangeFlusher(
@@ -84,9 +86,53 @@ public sealed class McpPendingChangeFlusher(
                     var remote = await adoService.FetchAsync(item.Id, ct);
                     await ConflictRetryHelper.PatchWithRetryAsync(
                         adoService, item.Id, fieldChanges, remote.Revision, ct);
+
+                    // Clear the rows this flush pushed AT the push, not at the end of the
+                    // loop, so the resync guard below sees only what is genuinely unpushed.
+                    await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "field", ct);
                 }
 
-                // Post-push resync: clear local pending state and refresh from ADO.
+                // Post-push resync (#329, mirroring the CLI fix in #327). This used to clear
+                // every remaining pending row unconditionally and overwrite the cache with
+                // remote — destroying staged rows this flush never pushed.
+                //
+                // The guard is "is anything still staged that this flush did NOT push?", NOT
+                // "is there a conflict?". A change type outside the field/state/set_field
+                // vocabulary contributes no merge base at all, so it can never produce a
+                // conflict; keying the clear off a conflict outcome would leave exactly the
+                // case this comment claims to protect still being destroyed.
+                //
+                // Rows this flush just pushed are excluded BY VALUE: a store re-read may still
+                // report them (they were cleared a statement ago, and ADO echoes the same field
+                // back normalised), and re-litigating a write that already succeeded would
+                // manufacture a failure on an edit that worked.
+                //
+                // This variant is headless and has no IConsoleInput, so it cannot prompt the way
+                // the CLI does. It keeps the documented auto-accept-remote behaviour for genuine
+                // field conflicts (ConflictRetryHelper, above) and simply declines to destroy
+                // unpushed rows: they stay staged, the item is NOT counted as flushed, and the
+                // caller is told via McpFlushItemFailure.
+                var pushedFields = new HashSet<string>(
+                    fieldChanges.Select(f => f.FieldName), StringComparer.OrdinalIgnoreCase);
+
+                var unpushed = (await pendingChangeStore.GetChangesAsync(item.Id, ct))
+                    .Where(c => !string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                    .Where(c => c.FieldName is null || !pushedFields.Contains(c.FieldName))
+                    .ToList();
+
+                if (unpushed.Count > 0)
+                {
+                    failures.Add(new McpFlushItemFailure
+                    {
+                        WorkItemId = item.Id,
+                        Reason =
+                            $"#{item.Id} has {unpushed.Count} staged change(s) this flush could not push "
+                            + "(unrecognised change type, or staged during the flush). They were left "
+                            + "staged rather than discarded; the item was not resynced.",
+                    });
+                    continue;
+                }
+
                 await pendingChangeStore.ClearChangesAsync(item.Id, ct);
                 var updated = await adoService.FetchAsync(item.Id, ct);
                 await workItemRepo.SaveAsync(updated, ct);

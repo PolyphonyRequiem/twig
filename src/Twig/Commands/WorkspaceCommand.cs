@@ -49,7 +49,7 @@ public sealed class WorkspaceCommand(
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
     {
         if (tree && flat)
         {
@@ -59,7 +59,7 @@ public sealed class WorkspaceCommand(
 
         if (tree)
         {
-            return await ExecuteTreeModeAsync(outputFormat, all, noLive, noRefresh, ct);
+            return await ExecuteTreeModeAsync(outputFormat, all, noLive, refresh, ct);
         }
 
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
@@ -141,8 +141,8 @@ public sealed class WorkspaceCommand(
                 yield return new SeedsLoaded(seeds);
 
                 // Stage 4: Check cache freshness for stale-while-revalidate (EPIC-006)
-                // Skipped entirely when --no-refresh is specified
-                if (!noRefresh)
+                // Wayfinder 0004 §3: the revalidate pass is opt-in via --refresh.
+                if (refresh)
                 {
                     var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at", ct);
                     if (IsCacheStale(lastRefreshedRaw, ctx.Config.Display.CacheStaleMinutes))
@@ -219,7 +219,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, outputFormat, all, noRefresh, sprintLayout, flat);
+        return await ExecuteSyncAsync(fmt, outputFormat, all, refresh, sprintLayout, flat);
     }
 
     /// <summary>
@@ -227,7 +227,7 @@ public sealed class WorkspaceCommand(
     /// expanded to the configured depth. Delegates to <see cref="TreeRenderingService"/>
     /// for per-item rendering so all output formats (human, json, minimal) work consistently.
     /// </summary>
-    private async Task<int> ExecuteTreeModeAsync(string outputFormat, bool all, bool noLive, bool noRefresh, CancellationToken ct)
+    private async Task<int> ExecuteTreeModeAsync(string outputFormat, bool all, bool noLive, bool refresh, CancellationToken ct)
     {
         if (treeRenderingService is null)
         {
@@ -265,21 +265,21 @@ public sealed class WorkspaceCommand(
         // Only allow sync/refresh on the first item to avoid redundant network calls.
         for (var i = 0; i < sprintItems.Count; i++)
         {
-            var itemNoRefresh = noRefresh || i > 0;
+            var itemRefresh = refresh && i == 0;
             var result = await treeRenderingService.RenderTreeAsync(
-                sprintItems[i].Id, outputFormat, depth: null, noLive, itemNoRefresh, ct);
+                sprintItems[i].Id, outputFormat, depth: null, noLive, itemRefresh, ct);
             if (result != 0) return result;
         }
 
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool noRefresh = false, bool sprintLayout = false, bool flat = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool refresh = false, bool sprintLayout = false, bool flat = false)
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
         var isMachineFormat = IsMachineFormat(outputFormat);
-        if (isMachineFormat && !noRefresh && syncCoordinatorFactory is not null)
+        if (isMachineFormat && refresh && syncCoordinatorFactory is not null)
         {
             try
             {

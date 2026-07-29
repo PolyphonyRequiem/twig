@@ -132,7 +132,7 @@ public class CacheRefreshTests
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
         // Act
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync("human", refresh: true);
 
         // Assert
         result.ShouldBe(0);
@@ -190,7 +190,7 @@ public class CacheRefreshTests
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
         // Act
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync("human", refresh: true);
 
         // Assert
         result.ShouldBe(0);
@@ -230,7 +230,7 @@ public class CacheRefreshTests
         output.ShouldContain("Active");
     }
 
-    // ── --no-refresh flag: skips sync pass ──────────────────────────
+    // ── default (no --refresh): cache-only, no sync pass ───────────
 
     [Fact]
     public async Task NoRefresh_SkipsSyncPass_RendersFromCacheOnly()
@@ -248,7 +248,7 @@ public class CacheRefreshTests
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
         // Act
-        var result = await cmd.ExecuteAsync("human", noRefresh: true);
+        var result = await cmd.ExecuteAsync("human", refresh: false);
 
         // Assert — command succeeds, data rendered, but no refresh badge
         result.ShouldBe(0);
@@ -277,8 +277,8 @@ public class CacheRefreshTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
-        // Both flags set: noLive + noRefresh
-        var result = await cmd.ExecuteAsync("human", noLive: true, noRefresh: true);
+        // Both flags set: noLive + no refresh
+        var result = await cmd.ExecuteAsync("human", noLive: true, refresh: false);
 
         result.ShouldBe(0);
     }
@@ -525,7 +525,7 @@ public class CacheRefreshTests
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
         // Act
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync("human", refresh: true);
 
         // Assert — fresh data is displayed despite SetValueAsync throwing
         result.ShouldBe(0);

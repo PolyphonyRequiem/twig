@@ -12,7 +12,8 @@
    streaming, no async re-render.
 2. **Two-pass rendering is human-only** — only the Spectre TTY path uses the
    render-sync-rerender pattern. Machine formats never see stale data.
-3. **`--no-refresh` is the escape hatch** — skips sync for all formats,
+3. **`--refresh` is the opt-in** — reads are cache-only for all formats by default
+   (wayfinder 0004 §3); `--refresh` requests a sync,
    returns cached data immediately.
 4. **`ids` format for all list-like commands** — bare numeric IDs, one per
    line, for shell piping (`twig query -o ids | xargs ...`).
@@ -69,7 +70,7 @@ serves as the no-args "what am I working on?" view when called without an ID
 ### Signature
 
 ```
-twig show [<id>] [--tree] [--output <format>] [--no-refresh] [--batch <ids>]
+twig show [<id>] [--tree] [--output <format>] [--refresh] [--batch <ids>]
 ```
 
 | Parameter | Type | Default | Description |
@@ -77,7 +78,7 @@ twig show [<id>] [--tree] [--output <format>] [--no-refresh] [--batch <ids>]
 | `id` | int? | null | Work item ID. Omit for active item. |
 | `--tree` | bool | false | Render parent chain + children as hierarchy tree |
 | `--output` | string | `human` | Output format: `human`, `json`, `minimal`, `ids` |
-| `--no-refresh` | bool | false | Skip sync, use cached data only |
+| `--refresh` | bool | false | Sync from ADO (default: cached data only) |
 | `--batch` | string | null | Comma-separated IDs for batch lookup |
 
 ### Behavior — Single Item (default)
@@ -87,7 +88,7 @@ twig show [<id>] [--tree] [--output <format>] [--no-refresh] [--batch <ids>]
 3. **Format branch:**
    - **Human (Spectre TTY):** two-pass render (cache → sync → re-render)
    - **Machine (json/minimal):** sync-first, then emit single complete output
-   - **`--no-refresh`:** cache-only for all formats
+   - **default (no `--refresh`):** cache-only for all formats
 4. **Fetch enrichment** — children, parent, links, field definitions, status fields
 5. **If `--tree`:** render as hierarchy (parent chain upward + children downward)
 6. **If no `--tree`:** render as detail card (title, state, type, assignee, fields, links)
@@ -96,7 +97,7 @@ twig show [<id>] [--tree] [--output <format>] [--no-refresh] [--batch <ids>]
 ### Behavior — Batch
 
 1. Parse comma-separated IDs from `--batch` value
-2. Sync-first (unless `--no-refresh`)
+2. Sync-first (only when `--refresh` is given)
 3. Look up each ID; silently skip missing items
 4. Format all found items (array for json, one-per-line for minimal/ids)
 5. Return exit code 0 (even if some IDs not found)
@@ -137,7 +138,7 @@ Now also the home for area path management and tree-mode rendering.
 ### Signature
 
 ```
-twig workspace [--tree] [--all] [--flat] [--sprint-layout] [--output <format>] [--no-live] [--no-refresh]
+twig workspace [--tree] [--all] [--flat] [--sprint-layout] [--output <format>] [--no-live] [--refresh]
 ```
 
 | Parameter | Type | Default | Description |
@@ -148,7 +149,7 @@ twig workspace [--tree] [--all] [--flat] [--sprint-layout] [--output <format>] [
 | `--sprint-layout` | bool | false | Internal: sprint-based layout |
 | `--output` | string | `human` | Output format: `human`, `json`, `minimal`, `ids` |
 | `--no-live` | bool | false | Disable Spectre live rendering |
-| `--no-refresh` | bool | false | Skip sync |
+| `--refresh` | bool | false | Sync from ADO (default: cached data only) |
 
 ### Behavior
 
@@ -157,7 +158,7 @@ twig workspace [--tree] [--all] [--flat] [--sprint-layout] [--output <format>] [
    - **Human (Spectre TTY, no `--no-live`):** streaming build with live
      rendering, background sync, re-render on fresh data
    - **Machine (json/minimal/ids):** sync-first, emit complete output
-   - **`--no-refresh`:** cache-only for all formats
+   - **default (no `--refresh`):** cache-only for all formats
 3. **Fetch working set** — items matching sprint + area path filters
 4. **Build hierarchy** — group by type, compute parent chains
 5. **If `--tree`:** full hierarchy tree (all roots, box-drawing)

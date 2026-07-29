@@ -739,3 +739,32 @@ Twig.Domain.Services.Reconciliation.MergeBase.For(string! fieldName) -> Twig.Dom
 Twig.Domain.Services.Reconciliation.MergeBase.IsEmpty.get -> bool
 Twig.Domain.Services.Reconciliation.MergeBase.StagedFields.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
 Twig.Domain.Services.Reconciliation.ThreeWayMerge
+
+override Twig.Domain.Services.Sync.NotCached.Equals(object? obj) -> bool
+override Twig.Domain.Services.Sync.NotCached.GetHashCode() -> int
+override Twig.Domain.Services.Sync.NotCached.ToString() -> string!
+override Twig.Domain.Services.Sync.Stale.Equals(object? obj) -> bool
+override Twig.Domain.Services.Sync.Stale.GetHashCode() -> int
+override Twig.Domain.Services.Sync.Stale.ToString() -> string!
+static Twig.Domain.Services.Sync.NotCached.operator !=(Twig.Domain.Services.Sync.NotCached? left, Twig.Domain.Services.Sync.NotCached? right) -> bool
+static Twig.Domain.Services.Sync.NotCached.operator ==(Twig.Domain.Services.Sync.NotCached? left, Twig.Domain.Services.Sync.NotCached? right) -> bool
+static Twig.Domain.Services.Sync.Stale.operator !=(Twig.Domain.Services.Sync.Stale? left, Twig.Domain.Services.Sync.Stale? right) -> bool
+static Twig.Domain.Services.Sync.Stale.operator ==(Twig.Domain.Services.Sync.Stale? left, Twig.Domain.Services.Sync.Stale? right) -> bool
+Twig.Domain.Services.Sync.NotCached
+Twig.Domain.Services.Sync.NotCached.<Clone>$() -> Twig.Domain.Services.Sync.NotCached!
+Twig.Domain.Services.Sync.NotCached.Deconstruct(out int Id) -> void
+Twig.Domain.Services.Sync.NotCached.Equals(Twig.Domain.Services.Sync.NotCached? other) -> bool
+Twig.Domain.Services.Sync.NotCached.Id.get -> int
+Twig.Domain.Services.Sync.NotCached.Id.init -> void
+Twig.Domain.Services.Sync.NotCached.NotCached(int Id) -> void
+Twig.Domain.Services.Sync.Stale
+Twig.Domain.Services.Sync.Stale.<Clone>$() -> Twig.Domain.Services.Sync.Stale!
+Twig.Domain.Services.Sync.Stale.Deconstruct(out System.DateTimeOffset? LastSyncedAt) -> void
+Twig.Domain.Services.Sync.Stale.Equals(Twig.Domain.Services.Sync.Stale? other) -> bool
+Twig.Domain.Services.Sync.Stale.LastSyncedAt.get -> System.DateTimeOffset?
+Twig.Domain.Services.Sync.Stale.LastSyncedAt.init -> void
+Twig.Domain.Services.Sync.Stale.Stale(System.DateTimeOffset? LastSyncedAt) -> void
+Twig.Domain.Services.Sync.SyncCoordinator.ReadItemAsync(int id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.SyncResult>!
+Twig.Domain.Services.Sync.SyncCoordinator.ReadItemSetAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.SyncResult>!
+Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.NotCached! value) -> void
+Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.Stale! value) -> void

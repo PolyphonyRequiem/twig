@@ -11,7 +11,8 @@
 2. **Sync-first for machine output** — JSON/minimal formats sync
    synchronously before emitting a single complete output. No streaming,
    no async re-render.
-3. **Cache-only is opt-in** — `--no-refresh` skips sync for both human and
+3. **Cache-only is the default** — reads never fetch (wayfinder 0004 §3). `--refresh`
+   opts into a sync pass for both human and
    machine formats. Without it, read commands always produce fresh data.
 
 ---
@@ -99,14 +100,14 @@ Read-only display of a work item with full enrichment. Replaces both the old
 ### Signature
 
 ```
-twig show [<id>] [--output <format>] [--no-refresh] [--batch <ids>]
+twig show [<id>] [--output <format>] [--refresh] [--batch <ids>]
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `id` | int? | null | Work item ID. Omit to show the active item. |
 | `--output` | string | `human` | Output format: `human`, `json`, `minimal` |
-| `--no-refresh` | bool | false | Skip sync pass — show only cached data |
+| `--refresh` | bool | false | Sync from ADO before displaying (default: cached data only) |
 | `--batch` | string | null | Comma-separated IDs for batch mode |
 
 ### Behavior — Single Item
@@ -119,7 +120,7 @@ twig show [<id>] [--output <format>] [--no-refresh] [--batch <ids>]
    - Active item NOT in cache → auto-fetch from ADO (G-3 contract)
    - Fetch fails → exit 1: `"Work item #X not found. Run 'twig set X' to refresh."`
 
-2. **Sync (unless `--no-refresh`)**
+2. **Sync (only when `--refresh` is given)**
    - **Machine formats (json, minimal):** sync synchronously, then output
    - **Human format (TTY):** render cached data immediately → sync in background →
      re-render with fresh data when sync completes
@@ -152,7 +153,7 @@ twig show --batch 10,20,30 --output json
 
 1. Parse comma-separated IDs, trim whitespace, parse as integers
 2. For each valid ID: look up in cache
-3. **Sync (unless `--no-refresh`):** sync all found items synchronously
+3. **Sync (only when `--refresh` is given):** sync all found items synchronously
 4. Missing IDs silently skipped (not errors)
 5. Invalid numbers silently skipped
 6. Output array of found items
@@ -258,7 +259,7 @@ Rich Spectre dashboard with panels:
 | Scenario | Behavior |
 |----------|----------|
 | No active item (no args) | Branch detection hint → exit 1 |
-| `--no-refresh` with stale cache | Shows cached data, hints "data may be stale" |
+| default (no `--refresh`) with stale cache | Shows cached data, hints how old it is and names `--refresh` |
 | Sync fails (network) | Falls back to cached data (human); exits 1 (machine) |
 | Parent not in cache | Skipped in output (nullable) |
 | Link load fails | Continues with empty links (best-effort) |
@@ -286,7 +287,7 @@ single, predictable command surface:
 
 - `twig show` (no args) = what `status` did: active item + pending changes + git
 - `twig show <id>` = what `show` did: specific item display
-- `twig show --no-refresh` = cache-only, no sync
+- `twig show` = cache-only, no sync; `twig show --refresh` syncs first
 
 ### Migration Path
 
@@ -294,10 +295,10 @@ single, predictable command surface:
 |-------------|----------------|
 | `twig status` | `twig show` |
 | `twig status --output json` | `twig show --output json` |
-| `twig status --no-refresh` | `twig show --no-refresh` |
-| `twig status --no-live` | `twig show --no-refresh` |
+| `twig status --no-refresh` | `twig show` (now the default) |
+| `twig status --no-live` | `twig show` (now the default) |
 | `twig show <id>` | `twig show <id>` (unchanged) |
-| `twig show <id> --no-refresh` | `twig show <id> --no-refresh` (unchanged) |
+| `twig show <id> --no-refresh` | `twig show <id>` — flag deleted outright, pre-1.0 (0004 §3) |
 
 ### Removal Strategy
 

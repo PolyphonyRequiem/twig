@@ -34,7 +34,8 @@ public sealed class TreeRenderingService(
     /// <param name="outputFormat">Output format name (human, json, minimal, etc.).</param>
     /// <param name="depth">Maximum tree depth, or <c>null</c> for the configured default.</param>
     /// <param name="noLive">When <c>true</c>, disables live/async rendering.</param>
-    /// <param name="noRefresh">When <c>true</c>, skips the background sync pass.</param>
+    /// <param name="refresh">When <c>true</c>, opts into a sync pass; otherwise the read is
+    /// cache-only and staleness is reported as a hint (wayfinder 0004 §3).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Exit code: 0 on success, 1 on failure.</returns>
     public async Task<int> RenderTreeAsync(
@@ -42,7 +43,7 @@ public sealed class TreeRenderingService(
         string outputFormat,
         int? depth,
         bool noLive,
-        bool noRefresh,
+        bool refresh,
         CancellationToken ct)
     {
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
@@ -56,7 +57,7 @@ public sealed class TreeRenderingService(
 
         var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
 
-        // Root resolution preserves the G-3 auto-fetch contract; --no-refresh skips enrichment sync.
+        // Root resolution preserves the G-3 auto-fetch contract; enrichment sync is opt-in via --refresh.
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
         if (!resolveResult.TryGetWorkItem(out var resolvedItem, out _, out _))
         {
@@ -89,13 +90,13 @@ public sealed class TreeRenderingService(
                 activeId: activeId,
                 ct: ct,
                 getSiblingCount: getSiblingCount,
-                getLinks: noRefresh ? null : async () =>
+                getLinks: !refresh ? null : async () =>
                 {
                     try { return await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
                 });
 
-            if (spectreRenderer is not null && !noRefresh)
+            if (spectreRenderer is not null && refresh)
             {
                 try
                 {
@@ -160,7 +161,7 @@ public sealed class TreeRenderingService(
         // Non-TTY path: JSON, minimal, piped output
         var item = resolvedItem;
 
-        if (!noRefresh)
+        if (refresh)
         {
             var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
             await RefreshTreeAsync(item, workingSet, ct);
@@ -200,7 +201,7 @@ public sealed class TreeRenderingService(
         }
 
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
-        if (!noRefresh)
+        if (refresh)
         {
             try
             {

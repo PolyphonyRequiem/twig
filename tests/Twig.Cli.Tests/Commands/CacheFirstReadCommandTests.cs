@@ -205,7 +205,7 @@ public class CacheFirstReadCommandTests
 
         var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
-        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
+        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, refresh: false, CancellationToken.None);
 
         result.ShouldBe(0);
         await _adoService.Received().FetchAsync(50, Arg.Any<CancellationToken>());
@@ -222,7 +222,7 @@ public class CacheFirstReadCommandTests
         var treeService2 = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
 
-        var result = await treeService2.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
+        var result = await treeService2.RenderTreeAsync(id: null, "human", depth: null, noLive: true, refresh: false, CancellationToken.None);
         result.ShouldBe(1);
     }
 

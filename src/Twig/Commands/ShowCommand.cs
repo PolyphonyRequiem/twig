@@ -21,7 +21,8 @@ namespace Twig.Commands;
 /// If no active item is set, emits a branch detection hint and exits 1.
 /// Unlike <see cref="SetCommand"/>, this command does not change active context or record
 /// navigation history. By default, renders cached data immediately then syncs the item
-/// and revises the display. Use <c>--no-refresh</c> to skip the sync pass.
+/// and revises the display. Reads are cache-only by default (wayfinder 0004 §3);
+/// pass <c>--refresh</c> to opt into a sync pass.
 /// </summary>
 public sealed class ShowCommand(
     CommandContext ctx,
@@ -46,7 +47,7 @@ public sealed class ShowCommand(
     private readonly WorkingSetService? _workingSetService = workingSetService;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
@@ -60,7 +61,7 @@ public sealed class ShowCommand(
             }
             else
             {
-                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, noRefresh, ct);
+                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, refresh, ct);
             }
 
             TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp,
@@ -68,7 +69,7 @@ public sealed class ShowCommand(
             return exitCode;
         }
 
-        exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
+        exitCode = await ExecuteCoreAsync(id, outputFormat, refresh, ct);
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
@@ -85,7 +86,7 @@ public sealed class ShowCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool noRefresh, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool refresh, CancellationToken ct)
     {
         var (fmt, renderer) = ctx.Resolve(outputFormat);
 
@@ -131,6 +132,15 @@ public sealed class ShowCommand(
                     return 1;
             }
             resolvedId = item.Id;
+        }
+
+        // Wayfinder 0004 §3: the read reports freshness rather than acting on it. Only the
+        // rich/human surface renders the hint; machine formats keep a stable, quiet contract.
+        if (!refresh && !IsMachineFormat(outputFormat))
+        {
+            var freshness = await syncCoordinatorFactory.ReadOnly.ReadItemAsync(resolvedId, ct);
+            if (freshness is Stale stale)
+                ctx.StderrWriter.WriteLine(StaleHint.Format(stale.LastSyncedAt));
         }
 
         // Enrichment — all cache-only, best-effort
@@ -213,7 +223,7 @@ public sealed class ShowCommand(
 
         // Non-TTY machine output: sync synchronously before emitting so consumers get fresh data.
         // The TTY path handles sync via RenderWithSyncAsync (two-pass: cached → sync → revised).
-        if (renderer is null && !noRefresh)
+        if (renderer is null && refresh)
         {
             try
             {
@@ -256,7 +266,7 @@ public sealed class ShowCommand(
                 cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
                 gitContext: gitContext);
 
-            if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
+            if (renderer is SpectreRenderer spectreRenderer && refresh)
             {
                 Task<IRenderable> BuildView(Domain.Aggregates.WorkItem wi, Domain.Aggregates.WorkItem? pa, IReadOnlyList<Domain.Aggregates.WorkItem> ch, (int Done, int Total)? progress)
                     => spectreRenderer.BuildStatusViewAsync(wi,

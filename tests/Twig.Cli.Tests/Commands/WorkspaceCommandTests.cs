@@ -1458,7 +1458,7 @@ public class WorkspaceCommandTests
             new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
             treeService);
 
-    // ── --no-refresh bypass tests ───────────────────────────────────
+    // ── default (no --refresh): cache-only tests ────────────────────
 
     [Fact]
     public async Task Workspace_NoRefresh_ReturnsZero()
@@ -1469,7 +1469,7 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _cmd.ExecuteAsync(noRefresh: true);
+        var result = await _cmd.ExecuteAsync(refresh: false);
 
         result.ShouldBe(0);
     }
@@ -1492,10 +1492,10 @@ public class WorkspaceCommandTests
         var treeService = CreateTreeRenderingService();
         var cmd = CreateCommandWithTreeService(treeService);
 
-        var result = await cmd.ExecuteAsync("minimal", tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync("minimal", tree: true, refresh: false);
         result.ShouldBe(0);
 
-        // SyncWorkingSetAsync should NOT be called when noRefresh is true
+        // SyncWorkingSetAsync should NOT be called when refresh is false
         // The ADO service should not receive any sync-related WIQL calls
         await _adoService.DidNotReceive().QueryByWiqlAsync(
             Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -1511,7 +1511,7 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _cmd.ExecuteAsync(outputFormat: "minimal", noRefresh: true);
+        var result = await _cmd.ExecuteAsync(outputFormat: "minimal", refresh: false);
 
         result.ShouldBe(0);
     }
@@ -1526,7 +1526,7 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _cmd.ExecuteAsync(outputFormat: "ids", noRefresh: true);
+        var result = await _cmd.ExecuteAsync(outputFormat: "ids", refresh: false);
 
         result.ShouldBe(0);
     }
@@ -1541,7 +1541,7 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+        var result = await _cmd.ExecuteAsync(outputFormat: "json", refresh: false);
 
         result.ShouldBe(0);
     }
@@ -1578,7 +1578,7 @@ public class WorkspaceCommandTests
         var syncFactory = CreateSyncFactory();
         var cmd = CreateCommandWithSync(syncFactory);
 
-        var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var result = await cmd.ExecuteAsync(outputFormat: "json", refresh: true);
         result.ShouldBe(0);
 
         // ADO service should have been called to fetch stale items (sync-first)
@@ -1601,7 +1601,7 @@ public class WorkspaceCommandTests
         var syncFactory = CreateSyncFactory();
         var cmd = CreateCommandWithSync(syncFactory);
 
-        var result = await cmd.ExecuteAsync(outputFormat: "minimal");
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal", refresh: true);
         result.ShouldBe(0);
 
         await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -1623,7 +1623,7 @@ public class WorkspaceCommandTests
         var syncFactory = CreateSyncFactory();
         var cmd = CreateCommandWithSync(syncFactory);
 
-        var result = await cmd.ExecuteAsync(outputFormat: "ids");
+        var result = await cmd.ExecuteAsync(outputFormat: "ids", refresh: true);
         result.ShouldBe(0);
 
         await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -1642,10 +1642,10 @@ public class WorkspaceCommandTests
         var syncFactory = CreateSyncFactory();
         var cmd = CreateCommandWithSync(syncFactory);
 
-        var result = await cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "json", refresh: false);
         result.ShouldBe(0);
 
-        // ADO service should NOT be called when --no-refresh is specified
+        // ADO service should NOT be called when --refresh is absent
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

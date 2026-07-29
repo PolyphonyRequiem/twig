@@ -108,7 +108,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .WithAreaPath("Project")
             .WithIterationPath("Project\\Sprint 1");
 
-    // ── --no-refresh flag: skips sync pass ──────────────────────────
+    // ── default (no --refresh): cache-only, no sync pass ───────────
 
     [Fact]
     public async Task NoRefresh_SkipsSyncPass_RendersFromCacheOnly()
@@ -117,7 +117,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", refresh: false);
 
         result.ShouldBe(0);
 
@@ -138,7 +138,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         using var errWriter = new StringWriter();
         var cmd = CreateCommand(CreateTtyPipelineFactory(), stderr: errWriter);
 
-        var result = await cmd.ExecuteAsync(999, "human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(999, "human", refresh: false);
 
         result.ShouldBe(1);
         errWriter.ToString().ShouldContain("not found in local cache");
@@ -153,8 +153,8 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        // noRefresh defaults to false — should use RenderWithSyncAsync
-        var result = await cmd.ExecuteAsync(1, "human");
+        // refresh defaults to false — should use RenderWithSyncAsync
+        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
 
         result.ShouldBe(0);
 
@@ -182,7 +182,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .Returns(cachedItem, cachedItem, freshItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human");
+        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
 
         result.ShouldBe(0);
         _testConsole.Output.ShouldContain("Updated Title");
@@ -220,7 +220,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .Returns(Array.Empty<WorkItemLink>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", refresh: false);
 
         result.ShouldBe(0);
 
@@ -246,7 +246,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(item);
 
         var cmd = CreateCommand(); // non-TTY pipeline (isOutputRedirected: true)
-        await CaptureStdout(() => cmd.ExecuteAsync(1, format));
+        await CaptureStdout(() => cmd.ExecuteAsync(1, format, refresh: true));
 
         // Verify sync was exercised — FetchAsync is called by SyncItemSetAsync
         await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
@@ -264,7 +264,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(item);
 
         var cmd = CreateCommand();
-        await CaptureStdout(() => cmd.ExecuteAsync(1, format, noRefresh: true));
+        await CaptureStdout(() => cmd.ExecuteAsync(1, format, refresh: false));
 
         await _adoService.DidNotReceive().FetchAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -286,7 +286,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .Returns(cachedItem, cachedItem, freshItem);
 
         var cmd = CreateCommand();
-        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json"));
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", refresh: true));
 
         output.ShouldContain("Fresh Title");
     }
@@ -338,7 +338,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             processConfigProvider: _processConfigProvider,
             pendingChangeStore: pendingChangeStore);
 
-        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json"));
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", refresh: true));
 
         using var document = System.Text.Json.JsonDocument.Parse(output);
         var root = document.RootElement;
@@ -396,7 +396,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             processConfigProvider: _processConfigProvider,
             pendingChangeStore: pendingChangeStore);
 
-        var result = await cmd.ExecuteAsync(1, "human");
+        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
 
         result.ShouldBe(0);
         console.Output.ShouldContain("Current parent");
@@ -450,7 +450,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             processConfigProvider: _processConfigProvider,
             pendingChangeStore: pendingChangeStore);
 
-        var result = await cmd.ExecuteAsync(1, "human");
+        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
 
         result.ShouldBe(0);
         console.Output.ShouldContain("sync failed");
@@ -493,7 +493,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", refresh: false);
 
         result.ShouldBe(0);
         await _pendingChangeStore.Received().GetChangesAsync(1, Arg.Any<CancellationToken>());
@@ -605,7 +605,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory(), twigPaths: paths);
-        var result = await cmd.ExecuteAsync(1, "human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", refresh: false);
 
         result.ShouldBe(0);
         var output = _testConsole.Output;
@@ -666,7 +666,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .Returns(cachedItem, cachedItem, freshItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory(), twigPaths: paths);
-        var result = await cmd.ExecuteAsync(1, "human");
+        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
 
         result.ShouldBe(0);
         // Git context should be present in the output even after sync

@@ -30,13 +30,15 @@ public class SyncCoordinatorFactoryTests
             .InState("Active")
             .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-10))
             .Build();
-        _workItemRepo.GetByIdAsync(42).Returns(item);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var roResult = await factory.ReadOnly.SyncItemAsync(42);
+        // The tiered TTL is now observed through the READ shape — wayfinder 0004 §3 removed
+        // staleness from the fetch path, so SyncItemAsync no longer reflects the TTL at all.
+        var roResult = await factory.ReadOnly.ReadItemAsync(42);
         roResult.ShouldBeUnionCase<UpToDate>();
 
-        var rwResult = await factory.ReadWrite.SyncItemAsync(42);
-        rwResult.ShouldNotBeOfType<UpToDate>();
+        var rwResult = await factory.ReadWrite.ReadItemAsync(42);
+        rwResult.ShouldBeUnionCase<Stale>();
     }
 
     [Fact]
@@ -49,10 +51,10 @@ public class SyncCoordinatorFactoryTests
             .InState("Active")
             .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-5))
             .Build();
-        _workItemRepo.GetByIdAsync(42).Returns(item);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        // After clamping, RO TTL = 10, so 5-min-old item is still fresh
-        var roResult = await factory.ReadOnly.SyncItemAsync(42);
+        // After clamping, RO TTL = 10, so the 5-min-old item still reads as fresh.
+        var roResult = await factory.ReadOnly.ReadItemAsync(42);
         roResult.ShouldBeUnionCase<UpToDate>();
     }
 
@@ -64,10 +66,10 @@ public class SyncCoordinatorFactoryTests
             .InState("Active")
             .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-5))
             .Build();
-        _workItemRepo.GetByIdAsync(42).Returns(item);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var roResult = await factory.ReadOnly.SyncItemAsync(42);
-        var rwResult = await factory.ReadWrite.SyncItemAsync(42);
+        var roResult = await factory.ReadOnly.ReadItemAsync(42);
+        var rwResult = await factory.ReadWrite.ReadItemAsync(42);
 
         roResult.ShouldBeUnionCase<UpToDate>();
         rwResult.ShouldBeUnionCase<UpToDate>();
@@ -81,7 +83,7 @@ public class SyncCoordinatorFactoryTests
             .InState("Active")
             .LastSyncedAt(DateTimeOffset.UtcNow.AddSeconds(-1))
             .Build();
-        _workItemRepo.GetByIdAsync(42).Returns(item);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var fetched = new WorkItemBuilder(42, "Item").InState("Active").Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);

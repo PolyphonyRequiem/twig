@@ -108,15 +108,31 @@ public sealed class RefreshOrchestrator(
     /// iteration's <c>GetOrphanParentIdsAsync</c>, and breaking on an empty write would leave the
     /// hierarchy half-hydrated whenever the user happened to have an ancestor staged.
     /// </para>
+    /// <para>
+    /// <b>But a fully-protected level makes no progress.</b> <c>GetOrphanParentIdsAsync</c> finds
+    /// parent ids with no <c>work_items</c> row; a protected ancestor is never written, so it stays
+    /// an orphan and the next iteration returns the same id — re-fetching it from ADO each time
+    /// until the 5-level cap stops the loop. Correctness is unaffected (the guard is doing its
+    /// job), but the cap would be silently absorbing up to four redundant round-trips. Tracking
+    /// the ids already seen ends the walk as soon as a level adds nothing new, which is the honest
+    /// termination condition: progress means <i>new</i> ancestors, not written ones.
+    /// </para>
     /// </remarks>
     public async Task HydrateAncestorsAsync(CancellationToken ct = default)
     {
+        var seen = new HashSet<int>();
+
         for (var level = 0; level < 5; level++)
         {
             var orphanIds = await workItemRepo.GetOrphanParentIdsAsync(ct);
             if (orphanIds.Count == 0) break;
 
-            var ancestors = await adoService.FetchBatchAsync(orphanIds, ct);
+            // A level that surfaces no id we have not already fetched cannot make progress —
+            // every remaining orphan is one a protected write deliberately left in place.
+            var unseen = orphanIds.Where(seen.Add).ToList();
+            if (unseen.Count == 0) break;
+
+            var ancestors = await adoService.FetchBatchAsync(unseen, ct);
             if (ancestors.Count == 0) break;
 
             await protectedCacheWriter.SaveBatchProtectedAsync(ancestors, ct);

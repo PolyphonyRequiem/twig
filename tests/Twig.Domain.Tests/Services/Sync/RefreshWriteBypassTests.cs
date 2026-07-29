@@ -293,4 +293,67 @@ public class RefreshWriteBypassTests
             Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 6)),
             Arg.Any<CancellationToken>());
     }
+
+    /// <summary>
+    /// Termination must not silently rely on the 5-level cap. A fully-protected level leaves its
+    /// orphan in place by design, so <c>GetOrphanParentIdsAsync</c> keeps returning the same id;
+    /// without a seen-set the loop re-fetches it from ADO on every remaining level.
+    /// </summary>
+    [Fact]
+    public async Task HydrateAncestors_FullyProtectedLevel_DoesNotRefetchTheSameAncestorRepeatedly()
+    {
+        GivenProtectedItem(5, localRevision: 4);
+
+        // The orphan never resolves, because the protected write deliberately skips it.
+        _workItemRepo.GetOrphanParentIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<int>>(new[] { 5 }));
+        _adoService.FetchBatchAsync(
+                Arg.Is<IReadOnlyList<int>>(ids => ids.Contains(5)), Arg.Any<CancellationToken>())
+            .Returns(new[] { RemoteAt(5, revision: 11) });
+
+        await _orchestrator.HydrateAncestorsAsync();
+
+        await _adoService.Received(1).FetchBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Contains(5)), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The seen-set must not cost hydration its job: distinct ancestors at successive levels are
+    /// still walked. Without this control, "fetch nothing after level 1" would satisfy the guard
+    /// above.
+    /// </summary>
+    [Fact]
+    public async Task HydrateAncestors_DistinctAncestorPerLevel_StillWalksEveryLevel()
+    {
+        var callCount = 0;
+        _workItemRepo.GetOrphanParentIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                return callCount switch
+                {
+                    1 => Task.FromResult<IReadOnlyList<int>>(new[] { 5 }),
+                    2 => Task.FromResult<IReadOnlyList<int>>(new[] { 6 }),
+                    3 => Task.FromResult<IReadOnlyList<int>>(new[] { 7 }),
+                    _ => Task.FromResult<IReadOnlyList<int>>(Array.Empty<int>()),
+                };
+            });
+        foreach (var id in new[] { 5, 6, 7 })
+        {
+            var captured = id;
+            _adoService.FetchBatchAsync(
+                    Arg.Is<IReadOnlyList<int>>(ids => ids.Contains(captured)), Arg.Any<CancellationToken>())
+                .Returns(new[] { new WorkItemBuilder(captured, $"Ancestor{captured}").Build() });
+        }
+
+        await _orchestrator.HydrateAncestorsAsync();
+
+        foreach (var id in new[] { 5, 6, 7 })
+        {
+            var captured = id;
+            await _workItemRepo.Received().SaveBatchAsync(
+                Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == captured)),
+                Arg.Any<CancellationToken>());
+        }
+    }
 }

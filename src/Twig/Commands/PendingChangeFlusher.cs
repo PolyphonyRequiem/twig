@@ -140,33 +140,56 @@ public sealed class PendingChangeFlusher(
 
                     await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, fieldChanges, remote.Revision, ct);
                     totalFieldChanges += fieldChanges.Count;
+                    await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "field", ct);
                 }
 
                 // Post-push resync. Wayfinder 0004 slice 5: this used to clear every remaining
                 // pending row and then write the fetched remote with a raw SaveAsync — around
                 // the resolver, five lines below a field-change path that goes through it.
                 //
-                // Anything still staged at this point was NOT pushed: a row of an unrecognised
-                // change type, or an edit staged concurrently with this flush. Clearing and
-                // overwriting destroyed it silently, which is the coercion 0003 §4 forbids.
-                // The resync now goes THROUGH the resolver: what is still staged forms the merge
-                // base, and only once that is resolved is the row cleared and the cache written.
+                // The guard is "is anything still staged that this flush did NOT push?", NOT
+                // "is there a conflict?". Those are different questions and the difference was a
+                // live defect: ConflictResolutionFlow returns Proceed whenever three-way merge
+                // finds no conflict, and a change type outside field/state/set_field contributes
+                // no merge base at all (MergeBase skips it), so it can never produce one. Keying
+                // the clear off the resolver's outcome therefore left exactly the case this
+                // comment claims to protect — an unrecognised staged row — still being destroyed.
+                //
+                // Rows this flush just pushed are excluded by value: a store re-read may still
+                // report them (they were cleared a statement ago, and ADO echoes the same field
+                // back normalised), and re-litigating a write that already succeeded would
+                // re-prompt the user to resolve their own edit.
+                var pushedFields = new HashSet<string>(
+                    fieldChanges.Select(f => f.FieldName), StringComparer.OrdinalIgnoreCase);
+
+                var unpushed = (await pendingChangeStore.GetChangesAsync(item.Id, ct))
+                    .Where(c => !string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                    .Where(c => c.FieldName is null || !pushedFields.Contains(c.FieldName))
+                    .ToList();
+
                 var updated = await adoService.FetchAsync(item.Id, ct);
 
-                var resyncOutcome = await ConflictResolutionFlow.ResolveAsync(
-                    item, updated, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
-                    $"#{item.Id} synced from remote. Pending changes discarded.",
-                    onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id, ct),
-                    ct: ct);
-
-                if (resyncOutcome == ConflictOutcome.ConflictJsonEmitted)
+                if (unpushed.Count > 0)
                 {
-                    failures.Add(new FlushItemFailure(item.Id, "Unresolved conflict on post-push resync (JSON emitted)."));
+                    var resyncOutcome = await ConflictResolutionFlow.ResolveAsync(
+                        item, updated, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+                        $"#{item.Id} synced from remote. Pending changes discarded.",
+                        onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id, ct),
+                        ct: ct);
+
+                    if (resyncOutcome == ConflictOutcome.ConflictJsonEmitted)
+                    {
+                        failures.Add(new FlushItemFailure(item.Id, "Unresolved conflict on post-push resync (JSON emitted)."));
+                        continue;
+                    }
+
+                    // AcceptedRemote already cleared the rows and wrote the remote, by the user's
+                    // explicit choice. Aborted leaves everything alone. Proceed with rows still
+                    // staged means the staged edit STANDS, so overwriting the cache with remote
+                    // would discard it as silently as the code this replaced. In every case the
+                    // item keeps its pending state and is not counted as flushed.
                     continue;
                 }
-
-                if (resyncOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
-                    continue;
 
                 await pendingChangeStore.ClearChangesAsync(item.Id, ct);
                 await workItemRepo.SaveAsync(updated, ct);

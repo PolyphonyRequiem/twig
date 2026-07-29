@@ -228,7 +228,7 @@ internal static class CommandExamples
         ["sync"] =
         [
             "twig sync                  Sync the working set from ADO",
-            "twig sync --force          Force a full resync, bypassing the cache",
+            "twig sync --pull-only      Skip the flush phase and only pull from ADO",
         ],
         ["workspace"] =
         [

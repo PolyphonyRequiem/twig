@@ -251,13 +251,22 @@ public class RefreshOrchestratorTests
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// The walk is bounded. Originally this pinned the 5-level cap by feeding the same orphan id
+    /// forever; wayfinder 0004 slice 5 added a seen-set, so a repeated id now ends the walk
+    /// immediately and the cap is no longer what stops it. Feeding a DISTINCT id per level keeps
+    /// the original intent — the cap, not the data, is the bound — and
+    /// <c>RefreshWriteBypassTests.HydrateAncestors_FullyProtectedLevel_...</c> covers the repeat.
+    /// </summary>
     [Fact]
     public async Task HydrateAncestors_CapsAt5Levels()
     {
+        var next = 900;
         _workItemRepo.GetOrphanParentIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<int>>(new[] { 999 }));
+            .Returns(_ => Task.FromResult<IReadOnlyList<int>>(new[] { next++ }));
         _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { new WorkItemBuilder(999, "Phantom").Build() });
+            .Returns(ci => ci.Arg<IReadOnlyList<int>>()
+                .Select(id => new WorkItemBuilder(id, "Phantom").Build()).ToList());
 
         await _orchestrator.HydrateAncestorsAsync();
 

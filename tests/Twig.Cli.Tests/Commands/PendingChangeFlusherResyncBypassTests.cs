@@ -179,6 +179,98 @@ public sealed class PendingChangeFlusherResyncBypassTests
     }
 
     /// <summary>
+    /// The case the source comment claims to protect, and the one the first fix did NOT: a staged
+    /// row of a change type the push loop does not recognise.
+    /// </summary>
+    /// <remarks>
+    /// This is the defect both reviewers found. Keying the resync's clear-and-overwrite off
+    /// <c>ConflictResolutionFlow</c>'s outcome asks "is there a conflict?", but an unrecognised
+    /// change type contributes NO merge base (<c>MergeBase.FromPendingChanges</c> skips any type
+    /// outside field/state/set_field), so <c>ThreeWayMerge</c> can never report one — it returns
+    /// <c>Proceed</c>, which fell straight through to the blind clear. The guard is now "is
+    /// anything still staged?", which is the question the resync actually needs answered.
+    /// </remarks>
+    [Fact]
+    public async Task Resync_WithUnrecognisedStagedChangeType_DoesNotClearOrOverwrite()
+    {
+        var local = CreateWorkItem(1, "Local Title");
+        local.MarkSynced(3);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(local);
+
+        var remote = CreateWorkItem(1, "Remote Title");
+        remote.MarkSynced(9);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        // "link" is neither a note nor a field-change type. It is never pushed, contributes no
+        // merge base, and therefore can never produce a conflict — so an outcome-keyed guard
+        // would let the blind clear-and-overwrite destroy it.
+        var unrecognised = new PendingChangeRecord(1, "link", null, null, "vstfs://some/artifact");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { unrecognised });
+
+        var result = await CreateFlusher().FlushAsync([1]);
+
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        result.ItemsFlushed.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// A successfully pushed field edit must not be re-litigated by the resync. ADO normalises
+    /// values on write (AssignedTo, IterationPath, HTML fields), so if the pushed rows are still
+    /// staged when the resync builds its merge base, the round-tripped remote value no longer
+    /// matches the staged intent — manufacturing a conflict on an edit that just succeeded, and
+    /// re-prompting the user to resolve it. Clearing pushed rows at the push closes that.
+    /// </summary>
+    [Fact]
+    public async Task Resync_AfterASuccessfulPush_DoesNotRePromptOnTheNormalisedRemote()
+    {
+        var local = CreateWorkItem(1, "Local Title");
+        local.MarkSynced(3);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(local);
+
+        // The store keeps reporting the pushed row — exactly what a real store does between the
+        // clear and the next read, and what ADO's normalised echo would re-stage. The resync must
+        // exclude it BY VALUE (it is a field this flush pushed), not trust the re-read.
+        var staged = new PendingChangeRecord(1, "field", "System.AssignedTo", "old@x", "New User");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { staged });
+
+        // ADO echoes the edit back NORMALISED — a display name resolved to a different form.
+        // The LOCAL mirror already carries the user's intent, so the field-change path's own
+        // resolve sees no divergence and does not prompt; only the resync could, and must not.
+        var remote = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = "Local Title",
+            State = "New",
+            AssignedTo = "New User <new@x>",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        remote.MarkSynced(9);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(),
+                Arg.Any<CancellationToken>())
+            .Returns(10);
+
+        // Keep local on the field-change path's prompt, so the push proceeds and control reaches
+        // the resync. The resync must then NOT ask again about the same field.
+        _consoleInput.ReadLine().Returns("l");
+
+        var result = await CreateFlusher().FlushAsync([1]);
+
+        // Asked at most ONCE — by the field-change path. A second prompt would be the resync
+        // re-litigating a write that already succeeded.
+        _consoleInput.Received(1).ReadLine();
+        await _pendingChangeStore.Received().ClearChangesByTypeAsync(1, "field", Arg.Any<CancellationToken>());
+        result.FieldChangesPushed.ShouldBe(1);
+        result.ItemsFlushed.ShouldBe(1);
+    }
+
+    /// <summary>
     /// The user can still choose to discard: answering "remote" clears the staged rows and takes
     /// the remote snapshot. The point of the slice is that this is now a decision, not a default.
     /// Same concurrent-stage fixture as above — see its remarks for why a plainly staged field

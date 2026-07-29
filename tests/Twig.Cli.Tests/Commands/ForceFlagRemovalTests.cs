@@ -62,28 +62,43 @@ public sealed class ForceFlagRemovalTests
     }
 
     /// <summary>
-    /// The user-facing string that advertised the flag must not survive it. Leaving it would tell
-    /// the user to run a command that now errors, so it is asserted on the emitted metadata rather
-    /// than left to code review.
+    /// The user-facing strings that advertised the flag must not survive it. Leaving one would
+    /// tell the user to run a command that now errors, so it is asserted on the emitted metadata
+    /// rather than left to code review.
     /// </summary>
+    /// <remarks>
+    /// <b>Both byte alignments must be scanned.</b> Strings live in the assembly's <c>#US</c> heap
+    /// at arbitrary byte offsets, so decoding the file as UTF-16LE from offset 0 alone sees only
+    /// the strings that happen to land on an even boundary and is silently blind to the rest. The
+    /// first version of this test did exactly that: its positive control sat on an even offset and
+    /// passed, while a live <c>"twig sync --force"</c> in <see cref="CommandExamples"/> sat on an
+    /// odd one and went undetected through a full green suite. Scanning offset 0 and offset 1
+    /// covers both cases.
+    /// </remarks>
     [Fact]
     public void NoUserFacingStringStillAdvertisesTheDeletedFlag()
     {
         var assemblyPath = typeof(RefreshCommand).Assembly.Location;
         assemblyPath.ShouldNotBeNullOrEmpty();
 
-        // User-visible literals are stored in the assembly's #US heap, so a byte scan of the
-        // compiled output catches the advertisement wherever in the command it lives.
         var bytes = File.ReadAllBytes(assemblyPath);
-        var utf16 = System.Text.Encoding.Unicode.GetString(bytes);
+        var atEvenOffsets = System.Text.Encoding.Unicode.GetString(bytes);
+        var atOddOffsets = System.Text.Encoding.Unicode.GetString(bytes, 1, bytes.Length - 1);
 
-        utf16.Contains("twig sync --force", StringComparison.Ordinal).ShouldBeFalse(
-            "the conflict warning used to read \"use 'twig sync --force' to overwrite\"; it now " +
-            "points at 'twig sync' and 'twig edit <id>' because --force no longer parses");
+        bool Present(string needle) =>
+            atEvenOffsets.Contains(needle, StringComparison.Ordinal)
+            || atOddOffsets.Contains(needle, StringComparison.Ordinal);
+
+        foreach (var advertisement in new[] { "twig sync --force", "twig refresh --force" })
+        {
+            Present(advertisement).ShouldBeFalse(
+                $"'{advertisement}' is advertised in a user-facing string but no longer parses; " +
+                "guidance must point at 'twig sync' and 'twig edit <id>' instead");
+        }
 
         // Positive control: the replacement text IS present, so a scan that silently found
-        // nothing (wrong encoding, wrong file) cannot pass this test.
-        utf16.Contains("twig edit <id>", StringComparison.Ordinal).ShouldBeTrue(
+        // nothing (wrong encoding, wrong file, wrong alignment) cannot pass this test.
+        Present("twig edit <id>").ShouldBeTrue(
             "the replacement guidance must actually be in the shipped assembly");
     }
 }

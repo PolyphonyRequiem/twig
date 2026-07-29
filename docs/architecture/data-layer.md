@@ -236,11 +236,15 @@ full workspace refreshes:
 
 1. Executes WIQL to get sprint item IDs.
 2. Cleanses phantom dirty flags (`ClearPhantomDirtyFlagsAsync`).
-3. Computes protected IDs via `SyncGuard` (unless `--force`).
+3. Computes protected IDs via `SyncGuard`. There is no bypass — wayfinder 0004 slice 5
+   deleted `--force`; overwriting a protected item is a resolution outcome reached through
+   the resolver, never a flag that goes around it.
 4. Fetches sprint items, active item, and children concurrently.
 5. Detects revision conflicts (remote revision > local revision on protected items).
-6. Saves through `ProtectedCacheWriter` (or raw save if `--force`).
-7. Hydrates ancestor chains iteratively (up to 5 levels).
+6. Saves through `ProtectedCacheWriter` — the only save path.
+7. Hydrates ancestor chains iteratively (up to 5 levels), also through `ProtectedCacheWriter`.
+   Until 0004 slice 5 this step used an unguarded batch save and clobbered staged edits on
+   parent items on the DEFAULT path, with no flag involved.
 8. Syncs the working set via `SyncCoordinatorPair.ReadWrite`.
 
 ### Push-on-Write: PendingChangeFlusher
@@ -250,10 +254,15 @@ changes to ADO:
 
 1. Iterates dirty item IDs.
 2. Separates pending changes into **field changes** and **notes**.
-3. For field changes: fetches the remote item, runs `ConflictResolutionFlow`, then
-   calls `ConflictRetryHelper.PatchWithRetryAsync`.
+3. For field changes: fetches the remote item, runs `ConflictResolutionFlow`, calls
+   `ConflictRetryHelper.PatchWithRetryAsync`, then clears the rows it just pushed.
 4. For notes: posts comments directly (notes are additive and skip conflict resolution).
-5. Post-push: clears pending changes, re-fetches the item, and updates the cache.
+5. Post-push resync: re-fetches the item. If anything is still staged that this flush did
+   **not** push — a change type the push loop does not recognise, or an edit staged
+   concurrently — the resync goes through `ConflictResolutionFlow` and the item keeps its
+   pending state. Only when nothing unpushed remains are the rows cleared and the cache
+   written. Until 0004 slice 5 this step cleared and overwrote unconditionally, destroying
+   such rows silently (the coercion 0003 §4 forbids).
 6. Continues past individual failures, collecting them in `FlushResult.Failures`.
 
 ### Conflict Resolution

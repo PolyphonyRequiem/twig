@@ -325,8 +325,15 @@ public sealed class McpPendingChangeFlusherTests
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// #329: a note row with a null <c>NewValue</c> is skipped by the push loop, so nothing is
+    /// posted for it and <c>ClearChangesByTypeAsync(id, "note")</c> never runs — yet the pre-fix
+    /// blanket clear destroyed it anyway. Inverted from the pre-#329 assertion (which asserted
+    /// the item WAS flushed) so the fixture's coverage of the unpostable-note path survives as
+    /// a guard rather than enshrining the loss.
+    /// </summary>
     [Fact]
-    public async Task FlushAllAsync_NoteWithNullNewValue_Skipped()
+    public async Task FlushAllAsync_NoteWithNullNewValue_NotPushed_LeftStagedAndReported()
     {
         var item = new WorkItemBuilder(1, "Title").Build();
         item.MarkSynced(5);
@@ -341,13 +348,24 @@ public sealed class McpPendingChangeFlusherTests
 
         var result = await CreateFlusher().FlushAllAsync();
 
-        result.Flushed.ShouldBe(1);
+        result.Flushed.ShouldBe(0);
+        result.Failed.ShouldBe(1);
+        result.Failures[0].WorkItemId.ShouldBe(1);
+
         await _adoService.DidNotReceive().AddCommentAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// #329: a row with a null <c>FieldName</c> is never turned into a <c>FieldChange</c>, so
+    /// nothing is pushed for it. The old code then cleared it anyway and overwrote the cache.
+    /// Inverted from the pre-#329 assertion (which asserted the item WAS flushed) so the
+    /// fixture's coverage of the malformed-row path survives as a guard.
+    /// </summary>
     [Fact]
-    public async Task FlushAllAsync_FieldChangeWithNullFieldName_Skipped()
+    public async Task FlushAllAsync_FieldChangeWithNullFieldName_NotPushed_LeftStagedAndReported()
     {
         var item = new WorkItemBuilder(1, "Title").Build();
         item.MarkSynced(5);
@@ -362,10 +380,14 @@ public sealed class McpPendingChangeFlusherTests
 
         var result = await CreateFlusher().FlushAllAsync();
 
-        // Item should still be counted as flushed (the malformed change is skipped)
-        result.Flushed.ShouldBe(1);
+        result.Flushed.ShouldBe(0);
+        result.Failed.ShouldBe(1);
+        result.Failures[0].WorkItemId.ShouldBe(1);
+
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -441,7 +463,42 @@ public sealed class McpPendingChangeFlusherTests
 
         result.Flushed.ShouldBe(0);
         result.Failed.ShouldBe(1);
-        result.Failures[0].Reason.ShouldBe("Network error");
+
+        // The field patch reached ADO before the resync fetch threw, so the reason must say so:
+        // "the remote was updated but the local resync failed" needs different remediation from
+        // "nothing happened", and a bare store/network message cannot express the difference.
+        result.Failures[0].Reason
+            .Contains("pushed to Azure DevOps", StringComparison.Ordinal)
+            .ShouldBeTrue($"Expected a half-applied-flush reason, got: {result.Failures[0].Reason}");
+        result.Failures[0].Reason
+            .Contains("Network error", StringComparison.Ordinal)
+            .ShouldBeTrue($"Expected the underlying error preserved, got: {result.Failures[0].Reason}");
+    }
+
+    /// <summary>
+    /// The half-applied-flush prefix must NOT appear when nothing reached ADO — otherwise it is
+    /// noise that would mislead the caller in the common failure case.
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_PushItselfFails_ReasonIsBareErrorWithNoPushedPrefix()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var remote = new WorkItemBuilder(1, "Title").Build();
+        remote.MarkSynced(5);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Patch exploded"));
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        result.Failed.ShouldBe(1);
+        result.Failures[0].Reason.ShouldBe("Patch exploded");
     }
 
     [Fact]
@@ -519,6 +576,255 @@ public sealed class McpPendingChangeFlusherTests
         result.Failures[0].Reason.ShouldBe("Error 1");
         result.Failures[1].WorkItemId.ShouldBe(2);
         result.Failures[1].Reason.ShouldBe("Error 2");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  #329: post-push resync must not destroy unpushed staged rows
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Loss case 1 from #329: a staged row that the push loop recognises as neither a note nor a
+    /// field patch is never pushed, and the pre-fix resync cleared it unconditionally and
+    /// overwrote the cache with remote.
+    /// <para>
+    /// Note the precise mechanism: the push loop routes ANY non-note row carrying a
+    /// <c>FieldName</c> into <c>fieldChanges</c> regardless of its change type, so it is the
+    /// null <c>FieldName</c> — not the unrecognised type — that makes this row unpushable. The
+    /// "relation" type here is representative of how such a row arises in practice, not the
+    /// mechanism under test.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_UnrecognisedChangeType_NotPushed_LeftStagedAndReported()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var remote = new WorkItemBuilder(1, "Title").Build();
+        remote.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Remote Title").Build();
+        updated.MarkSynced(9);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+
+        // "relation" carries no FieldName, so the push loop recognises neither category.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "relation", null, null, "parent:42") });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        result.Flushed.ShouldBe(0);
+        result.Failed.ShouldBe(1);
+        result.Failures[0].WorkItemId.ShouldBe(1);
+        result.Failures[0].Reason
+            .Contains("staged change", StringComparison.Ordinal)
+            .ShouldBeTrue($"Expected an unpushed-rows reason, got: {result.Failures[0].Reason}");
+
+        // The staged row survives and the cache is not overwritten with remote.
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Loss case 2 from #329: pending rows are read once at the top of the loop, so a row staged
+    /// AFTER that read was destroyed by the unconditional clear. The store re-read models the
+    /// concurrent write by returning an extra row on the second call.
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_RowStagedDuringFlush_SurvivesAndIsReported()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var remote = new WorkItemBuilder(1, "Title").Build();
+        remote.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Updated").Build();
+        updated.MarkSynced(6);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        // First read: only the Title edit. Second read (the resync guard): a Description edit
+        // landed concurrently, after the push loop had already built its field list.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new[] { new PendingChangeRecord(1, "field", "System.Title", "Title", "Updated") },
+                _ => new[]
+                {
+                    new PendingChangeRecord(1, "field", "System.Title", "Title", "Updated"),
+                    new PendingChangeRecord(1, "field", "System.Description", "old", "concurrent edit"),
+                });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        // The Title edit DID reach ADO — that push is not undone.
+        await _adoService.Received(1).PatchAsync(
+            1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
+
+        result.Flushed.ShouldBe(0);
+        result.Failed.ShouldBe(1);
+        result.Failures[0].WorkItemId.ShouldBe(1);
+
+        // The concurrent Description edit is not destroyed, and the cache is not overwritten.
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+
+        // Precondition (AGENTS.md): the two-value .Returns sequence above only models a
+        // concurrent write if the store is read EXACTLY twice — once at the top of the loop and
+        // once by the resync guard. NSubstitute repeats its last value, so a third read (or a
+        // removed guard read) would silently degrade this fixture into the happy path.
+        await _pendingChangeStore.Received(2).GetChangesAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The guard excludes rows this flush pushed BY VALUE (field name, ordinal-ignore-case), not by
+    /// trusting the clear to be reflected in a re-read. A store that still echoes the pushed row —
+    /// with the value ADO normalised it to — must not be mistaken for an unpushed edit.
+    /// <para>
+    /// NOT a regression test for #329: the pre-fix code also flushed here, unconditionally. This
+    /// guards the FIX against over-firing — a guard that blocked on an echoed row would
+    /// manufacture a failure on an edit that already succeeded.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_StoreStillEchoesPushedRow_StillCountsAsFlushed()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var remote = new WorkItemBuilder(1, "Title").Build();
+        remote.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Updated").Build();
+        updated.MarkSynced(6);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new[] { new PendingChangeRecord(1, "field", "System.AssignedTo", null, "alice") },
+                // Same field, different casing on the name and an ADO-normalised value.
+                _ => new[] { new PendingChangeRecord(1, "field", "system.assignedto", null, "Alice <alice@x>") });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        result.Flushed.ShouldBe(1);
+        result.Failed.ShouldBe(0);
+        await _pendingChangeStore.Received(1).ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+
+        // Precondition (AGENTS.md): the echo is only modelled if the store is read exactly twice.
+        await _pendingChangeStore.Received(2).GetChangesAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A note this flush actually posted must not be mistaken for an unpushed change: the guard
+    /// excludes it by BODY, so a store that still echoes the posted note cannot block the resync.
+    /// <para>
+    /// NOT a regression test for #329: the pre-fix code also flushed here. This guards the FIX
+    /// against over-firing on a note that did reach ADO.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_StoreStillEchoesPushedNote_StillCountsAsFlushed()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Title").Build();
+        updated.MarkSynced(5);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(updated);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "note", null, null, "A note") });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        result.Flushed.ShouldBe(1);
+        result.Failed.ShouldBe(0);
+        await _adoService.Received(1).AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received(1).ClearChangesAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Rows pushed by the field path are cleared type-scoped AT the push, so the resync guard
+    /// sees only genuinely unpushed rows rather than relying on the terminal blanket clear.
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_FieldPush_ClearsFieldRowsAtThePush()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var remote = new WorkItemBuilder(1, "Title").Build();
+        remote.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Updated").Build();
+        updated.MarkSynced(6);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Title", "Updated") });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        result.Flushed.ShouldBe(1);
+        await _pendingChangeStore.Received(1).ClearChangesByTypeAsync(1, "field", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Loss case 2 from #329, for NOTES. A note staged after the read at the top of the loop is
+    /// invisible to the push loop, so it is never posted to ADO. Excluding notes from the guard
+    /// by TYPE rather than by body would drop it from the unpushed set and the blanket clear
+    /// would destroy it — re-opening the defect for notes. Both review axes caught this.
+    /// </summary>
+    [Fact]
+    public async Task FlushAllAsync_NoteStagedDuringFlush_SurvivesAndIsReported()
+    {
+        var item = new WorkItemBuilder(1, "Title").Build();
+        item.MarkSynced(5);
+        var updated = new WorkItemBuilder(1, "Title").Build();
+        updated.MarkSynced(5);
+
+        SetupDirtyIds(1);
+        SetupItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(updated);
+
+        // First read: one note. Second read (guard): a second note landed concurrently, after
+        // the push loop had already built its note list from the stale first read.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new[] { new PendingChangeRecord(1, "note", null, null, "First note") },
+                _ => new[]
+                {
+                    new PendingChangeRecord(1, "note", null, null, "First note"),
+                    new PendingChangeRecord(1, "note", null, null, "Concurrent note"),
+                });
+
+        var result = await CreateFlusher().FlushAllAsync();
+
+        // The first note DID reach ADO; the concurrent one was never posted.
+        await _adoService.Received(1).AddCommentAsync(1, "First note", Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddCommentAsync(1, "Concurrent note", Arg.Any<CancellationToken>());
+
+        result.Flushed.ShouldBe(0);
+        result.Failed.ShouldBe(1);
+        result.Failures[0].WorkItemId.ShouldBe(1);
+
+        // The concurrent note is not destroyed and the cache is not overwritten.
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+
+        // Precondition (AGENTS.md): the sequence only models a concurrent write on exactly two reads.
+        await _pendingChangeStore.Received(2).GetChangesAsync(1, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════

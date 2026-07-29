@@ -178,7 +178,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([updatedSeed]);
 
         var orchestrator = new SeedDiscardOrchestrator(
-            _workItemRepo, seedLinkRepo, _contextStore);
+            _workItemRepo, seedLinkRepo, _contextStore, Substitute.For<IPendingChangeStore>());
 
         var seedDiscardCmd = new SeedDiscardCommand(
             _workItemRepo, orchestrator, _consoleInput, _formatterFactory);
@@ -316,7 +316,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
             _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer);
+            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null);
 
         var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
         var publishWriter = new StringWriter();
@@ -375,7 +375,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
             _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer);
+            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null);
 
         var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
         var publishWriter = new StringWriter();

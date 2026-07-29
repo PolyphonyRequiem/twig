@@ -42,7 +42,9 @@ public class SeedPublishOrchestratorTests
             _publishIdMapRepo,
             _rulesProvider,
             _unitOfWork,
-            backlogOrderer);
+            backlogOrderer,
+            Substitute.For<IPendingChangeStore>(),
+            null);
     }
 
     // ═══════════════════════════════════════════════════════════════

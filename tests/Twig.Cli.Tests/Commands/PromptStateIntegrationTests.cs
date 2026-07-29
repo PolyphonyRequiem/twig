@@ -152,7 +152,8 @@ public class PromptStateIntegrationTests : IDisposable
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, promptStateWriter: writer));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, promptStateWriter: writer),
+            _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("Resolved");
 
@@ -292,7 +293,8 @@ public class PromptStateIntegrationTests : IDisposable
             _workItemRepo, _adoService, _pendingChangeStore, writer);
         var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
             _consoleInput, _fieldDefinitionStore, _formatterFactory,
-            new SeedMutationProvider(_workItemRepo), fieldUpdateWorkflow, writer);
+            new SeedMutationProvider(_workItemRepo), fieldUpdateWorkflow, _pendingChangeStore,
+            promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 

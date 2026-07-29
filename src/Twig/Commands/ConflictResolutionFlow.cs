@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Reconciliation;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 
@@ -19,14 +20,23 @@ internal enum ConflictOutcome
 }
 
 /// <summary>
-/// Encapsulates the CLI-layer conflict resolution orchestration shared by
-/// StateCommand and UpdateCommand.
+/// Encapsulates the CLI-layer conflict resolution orchestration shared by the six
+/// mutation commands.
 /// </summary>
+/// <remarks>
+/// Wayfinder 0004 slice 3 routed this through
+/// <see cref="ThreeWayMerge"/> rather than two-way <see cref="ConflictResolver"/>. The
+/// <paramref name="pendingChangeStore"/> is REQUIRED, not optional, for the same reason 0004 §4
+/// deleted the nullable <c>IPendingChangeStore?</c> overloads: the merge base is what makes the
+/// merge correct, so a caller that cannot supply one must fail to compile rather than silently
+/// degrade to comparing the cache mirror against remote — two snapshots of the same side.
+/// </remarks>
 internal static class ConflictResolutionFlow
 {
     /// <summary>
-    /// Detects conflicts between <paramref name="local"/> and <paramref name="remote"/>,
-    /// prompts the user if needed, and applies the resolution.
+    /// Detects conflicts between <paramref name="local"/> and <paramref name="remote"/> against
+    /// the durable merge base for the item, prompts the user if a genuine conflict remains, and
+    /// applies the resolution.
     /// </summary>
     internal static async Task<ConflictOutcome> ResolveAsync(
         WorkItem local,
@@ -35,10 +45,17 @@ internal static class ConflictResolutionFlow
         string outputFormat,
         IConsoleInput consoleInput,
         IWorkItemRepository workItemRepo,
+        IPendingChangeStore pendingChangeStore,
         string acceptRemoteMessage,
-        Func<Task>? onAcceptRemote = null)
+        Func<Task>? onAcceptRemote = null,
+        CancellationToken ct = default)
     {
-        var mergeResult = ConflictResolver.Resolve(local, remote);
+        ArgumentNullException.ThrowIfNull(pendingChangeStore);
+
+        var staged = await pendingChangeStore.GetChangesAsync(local.Id, ct);
+        var mergeBase = MergeBase.FromPendingChanges(staged);
+
+        var mergeResult = ThreeWayMerge.Resolve(local, remote, mergeBase);
         if (mergeResult is not HasConflicts conflicts)
             return ConflictOutcome.Proceed;
 

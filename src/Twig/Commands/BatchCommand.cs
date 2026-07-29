@@ -373,8 +373,8 @@ public sealed class BatchCommand(
         {
             // Single-item: interactive conflict resolution
             var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-                item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-                $"#{item.Id} updated from remote.");
+                item, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+                $"#{item.Id} updated from remote.", ct: ct);
 
             if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
                 return new BatchItemResult(item.Id, item.Title, false, "Conflict detected (JSON emitted).", null, null, 0);

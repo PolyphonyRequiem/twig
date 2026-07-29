@@ -33,6 +33,7 @@ public sealed class UpdateCommand(
     OutputFormatterFactory formatterFactory,
     SeedMutationProvider seedMutationProvider,
     FieldUpdateWorkflow fieldUpdateWorkflow,
+    IPendingChangeStore pendingChangeStore,
     IPromptStateWriter? promptStateWriter = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
@@ -145,8 +146,8 @@ public sealed class UpdateCommand(
         var remote = await adoService.FetchAsync(local.Id);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-            local, remote, fmt, outputFormat, consoleInput, workItemRepo,
-            $"#{local.Id} updated from remote.");
+            local, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+            $"#{local.Id} updated from remote.", ct: ct);
         if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
             return 1;
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)

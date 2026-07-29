@@ -70,15 +70,18 @@ public class ConflictUxTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(6);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local State edit
+        // so remote's move to "Active" genuinely collides instead of auto-merging.
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
 
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -95,15 +98,18 @@ public class ConflictUxTests
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local State edit
+        // so remote's move to "Active" genuinely collides instead of auto-merging.
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
 
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -122,13 +128,17 @@ public class ConflictUxTests
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base.
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.State", "New", "Resolved") });
 
         _consoleInput.ReadLine().Returns("a"); // abort
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c");
 
@@ -147,14 +157,17 @@ public class ConflictUxTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(6);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local Title edit
+        // so remote's "Remote Title" genuinely collides instead of auto-merging.
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title") });
 
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService,
             _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo),
-            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore));
+            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore),
+            _pendingChangeStore);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);
@@ -170,14 +183,17 @@ public class ConflictUxTests
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        // 0004 slice 3: a conflict needs BOTH sides off the base. Stage the local Title edit
+        // so remote's "Remote Title" genuinely collides instead of auto-merging.
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Base Title", "Local Title") });
 
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService,
             _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo),
-            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore));
+            new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(_workItemRepo, _adoService, _pendingChangeStore),
+            _pendingChangeStore);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);

@@ -122,9 +122,10 @@ public sealed class PendingChangeFlusher(
                     var remote = await adoService.FetchAsync(item.Id, ct);
 
                     var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-                        item, remote, fmt, outputFormat, consoleInput, workItemRepo,
+                        item, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
                         $"#{item.Id} synced from remote. Pending changes discarded.",
-                        onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id, ct));
+                        onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id, ct),
+                        ct: ct);
 
                     if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
                     {

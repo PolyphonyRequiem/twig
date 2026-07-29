@@ -35,6 +35,7 @@ public sealed class StateCommand(
     IConsoleInput consoleInput,
     SeedMutationProvider seedMutationProvider,
     StateTransitionWorkflow stateTransitionWorkflow,
+    IPendingChangeStore pendingChangeStore,
     RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stderr = ctx.StderrWriter;
@@ -72,8 +73,8 @@ public sealed class StateCommand(
         var remote = await adoService.FetchAsync(item.Id);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-            item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-            $"#{item.Id} updated from remote.");
+            item, remote, fmt, outputFormat, consoleInput, workItemRepo, pendingChangeStore,
+            $"#{item.Id} updated from remote.", ct: ct);
         if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
             return 1;
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)

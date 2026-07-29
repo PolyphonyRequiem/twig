@@ -8,7 +8,7 @@ blocked_by: [0001]
 
 ## Question
 
-Should local/remote reconciliation become a named module owning the staged → published → reconciled → invalidated lifecycle? Today it is not a named concept: 11 scattered sites across 4 assemblies, and `SeedReconcileOrchestrator` is misleadingly named — it is a seed-ID garbage collector, not local/remote reconciliation. The FK ordering rule that caused #268/#269/#270 lives in FOUR XML doc comments rather than in code, and both seed orchestrators accept `IPendingChangeStore?` as a NULLABLE parameter with legacy overloads, so choosing the wrong constructor silently reintroduces the bugs. Relatedly: `CONTEXT.md` §4 records that `Workspace` names three unrelated things — an overloaded core noun often hides a missing concept, and the missing one may be this.
+Should local/remote reconciliation become a named module owning the staged → published → reconciled → invalidated lifecycle? Today it is not a named concept: 11 scattered sites across 4 assemblies, and `SeedReconcileOrchestrator` is misleadingly named — it is a seed-ID garbage collector, not local/remote reconciliation. The FK ordering rule that caused #268/#269/#270 lives in FOUR XML doc comments rather than in code (**superseded -- see the correction under §4; 0013 made the constraint unexpressible, and the count was three, not four**), and both seed orchestrators accept `IPendingChangeStore?` as a NULLABLE parameter with legacy overloads, so choosing the wrong constructor silently reintroduces the bugs. Relatedly: `CONTEXT.md` §4 records that `Workspace` names three unrelated things — an overloaded core noun often hides a missing concept, and the missing one may be this.
 
 ## Scenario — the named working set (owner, 2026-07-26)
 
@@ -91,6 +91,10 @@ Two structural symptoms confirm the shape is wrong rather than merely untidy:
   step 7 is outside the transaction that rolls back at step 10d, so retry duplicates the
   remote item with no local record. Nothing in twig today is responsible for "the remote
   moved, reconcile it."
+  > **Superseded 2026-07-29.** The FK half of this observation is stale: 0013 made the
+  > constraint *unexpressible*, so it cannot be moved into code. See the correction under §4.
+  > The root-cause half stands unchanged -- #270 is still a reconciliation failure, and this
+  > module still owns it.
 
 **The conflict-resolution half already exists and is good.** `ConflictResolver.Resolve`
 (`src/Twig.Domain/Services/Sync/ConflictResolver.cs:36`) is the one genuinely deep module in
@@ -167,7 +171,9 @@ Owns the four lifecycle transitions and nothing else:
   0003 required -- do not design a second one.**
 - **published -> reconciled** -- remote revision observed, `ConflictResolver` applied.
 - **reconciled -> invalidated** -- remote moved under us; the item re-enters the pending set.
-- The FK ordering rule, **as code** rather than as four XML doc comments.
+- ~~The FK ordering rule, **as code** rather than as four XML doc comments.~~
+  **Struck 2026-07-29 -- satisfied by 0013, and no longer expressible.** See the guardrail
+  note below.
 
 Interface shape follows 0002's mutation-workflow seam: `Validate` -> *(surface interjects)* ->
 `Execute` -> match an outcome union. Reads get the single-method read shape 0002 specified.
@@ -189,6 +195,28 @@ Guardrails, in the language of `codebase-design`:
   (`SyncCoordinator.cs:168`). It discards precisely the remote-side input `ConflictResolver`
   needs. A batch reconcile cannot be built on a cache that throws away what it saw.
 
+**Correction, 2026-07-29 -- the FK guardrail is satisfied and struck.**
+This ticket asserted, in §1 and §4, that "the FK ordering rule lives in four XML doc comments,
+not in code" and required it be expressed **as code**. That premise did not survive
+**wayfinder 0013**, which shipped before this module was built.
+
+0013 moved `pending_changes` into the durable store, and a **cross-file foreign key is
+unexpressible in SQLite**. So `pending_changes.work_item_id -> work_items(id)` is not merely
+removed -- it *cannot be declared*, and therefore cannot be enforced in code either. 0013 §3
+("The FK is deleted, and its prose enforcement with it") rewrote the affected doc comments --
+`IPendingChangeStore.RemapWorkItemIdAsync`, `SeedDiscardOrchestrator:125`, and
+`SeedPublishOrchestrator:250,256` -- to record that the ordering is now **intent, not
+obligation**, and that the orchestrator sequencing remains correct for the
+**data-preservation** reason rather than the constraint reason: clearing or skipping those
+staged rows would fix nothing and would silently destroy an unpushed note.
+
+(This ticket's "four XML doc comments" was itself a miscount -- 0013 enumerates **three**
+comments, one of which carries two call sites.)
+
+Slice 3 deliberately did **not** invent work to satisfy this row. A guardrail whose premise a
+later ruling overturned is stale, not outstanding. Recorded here so it is not re-derived a
+fourth time.
+
 ### 5. Scope: decision only
 
 No code moves in this ticket. Implementation is owned downstream:
@@ -207,5 +235,22 @@ their individual fixes; this ticket records that their shared root cause has an 
 - Whether the pending set is *stored* per-Bench or per-Connection (only the reconciliation
   boundary is settled: per-Connection).
 - Whether `WorkingSet` survives as a Bench's derived projection (`CONTEXT.md` §4, still open).
-- The module's final name. `Sprig` remains reserved for planning-over-seeds and is **not** to
-  be spent here.
+- ~~The module's final name. `Sprig` remains reserved for planning-over-seeds and is **not** to
+  be spent here.~~
+  **Decided 2026-07-29 (owner): the module is named `Reconciliation`.** `Graft` was proposed
+  and rejected -- it muddies the waters, and a module whose name does not match the lifecycle
+  state it produces (`reconciled`) repeats the `SeedReconcileOrchestrator` mistake this ticket
+  exists to undo. **`Sprig` remains reserved and was not spent.**
+
+**Also decided 2026-07-29 (owner), from the slice plan in #321:**
+
+- **`ShowCommand`'s `IPendingChangeStore?` is out of scope.** §4 names the orchestrators. All
+  three of `ShowCommand`'s use sites are *display*: absent, the pending-edit badge is not
+  shown and nothing is corrupted. That is a different class from a dependency whose absence
+  writes wrong data. Reopening condition: if it ever gates a correctness path.
+- **Three-way merge narrows what counts as a conflict.** A field the user never staged no
+  longer prompts; convergent edits are not conflicts. Deliberate, and the point of giving
+  `ConflictResolver` a real merge base.
+- **Removing `force` needs no migration note.** Nobody scripts `twig refresh --force`; it is
+  interactive use only, consistent with 0001's single-user local tool ruling. Slice 5
+  therefore deletes the bypass outright rather than staging a deprecation.

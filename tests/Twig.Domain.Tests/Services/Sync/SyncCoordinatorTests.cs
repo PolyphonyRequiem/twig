@@ -30,19 +30,27 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncItemAsync — fresh item → UpToDate
+    //  SyncItemAsync — an explicit sync fetches regardless of freshness
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Wayfinder 0004 §3 removed the staleness short-circuit: this method is reached only when a
+    /// refresh was asked for, so a fresh cache must not swallow it. Freshness is now reported by
+    /// <see cref="SyncCoordinator.ReadItemAsync"/> — see <c>ReadsDoNotFetchTests</c>.
+    /// </summary>
     [Fact]
-    public async Task SyncItemAsync_FreshItem_ReturnsUpToDate()
+    public async Task SyncItemAsync_FreshItem_StillFetches()
     {
         var item = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-5)).Build();
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeUnionCase<UpToDate>();
-        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(1);
+        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -190,19 +198,25 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncItemAsync — boundary: exactly at stale threshold → UpToDate
+    //  Read boundary: exactly inside the stale threshold → UpToDate
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// The threshold boundary is now a property of the READ shape, not of sync. Kept here
+    /// (rather than deleted with the old sync short-circuit) so the off-by-one at the boundary
+    /// stays covered after wayfinder 0004 §3 moved where it is evaluated.
+    /// </summary>
     [Fact]
-    public async Task SyncItemAsync_ExactlyAtThreshold_ReturnsUpToDate()
+    public async Task ReadItemAsync_ExactlyInsideThreshold_ReturnsUpToDate()
     {
-        // LastSyncedAt is exactly cacheStaleMinutes - 1 second ago → still fresh
+        // LastSyncedAt is cacheStaleMinutes - 1 second ago → still fresh
         var item = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-CacheStaleMinutes).AddSeconds(1)).Build();
-        _workItemRepo.GetByIdAsync(42).Returns(item);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await _sut.SyncItemAsync(42);
+        var result = await _sut.ReadItemAsync(42);
 
         result.ShouldBeUnionCase<UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -261,11 +275,12 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncWorkingSetAsync — all fresh → UpToDate
+    //  SyncWorkingSetAsync — an explicit sync fetches the whole set
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>Wayfinder 0004 §3: freshness no longer gates the fetch (see <c>ReadsDoNotFetchTests</c>).</summary>
     [Fact]
-    public async Task SyncWorkingSetAsync_AllFresh_ReturnsUpToDate()
+    public async Task SyncWorkingSetAsync_AllFresh_StillFetchesAll()
     {
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
         _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
@@ -278,18 +293,25 @@ public class SyncCoordinatorTests
             ChildrenIds = [11, 12],
         };
 
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+        _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(12, "Item 12").InState("Active").Build());
+
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeUnionCase<UpToDate>();
-        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(3);
+        await _adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(12, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncWorkingSetAsync — mix stale/fresh → Updated(staleCount)
+    //  SyncWorkingSetAsync — mixed freshness → every candidate fetched
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>Wayfinder 0004 §3: the stale-only filter is gone; dirty-item protection still applies.</summary>
     [Fact]
-    public async Task SyncWorkingSetAsync_MixStaleFresh_ReturnsUpdatedWithStaleCount()
+    public async Task SyncWorkingSetAsync_MixStaleFresh_FetchesEveryCandidate()
     {
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
@@ -309,11 +331,13 @@ public class SyncCoordinatorTests
             ChildrenIds = [11, 12],
         };
 
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+
         var result = await _sut.SyncWorkingSetAsync(ws);
 
         result.ShouldBeUnionCase<Updated>()
-              .ChangedCount.ShouldBe(2);
-        await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
+              .ChangedCount.ShouldBe(3);
+        await _adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(12, Arg.Any<CancellationToken>());
     }
@@ -823,20 +847,29 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncItemSetAsync — all fresh → UpToDate
+    //  SyncItemSetAsync — an explicit sync fetches every id, fresh or not
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Wayfinder 0004 §3: the per-item staleness filter was removed from the fetch path, not
+    /// relocated. Freshness for a set is now reported by
+    /// <see cref="SyncCoordinator.ReadItemSetAsync"/> — see <c>ReadsDoNotFetchTests</c>.
+    /// </summary>
     [Fact]
-    public async Task SyncItemSetAsync_AllFresh_ReturnsUpToDate()
+    public async Task SyncItemSetAsync_AllFresh_StillFetchesAll()
     {
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
         _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
         _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(fresh).Build());
 
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        result.ShouldBeUnionCase<UpToDate>();
-        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(2);
+        await _adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -860,24 +893,30 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncItemSetAsync — mixed fresh/stale → only fetches stale
+    //  SyncItemSetAsync — a mixed-freshness set is fetched whole
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Previously this asserted the fresh id was skipped. Under wayfinder 0004 §3 that skip WAS
+    /// the defect: it made an explicit refresh silently partial. The caller decides whether to
+    /// refresh; once it has, every requested id is fetched.
+    /// </summary>
     [Fact]
-    public async Task SyncItemSetAsync_MixedFreshStale_OnlyFetchesStale()
+    public async Task SyncItemSetAsync_MixedFreshStale_FetchesBoth()
     {
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
         _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
         _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
 
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
         _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
         result.ShouldBeUnionCase<Updated>()
-              .ChangedCount.ShouldBe(1);
-        await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
+              .ChangedCount.ShouldBe(2);
+        await _adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
     }
 
@@ -1723,11 +1762,12 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  SyncRootLinksAsync — targets already fresh → UpToDate
+    //  SyncRootLinksAsync — link targets are fetched even when fresh
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>Wayfinder 0004 §3: a fresh target no longer suppresses the fetch.</summary>
     [Fact]
-    public async Task SyncRootLinksAsync_TargetsAlreadyFresh_ReturnsUpToDate()
+    public async Task SyncRootLinksAsync_TargetsAlreadyFresh_StillFetchesTargets()
     {
         var linkRepo = Substitute.For<IWorkItemLinkRepository>();
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
@@ -1746,11 +1786,14 @@ public class SyncCoordinatorTests
             .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-5)).Build();
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(freshTarget);
 
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(100, "Target").InState("Active").Build());
+
         var result = await sut.SyncRootLinksAsync(42);
 
-        // SyncItemSetAsync detects target is fresh → no re-fetch
-        result.ShouldBeUnionCase<UpToDate>();
-        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
+        // The caller asked to sync links; freshness is no longer a veto on that request.
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(1);
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════

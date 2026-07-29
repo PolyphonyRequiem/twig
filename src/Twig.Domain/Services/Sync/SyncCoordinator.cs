@@ -44,20 +44,78 @@ public sealed class SyncCoordinator
         : this(workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, cacheStaleMinutes) { }
 
     /// <summary>
-    /// Syncs a single item by ID. Returns <see cref="UpToDate"/> if the item
-    /// was recently synced (within <c>cacheStaleMinutes</c>), otherwise fetches from ADO
-    /// and saves through the protected cache writer.
+    /// Reads an item from the cache and reports its freshness. <b>Never fetches.</b>
     /// </summary>
-    public async Task<SyncResult> SyncItemAsync(int id, CancellationToken ct = default)
+    /// <remarks>
+    /// This is wayfinder 0004 §3's read shape: staleness is an outcome the caller interprets,
+    /// not a policy that silently costs a network round-trip. Returns
+    /// <see cref="NotCached"/> when the item is absent, <see cref="Stale"/> (carrying
+    /// <c>LastSyncedAt</c>) when it is older than <c>cacheStaleMinutes</c> or was never
+    /// stamped, and <see cref="UpToDate"/> otherwise. A caller that wants fresh data asks for
+    /// it explicitly via <see cref="SyncItemSetAsync"/> — that is what <c>--refresh</c> drives.
+    /// </remarks>
+    public async Task<SyncResult> ReadItemAsync(int id, CancellationToken ct = default)
     {
         var existing = await _workItemRepo.GetByIdAsync(id, ct);
+        if (existing is null)
+            return new NotCached(id);
 
-        if (existing?.LastSyncedAt is not null &&
-            DateTimeOffset.UtcNow - existing.LastSyncedAt.Value < TimeSpan.FromMinutes(_cacheStaleMinutes))
+        return IsStale(existing) ? new Stale(existing.LastSyncedAt) : new UpToDate();
+    }
+
+    /// <summary>
+    /// Reports freshness for a set of cached ids without fetching. Returns the <i>weakest</i>
+    /// outcome across the set — <see cref="NotCached"/> if any id is missing, else
+    /// <see cref="Stale"/> with the oldest <c>LastSyncedAt</c> if any is stale, else
+    /// <see cref="UpToDate"/>. Surfaces that need per-item detail call
+    /// <see cref="ReadItemAsync"/> directly.
+    /// </summary>
+    public async Task<SyncResult> ReadItemSetAsync(IReadOnlyList<int> ids, CancellationToken ct = default)
+    {
+        var realIds = ids.Where(id => id > 0).ToList();
+        if (realIds.Count == 0) return new UpToDate();
+
+        DateTimeOffset? oldestStale = null;
+        var sawStale = false;
+
+        foreach (var id in realIds)
         {
-            return new UpToDate();
+            var existing = await _workItemRepo.GetByIdAsync(id, ct);
+            if (existing is null)
+                return new NotCached(id);
+
+            if (!IsStale(existing)) continue;
+
+            sawStale = true;
+            if (existing.LastSyncedAt is null)
+            {
+                oldestStale = null;
+                // A never-synced item is the oldest possible; keep scanning only for a miss.
+            }
+            else if (oldestStale is null || existing.LastSyncedAt < oldestStale)
+            {
+                oldestStale = existing.LastSyncedAt;
+            }
         }
 
+        return sawStale ? new Stale(oldestStale) : new UpToDate();
+    }
+
+    private bool IsStale(WorkItem item) =>
+        item.LastSyncedAt is null ||
+        DateTimeOffset.UtcNow - item.LastSyncedAt.Value >= TimeSpan.FromMinutes(_cacheStaleMinutes);
+
+    /// <summary>
+    /// Fetches a single item from ADO and saves it through the protected cache writer.
+    /// </summary>
+    /// <remarks>
+    /// Per wayfinder 0004 §3 this <b>always</b> fetches. The staleness short-circuit that used
+    /// to live here was removed rather than relocated: a read no longer silently becomes a
+    /// network call. Callers that only want to know how fresh the cache is call
+    /// <see cref="ReadItemAsync"/>; this method is reached only when a refresh was asked for.
+    /// </remarks>
+    public async Task<SyncResult> SyncItemAsync(int id, CancellationToken ct = default)
+    {
         try
         {
             var fetched = await _adoService.FetchAsync(id, ct);
@@ -92,7 +150,7 @@ public sealed class SyncCoordinator
                 .Where(id => id > 0 && !workingSet.DirtyItemIds.Contains(id))
                 .ToList();
             if (candidateIds.Count == 0) return new UpToDate();
-            return await FetchStaleAndSaveAsync(candidateIds, ct);
+            return await FetchAndSaveAsync(candidateIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -114,7 +172,7 @@ public sealed class SyncCoordinator
         {
             var candidateIds = ids.Where(id => id > 0).ToList();
             if (candidateIds.Count == 0) return new UpToDate();
-            return await FetchStaleAndSaveAsync(candidateIds, ct);
+            return await FetchAndSaveAsync(candidateIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -122,20 +180,22 @@ public sealed class SyncCoordinator
         }
     }
 
-    private async Task<SyncResult> FetchStaleAndSaveAsync(List<int> candidateIds, CancellationToken ct)
+    /// <summary>
+    /// Fetches the given candidate ids from ADO and saves the batch through
+    /// <see cref="ProtectedCacheWriter"/>.
+    /// </summary>
+    /// <remarks>
+    /// Per wayfinder 0004 §3 the per-item staleness filter that used to gate this fetch was
+    /// <b>removed, not relocated</b>. Reaching this method already means a refresh was asked
+    /// for explicitly, so re-deciding freshness here would reintroduce exactly the implicit
+    /// policy the ticket exists to delete. Freshness is reported — never acted on — by
+    /// <see cref="ReadItemAsync"/> and <see cref="ReadItemSetAsync"/>.
+    /// </remarks>
+    private async Task<SyncResult> FetchAndSaveAsync(List<int> candidateIds, CancellationToken ct)
     {
-        var threshold = TimeSpan.FromMinutes(_cacheStaleMinutes);
-        var staleIds = new List<int>();
-        foreach (var id in candidateIds)
-        {
-            var existing = await _workItemRepo.GetByIdAsync(id, ct);
-            if (existing?.LastSyncedAt is null || DateTimeOffset.UtcNow - existing.LastSyncedAt.Value >= threshold)
-                staleIds.Add(id);
-        }
+        if (candidateIds.Count == 0) return new UpToDate();
 
-        if (staleIds.Count == 0) return new UpToDate();
-
-        var fetchResults = await Task.WhenAll(staleIds.Select(async id =>
+        var fetchResults = await Task.WhenAll(candidateIds.Select(async id =>
         {
             try
             {

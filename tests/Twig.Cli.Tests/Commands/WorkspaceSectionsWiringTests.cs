@@ -232,7 +232,7 @@ public sealed class WorkspaceSectionsWiringTests
             .Returns((string?)null);
 
         var cmd = CreateCommandWithTtyPipeline();
-        var result = await cmd.ExecuteAsync("human", noRefresh: false);
+        var result = await cmd.ExecuteAsync("human", refresh: true);
 
         result.ShouldBe(0);
         var output = _testConsole.Output;

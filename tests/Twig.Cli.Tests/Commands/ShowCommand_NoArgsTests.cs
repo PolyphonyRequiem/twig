@@ -367,7 +367,7 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  No-args: --no-refresh skips sync call
+    //  No-args: default (no --refresh) skips the sync call
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -377,7 +377,7 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
         SetupActiveItem(item);
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "json", refresh: false);
 
         result.ShouldBe(0);
         await _adoService.DidNotReceive().FetchAsync(
@@ -391,9 +391,9 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
         SetupActiveItem(item);
 
         var cmd = CreateCommand();
-        await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+        await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json", refresh: true));
 
-        // Default path (non-TTY, noRefresh=false) should trigger sync
+        // Default path (non-TTY, refresh=false) should trigger sync
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 

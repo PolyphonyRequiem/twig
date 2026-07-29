@@ -458,13 +458,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
+    /// <summary>Display a work item without changing context. Cache-only by default; use --refresh to sync first.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, noRefresh, ct);
+    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
@@ -531,12 +531,12 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="depth">Maximum tree depth to display.</param>
     /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     [Hidden]
-    public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default)
         => all
-            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, noRefresh, ct, tree: true)
-            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct, depth, noLive);
+            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
+            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, refresh, ct, depth, noLive);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -860,21 +860,21 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -1027,11 +1027,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of sprint table.</param>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, refresh: refresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
 
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
@@ -1365,7 +1365,7 @@ Workspace:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item.  (--tree for hierarchy, --no-refresh for cache-only)
+  show <id>            Display a work item.  (--tree for hierarchy, --refresh to sync first)
   show-batch --batch   Display multiple work items by ID (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.

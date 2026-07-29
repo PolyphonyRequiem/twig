@@ -143,7 +143,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  --no-refresh flag: skips sync pass (tree path)
+    //  default (no --refresh): cache-only, no sync pass (tree path)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -153,7 +153,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         SetupActiveItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: false);
 
         result.ShouldBe(0);
 
@@ -175,7 +175,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(tree: true, refresh: false);
 
         result.ShouldBe(1);
     }
@@ -193,7 +193,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             .Returns(new[] { child1, child2 });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: false);
 
         result.ShouldBe(0);
 
@@ -249,7 +249,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: true);
 
         result.ShouldBe(0);
         _testConsole.Output.ShouldContain("ADO Child");
@@ -278,7 +278,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: true);
 
         result.ShouldBe(0);
 
@@ -306,7 +306,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         SetupActiveItem(staleItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: true);
 
         result.ShouldBe(0);
 
@@ -361,7 +361,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             .Returns(new[] { staleChild });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: true);
 
         result.ShouldBe(0);
 
@@ -417,7 +417,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: true);
 
         result.ShouldBe(0);
 
@@ -471,7 +471,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             });
 
         var cmd = CreateCommand();
-        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", tree: true));
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", tree: true, refresh: true));
 
         using var document = System.Text.Json.JsonDocument.Parse(output);
         document.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(1);
@@ -490,7 +490,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         SetupActiveItem(item);
 
         var cmd = CreateCommand();
-        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, format, tree: true, noRefresh: true));
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, format, tree: true, refresh: false));
 
         output.ShouldNotBeEmpty();
         await _adoService.DidNotReceive().FetchAsync(
@@ -514,7 +514,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             .Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(42, "human", tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(42, "human", tree: true, refresh: false);
 
         result.ShouldBe(0);
         _testConsole.Output.ShouldContain("TTY Tree By Id");
@@ -536,7 +536,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
             .Returns(new[] { focus });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync(1, "human", tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(1, "human", tree: true, refresh: false);
 
         result.ShouldBe(0);
 

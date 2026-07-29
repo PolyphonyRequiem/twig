@@ -224,9 +224,9 @@ For each dirty item:
 ### 2.4 Read Command Refresh
 
 Read commands (`show`, `status`, `tree`, `workspace`) perform a background
-refresh after rendering unless `--no-refresh` is specified.
+refresh after rendering only when `--refresh` is specified.
 
-- `--no-refresh` → cached data only (fast, potentially stale)
+- default (no `--refresh`) → cached data only (fast, potentially stale; staleness is reported)
 - Default → render from cache, then refresh in background
 
 ### 2.5 Dirty State Lifecycle

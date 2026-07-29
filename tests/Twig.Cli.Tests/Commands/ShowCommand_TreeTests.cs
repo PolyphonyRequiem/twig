@@ -404,7 +404,7 @@ public sealed class ShowCommand_TreeTests : IDisposable
         SetupActiveItem(item);
 
         var cmd = CreateShowCommand();
-        var result = await cmd.ExecuteAsync(42, tree: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(42, tree: true, refresh: false);
 
         result.ShouldBe(0);
         await _adoService.DidNotReceive().FetchAsync(

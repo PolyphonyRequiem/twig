@@ -388,12 +388,12 @@ public sealed class TrackingServiceTests
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
 
-        // SyncItemAsync path: item not in cache → fetch from ADO
         var fetched = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
-        // First call (SyncItemAsync staleness check): null → triggers fetch
-        // Second call (SyncParentChainAsync root lookup): cached → reads ParentId locally
+        // Wayfinder 0004 §3 removed SyncItemAsync's staleness lookup, so the cache is consulted
+        // only once here (SyncParentChainAsync's root lookup). The old fixture fed a null first
+        // to satisfy that deleted call; keeping it would make the root be fetched twice.
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, fetched);
+            .Returns(fetched);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
 
         // SyncParentChainAsync path: root has parent 99, fetch it
@@ -509,9 +509,9 @@ public sealed class TrackingServiceTests
 
         // First call per item: null (SyncItemAsync staleness); second: cached (SyncParentChainAsync)
         workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, item10);
+            .Returns(item10);
         workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, item20);
+            .Returns(item20);
 
         adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item10);
         adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(item20);
@@ -706,7 +706,7 @@ public sealed class TrackingServiceTests
         // SyncItemAsync succeeds: item not in cache → fetch
         var fetched = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, fetched);
+            .Returns(fetched);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
 
         // SyncParentChainAsync: parent fetch fails with network error (returns Failed, doesn't throw)
@@ -744,7 +744,7 @@ public sealed class TrackingServiceTests
 
         var fetched = new WorkItemBuilder(42, "Root").InState("Active").Build();
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, fetched);
+            .Returns(fetched);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
 
         // SyncChildrenAsync fails (returns Failed, doesn't throw)
@@ -781,9 +781,9 @@ public sealed class TrackingServiceTests
         var item20 = new WorkItemBuilder(20, "Root 20").InState("Active").Build();
 
         workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, item10);
+            .Returns(item10);
         workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, item20);
+            .Returns(item20);
         adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item10);
         adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(item20);
         adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -827,7 +827,7 @@ public sealed class TrackingServiceTests
         // Root (42) syncs normally
         var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, rootItem);
+            .Returns(rootItem);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
 
         // Children: IDs 100, 200 — they have their own links but those should NOT be fetched
@@ -868,7 +868,7 @@ public sealed class TrackingServiceTests
         // Root (42) has parent 99, grandparent 88, great-grandparent 77 (no parent)
         var rootItem = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, rootItem);
+            .Returns(rootItem);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
 
         var parent = new WorkItemBuilder(99, "Parent").InState("Active").WithParent(88).Build();
@@ -912,7 +912,7 @@ public sealed class TrackingServiceTests
         // Root (42) with parent (99) and children (100, 101) and links to (200, 201)
         var rootItem = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, rootItem);
+            .Returns(rootItem);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
 
         // Parent chain

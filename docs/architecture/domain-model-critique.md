@@ -192,6 +192,19 @@ and the "where does this go?" problem grows with every addition.
 ## 6. Orchestrator Proliferation
 
 **Severity**: Medium | **Blast Radius**: Multiple orchestrators + commands
+> **Update (2026-07-29, `64ef6d08`)**: the audit now has an ENFORCEMENT POINT, which is what it
+> was actually missing — see issue #318. `OrchestratorInventoryTests` declares every orchestrator
+> in the domain, so adding, removing, or renaming one fails the build until the inventory is
+> updated deliberately. That is the moment to apply this finding's retention criteria; without it
+> the audit degraded into a stale snapshot within a day (`SeedDiscardOrchestrator` was added
+> 2026-04-28, the day after this section was written, and was never assessed).
+> Re-measured on `64ef6d08`, the counts also came back DOWN as 0013/0014/0015 pulled work out:
+> `SeedPublishOrchestrator.cs` **527** (was 616 at re-baseline, 245 at audit),
+> `SeedDiscardOrchestrator.cs` 125, `RefreshOrchestrator.cs` 215, `SyncCoordinator.cs` 341.
+> `SeedReconcileOrchestrator` is gone — renamed to `SeedLinkRepair` by wayfinder 0004 slice 1.
+> Whether `SeedPublishOrchestrator` at 2.1x its audited size is now too big for one boundary
+> remains open and is NOT settled by the inventory guard.
+>
 > **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY — the April audit's own findings hold,
 > but the count went back up and wayfinder 0004's ruling has not landed.
 > Holds: `StatusOrchestrator` is gone (zero hits in `src/`), and the five retained/absorbed verdicts
@@ -321,8 +334,18 @@ The codebase has 9+ distinct result types with incompatible patterns: `Result<T>
 ## 8. Command Layer Bloat
 
 **Severity**: High | **Blast Radius**: CLI Commands/
+> **Update (2026-07-29, `64ef6d08`)**: a RATCHET now stops this finding relocating again — see
+> issue #319. `CommandConstructorSizeTests` caps command constructors at the current worst case
+> (15) and pins the known offenders so none may grow: `ShowCommand` 15, `WorkspaceCommand` 14,
+> `UpdateCommand` 14 — the third was not named by #319 and was found while setting the ceiling.
+> **The remedy this document prescribes does not work on these.** `WorkspaceCommand` already takes
+> `CommandContext` as its first parameter and is still at 14, so the aggregate-parameter object is
+> not sufficient; splitting these needs a rendering/service seam and is a design slice in its own
+> right, deliberately not attempted with the guard. Lower the ceiling as offenders are split;
+> raising it to admit a new command is the failure mode the guard exists to prevent.
+>
 > **Status (2026-07, re-baselined at `55b02d32`)**: PARTLY.
-> FIXED for the two named commands: `StatusCommand` no longer exists in the tree (no
+> FIXED for the two named commands:
 > `src/Twig/Commands/StatusCommand.cs`; only `StatusFieldConfigReader.cs` survives that name), and
 > `SetCommand` is down to **7** constructor parameters across 192 lines
 > (`src/Twig/Commands/SetCommand.cs:24-31`). The `CommandContext` aggregate parameter object the

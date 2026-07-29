@@ -768,3 +768,4 @@ Twig.Domain.Services.Sync.SyncCoordinator.ReadItemAsync(int id, System.Threading
 Twig.Domain.Services.Sync.SyncCoordinator.ReadItemSetAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.SyncResult>!
 Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.NotCached! value) -> void
 Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.Stale! value) -> void
+Twig.Domain.Services.Sync.RefreshOrchestrator.FetchItemsAsync(string! wiql, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.RefreshFetchResult!>!

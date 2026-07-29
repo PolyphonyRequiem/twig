@@ -26,8 +26,17 @@ public sealed class RefreshOrchestrator(
     /// <summary>
     /// Fetches sprint items, active item, and children from ADO. Returns conflicts if any.
     /// </summary>
+    /// <remarks>
+    /// Wayfinder 0004 slice 5 removed this method's <c>force</c> parameter. It gated two things
+    /// at once: it emptied the protected set, and it switched the save path to raw
+    /// <see cref="IWorkItemRepository.SaveBatchAsync"/> calls that walked straight past
+    /// <see cref="ProtectedCacheWriter"/>. Emptying the set also silently disabled conflict
+    /// detection (<c>FindConflictsAsync</c> returned <c>[]</c> for an empty set), so
+    /// <c>--force</c> did not merely overwrite — it suppressed the report of what it overwrote.
+    /// There is now one save path and it is the protected one.
+    /// </remarks>
     public async Task<RefreshFetchResult> FetchItemsAsync(
-        string wiql, bool force, CancellationToken ct = default)
+        string wiql, CancellationToken ct = default)
     {
         var ids = await adoService.QueryByWiqlAsync(wiql, ct);
         if (ids.Count == 0)
@@ -38,9 +47,7 @@ public sealed class RefreshOrchestrator(
         // Cleanse phantom dirty flags before SyncGuard evaluation (#1335)
         var phantomsCleansed = await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
 
-        var protectedIds = !force
-            ? await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore, ct)
-            : (IReadOnlySet<int>)new HashSet<int>();
+        var protectedIds = await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore, ct);
 
         IReadOnlyList<WorkItem> sprintItems = [];
         WorkItem? activeItem = null;
@@ -70,25 +77,14 @@ public sealed class RefreshOrchestrator(
         // Detect revision conflicts
         var conflicts = await FindConflictsAsync(sprintItems, activeItem, childItems, protectedIds, ct);
 
-        // Save
-        if (force)
-        {
-            if (sprintItems.Count > 0)
-                await workItemRepo.SaveBatchAsync(sprintItems, ct);
-            if (activeItem is not null)
-                await workItemRepo.SaveAsync(activeItem, ct);
-            if (childItems.Count > 0)
-                await workItemRepo.SaveBatchAsync(childItems, ct);
-        }
-        else
-        {
-            if (sprintItems.Count > 0)
-                await protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds, ct);
-            if (activeItem is not null)
-                await protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds, ct);
-            if (childItems.Count > 0)
-                await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds, ct);
-        }
+        // Save. One path, always protected — slice 5 deleted the `force` branch that used raw
+        // SaveBatchAsync/SaveAsync to write over items the user had staged edits on.
+        if (sprintItems.Count > 0)
+            await protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds, ct);
+        if (activeItem is not null)
+            await protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds, ct);
+        if (childItems.Count > 0)
+            await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds, ct);
 
         return new RefreshFetchResult
         {
@@ -101,17 +97,45 @@ public sealed class RefreshOrchestrator(
     /// <summary>
     /// Iteratively hydrates orphan parent IDs (up to 5 levels).
     /// </summary>
+    /// <remarks>
+    /// Wayfinder 0004 slice 5: this used a raw <see cref="IWorkItemRepository.SaveBatchAsync"/>
+    /// and was <b>not</b> behind <c>force</c>, so it overwrote staged local edits on ancestors on
+    /// every refresh — the default path included, with no flag to opt into it. It now writes
+    /// through <see cref="ProtectedCacheWriter"/> like every other refresh write.
+    /// <para>
+    /// The loop termination must key off what was <i>fetched</i>, not what was written: a level
+    /// whose ancestors are all protected still resolves those orphan parents for the next
+    /// iteration's <c>GetOrphanParentIdsAsync</c>, and breaking on an empty write would leave the
+    /// hierarchy half-hydrated whenever the user happened to have an ancestor staged.
+    /// </para>
+    /// <para>
+    /// <b>But a fully-protected level makes no progress.</b> <c>GetOrphanParentIdsAsync</c> finds
+    /// parent ids with no <c>work_items</c> row; a protected ancestor is never written, so it stays
+    /// an orphan and the next iteration returns the same id — re-fetching it from ADO each time
+    /// until the 5-level cap stops the loop. Correctness is unaffected (the guard is doing its
+    /// job), but the cap would be silently absorbing up to four redundant round-trips. Tracking
+    /// the ids already seen ends the walk as soon as a level adds nothing new, which is the honest
+    /// termination condition: progress means <i>new</i> ancestors, not written ones.
+    /// </para>
+    /// </remarks>
     public async Task HydrateAncestorsAsync(CancellationToken ct = default)
     {
+        var seen = new HashSet<int>();
+
         for (var level = 0; level < 5; level++)
         {
             var orphanIds = await workItemRepo.GetOrphanParentIdsAsync(ct);
             if (orphanIds.Count == 0) break;
 
-            var ancestors = await adoService.FetchBatchAsync(orphanIds, ct);
+            // A level that surfaces no id we have not already fetched cannot make progress —
+            // every remaining orphan is one a protected write deliberately left in place.
+            var unseen = orphanIds.Where(seen.Add).ToList();
+            if (unseen.Count == 0) break;
+
+            var ancestors = await adoService.FetchBatchAsync(unseen, ct);
             if (ancestors.Count == 0) break;
 
-            await workItemRepo.SaveBatchAsync(ancestors, ct);
+            await protectedCacheWriter.SaveBatchProtectedAsync(ancestors, ct);
         }
     }
 

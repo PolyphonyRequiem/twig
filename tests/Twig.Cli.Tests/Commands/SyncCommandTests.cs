@@ -146,16 +146,16 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Force flag passthrough
+    //  Refresh phase writes through the protected writer (0004 slice 5 deleted --force)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Sync_ForceFlag_PassedToRefresh()
+    public async Task Sync_RefreshPhase_DoesNotOverwritePendingItems()
     {
         _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new FlushResult(0, 0, 0, []));
 
-        // Set up dirty items to verify force behavior
+        // Item 1 has a pending change, so SyncGuard protects it for the whole refresh phase.
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -171,10 +171,13 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
             .Returns(new[] { item });
 
         var cmd = CreateSyncCommand();
-        var result = await cmd.ExecuteAsync(force: true);
+        var result = await cmd.ExecuteAsync();
 
-        // With --force, items should be saved directly to repo (not through protected writer)
-        await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // There is no longer a flag that writes past the protected writer, so the pending item
+        // is never handed to a raw SaveBatchAsync.
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
         result.ShouldBe(0);
     }
 
@@ -463,8 +466,12 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
         await _adoService.Received(1).QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// Was <c>Sync_PullOnly_ForcePassedToRefresh</c>. Item 1 has a pending change, so the refresh
+    /// phase protects it — and after 0004 slice 5 there is no flag that writes past the guard.
+    /// </summary>
     [Fact]
-    public async Task Sync_PullOnly_ForcePassedToRefresh()
+    public async Task Sync_PullOnly_DoesNotOverwriteAPendingItem()
     {
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
@@ -481,11 +488,13 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
             .Returns(new[] { item });
 
         var cmd = CreateSyncCommand();
-        var result = await cmd.ExecuteAsync(force: true, pullOnly: true);
+        var result = await cmd.ExecuteAsync(pullOnly: true);
 
         result.ShouldBe(0);
         await _flusher.DidNotReceive().FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

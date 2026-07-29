@@ -59,11 +59,11 @@ public sealed class SyncCommand_PullOnlyTests : RefreshCommandTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  --pull-only --force passes force=true to refresh
+    //  --pull-only still refreshes (0004 slice 5 deleted --force)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task PullOnly_WithForce_PassesForceToRefresh()
+    public async Task PullOnly_StillRunsTheRefreshPhase()
     {
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
@@ -78,24 +78,24 @@ public sealed class SyncCommand_PullOnlyTests : RefreshCommandTestBase
             .Returns(new[] { item });
 
         var cmd = CreateSyncCommand();
-        var result = await cmd.ExecuteAsync(force: true, pullOnly: true);
+        var result = await cmd.ExecuteAsync(pullOnly: true);
 
         result.ShouldBe(0);
 
-        // Force bypasses dirty guard — SaveBatchAsync used instead of protected writer
+        // The item is unprotected, so ProtectedCacheWriter forwards it to the repo.
         await _workItemRepo.Received().SaveBatchAsync(
             Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
 
-        // Flush was still skipped despite force flag
+        // Flush is still skipped on --pull-only
         await _flusher.DidNotReceive().FlushAllAsync(
             Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task PullOnly_WithForce_ReturnsZero()
+    public async Task PullOnly_WithNothingToFetch_ReturnsZero()
     {
         var cmd = CreateSyncCommand();
-        var result = await cmd.ExecuteAsync(force: true, pullOnly: true);
+        var result = await cmd.ExecuteAsync(pullOnly: true);
 
         result.ShouldBe(0);
     }

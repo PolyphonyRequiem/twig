@@ -106,10 +106,15 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// Wayfinder 0004 slice 5: there is no longer any way to override the dirty guard.
+    /// This fixture is the one that used to be driven with <c>--force</c> and asserted the
+    /// staged local edit was overwritten; the guard now holds on the only path there is.
+    /// </summary>
     [Fact]
-    public async Task Force_OverridesDirtyGuard()
+    public async Task DirtyItem_WithNewerRemoteRevision_IsNeverOverwritten()
     {
-        // Dirty item with newer remote revision, but --force bypasses
+        // Dirty item with a newer remote revision. No flag can bypass the guard any more.
         var localItem = CreateWorkItem(1, "Local Item", revision: 3);
         localItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
@@ -126,10 +131,15 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(force: true);
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // Precondition: the divergence the guard exists for is actually present.
+        localItem.Revision.ShouldBeLessThan(remoteItem.Revision,
+            "the remote must be ahead or this fixture never reaches the protected path");
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -259,9 +269,10 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task ActiveItemOutOfSprint_Force_SavesNormally()
+    public async Task ActiveItemOutOfSprint_Dirty_IsNeverOverwritten()
     {
-        // Active item 42 is outside sprint, dirty with newer remote — but --force bypasses
+        // Active item 42 is outside the sprint and dirty with a newer remote. Slice 5 deleted
+        // the --force path that used to write straight over it via SaveAsync.
         var localItem = CreateWorkItem(42, "Active Out-of-Sprint", revision: 3);
         localItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
@@ -282,10 +293,12 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
             .Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(force: true);
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _workItemRepo.Received().SaveAsync(
+        localItem.Revision.ShouldBeLessThan(remoteActive.Revision,
+            "the remote must be ahead or this fixture never reaches the protected path");
+        await _workItemRepo.DidNotReceive().SaveAsync(
             Arg.Is<WorkItem>(w => w.Id == 42), Arg.Any<CancellationToken>());
     }
 
@@ -360,9 +373,10 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Force_SavesAllItems_IncludingProtected()
+    public async Task ProtectedItem_IsNotSaved_OnTheOnlyRefreshPathThatExists()
     {
-        // --force saves everything including protected items
+        // This assertion used to read "--force saves everything including protected items".
+        // Slice 5 deleted the flag, so the protected item survives.
         var localItem = CreateWorkItem(1, "Local Item", revision: 3);
         localItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
@@ -379,11 +393,13 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(force: true);
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // --force bypasses ProtectedCacheWriter, saves all via raw SaveBatchAsync
-        await _workItemRepo.Received().SaveBatchAsync(
+        localItem.Revision.ShouldBeLessThan(remoteItem.Revision,
+            "the remote must be ahead or this fixture never reaches the protected path");
+        // No raw SaveBatchAsync reaches the protected item — ProtectedCacheWriter is the only road.
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
             Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
             Arg.Any<CancellationToken>());
     }

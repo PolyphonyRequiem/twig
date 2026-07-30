@@ -53,26 +53,19 @@ public sealed class SeedNewCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // Parse --field key=value pairs (split on first '=' only), mirroring
-        // `twig new --field` and the `twig batch --set` convention. Validated up
-        // front so a malformed pair fails before anything is persisted.
-        List<(string Key, string Value)>? fieldValues = null;
-        if (fields is { Length: > 0 })
+        // Parse --field key=value pairs, sharing FieldAssignment with `twig new --field`
+        // and `twig batch --set`. Validated up front so a malformed pair fails before
+        // anything is persisted.
+        var parseResult = FieldAssignment.ParseAll(fields, "--field");
+        if (!parseResult.IsSuccess)
         {
-            fieldValues = new List<(string, string)>(fields.Length);
-            foreach (var pair in fields)
-            {
-                var eqIndex = pair.IndexOf('=');
-                if (eqIndex < 1)
-                {
-                    Console.Error.WriteLine(fmt.FormatError(
-                        $"Invalid --field format: '{pair}'. Expected fieldReferenceName=value."));
-                    return 2;
-                }
+            Console.Error.WriteLine(fmt.FormatError(parseResult.Error));
+            return 2;
+        }
 
-                fieldValues.Add((pair[..eqIndex], pair[(eqIndex + 1)..]));
-            }
-
+        var fieldValues = parseResult.Value;
+        if (fieldValues.Count > 0)
+        {
             // A seed with an unknown reference name would look fine locally and then
             // silently lose the value at publish time, since ADO drops unknown fields
             // on create rather than erroring. Fail here instead.
@@ -81,7 +74,7 @@ public sealed class SeedNewCommand(
                 knownFields.Select(f => f.ReferenceName), StringComparer.OrdinalIgnoreCase);
 
             var unknown = fieldValues
-                .Select(f => f.Key)
+                .Select(f => f.FieldName)
                 .Where(k => !knownNames.Contains(k))
                 .ToList();
 
@@ -201,16 +194,16 @@ public sealed class SeedNewCommand(
             seed.SetField("System.Description", resolvedDescription.EffectiveValue);
         }
 
-        if (fieldValues is not null)
+        if (fieldValues.Count > 0)
         {
-            foreach (var (key, value) in fieldValues)
+            foreach (var assignment in fieldValues)
             {
                 // Resolved by FIELD TYPE: HTML-typed fields convert Markdown, plain
                 // values pass through untouched. Blanket-converting would wrap picklist
                 // values in <p>...</p>, which ADO silently drops at publish time.
                 var resolved = await HtmlFieldFormatter.ResolveAsync(
-                    key, value, format: null, fieldDefStore, ct: ct);
-                seed.SetField(key, resolved.EffectiveValue);
+                    assignment.FieldName, assignment.NewValue ?? string.Empty, format: null, fieldDefStore, ct: ct);
+                seed.SetField(assignment.FieldName, resolved.EffectiveValue);
             }
         }
 

@@ -207,6 +207,41 @@ in 10 attempts; it aborted on the next attempt after the competing builds were
 added, so the MSBuild contention appears to be the load that matters. Do not "fix"
 this by raising the timeout — it would convert a ~290 s dead hang into a longer one.
 
+### The `--diag` probe (#41) — instrumented, not yet triggered
+
+`tools/diag-hunt.sh` runs the suite with the boundary trace **and** vstest `--diag`
+enabled together, so one captured abort carries all three layers.
+`tools/diag-analyze.py` lines them up and reports which side fell silent first.
+
+🔴 **Comparing the LAST line of the runner and host logs proves nothing.** The
+session timeout tears both sides down within ~20 ms of each other, so the final
+lines always look synchronised. The informative moment is where the **silence
+starts** — the longest gap between consecutive messages on each side. The analyzer
+reports that instead.
+
+**Result so far: 70 attempts under load, no timeout repro captured with `--diag`
+on.** That is recorded as a negative result, not a fix. Two stressor defects were
+found and corrected along the way, each of which had silently invalidated a full
+30-attempt cycle:
+
+1. **The build-load loop was a no-op.** `dotnet build` on an up-to-date project
+   takes ~3.4 s, spawns no compiler processes, and applies almost no contention.
+   The tell was run duration: ~29 s per attempt versus the ~40 s seen in the hunt
+   that *did* reproduce. **Verify your load is real** — `pgrep -cf csc.dll` should
+   be non-zero while a hunt runs.
+2. **Forcing a rebuild of `src/Twig` broke the suite.** The Cli suite's own
+   `BuildFixture` builds that same project, so the loop collided with it and five
+   `OutputFormatEntrypointTests` failed with *"Build failed or timed out"*. That is
+   self-inflicted, **not** #311 — it aborts on a real `[FAIL]` rather than on the
+   timeout. `build-load.sh` now builds `Twig.Domain` into a private output
+   directory, and `diag-hunt.sh` exits 2 on real failures rather than banking them
+   as a capture.
+
+An open question the negative result raises: whether `--diag` itself perturbs the
+timing enough to suppress the hang (it writes ~5 MB per run per side). Worth
+testing by alternating traced-only and diag-enabled hunts before concluding the
+bug moved.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

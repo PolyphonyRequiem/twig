@@ -61,6 +61,12 @@ public static class CommandRegistrationModule
             rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
+        services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>
+            new Twig.Commands.SetTree.WorkingSetTreeCommand(
+                sp.GetRequiredService<CommandContext>(),
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+                sp.GetRequiredService<TwigConfiguration>()));
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
         services.AddSingleton<NewCommand>();

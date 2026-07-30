@@ -241,6 +241,14 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         var parts = new List<string>(row.Cells.Count);
         foreach (var (_, cell) in row.Cells)
         {
+            // Cells that exist purely for machine consumers carry an empty
+            // DisplayText (see RenderCell.DisplayText). Emitting them would put
+            // stray separators and bare "true"/id values into human rows.
+            if (cell.DisplayText.Length == 0)
+            {
+                continue;
+            }
+
             var markup = FormatCellMarkup(cell);
             var color = MarkupColorForSeverity(cell.Severity);
             parts.Add(color is null ? markup : $"[{color}]{markup}[/]");

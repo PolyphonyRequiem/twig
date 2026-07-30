@@ -30,6 +30,13 @@ internal static class CommandExamples
             "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
             "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",
         ],
+        ["tree-set"] =
+        [
+            "twig tree-set --items 101,102,103    Render three items as a forest of trees",
+            "twig tree-set --items @ids.txt --annotate @notes.json    Annotate each node from a JSON map",
+            "twig tree-set --items 101,102 --output json    Emit the tree structure with annotations for a TUI",
+            "twig tree-set --items 101,102 --roots-only     Skip connecting ancestors",
+        ],
         ["show-batch"] =
         [
             "twig show-batch --batch 1234,5678,9012 --output json  Batch lookup as JSON array",

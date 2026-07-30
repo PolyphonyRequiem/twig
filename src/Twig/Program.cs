@@ -538,6 +538,25 @@ public sealed class TwigCommands(IServiceProvider services)
             ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, refresh, ct, tree: true)
             : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, refresh, ct, depth, noLive);
 
+    /// <summary>Render an arbitrary working set of work items as a forest of annotated trees.</summary>
+    /// <param name="items">Comma-separated work item IDs, or @file (one per line), or @- for stdin.</param>
+    /// <param name="annotate">JSON map of id to {note, style, icon}, or @file, or @- for stdin.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="depth">Levels of children to expand below each set member. 0 (default) renders the induced subtree only.</param>
+    /// <param name="rootsOnly">Render only the items given, without connecting ancestors.</param>
+    /// <param name="icons">Override the configured glyph mode for this invocation: unicode or nerd.</param>
+    [Command("tree-set")]
+    public async Task<int> TreeSet(
+        string? items = null,
+        string? annotate = null,
+        string output = OutputFormatterFactory.DefaultFormat,
+        int depth = 0,
+        bool rootsOnly = false,
+        string? icons = null,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<Twig.Commands.SetTree.WorkingSetTreeCommand>()
+            .ExecuteAsync(items, annotate, output, depth, rootsOnly, icons, ct);
+
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("nav up")]
@@ -1230,6 +1249,7 @@ internal static class GroupedHelp
         "set",
         "show",
         "show-batch",
+        "tree-set",
         "query",
         "web",
         "history",
@@ -1366,6 +1386,7 @@ Context:
   set <id|pattern>     Set the active work item.
   show <id>            Display a work item.  (--tree for hierarchy, --refresh to sync first)
   show-batch --batch   Display multiple work items by ID (cache-only).
+  tree-set --items     Render a set of work items as annotated trees (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
   history <id>         Show a work item's revision history.  (--detail <ids|all>, --field <names>)

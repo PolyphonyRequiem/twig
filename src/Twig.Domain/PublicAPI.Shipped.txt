@@ -463,10 +463,6 @@ static Twig.Domain.ValueObjects.WorkItemType.operator ==(Twig.Domain.ValueObject
 static Twig.Domain.ValueObjects.WorkItemType.Parse(string! raw) -> Twig.Domain.Common.Result<Twig.Domain.ValueObjects.WorkItemType>
 static Twig.Domain.ValueObjects.WorkItemTypeAppearance.operator !=(Twig.Domain.ValueObjects.WorkItemTypeAppearance? left, Twig.Domain.ValueObjects.WorkItemTypeAppearance? right) -> bool
 static Twig.Domain.ValueObjects.WorkItemTypeAppearance.operator ==(Twig.Domain.ValueObjects.WorkItemTypeAppearance? left, Twig.Domain.ValueObjects.WorkItemTypeAppearance? right) -> bool
-System.Runtime.CompilerServices.IUnion
-System.Runtime.CompilerServices.IUnion.Value.get -> object?
-System.Runtime.CompilerServices.UnionAttribute
-System.Runtime.CompilerServices.UnionAttribute.UnionAttribute() -> void
 Twig.Domain.Aggregates.ProcessConfiguration
 Twig.Domain.Aggregates.ProcessConfiguration.GetAllowedChildTypes(Twig.Domain.ValueObjects.WorkItemType workItemType) -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemType>!
 Twig.Domain.Aggregates.ProcessConfiguration.GetTransitionKind(Twig.Domain.ValueObjects.WorkItemType workItemType, string! fromState, string! toState) -> Twig.Domain.Enums.TransitionKind?

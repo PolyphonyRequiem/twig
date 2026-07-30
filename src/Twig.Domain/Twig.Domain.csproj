@@ -15,6 +15,14 @@
     <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS0419;CS1580;CS1584</NoWarn>
   </PropertyGroup>
 
+  <!-- The runtime ships UnionAttribute/IUnion natively from .NET 11 (confirmed present in
+       System.Private.CoreLib as of SDK 11.0.100-preview.5.26302.115). Compiling the local
+       shim there too would be CS0433 "exists in both 'Twig.Domain' and 'System.Runtime'".
+       net10.0 still needs it — see Common/CompilerPolyfill.cs. -->
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <Compile Remove="Common/CompilerPolyfill.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
@@ -27,6 +35,9 @@
   <ItemGroup>
     <AdditionalFiles Include="PublicAPI.Shipped.txt" />
     <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
+    <!-- The union support types are only part of Twig.Domain's public surface on net10.0,
+         where CompilerPolyfill.cs is compiled. On net11.0 they come from System.Runtime. -->
+    <AdditionalFiles Include="PublicApi/net10.0/PublicAPI.Shipped.txt" Condition="'$(TargetFramework)' == 'net10.0'" />
   </ItemGroup>
 
   <ItemGroup>

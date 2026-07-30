@@ -2,27 +2,30 @@
 
 ## Build & test
 
-`global.json` pins SDK **11.0.100-preview.3.26207.106** with `rollForward: disable`.
-That SDK is **not** installed system-wide on every dev box, so `dotnet` on the bare
-PATH will fail with:
+`global.json` pins SDK **11.0.100-preview.5.26302.115** with `rollForward: latestFeature`.
 
-```
-Requested SDK version: 11.0.100-preview.3.26207.106 ... not found
-```
-
-Newer previews genuinely cannot build this repo (`error CS0433: The type 'IUnion'
-exists in both 'Twig.Domain' and 'System.Runtime'` — the discriminated-union types
-moved into `System.Runtime` after preview.3). **Do not "fix" this by editing
-`global.json`.** It is a real incompatibility, not a stale pin.
-
-Export the SDK location first, then build/test. These exports must be repeated in
-each new shell:
+That SDK **is** installed system-wide here (`C:\Program Files\dotnet`), so plain `dotnet`
+on the PATH works. No exports are needed for a normal build:
 
 ```bash
-export DOTNET_ROOT="$HOME/.dotnet-p3"
-export PATH="$HOME/.dotnet-p3:$PATH"
-export DOTNET_MULTILEVEL_LOOKUP=0
+dotnet build src/Twig/Twig.csproj -m:1
 ```
+
+### History: the old preview.3 pin (#333)
+
+The repo used to pin **11.0.100-preview.3.26207.106** with `rollForward: disable`, because
+`src/Twig.Domain/Common/CompilerPolyfill.cs` declared `UnionAttribute` / `IUnion` into
+`System.Runtime.CompilerServices` — and from preview.5 the runtime ships those types itself,
+producing `error CS0433: The type 'IUnion' exists in both 'Twig.Domain' and 'System.Runtime'`.
+
+That is now resolved by scoping the shim to `net10.0` only (`Twig.Domain.csproj` removes it
+from the compile for every other TFM), so the pin no longer needs to hold newer SDKs back.
+The shim still exists and is still required for the `net10.0` target, whose ref pack does not
+carry the types — do not delete it until `net10.0` is dropped.
+
+**If you have a stale `DOTNET_ROOT` exported** (e.g. `$HOME/.dotnet-p3` from the old
+instructions), test hosts fail with *"You must install or update .NET to run this
+application"* listing only preview.3. `unset DOTNET_ROOT`.
 
 ### Canonical test command
 

@@ -666,8 +666,8 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     [Hidden]
-    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, output, ct);
+    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
 
     /// <summary>Create a new local seed work item.</summary>
     /// <param name="title">Title for the new seed work item.</param>
@@ -675,10 +675,12 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="editor">Open an external editor to fill in seed fields.</param>
     /// <param name="parent">Parent work item ID. Defaults to the active work item.</param>
     /// <param name="noParent">Create the seed with no parent. Requires --type.</param>
+    /// <param name="description">Description text for the new seed work item.</param>
+    /// <param name="field">Set a field on the seed: fieldReferenceName=value. Repeatable. Values convert Markdown only for HTML-typed fields; an explicit --field System.Description overrides --description.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("seed new")]
-    public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, output, ct);
+    public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, int? parent = null, bool noParent = false, string? description = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, parent, noParent, description, field, output, ct);
 
     /// <summary>Edit seed fields in an external editor.</summary>
     /// <param name="id">Seed ID to edit.</param>

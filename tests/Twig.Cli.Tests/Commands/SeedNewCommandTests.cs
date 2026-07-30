@@ -47,6 +47,11 @@ public class SeedNewCommandTests
             {
                 new("System.Title", "Title", "String", false),
                 new("System.Description", "Description", "String", false),
+                // Custom fields used by the --field tests. --field validates reference
+                // names against this store, so anything a test sets must be known here.
+                new("Custom.WayfinderExecutionMode", "Execution Mode", "String", true),
+                new("Custom.WayfinderDecisionMaturity", "Decision Maturity", "String", false),
+                new("Custom.Query", "Query", "String", false),
             });
 
         var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
@@ -510,6 +515,103 @@ public class SeedNewCommandTests
             _resolver, _workItemRepo, processConfigProvider,
             _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
             new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
+    }
+
+    // --field / --description: non-interactive seed authoring. Before this, the only
+    // way to author seed field values was --editor, which is interactive and therefore
+    // unusable from a script or an agent -- and seeds are the documented way to stage a
+    // dependency graph before publishing. Same root cause as `twig new` (GitHub #339).
+
+    [Fact]
+    public async Task SeedNew_Field_SetsCustomFieldOnSeed()
+    {
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Fields["Custom.WayfinderExecutionMode"] == "AFK"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_Field_Repeated_SetsAllFields()
+    {
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true, fields:
+        [
+            "Custom.WayfinderExecutionMode=AFK",
+            "Custom.WayfinderDecisionMaturity=Provisional",
+        ]);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w =>
+                w.Fields["Custom.WayfinderExecutionMode"] == "AFK" &&
+                w.Fields["Custom.WayfinderDecisionMaturity"] == "Provisional"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_Field_ValueContainingEquals_SplitsOnFirstEqualsOnly()
+    {
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            fields: ["Custom.Query=a=b=c"]);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Fields["Custom.Query"] == "a=b=c"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("NoEqualsSign")]
+    [InlineData("=leadingEquals")]
+    public async Task SeedNew_Field_Malformed_FailsWithoutSaving(string malformed)
+    {
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            fields: [malformed]);
+
+        result.ShouldBe(2);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_Field_UnknownReferenceName_FailsWithoutSaving()
+    {
+        // Matches `twig new`: a typo must not silently vanish at publish time.
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            fields: ["Custom.NotARealField=x"]);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_Description_SetsDescriptionOnSeed()
+    {
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            description: "seed body text");
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Fields["System.Description"] == "seed body text"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedNew_Field_OverridesDescription()
+    {
+        // Same last-writer-wins rule as `twig new`.
+        var result = await _cmd.ExecuteAsync("Seeded", type: "Task", noParent: true,
+            description: "from --description",
+            fields: ["System.Description=from --field"]);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Fields["System.Description"] == "from --field"),
+            Arg.Any<CancellationToken>());
     }
 
     private static ProcessTypeRecord CreateProcessTypeRecord(string typeName, params string[] childTypes) =>

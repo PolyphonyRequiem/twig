@@ -8,6 +8,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.RenderTree;
 using Twig.TestKit;
 using Xunit;
 
@@ -65,6 +66,14 @@ public sealed class WorkingSetTreeCommandTests
                 chain.Reverse();
                 return Task.FromResult<IReadOnlyList<WorkItem>>(chain);
             });
+    }
+
+    /// <summary>Projects a forest and returns the Nth structure's root branch.</summary>
+    private static RenderTreeBranch ProjectRoot(WorkingSetForest forest, int index = 0)
+    {
+        var tree = new WorkingSetTreeProjector(new SpectreTheme(new DisplayConfig()), "unicode").Project(forest);
+        var structures = (RenderNode.Section)((RenderNode.Document)tree.Nodes[0]).Fields[0].Node;
+        return ((RenderNode.TreeView)structures.Children[index]).Root;
     }
 
     private static async Task<(int Exit, string Stdout)> RunAsync(
@@ -173,19 +182,57 @@ public sealed class WorkingSetTreeCommandTests
             new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
             new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
 
-        var (exit, stdout) = await RunAsync(CreateCommand(), "3", output: "minimal");
-
-        exit.ShouldBe(0);
-        // The connector is tagged Muted; the member is not. Asserted through the
-        // projector's own output rather than ANSI codes, which RendererFactory
-        // deliberately strips.
+        // Assert the severity the projector actually stamps on each row. Going
+        // through rendered stdout can't see this: RendererFactory deliberately
+        // strips ANSI, so muted and normal render byte-identical there.
         var forest = await new WorkingSetTreeBuilder(_repo).BuildAsync(
             [3], new Dictionary<int, TreeAnnotation>(), rootsOnly: false, depth: 0, CancellationToken.None);
 
-        var root = forest.Roots.Single();
-        root.Id.ShouldBe(1);
-        root.InWorkingSet.ShouldBeFalse();
-        root.Children.Single().InWorkingSet.ShouldBeTrue();
+        var spine = ProjectRoot(forest);
+
+        spine.Row.Cells["title"].DisplayText.ShouldBe("Ancestor");
+        spine.Row.Cells["title"].Severity.ShouldBe(Severity.Muted);
+
+        var member = spine.Children.Single();
+        member.Row.Cells["title"].DisplayText.ShouldBe("Member");
+        member.Row.Cells["title"].Severity.ShouldBe(Severity.None);
+    }
+
+    [Fact]
+    public async Task AnnotatedConnector_KeepsItsAnnotationStyle_NotTheMutedDefault()
+    {
+        // An explicit caller annotation on a connector is not decoration — it must
+        // win over the spine's dim default.
+        SeedCache(
+            new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
+            new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
+
+        var annotations = new Dictionary<int, TreeAnnotation>
+        {
+            [1] = new("look at this", AnnotationStyle.Warn, null),
+        };
+
+        var forest = await new WorkingSetTreeBuilder(_repo).BuildAsync(
+            [3, 1], annotations, rootsOnly: false, depth: 0, CancellationToken.None);
+
+        var spine = ProjectRoot(forest);
+
+        spine.Row.Cells["title"].Severity.ShouldBe(Severity.Warning);
+    }
+
+    [Fact]
+    public void MutedAnnotationStyle_MapsToMutedSeverity_NotUncoloured()
+    {
+        // Regression for the gap #340 closed: `muted` had no severity counterpart
+        // and rendered identically to no style at all.
+        var forest = new WorkingSetForest(
+            [new WorkingSetNode(1, new WorkItemBuilder(1, "Alpha").AsFeature().Build(),
+                InWorkingSet: true, new TreeAnnotation("ctx", AnnotationStyle.Muted, null), [])],
+            []);
+
+        var root = ProjectRoot(forest);
+
+        root.Row.Cells["note"].Severity.ShouldBe(Severity.Muted);
     }
 
     [Fact]

@@ -41,6 +41,7 @@ public sealed class NewCommand(
         bool set = false,
         bool editor = false,
         string? format = null,
+        string[]? fields = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
@@ -57,6 +58,50 @@ public sealed class NewCommand(
         {
             Console.Error.WriteLine(fmt.FormatError(formatError));
             return 2;
+        }
+
+        // Parse --field key=value pairs (split on first '=' only), matching the
+        // convention `twig batch --set` already uses. Validated up front so a
+        // malformed pair fails before any network call — never a partial create.
+        // The flag is --field rather than --set because on `new`, --set already
+        // means "activate the new item as context".
+        List<(string Key, string Value)>? fieldValues = null;
+        if (fields is { Length: > 0 })
+        {
+            fieldValues = new List<(string, string)>(fields.Length);
+            foreach (var pair in fields)
+            {
+                var eqIndex = pair.IndexOf('=');
+                if (eqIndex < 1)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(
+                        $"Invalid --field format: '{pair}'. Expected fieldReferenceName=value."));
+                    return 2;
+                }
+
+                fieldValues.Add((pair[..eqIndex], pair[(eqIndex + 1)..]));
+            }
+
+            // ADO silently DROPS unknown field reference names on create rather than
+            // rejecting them, so a typo would look like success while the value was
+            // never stored. Validate against the cached field definitions so a bad
+            // reference name is a clear local error instead of silent data loss.
+            var knownFields = await fieldDefStore.GetAllAsync(ct);
+            var knownNames = new HashSet<string>(
+                knownFields.Select(f => f.ReferenceName), StringComparer.OrdinalIgnoreCase);
+
+            var unknown = fieldValues
+                .Select(f => f.Key)
+                .Where(k => !knownNames.Contains(k))
+                .ToList();
+
+            if (unknown.Count > 0)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Unknown field reference name(s): {string.Join(", ", unknown)}. " +
+                    "Use the ADO reference name (e.g. Custom.MyField); run 'twig refresh' if the field is new."));
+                return 1;
+            }
         }
 
         if (type is null)
@@ -152,6 +197,33 @@ public sealed class NewCommand(
             }
 
             seed.SetField("System.Description", descriptionToStore);
+        }
+
+        // Applied after --description so an explicit --field System.Description=...
+        // is the last writer and wins, rather than being silently clobbered.
+        //
+        // Values are resolved by FIELD TYPE (auto), deliberately NOT by the global
+        // --format. --format describes how to treat --description; applying it to
+        // every --field would wrap plain values in <p>...</p> — verified against live
+        // ADO, where --format markdown --field Custom.WayfinderExecutionMode=AFK sent
+        // "<p>AFK</p>" and the picklist silently stored nothing. HTML-typed fields
+        // still convert, matching `twig patch`/`twig batch --set`.
+        if (fieldValues is not null)
+        {
+            var warnedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in fieldValues)
+            {
+                var resolved = await HtmlFieldFormatter.ResolveAsync(
+                    key, value, format: null, fieldDefStore,
+                    onMissingFieldDef: name =>
+                    {
+                        if (warnedFields.Add(name))
+                            Console.Error.WriteLine($"warning: field type unknown for '{name}'; not converting.");
+                    },
+                    ct);
+
+                seed.SetField(key, resolved.EffectiveValue);
+            }
         }
 
         if (editor)

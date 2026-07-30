@@ -518,11 +518,12 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="set">Set the new work item as the active context after creation.</param>
     /// <param name="editor">Open an external editor to fill in fields.</param>
     /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
+    /// <param name="field">Set a field at creation time: fieldReferenceName=value. Repeatable. Required for types with required custom fields. Values convert Markdown only for HTML-typed fields (not affected by --format); an explicit --field System.Description overrides --description.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
+    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
     {
         var resolvedTitle = JoinTrailingText(title, titleParts);
-        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, format, output, ct);
+        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, format, field, output, ct);
     }
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>

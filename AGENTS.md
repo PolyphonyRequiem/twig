@@ -152,6 +152,61 @@ This is a **strong, evidence-backed suspect, not a confirmed root cause** — 8
 traced runs did not reproduce the abort, so no trace names it yet. Run
 `find-hung-test.sh` in a loop on a loaded machine to capture one.
 
+### 🔴 REPRO CAPTURED — the stall is NOT inside a test body
+
+Reproduced on attempt 11/25 under load (16 CPU spinners plus two competing
+`dotnet build` loops against `src/Twig`). The captured trace settles it:
+
+```
+Aborting test run: test run timeout of 300000 milliseconds exceeded.
+Passed!  - Failed: 0, Passed: 1218, Skipped: 0, Total: 1218, Duration: 8 s
+Test Run Aborted.
+```
+
+**Every one of the 1218 STARTs had a matching END.** No test was in flight. The
+reconciler's own verdict was `IN-FLIGHT AT ABORT: none`.
+
+The timeline is unambiguous:
+
+| | |
+|---|---|
+| first test START → last test END | **8.8 s** (1218 tests, 40% of the suite) |
+| last trace write | 03:56:09 |
+| final log write (host killed) | 04:00:58 |
+| **host alive but running NO tests** | **~289 s** |
+
+So the suite does not slow down and run out of budget. It executes normally, then
+**stops dispatching tests entirely** and sits idle until the 300 s session timeout
+kills it. `Duration: 8 s` on the false-green summary is truthful — it is the real
+in-test time; the other ~290 s is the hang.
+
+**This falsifies the natural reading of the suspect list.** The stall is not a slow
+or hung test, so per-test theories (SQLite pools, static state, a specific fixture's
+work) cannot explain it on their own. `BuildFixture`'s nested `dotnet build` is a
+real cost — reliably the largest untraced gap, 2.1 s idle scaling to ~6.2 s under
+load, 8/8 runs — but it is **not** the abort: the abort happened at ~40% of the
+suite, and the entrypoint tests run near the end and were never reached.
+
+The evidence points at the **runner/host boundary** rather than at test code: the
+vstest host stops requesting work while the process stays alive. That is consistent
+with a communication or scheduling stall between `dotnet test` and the test host
+under CPU/IO contention, which also explains why it reproduces on a busy GitHub
+runner and vanishes on a re-run of the identical commit.
+
+Reproducer, for whoever picks this up:
+
+```bash
+tools/repro-311/cpu-load.sh 3600 16 &   # CPU contention
+tools/repro-311/build-load.sh 1800 &    # competing MSBuild
+tools/repro-311/build-load.sh 1800 &
+tools/find-hung-test.sh 25
+```
+
+Hit rate was 1 in 11 under that load. CPU spinners **alone** did not reproduce it
+in 10 attempts; it aborted on the next attempt after the competing builds were
+added, so the MSBuild contention appears to be the load that matters. Do not "fix"
+this by raising the timeout — it would convert a ~290 s dead hang into a longer one.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

@@ -1,5 +1,6 @@
 using Spectre.Console;
 using Spectre.Console.Rendering;
+using Twig.Diagnostics;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
@@ -154,6 +155,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 var inProgress = 0;
                                 var resolved = 0;
                                 var completed = 0;
+                                var unclassified = 0;
+                                var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
                                 foreach (var item in items)
                                 {
                                     switch (_theme.ResolveCategory(item.State))
@@ -163,19 +166,27 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                         case StateCategory.Resolved: resolved++; break;
                                         case StateCategory.Completed: completed++; break;
                                         case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
-                                        case StateCategory.Unknown: proposed++; break; // Unknown bucketed with Proposed
+                                        // twig#286: Unknown is its own bucket, not silently "not started".
+                                        case StateCategory.Unknown:
+                                            unclassified++;
+                                            unknownStates.Add(item.State);
+                                            break;
                                     }
                                 }
+                                UnknownStateDiagnostic.Report(unknownStates);
                                 var done = resolved + completed;
                                 var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
                                 var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
                                 var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+                                var unkColor = SpectreTheme.UnclassifiedMarkupColor;
                                 var segments = new List<string>();
                                 segments.Add($"[{doneColor}]{done}/{sprintTotal}[/] done");
                                 if (inProgress > 0)
                                     segments.Add($"[{ipColor}]{inProgress}[/] in progress");
                                 if (proposed > 0)
                                     segments.Add($"[{propColor}]{proposed}[/] proposed");
+                                if (unclassified > 0)
+                                    segments.Add($"[{unkColor}]{unclassified}[/] unclassified");
                                 var caption = $"Sprint: {string.Join(" · ", segments)}";
                                 savedCaption = caption;
                                 table.Caption(new TableTitle(caption));
@@ -636,6 +647,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var inProgress = 0;
         var resolved = 0;
         var completed = 0;
+        var unclassified = 0;
+        var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
         {
@@ -646,14 +659,21 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 case StateCategory.Resolved: resolved++; break;
                 case StateCategory.Completed: completed++; break;
                 case StateCategory.Removed: proposed++; break;
-                case StateCategory.Unknown: proposed++; break;
+                // twig#286: Unknown is its own bucket, not silently "not started".
+                case StateCategory.Unknown:
+                    unclassified++;
+                    unknownStates.Add(item.State);
+                    break;
             }
         }
+
+        UnknownStateDiagnostic.Report(unknownStates);
 
         var done = resolved + completed;
         var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
         var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
         var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+        var unkColor = SpectreTheme.UnclassifiedMarkupColor;
 
         var segments = new List<string>();
         segments.Add($"[{doneColor}]{done}/{items.Count}[/] done");
@@ -661,6 +681,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             segments.Add($"[{ipColor}]{inProgress}[/] in progress");
         if (proposed > 0)
             segments.Add($"[{propColor}]{proposed}[/] proposed");
+        if (unclassified > 0)
+            segments.Add($"[{unkColor}]{unclassified}[/] unclassified");
 
         container.AddRow(new Markup($"\n[dim]Sprint: {string.Join(" · ", segments)}[/]"));
     }

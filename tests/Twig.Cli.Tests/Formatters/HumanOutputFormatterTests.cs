@@ -2397,12 +2397,16 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatWorkspace_UnknownState_CountsAsProposed()
+    public void FormatWorkspace_UnknownState_CountsAsUnclassifiedNotProposed()
     {
+        // twig#286: this test previously asserted the defect — an unrecognized state was
+        // folded into the proposed count, so a finished item on a custom-process board was
+        // reported as not-started with no signal that twig was guessing. It now gets its
+        // own visible bucket. Full coverage lives in UnknownStateBucketingTests.
         var items = new[]
         {
             CreateWorkItem(1, "Active Item", "Active"),
-            CreateWorkItem(2, "Custom State", "SomeCustomState"), // → Unknown → Proposed bucket
+            CreateWorkItem(2, "Custom State", "SomeCustomState"), // → Unknown → unclassified bucket
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -2411,7 +2415,8 @@ public class HumanOutputFormatterTests
 
         plain.ShouldContain("0/2");
         plain.ShouldContain("1 in progress");
-        plain.ShouldContain("1 proposed");
+        plain.ShouldContain("1 unclassified");
+        plain.ShouldNotContain("1 proposed");
     }
 
     // ── EPIC-002: State-Colored Tree Connectors & Link Differentiation ──

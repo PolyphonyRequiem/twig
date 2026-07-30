@@ -12,6 +12,16 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
     <PackageReference Include="Spectre.Console.Testing" />
+    <!--
+      BenchmarkDotNet -> Microsoft.Diagnostics.NETCore.Client pulls
+      Microsoft.Extensions.Logging 2.1.1, whose netstandard2.0 assembly defines
+      ILoggingBuilder alongside the 11.0.0 one from the shared framework. Under
+      the preview.5 SDK (#338) both land in the compile and every generated
+      ConsoleAppFramework file fails with CS0433. Pinning the direct reference
+      wins over the transitive one and collapses it to a single definition.
+      See #342.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 
   <ItemGroup>

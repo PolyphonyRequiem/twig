@@ -56,9 +56,20 @@ dotnet test tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj --nologo
 resolve the SQLite native lib under a user-local SDK, killing the test host
 mid-run. It is environmental, not a repo defect, and passes in CI.
 
-Do **not** build `Twig.slnx` — `tests/Twig.Benchmarks` fails with a pre-existing
-`CS0433 ILoggingBuilder` ambiguity regardless of your changes. Build
-`src/Twig/Twig.csproj` and the test projects directly.
+Building the whole solution works as of #342. `tests/Twig.Benchmarks` used to fail
+with a `CS0433 ILoggingBuilder` ambiguity — BenchmarkDotNet pulls
+`Microsoft.Extensions.Logging` **2.1.1** transitively (via
+`Microsoft.Diagnostics.NETCore.Client`), whose `netstandard2.0` assembly defines
+`ILoggingBuilder` alongside the one in the shared framework. A direct pinned
+`PackageReference` in that csproj now wins over the transitive version.
+
+This was tolerable while it was local-only, but the preview.5 SDK move (#338) made
+CI run a bare `dotnet build` over everything, turning it into a red check on every
+PR. If it returns, check for a transitive `Microsoft.Extensions.Logging` below 10.x:
+
+```bash
+dotnet list tests/Twig.Benchmarks/Twig.Benchmarks.csproj package --include-transitive | grep Logging
+```
 
 ### Reading test results
 

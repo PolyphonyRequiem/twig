@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using Microsoft.Data.Sqlite;
+using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -440,7 +441,15 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     [Fact]
     public async Task ConcurrentReadDuringSaveBatch_WalModeAllowsConcurrentRead_NoException()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}.db");
+        // #272: the mirror DB must live in its OWN directory, not the temp root.
+        // SqliteCacheStore derives its durable store as a `pending.db` SIBLING of the
+        // mirror file, so every store whose mirror sits in Path.GetTempPath() attaches
+        // the SAME /tmp/pending.db — a unique GUID mirror name does not isolate it.
+        // Concurrently running tests then shared one durable file, and a teardown in
+        // one raced a write in another (ObjectDisposedException in sqlite3_changes).
+        var testDir = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testDir);
+        var dbPath = Path.Combine(testDir, "twig.db");
         try
         {
             // Create the database and seed one item that the reader will query
@@ -489,11 +498,10 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         }
         finally
         {
-            // Clean up temp files
-            foreach (var file in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(dbPath) + "*"))
-            {
-                try { File.Delete(file); } catch { /* best effort */ }
-            }
+            // Remove the whole per-test directory, which also takes pending.db and the
+            // -wal/-shm sidecars. The previous glob left /tmp/pending.db behind on every run.
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(testDir, recursive: true); } catch { /* best effort */ }
         }
     }
 
@@ -507,7 +515,11 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     [Fact]
     public async Task SaveBatchAsync_FailureOnItem7_RollsBackAllItems()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}.db");
+        // #272: own directory, not the temp root — see the note on
+        // ConcurrentReadDuringSaveBatch above.
+        var testDir = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testDir);
+        var dbPath = Path.Combine(testDir, "twig.db");
         try
         {
             using var store = new SqliteCacheStore($"Data Source={dbPath}");
@@ -545,10 +557,8 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         }
         finally
         {
-            foreach (var file in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(dbPath) + "*"))
-            {
-                try { File.Delete(file); } catch { /* best effort */ }
-            }
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(testDir, recursive: true); } catch { /* best effort */ }
         }
     }
 

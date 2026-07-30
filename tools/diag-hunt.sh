@@ -60,12 +60,31 @@ for i in $(seq 1 "$ATTEMPTS"); do
   aborted=0
   grep -qE 'Test Run Aborted|Aborting test run|test host process crashed' "$console" && aborted=1
 
-  echo "    exit=$exit_code aborted=$aborted elapsed=${elapsed}s"
+  # 🔴 A non-zero exit is NOT automatically a #311 repro. Real [FAIL]s exit
+  # non-zero too, and on 2026-07-30 a mis-scoped build-load stressor collided with
+  # BuildFixture and produced five genuine OutputFormatEntrypointTests failures --
+  # which looked like a captured repro until the console was read. #311 is
+  # specifically a TIMEOUT with NO failing test, so require both conditions and
+  # report a real failure separately instead of banking it as the bug.
+  real_failures=0
+  grep -qE '^\s*Failed!|\[FAIL\]' "$console" && real_failures=1
+
+  echo "    exit=$exit_code aborted=$aborted failures=$real_failures elapsed=${elapsed}s"
 
   if [ "$exit_code" -eq 0 ] && [ "$aborted" -eq 0 ]; then
     echo "    TWIG-DIAG attempt $i: clean run (no repro) — discarding logs"
     rm -f "$trace" "$console" "$diag" "$diag".* 2>/dev/null
     continue
+  fi
+
+  if [ "$real_failures" -eq 1 ]; then
+    echo
+    echo "TWIG-DIAG attempt $i: REAL TEST FAILURES, not the #311 timeout."
+    echo "  This is not the hang. Investigate these before continuing the hunt —"
+    echo "  a stressor that breaks the suite invalidates the run."
+    grep -E '\[FAIL\]' "$console" | head -10
+    echo "  console: $console"
+    exit 2
   fi
 
   echo

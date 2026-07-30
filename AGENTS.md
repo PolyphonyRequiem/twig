@@ -100,6 +100,58 @@ Reporting "suite green" from a summary grep while the process exits non-zero has
 already cost one bogus issue report (#257, closed as invalid), and the underlying
 hang that produced those aborted runs was #311.
 
+### Diagnosing an aborted run (#311)
+
+When a run aborts, vstest does **not** name the test that was in flight, and a TRX
+does not rescue you — it is written at the end of a run and only describes tests
+that COMPLETED, so the in-flight one is absent rather than marked.
+
+`tools/find-hung-test.sh` closes that gap. An assembly-level xUnit hook
+(`tests/Twig.Cli.Tests/TestSupport/TestProgressTrace.cs`) appends a flushed
+START/END line per test to the file named by `TWIG_TEST_TRACE`; the script
+reconciles them and reports the last START with no END.
+
+```bash
+tools/find-hung-test.sh        # one traced run
+tools/find-hung-test.sh 20     # loop until an abort is captured
+```
+
+The trace is **opt-in** — with `TWIG_TEST_TRACE` unset the hook returns immediately,
+so normal runs pay nothing.
+
+🔴 **Do not map an abort's reported test count onto an execution order.** The count
+in `Passed: N` looks like an index into the run, but xUnit's order is **not stable
+between runs**: eight traced runs of the Cli suite diverged from each other at
+index 0 while executing the same 3018 tests. Naming a suspect that way produces a
+confident wrong answer.
+
+**What the traces establish about the Cli suite's time budget:** all 3018 tests
+execute in **~7 s** of summed test-body time (~10 s wall between first and last
+boundary), against a 300 s session timeout. A healthy full run is ~15 s. So an
+abort is *not* the suite gradually running out of budget — ~97% of the timeout is
+spent outside test bodies, and something must block for **minutes** to reach 300 s.
+
+The known consumer of that untraced time is `BuildFixture` (`AotSmokeTests.cs`),
+which shells out to a nested `dotnet build` (up to a 5-minute internal timeout) in
+its **constructor** — untraced, because it is fixture setup rather than a test body.
+`AotSmokeTests` is excluded by the runsettings `Category!=Interactive` filter, but
+`OutputFormatEntrypointTests` shares the same fixture and is deliberately *not*
+excluded, so the nested build runs on every normal Cli run. It was measured at
+~2.1 s idle; it is unbounded under load, and a nested build contending with the
+outer one is exactly the kind of machine-level contention that both observed
+failure clusters are consistent with.
+
+That file's own source already records this failure mode: a comment on
+`AcceptedFormat_IsNotRejectedByTheEntrypointGuard` notes that running an accepted
+format through the binary "pays for the 0018 startup side effects — a blocking
+GitHub companion download — and that blew the 300 s test-run budget and aborted the
+host." The negative cases avoid it only because `Program.cs` validates `-o` above
+the startup side effects.
+
+This is a **strong, evidence-backed suspect, not a confirmed root cause** — 8
+traced runs did not reproduce the abort, so no trace names it yet. Run
+`find-hung-test.sh` in a loop on a loaded machine to capture one.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

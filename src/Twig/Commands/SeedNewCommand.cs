@@ -7,6 +7,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Content;
 using Twig.RenderTree;
 using Twig.Rendering;
 
@@ -45,10 +46,53 @@ public sealed class SeedNewCommand(
         bool editor = false,
         int? parent = null,
         bool noParent = false,
+        string? description = null,
+        string[]? fields = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        // Parse --field key=value pairs (split on first '=' only), mirroring
+        // `twig new --field` and the `twig batch --set` convention. Validated up
+        // front so a malformed pair fails before anything is persisted.
+        List<(string Key, string Value)>? fieldValues = null;
+        if (fields is { Length: > 0 })
+        {
+            fieldValues = new List<(string, string)>(fields.Length);
+            foreach (var pair in fields)
+            {
+                var eqIndex = pair.IndexOf('=');
+                if (eqIndex < 1)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(
+                        $"Invalid --field format: '{pair}'. Expected fieldReferenceName=value."));
+                    return 2;
+                }
+
+                fieldValues.Add((pair[..eqIndex], pair[(eqIndex + 1)..]));
+            }
+
+            // A seed with an unknown reference name would look fine locally and then
+            // silently lose the value at publish time, since ADO drops unknown fields
+            // on create rather than erroring. Fail here instead.
+            var knownFields = await fieldDefStore.GetAllAsync(ct);
+            var knownNames = new HashSet<string>(
+                knownFields.Select(f => f.ReferenceName), StringComparer.OrdinalIgnoreCase);
+
+            var unknown = fieldValues
+                .Select(f => f.Key)
+                .Where(k => !knownNames.Contains(k))
+                .ToList();
+
+            if (unknown.Count > 0)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Unknown field reference name(s): {string.Join(", ", unknown)}. " +
+                    "Use the ADO reference name (e.g. Custom.MyField); run 'twig refresh' if the field is new."));
+                return 1;
+            }
+        }
 
         // Title is required unless --editor is used (editor can supply it)
         if (!editor && string.IsNullOrWhiteSpace(title))
@@ -146,6 +190,29 @@ public sealed class SeedNewCommand(
         }
 
         var seed = seedResult.Value;
+
+        // Applied before the editor block so --editor opens a buffer pre-filled with
+        // these values rather than discarding them. --field lands after --description
+        // so an explicit --field System.Description wins, matching `twig new`.
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            var resolvedDescription = await HtmlFieldFormatter.ResolveAsync(
+                "System.Description", description, format: null, fieldDefStore, ct: ct);
+            seed.SetField("System.Description", resolvedDescription.EffectiveValue);
+        }
+
+        if (fieldValues is not null)
+        {
+            foreach (var (key, value) in fieldValues)
+            {
+                // Resolved by FIELD TYPE: HTML-typed fields convert Markdown, plain
+                // values pass through untouched. Blanket-converting would wrap picklist
+                // values in <p>...</p>, which ADO silently drops at publish time.
+                var resolved = await HtmlFieldFormatter.ResolveAsync(
+                    key, value, format: null, fieldDefStore, ct: ct);
+                seed.SetField(key, resolved.EffectiveValue);
+            }
+        }
 
         if (editor)
         {

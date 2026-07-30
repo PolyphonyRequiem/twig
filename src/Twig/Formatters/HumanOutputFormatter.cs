@@ -1,5 +1,6 @@
 using System.Text;
 using Spectre.Console;
+using Twig.Diagnostics;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
@@ -459,6 +460,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var proposed = 0;
             var inProgressCount = 0;
             var doneCount = 0;
+            var unclassified = 0;
+            var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in ws.SprintItems)
             {
                 switch (StateCategoryResolver.Resolve(item.State, _stateEntries))
@@ -468,9 +471,15 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                     case StateCategory.Resolved:
                     case StateCategory.Completed: doneCount++; break;
                     case StateCategory.Removed: proposed++; break;
-                    case StateCategory.Unknown: proposed++; break;
+                    // twig#286: Unknown gets its own bucket. Folding it into `proposed`
+                    // asserted "not started" about a state twig could not classify.
+                    case StateCategory.Unknown:
+                        unclassified++;
+                        unknownStates.Add(item.State);
+                        break;
                 }
             }
+            UnknownStateDiagnostic.Report(unknownStates);
             var total = ws.SprintItems.Count;
             var segments = new List<string>();
             segments.Add($"{Green}{doneCount}/{total}{Reset} done");
@@ -478,6 +487,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 segments.Add($"{Blue}{inProgressCount}{Reset} in progress");
             if (proposed > 0)
                 segments.Add($"{Dim}{proposed}{Reset} proposed");
+            if (unclassified > 0)
+                segments.Add($"{Yellow}{unclassified}{Reset} unclassified");
             sb.AppendLine();
             sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
         }

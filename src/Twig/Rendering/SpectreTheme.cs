@@ -67,6 +67,14 @@ internal sealed class SpectreTheme
     }
 
     /// <summary>
+    /// Markup colour for the twig#286 "unclassified" progress-summary segment. Deliberately
+    /// distinct from the grey <see cref="StateCategory.Proposed"/> bucket it used to be folded
+    /// into. Not routed through <see cref="GetCategoryMarkupColor"/>: that method also colours
+    /// state *text*, and recolouring every unrecognized state name is out of scope for #286.
+    /// </summary>
+    internal const string UnclassifiedMarkupColor = "yellow";
+
+    /// <summary>
     /// Returns the Spectre markup color string for a given state (e.g. "green", "blue", "grey", "red").
     /// Resolves the state to a <see cref="StateCategory"/> and delegates to <see cref="GetCategoryMarkupColor"/>.
     /// </summary>

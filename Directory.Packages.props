@@ -27,6 +27,10 @@
     <!-- Hosting -->
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.6" />
+    <!-- Direct pin overriding the 2.1.1 that BenchmarkDotNet pulls transitively
+         into Twig.Benchmarks; see that csproj and #342. Tracks the sibling
+         Extensions packages above. -->
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.6" />
     <!-- DI -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.6" />
     <!-- Testing -->

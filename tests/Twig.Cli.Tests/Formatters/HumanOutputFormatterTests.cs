@@ -2376,7 +2376,7 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatWorkspace_RemovedState_CountsAsProposed()
+    public void FormatWorkspace_RemovedState_IsExcludedFromTotalNotCountedAsProposed()
     {
         var items = new[]
         {
@@ -2388,12 +2388,15 @@ public class HumanOutputFormatterTests
         var result = _formatter.FormatWorkspace(ws, staleDays: 14);
         var plain = StripAnsi(result);
 
-        // Removed items are bucketed with Proposed — total=2, done=0, in progress=1, proposed=1
+        // twig#335: this test previously asserted the defect — a removed item was counted as
+        // proposed, inflating open work with work nobody intends to do. Removed is now
+        // excluded from the denominator (total 2 → 1) and reported in its own segment.
+        // Full coverage lives in RemovedStateBucketingTests.
         plain.ShouldContain("Sprint:");
-        plain.ShouldContain("0/2");
+        plain.ShouldContain("0/1");
         plain.ShouldContain("done");
         plain.ShouldContain("1 in progress");
-        plain.ShouldContain("1 proposed");
+        plain.ShouldContain("1 removed");
     }
 
     [Fact]

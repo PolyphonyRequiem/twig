@@ -8,6 +8,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.RenderTree;
 using Twig.TestKit;
 using Xunit;
 
@@ -67,6 +68,14 @@ public sealed class WorkingSetTreeCommandTests
             });
     }
 
+    /// <summary>Projects a forest and returns the Nth structure's root branch.</summary>
+    private static RenderTreeBranch ProjectRoot(WorkingSetForest forest, int index = 0)
+    {
+        var tree = new WorkingSetTreeProjector(new SpectreTheme(new DisplayConfig()), "unicode").Project(forest);
+        var structures = (RenderNode.Section)((RenderNode.Document)tree.Nodes[0]).Fields[0].Node;
+        return ((RenderNode.TreeView)structures.Children[index]).Root;
+    }
+
     private static async Task<(int Exit, string Stdout)> RunAsync(
         WorkingSetTreeCommand cmd,
         string? items,
@@ -117,9 +126,6 @@ public sealed class WorkingSetTreeCommandTests
     [Fact]
     public async Task RootsOnly_SuppressesConnectingAncestors()
     {
-        // #3's parent #1 is NOT in the set. Default behaviour pulls in nothing
-        // here (a lone ancestor is not load-bearing); --roots-only pins that the
-        // flag never reaches for ancestry at all.
         SeedCache(
             new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
             new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
@@ -129,6 +135,104 @@ public sealed class WorkingSetTreeCommandTests
         exit.ShouldBe(0);
         stdout.ShouldContain("Member");
         stdout.ShouldNotContain("Ancestor");
+    }
+
+    [Fact]
+    public async Task LoneAncestor_IsRendered_AsContextAboveItsMember()
+    {
+        // twig#340: the full spine renders even when only ONE member hangs beneath
+        // it. Where an item lives can change whether closing it is correct, so
+        // omitting real structure is the failure this feature exists to prevent.
+        SeedCache(
+            new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
+            new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "3");
+
+        exit.ShouldBe(0);
+        stdout.ShouldContain("Ancestor");
+        stdout.ShouldContain("Member");
+        // One structure: the member nests under its spine, not beside it.
+        stdout.ShouldContain("\"structureCount\": 1");
+        stdout.ShouldContain("\"inWorkingSet\": false");
+    }
+
+    [Fact]
+    public async Task FullSpine_IsRendered_ToTheRoot()
+    {
+        // Two levels of ancestry above the single member — the whole chain shows.
+        SeedCache(
+            new WorkItemBuilder(1, "TopEpic").AsEpic().Build(),
+            new WorkItemBuilder(2, "MidFeature").AsFeature().WithParent(1).Build(),
+            new WorkItemBuilder(3, "Member").AsTask().WithParent(2).Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "3");
+
+        exit.ShouldBe(0);
+        stdout.ShouldContain("TopEpic");
+        stdout.ShouldContain("MidFeature");
+        stdout.ShouldContain("Member");
+        stdout.ShouldContain("\"structureCount\": 1");
+    }
+
+    [Fact]
+    public async Task SpineNodes_AreMuted_SoTheyReadAsContextNotSubject()
+    {
+        SeedCache(
+            new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
+            new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
+
+        // Assert the severity the projector actually stamps on each row. Going
+        // through rendered stdout can't see this: RendererFactory deliberately
+        // strips ANSI, so muted and normal render byte-identical there.
+        var forest = await new WorkingSetTreeBuilder(_repo).BuildAsync(
+            [3], new Dictionary<int, TreeAnnotation>(), rootsOnly: false, depth: 0, CancellationToken.None);
+
+        var spine = ProjectRoot(forest);
+
+        spine.Row.Cells["title"].DisplayText.ShouldBe("Ancestor");
+        spine.Row.Cells["title"].Severity.ShouldBe(Severity.Muted);
+
+        var member = spine.Children.Single();
+        member.Row.Cells["title"].DisplayText.ShouldBe("Member");
+        member.Row.Cells["title"].Severity.ShouldBe(Severity.None);
+    }
+
+    [Fact]
+    public async Task AnnotatedConnector_KeepsItsAnnotationStyle_NotTheMutedDefault()
+    {
+        // An explicit caller annotation on a connector is not decoration — it must
+        // win over the spine's dim default.
+        SeedCache(
+            new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
+            new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
+
+        var annotations = new Dictionary<int, TreeAnnotation>
+        {
+            [1] = new("look at this", AnnotationStyle.Warn, null),
+        };
+
+        var forest = await new WorkingSetTreeBuilder(_repo).BuildAsync(
+            [3, 1], annotations, rootsOnly: false, depth: 0, CancellationToken.None);
+
+        var spine = ProjectRoot(forest);
+
+        spine.Row.Cells["title"].Severity.ShouldBe(Severity.Warning);
+    }
+
+    [Fact]
+    public void MutedAnnotationStyle_MapsToMutedSeverity_NotUncoloured()
+    {
+        // Regression for the gap #340 closed: `muted` had no severity counterpart
+        // and rendered identically to no style at all.
+        var forest = new WorkingSetForest(
+            [new WorkingSetNode(1, new WorkItemBuilder(1, "Alpha").AsFeature().Build(),
+                InWorkingSet: true, new TreeAnnotation("ctx", AnnotationStyle.Muted, null), [])],
+            []);
+
+        var root = ProjectRoot(forest);
+
+        root.Row.Cells["note"].Severity.ShouldBe(Severity.Muted);
     }
 
     [Fact]

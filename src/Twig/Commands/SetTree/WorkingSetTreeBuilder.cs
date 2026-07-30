@@ -95,19 +95,15 @@ internal sealed class WorkingSetTreeBuilder(IWorkItemRepository repo)
             }
         }
 
-        // 4. Prune connectors that connect nothing: an ancestor chain above the
-        //    highest set member adds indentation without adding information.
-        //    A connector is kept only when it has two or more distinct subtrees
-        //    beneath it, or when it sits between two set members.
+        // 4. Keep the full ancestor spine (twig#340). An earlier version pruned
+        //    ancestors that were not "load-bearing" (fewer than two members
+        //    attaching beneath them), on the theory that a lone ancestor added
+        //    indentation and no information. That was wrong for a consent surface:
+        //    where an item lives in the backlog can change whether closing it is
+        //    correct, so omitting real structure is the failure this feature exists
+        //    to prevent. The spine renders instead as dim context — see
+        //    WorkingSetTreeProjector, which tags connectors Severity.Muted.
         var keptIds = new HashSet<int>(itemsById.Keys);
-        if (connectorIds.Count > 0)
-        {
-            foreach (var connectorId in connectorIds)
-            {
-                if (!IsLoadBearing(connectorId, itemsById, requested, expandedIds, keptIds))
-                    keptIds.Remove(connectorId);
-            }
-        }
 
         // 5. Link into a forest. A node's parent is its nearest kept ancestor.
         var childrenByParent = new Dictionary<int, List<int>>();
@@ -136,58 +132,6 @@ internal sealed class WorkingSetTreeBuilder(IWorkItemRepository repo)
         }
 
         return new WorkingSetForest(roots, missing);
-    }
-
-    /// <summary>
-    /// A connector earns its place when removing it would lose structure: it is
-    /// load-bearing if two or more of its descendants-in-the-forest attach through
-    /// separate branches, i.e. it is a genuine join point rather than a lone
-    /// ancestor hanging above a single member.
-    /// </summary>
-    private static bool IsLoadBearing(
-        int connectorId,
-        IReadOnlyDictionary<int, WorkItem> itemsById,
-        IReadOnlySet<int> requested,
-        IReadOnlySet<int> expanded,
-        IReadOnlySet<int> kept)
-    {
-        // Count direct "attachment branches": distinct children of this connector
-        // that lead to at least one requested/expanded member.
-        var branches = 0;
-        foreach (var (id, item) in itemsById)
-        {
-            if (id == connectorId)
-                continue;
-            if (!requested.Contains(id) && !expanded.Contains(id))
-                continue;
-
-            // Walk up from this member; record the child-of-connector it came through.
-            var cursor = item;
-            int? viaChild = null;
-            while (cursor is not null)
-            {
-                if (cursor.ParentId == connectorId)
-                {
-                    viaChild = cursor.Id;
-                    break;
-                }
-                cursor = cursor.ParentId is not null && itemsById.TryGetValue(cursor.ParentId.Value, out var next)
-                    ? next
-                    : null;
-            }
-
-            if (viaChild is not null)
-            {
-                branches++;
-                if (branches >= 2)
-                    return true;
-            }
-        }
-
-        // A connector that is itself the parent of nothing kept, or a lone spine
-        // above one member, is dropped.
-        _ = kept;
-        return false;
     }
 
     /// <summary>Walks up the cached parent chain to the nearest id still in the forest.</summary>

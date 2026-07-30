@@ -111,6 +111,8 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         Severity.Error => ("red", "✗"),
         Severity.Warning => ("yellow", "!"),
         Severity.Info => ("blue", null),
+        // Muted dims the line but adds no glyph — it recedes rather than announcing itself.
+        Severity.Muted => ("grey", null),
         _ => (null, null),
     };
 
@@ -268,6 +270,7 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         Severity.Success => "green",
         Severity.Warning => "yellow",
         Severity.Error => "red",
+        Severity.Muted => "grey",
         _ => null,
     };
 }

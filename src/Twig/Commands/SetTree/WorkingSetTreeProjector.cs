@@ -81,6 +81,14 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
 
         var item = node.Item!;
 
+        // The ancestor spine is context, not subject (twig#340): it explains where a
+        // member lives without being something the reviewer is acting on, so it
+        // recedes to dim grey. An explicit caller annotation still wins — if the
+        // caller had something to say about a connector, that is not decoration.
+        var rowSeverity = node.Annotation is not null
+            ? severity
+            : node.InWorkingSet ? Severity.None : Severity.Muted;
+
         // Annotation icon takes the badge slot when supplied, so the caller can flag a
         // node visually; otherwise the item's own type badge is used. Both resolve
         // through IconSet so nerd/unicode/ascii behaviour is inherited.
@@ -88,11 +96,11 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
             ? IconSet.GetIconByIconId(iconMode, iconId) ?? theme.GetTypeBadge(item.Type)
             : theme.GetTypeBadge(item.Type);
 
-        cells["badge"] = RenderCell.DisplayOnly(badge.TrimEnd());
-        cells["state"] = RenderCell.String(item.State ?? string.Empty);
-        cells["type"] = RenderCell.String(item.Type.Value);
-        cells["id"] = RenderCell.Integer(item.Id, $"#{item.Id}");
-        cells["title"] = RenderCell.String(item.Title ?? string.Empty);
+        cells["badge"] = RenderCell.DisplayOnly(badge.TrimEnd(), rowSeverity);
+        cells["state"] = RenderCell.String(item.State ?? string.Empty, rowSeverity);
+        cells["type"] = RenderCell.String(item.Type.Value, rowSeverity);
+        cells["id"] = RenderCell.Integer(item.Id, $"#{item.Id}", rowSeverity);
+        cells["title"] = RenderCell.String(item.Title ?? string.Empty, rowSeverity);
         cells["parentId"] = item.ParentId.HasValue
             ? new RenderCell(string.Empty, new RenderValue.Integer(item.ParentId.Value))
             : new RenderCell(string.Empty, new RenderValue.Null());
@@ -140,12 +148,13 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
 
     /// <summary>
     /// Maps the annotation style vocabulary onto the render tree's renderer-agnostic
-    /// <see cref="Severity"/>. <see cref="AnnotationStyle.Muted"/> has no counterpart —
-    /// the severity vocabulary has no "dim" member — so it renders uncoloured rather
-    /// than borrowing a colour that would mislead.
+    /// <see cref="Severity"/>. <see cref="AnnotationStyle.Muted"/> maps to
+    /// <see cref="Severity.Muted"/>, added in twig#340 — before that the severity
+    /// vocabulary had no "dim" member and muted rendered uncoloured.
     /// </summary>
     private static Severity SeverityFor(AnnotationStyle style) => style switch
     {
+        AnnotationStyle.Muted => Severity.Muted,
         AnnotationStyle.Proposed => Severity.Info,
         AnnotationStyle.Warn => Severity.Warning,
         AnnotationStyle.Error => Severity.Error,

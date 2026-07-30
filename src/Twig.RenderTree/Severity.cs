@@ -27,4 +27,17 @@ public enum Severity
 
     /// <summary>Error. Typically rendered red.</summary>
     Error = 4,
+
+    /// <summary>
+    /// De-emphasized. Typically rendered dim grey. Use for content that is present
+    /// as context rather than as the subject of the output — e.g. the ancestor spine
+    /// above a working-set member, which explains where an item lives without being
+    /// something the reader is acting on.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="None"/>: <c>None</c> means "no semantic intent, render
+    /// normally", whereas <c>Muted</c> is a positive instruction to recede. Machine
+    /// renderers treat it like any other severity tag.
+    /// </remarks>
+    Muted = 5,
 }

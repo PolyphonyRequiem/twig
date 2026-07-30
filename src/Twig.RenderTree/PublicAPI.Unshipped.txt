@@ -1,1 +1,2 @@
 #nullable enable
+Twig.RenderTree.Severity.Muted = 5 -> Twig.RenderTree.Severity

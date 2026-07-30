@@ -98,4 +98,25 @@ public class FileSeedPublishRulesProviderTests : IDisposable
         rules.RequiredFields.ShouldBe(new[] { "System.Title" });
         rules.RequireParent.ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task GetRulesAsync_HonoursExplicitEmptyRequiredFields()
+    {
+        // An explicit empty array means "require nothing" and must NOT be merged back
+        // into the default. This is the case that distinguishes "omitted" from "set to
+        // empty", which a null- or count-based merge cannot tell apart — and whether
+        // STJ source-gen surfaces an omitted property as null or as its initializer
+        // changed between SDK 11.0.100-preview.3 and preview.5.
+        var json = """
+            {
+              "requiredFields": []
+            }
+            """;
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "seed-rules.json"), json);
+
+        var provider = new FileSeedPublishRulesProvider(_tempDir);
+        var rules = await provider.GetRulesAsync();
+
+        rules.RequiredFields.ShouldBeEmpty();
+    }
 }

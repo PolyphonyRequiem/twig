@@ -1,0 +1,4 @@
+System.Runtime.CompilerServices.IUnion
+System.Runtime.CompilerServices.IUnion.Value.get -> object?
+System.Runtime.CompilerServices.UnionAttribute
+System.Runtime.CompilerServices.UnionAttribute.UnionAttribute() -> void

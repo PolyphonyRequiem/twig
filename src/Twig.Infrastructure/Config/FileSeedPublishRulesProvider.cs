@@ -28,17 +28,22 @@ internal sealed class FileSeedPublishRulesProvider : ISeedPublishRulesProvider
 
         try
         {
-            await using var stream = File.OpenRead(_path);
-            var rules = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.SeedPublishRules, ct);
+            var text = await File.ReadAllTextAsync(_path, ct);
+            var rules = JsonSerializer.Deserialize(text, TwigJsonContext.Default.SeedPublishRules);
             if (rules is null)
             {
                 return SeedPublishRules.Default;
             }
 
-            // STJ source-gen does not preserve init defaults for omitted fields — merge them explicitly.
+            // Whether STJ source-gen leaves an omitted property null or preserves its property
+            // initializer changed between SDK 11.0.100-preview.3 and preview.5, so neither a
+            // null check nor an empty check can distinguish "omitted" from "explicitly set".
+            // Ask the document which keys were actually present instead.
             return new SeedPublishRules
             {
-                RequiredFields = rules.RequiredFields ?? SeedPublishRules.Default.RequiredFields,
+                RequiredFields = HasProperty(text, "requiredFields")
+                    ? rules.RequiredFields ?? []
+                    : SeedPublishRules.Default.RequiredFields,
                 RequireParent = rules.RequireParent,
             };
         }
@@ -52,5 +57,16 @@ internal sealed class FileSeedPublishRulesProvider : ISeedPublishRulesProvider
             throw new TwigConfigurationException(
                 $"Cannot read seed rules file '{_path}': {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="name"/> is present as a top-level key in the document,
+    /// regardless of its value. Used to tell an omitted property from an explicitly set one.
+    /// </summary>
+    private static bool HasProperty(string json, string name)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.ValueKind == JsonValueKind.Object
+            && doc.RootElement.TryGetProperty(name, out _);
     }
 }

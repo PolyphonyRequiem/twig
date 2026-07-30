@@ -60,28 +60,21 @@ public sealed class NewCommand(
             return 2;
         }
 
-        // Parse --field key=value pairs (split on first '=' only), matching the
-        // convention `twig batch --set` already uses. Validated up front so a
-        // malformed pair fails before any network call — never a partial create.
+        // Parse --field key=value pairs, sharing FieldAssignment with `twig batch --set`
+        // and `twig seed new --field`. Validated up front so a malformed pair fails
+        // before any network call — never a partial create.
         // The flag is --field rather than --set because on `new`, --set already
         // means "activate the new item as context".
-        List<(string Key, string Value)>? fieldValues = null;
-        if (fields is { Length: > 0 })
+        var parseResult = FieldAssignment.ParseAll(fields, "--field");
+        if (!parseResult.IsSuccess)
         {
-            fieldValues = new List<(string, string)>(fields.Length);
-            foreach (var pair in fields)
-            {
-                var eqIndex = pair.IndexOf('=');
-                if (eqIndex < 1)
-                {
-                    Console.Error.WriteLine(fmt.FormatError(
-                        $"Invalid --field format: '{pair}'. Expected fieldReferenceName=value."));
-                    return 2;
-                }
+            Console.Error.WriteLine(fmt.FormatError(parseResult.Error));
+            return 2;
+        }
 
-                fieldValues.Add((pair[..eqIndex], pair[(eqIndex + 1)..]));
-            }
-
+        var fieldValues = parseResult.Value;
+        if (fieldValues.Count > 0)
+        {
             // ADO silently DROPS unknown field reference names on create rather than
             // rejecting them, so a typo would look like success while the value was
             // never stored. Validate against the cached field definitions so a bad
@@ -91,7 +84,7 @@ public sealed class NewCommand(
                 knownFields.Select(f => f.ReferenceName), StringComparer.OrdinalIgnoreCase);
 
             var unknown = fieldValues
-                .Select(f => f.Key)
+                .Select(f => f.FieldName)
                 .Where(k => !knownNames.Contains(k))
                 .ToList();
 
@@ -208,13 +201,13 @@ public sealed class NewCommand(
         // ADO, where --format markdown --field Custom.WayfinderExecutionMode=AFK sent
         // "<p>AFK</p>" and the picklist silently stored nothing. HTML-typed fields
         // still convert, matching `twig patch`/`twig batch --set`.
-        if (fieldValues is not null)
+        if (fieldValues.Count > 0)
         {
             var warnedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (key, value) in fieldValues)
+            foreach (var assignment in fieldValues)
             {
                 var resolved = await HtmlFieldFormatter.ResolveAsync(
-                    key, value, format: null, fieldDefStore,
+                    assignment.FieldName, assignment.NewValue ?? string.Empty, format: null, fieldDefStore,
                     onMissingFieldDef: name =>
                     {
                         if (warnedFields.Add(name))
@@ -222,7 +215,7 @@ public sealed class NewCommand(
                     },
                     ct);
 
-                seed.SetField(key, resolved.EffectiveValue);
+                seed.SetField(assignment.FieldName, resolved.EffectiveValue);
             }
         }
 

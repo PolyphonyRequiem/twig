@@ -769,3 +769,5 @@ Twig.Domain.Services.Sync.SyncCoordinator.ReadItemSetAsync(System.Collections.Ge
 Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.NotCached! value) -> void
 Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.Stale! value) -> void
 Twig.Domain.Services.Sync.RefreshOrchestrator.FetchItemsAsync(string! wiql, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.RefreshFetchResult!>!
+static Twig.Domain.ValueObjects.FieldAssignment.ParseAll(System.Collections.Generic.IReadOnlyList<string!>? pairs, string! flagName) -> Twig.Domain.Common.Result<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>!>
+Twig.Domain.ValueObjects.FieldAssignment

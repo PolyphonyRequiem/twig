@@ -106,23 +106,25 @@ public sealed class BatchCommand(
             return 2;
         }
 
-        // Parse --set key=value pairs (split on first '=' only)
+        // Parse --set key=value pairs, sharing FieldAssignment with `twig new --field`
+        // and `twig seed new --field`. The flag name is passed through so the error
+        // message still says --set here.
+        var parseResult = FieldAssignment.ParseAll(set, "--set");
+        if (!parseResult.IsSuccess)
+        {
+            _stderr.WriteLine(fmt.FormatError(parseResult.Error));
+            return 2;
+        }
+
         List<(string Key, string Value)>? fieldUpdates = null;
         if (hasFields)
         {
-            fieldUpdates = new List<(string, string)>(set!.Length);
+            fieldUpdates = new List<(string, string)>(parseResult.Value.Count);
             var warnedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in set)
+            foreach (var assignment in parseResult.Value)
             {
-                var eqIndex = pair.IndexOf('=');
-                if (eqIndex < 1)
-                {
-                    _stderr.WriteLine(fmt.FormatError($"Invalid --set format: '{pair}'. Expected key=value."));
-                    return 2;
-                }
-
-                var key = pair[..eqIndex];
-                var rawValue = pair[(eqIndex + 1)..];
+                var key = assignment.FieldName;
+                var rawValue = assignment.NewValue ?? string.Empty;
                 var resolved = await HtmlFieldFormatter.ResolveAsync(
                     key, rawValue, format, fieldDefStore,
                     onMissingFieldDef: name =>

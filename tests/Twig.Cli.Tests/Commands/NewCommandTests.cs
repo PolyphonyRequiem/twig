@@ -46,6 +46,28 @@ public class NewCommandTests : IDisposable
             {
                 new("System.Title", "Title", "String", false),
                 new("System.Description", "Description", "String", false),
+                // Custom fields used by the --field tests. --field validates reference
+                // names against this store, so anything a test sets must be known here.
+                new("Custom.WayfinderExecutionMode", "Execution Mode", "String", true),
+                new("Custom.WayfinderDecisionMaturity", "Decision Maturity", "String", false),
+                new("Custom.Query", "Query", "String", false),
+                new("Custom.Note", "Note", "String", false),
+                new("Custom.RichNotes", "Rich Notes", "HTML", false),
+            });
+
+        // Auto-resolution (used by --field) looks fields up one at a time, so the
+        // per-name lookup must agree with GetAllAsync or HTML-typed fields silently
+        // resolve as plain text in tests while converting correctly in production.
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var name = callInfo.Arg<string>();
+                return Task.FromResult<FieldDefinition?>(
+                    string.Equals(name, "Custom.RichNotes", StringComparison.OrdinalIgnoreCase)
+                        ? new FieldDefinition("Custom.RichNotes", "Rich Notes", "HTML", false)
+                        : string.Equals(name, "System.Description", StringComparison.OrdinalIgnoreCase)
+                            ? new FieldDefinition("System.Description", "Description", "String", false)
+                            : new FieldDefinition(name, name, "String", false));
             });
 
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
@@ -748,5 +770,157 @@ public class NewCommandTests : IDisposable
         // No --parent → no inheritance fetch. The only ADO fetch should be the post-create
         // re-fetch (newId=100), not a parent lookup.
         await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // --field: supply custom field values at creation time. Without this, a work item
+    // type declaring a REQUIRED custom field cannot be created by twig at all — ADO
+    // rejects the create server-side, so the create-then-patch workaround never gets
+    // a chance to run. See GitHub #339.
+
+    [Fact]
+    public async Task New_Field_SetsCustomFieldOnCreate()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields.ContainsKey("Custom.WayfinderExecutionMode") &&
+                r.Fields["Custom.WayfinderExecutionMode"] == "AFK"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_Repeated_SetsAllFields()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", fields:
+        [
+            "Custom.WayfinderExecutionMode=AFK",
+            "Custom.WayfinderDecisionMaturity=Provisional",
+        ]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields["Custom.WayfinderExecutionMode"] == "AFK" &&
+                r.Fields["Custom.WayfinderDecisionMaturity"] == "Provisional"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_ValueContainingEquals_SplitsOnFirstEqualsOnly()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", fields: ["Custom.Query=a=b=c"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields["Custom.Query"] == "a=b=c"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_EmptyValue_IsAllowed()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", fields: ["Custom.Note="]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields["Custom.Note"] == ""),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("NoEqualsSign")]
+    [InlineData("=leadingEquals")]
+    public async Task New_Field_Malformed_FailsWithoutCreating(string malformed)
+    {
+        ArrangeCreateSuccess();
+
+        var result = await _cmd.ExecuteAsync("My Epic", "Epic", fields: [malformed]);
+
+        result.ShouldBe(2);
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_UnknownReferenceName_FailsWithoutCreating()
+    {
+        ArrangeCreateSuccess();
+
+        // ADO silently DROPS unknown field reference names on create rather than
+        // erroring, so an unvalidated typo looks like success while the value is
+        // never stored. Verified against live ADO. Catch it locally instead.
+        var result = await _cmd.ExecuteAsync("My Epic", "Epic", fields: ["Custom.NotARealField=x"]);
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_HtmlTypedField_ConvertsMarkdown()
+    {
+        ArrangeCreateSuccess();
+
+        // Custom.RichNotes is HTML-typed, so Markdown converts on field type alone —
+        // no --format needed, matching `twig patch` / `twig batch --set`.
+        await _cmd.ExecuteAsync("My Epic", "Epic",
+            fields: ["Custom.RichNotes=**bold**"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields["Custom.RichNotes"]!.Contains("<strong>") &&
+                !r.Fields["Custom.RichNotes"]!.Contains("**")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_PlainTextField_IsNotConverted()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", fields: ["Custom.Note=**not markup**"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields["Custom.Note"] == "**not markup**"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_PlainTextField_NotConvertedEvenUnderFormatMarkdown()
+    {
+        ArrangeCreateSuccess();
+
+        // --format markdown is about --description. It must NOT blanket-convert
+        // every --field: wrapping a picklist value like AFK in <p>...</p> makes ADO
+        // reject the create. Field type decides, not the global flag.
+        await _cmd.ExecuteAsync("My Epic", "Epic",
+            format: "markdown",
+            fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields["Custom.WayfinderExecutionMode"] == "AFK"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_DoesNotOverrideExplicitDescription()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("My Epic", "Epic",
+            description: "from --description",
+            fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields["System.Description"] == "from --description" &&
+                r.Fields["Custom.WayfinderExecutionMode"] == "AFK"),
+            Arg.Any<CancellationToken>());
     }
 }

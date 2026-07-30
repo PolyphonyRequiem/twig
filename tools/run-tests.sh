@@ -71,12 +71,21 @@ for suite in $SUITES; do
   # `dotnet test` takes exactly one project per invocation, and two concurrent
   # runs collide over shared build output (bogus SQLitePCL DllNotFoundException),
   # so this loop is deliberately serial.
+  # VSTest writes its progress indicator with carriage returns, so redirecting
+  # straight to a file leaves the final
+  # `Passed! - Failed: 0, Passed: N, ...` summary partially OVERWRITTEN — under
+  # the .NET 11 preview SDK the log kept only a `... 1870, Skipped: 0, Total:
+  # 1870` fragment with no `Passed:` token. The run still exits 0, so the
+  # verdict below read `PASSED (0 tests)`: precisely the count-free false green
+  # this script exists to eliminate. `-tl:off` does NOT fix it (the terminal
+  # logger is not the writer). Translating CR to LF preserves every line.
+  # `PIPESTATUS[0]` is required — `$?` would report tr's status, not the test's.
   if [ "$suite" = "Cli" ]; then
-    dotnet test "$project" --nologo --filter "$CLI_FILTER" > "$log" 2>&1
+    dotnet test "$project" --nologo --filter "$CLI_FILTER" 2>&1 | tr '\r' '\n' > "$log"
   else
-    dotnet test "$project" --nologo > "$log" 2>&1
+    dotnet test "$project" --nologo 2>&1 | tr '\r' '\n' > "$log"
   fi
-  exit_code=$?
+  exit_code=${PIPESTATUS[0]}
 
   # ---- Reconcile three independent signals; any disagreement is a FAIL. ----
   aborted=0

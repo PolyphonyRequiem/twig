@@ -242,6 +242,52 @@ timing enough to suppress the hang (it writes ~5 MB per run per side). Worth
 testing by alternating traced-only and diag-enabled hunts before concluding the
 bug moved.
 
+### 🔴 CORRECTION — heavy load is NOT required to trigger the hang
+
+`tools/repro-311/perturbation-ab.sh` alternates diag-ON and diag-OFF attempts in
+one run (interleaved, not two campaigns, so machine drift hits both arms evenly).
+On its **first validation attempt** it captured the hang — diag OFF, on an
+**idle machine**: load average 2.4, **zero load generators running**.
+
+```
+Aborting test run: test run timeout of 300000 milliseconds exceeded.
+Passed!  - Failed: 0, Passed: 1977, Skipped: 0, Total: 1977, Duration: 3 s
+Test Run Aborted.
+```
+
+Trace: 1977 STARTs, 1977 ENDs, **nothing in flight**, 3.1 s of test-body time in a
+303 s run — the same shape as both earlier captures.
+
+**This corrects an assumption carried since the first repro.** The load generators
+were built because the first two captures happened under load, and that
+correlation was mistaken for necessity. It is not: an idle box reaches the trigger
+too. The generators are a convenience for raising the hit rate, **not a
+precondition** — which makes this bug much cheaper to hunt than assumed.
+
+Two hypotheses tested and **killed** immediately afterwards, recorded so nobody
+re-derives them:
+
+- **"It needs load."** Disproven by the idle-box capture above.
+- **"It's the first run after a rebuild."** The one idle hit followed a fresh
+  build, while 30 consecutive warm-state runs were clean — a tempting lead.
+  Tested directly with 8 × (rebuild → run): **0/8 hits**. No correlation.
+  (Distinct from the disproven "cold worktree / first run after checkout" on #39;
+  this was rebuild-of-the-assembly, and it is dead too.)
+
+**Current hit-rate data**, all on an idle box unless noted:
+
+| Conditions | Attempts | Hits |
+|---|---|---|
+| under heavy load, trace only | 11 | 1 |
+| under heavy load, `--diag` on | 70 | 0 |
+| idle, alternating A/B | 30 (15 per arm) | 0 |
+| idle, rebuild-then-run | 8 | 0 |
+| idle, single validation run | 1 | **1** |
+
+The observer-effect question is therefore **still open**: the A/B produced 0 hits
+in *both* arms, which says nothing about `--diag` and only says that 15 attempts
+per arm is too few at this base rate. Do not read it as clearing `--diag`.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

@@ -156,6 +156,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 var resolved = 0;
                                 var completed = 0;
                                 var unclassified = 0;
+                                var removed = 0;
                                 var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
                                 foreach (var item in items)
                                 {
@@ -165,7 +166,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                         case StateCategory.InProgress: inProgress++; break;
                                         case StateCategory.Resolved: resolved++; break;
                                         case StateCategory.Completed: completed++; break;
-                                        case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
+                                        // twig#335: Removed is abandoned work, excluded from the
+                                        // denominator so done/total describes live work.
+                                        case StateCategory.Removed: removed++; break;
                                         // twig#286: Unknown is its own bucket, not silently "not started".
                                         case StateCategory.Unknown:
                                             unclassified++;
@@ -175,18 +178,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 }
                                 UnknownStateDiagnostic.Report(unknownStates);
                                 var done = resolved + completed;
+                                var liveTotal = sprintTotal - removed;
                                 var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
                                 var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
                                 var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+                                var remColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Removed);
                                 var unkColor = SpectreTheme.UnclassifiedMarkupColor;
                                 var segments = new List<string>();
-                                segments.Add($"[{doneColor}]{done}/{sprintTotal}[/] done");
+                                segments.Add($"[{doneColor}]{done}/{liveTotal}[/] done");
                                 if (inProgress > 0)
                                     segments.Add($"[{ipColor}]{inProgress}[/] in progress");
                                 if (proposed > 0)
                                     segments.Add($"[{propColor}]{proposed}[/] proposed");
                                 if (unclassified > 0)
                                     segments.Add($"[{unkColor}]{unclassified}[/] unclassified");
+                                if (removed > 0)
+                                    segments.Add($"[{remColor}]{removed}[/] removed");
                                 var caption = $"Sprint: {string.Join(" · ", segments)}";
                                 savedCaption = caption;
                                 table.Caption(new TableTitle(caption));
@@ -275,6 +282,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
     /// <summary>
     /// Groups work items by state category in display order. Categories with no items are omitted.
+    /// twig#335: <see cref="StateCategory.Removed"/> gets its own trailing group rather than
+    /// being listed under "Proposed", so the listing reconciles with the progress caption.
     /// </summary>
     private IReadOnlyList<(StateCategory Category, IReadOnlyList<WorkItem> Items)> GroupByStateCategory(
         IReadOnlyList<WorkItem> items)
@@ -285,6 +294,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             [StateCategory.InProgress] = new(),
             [StateCategory.Resolved] = new(),
             [StateCategory.Completed] = new(),
+            [StateCategory.Removed] = new(),
         };
 
         foreach (var item in items)
@@ -297,7 +307,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         var result = new List<(StateCategory, IReadOnlyList<WorkItem>)>();
-        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed];
+        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed, StateCategory.Removed];
         foreach (var cat in displayOrder)
         {
             if (groups[cat].Count > 0)
@@ -648,6 +658,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var resolved = 0;
         var completed = 0;
         var unclassified = 0;
+        var removed = 0;
         var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items)
@@ -658,7 +669,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 case StateCategory.InProgress: inProgress++; break;
                 case StateCategory.Resolved: resolved++; break;
                 case StateCategory.Completed: completed++; break;
-                case StateCategory.Removed: proposed++; break;
+                // twig#335: Removed is abandoned work, excluded from the
+                // denominator so done/total describes live work.
+                case StateCategory.Removed: removed++; break;
                 // twig#286: Unknown is its own bucket, not silently "not started".
                 case StateCategory.Unknown:
                     unclassified++;
@@ -670,19 +683,23 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         UnknownStateDiagnostic.Report(unknownStates);
 
         var done = resolved + completed;
+        var liveTotal = items.Count - removed;
         var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
         var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
         var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+        var remColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Removed);
         var unkColor = SpectreTheme.UnclassifiedMarkupColor;
 
         var segments = new List<string>();
-        segments.Add($"[{doneColor}]{done}/{items.Count}[/] done");
+        segments.Add($"[{doneColor}]{done}/{liveTotal}[/] done");
         if (inProgress > 0)
             segments.Add($"[{ipColor}]{inProgress}[/] in progress");
         if (proposed > 0)
             segments.Add($"[{propColor}]{proposed}[/] proposed");
         if (unclassified > 0)
             segments.Add($"[{unkColor}]{unclassified}[/] unclassified");
+        if (removed > 0)
+            segments.Add($"[{remColor}]{removed}[/] removed");
 
         container.AddRow(new Markup($"\n[dim]Sprint: {string.Join(" · ", segments)}[/]"));
     }

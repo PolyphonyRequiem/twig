@@ -461,6 +461,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var inProgressCount = 0;
             var doneCount = 0;
             var unclassified = 0;
+            var removed = 0;
             var unknownStates = new HashSet<string?>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in ws.SprintItems)
             {
@@ -470,7 +471,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                     case StateCategory.InProgress: inProgressCount++; break;
                     case StateCategory.Resolved:
                     case StateCategory.Completed: doneCount++; break;
-                    case StateCategory.Removed: proposed++; break;
+                    // twig#335: Removed is abandoned work, not not-started work. It is
+                    // excluded from the denominator so done/total describes live work,
+                    // and reported separately so the footer reconciles with the listing.
+                    case StateCategory.Removed: removed++; break;
                     // twig#286: Unknown gets its own bucket. Folding it into `proposed`
                     // asserted "not started" about a state twig could not classify.
                     case StateCategory.Unknown:
@@ -480,7 +484,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 }
             }
             UnknownStateDiagnostic.Report(unknownStates);
-            var total = ws.SprintItems.Count;
+            var total = ws.SprintItems.Count - removed;
             var segments = new List<string>();
             segments.Add($"{Green}{doneCount}/{total}{Reset} done");
             if (inProgressCount > 0)
@@ -489,6 +493,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 segments.Add($"{Dim}{proposed}{Reset} proposed");
             if (unclassified > 0)
                 segments.Add($"{Yellow}{unclassified}{Reset} unclassified");
+            if (removed > 0)
+                segments.Add($"{Red}{removed}{Reset} removed");
             sb.AppendLine();
             sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
         }
@@ -1073,9 +1079,17 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     }
 
     /// <summary>
-    /// Groups work items by state category in display order (Proposed → InProgress → Resolved → Completed).
-    /// Categories with no items are omitted. Removed and Unknown are omitted from display.
+    /// Groups work items by state category in display order
+    /// (Proposed → InProgress → Resolved → Completed → Removed).
+    /// Categories with no items are omitted. Unknown is folded into the Proposed group.
     /// </summary>
+    /// <remarks>
+    /// twig#335: <see cref="StateCategory.Removed"/> used to land in the Proposed group.
+    /// Now that the progress footer excludes removed items from <c>done/total</c>, leaving
+    /// them listed under a "Proposed" header would make the footer irreconcilable with the
+    /// list above it — the reader would count more proposed rows than the footer reports.
+    /// It gets its own trailing group instead, so the item stays visible and the two agree.
+    /// </remarks>
     internal IReadOnlyList<(StateCategory Category, IReadOnlyList<WorkItem> Items)> GroupByStateCategory(IReadOnlyList<WorkItem> items)
     {
         var groups = new Dictionary<StateCategory, List<WorkItem>>
@@ -1084,6 +1098,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             [StateCategory.InProgress] = new(),
             [StateCategory.Resolved] = new(),
             [StateCategory.Completed] = new(),
+            [StateCategory.Removed] = new(),
         };
 
         foreach (var item in items)
@@ -1092,11 +1107,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             if (groups.TryGetValue(category, out var list))
                 list.Add(item);
             else
-                groups[StateCategory.Proposed].Add(item); // Unknown/Removed → Proposed bucket
+                groups[StateCategory.Proposed].Add(item); // Unknown → Proposed bucket
         }
 
         var result = new List<(StateCategory, IReadOnlyList<WorkItem>)>();
-        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed];
+        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed, StateCategory.Removed];
         foreach (var cat in displayOrder)
         {
             if (groups[cat].Count > 0)

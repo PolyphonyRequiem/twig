@@ -77,9 +77,14 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
             archive: tar.gz
-          - rid: osx-x64
-            os: macos-15
-            archive: tar.gz
+          # osx-x64 (macOS Intel) is intentionally NOT built. As of v0.85.0 the
+          # NativeAOT link step fails on the .NET 11 preview toolchain:
+          #   ld: unaligned pointer(s) for architecture x86_64
+          # from a prebuilt Microsoft static lib (libSystem.Net.Security.Native.a,
+          # pal_gssapi.c.o) under Xcode 16.4 — no twig code is in the failing path,
+          # and osx-arm64 builds clean from the same commit. Restore this leg once
+          # the toolchain ships a fix; install.sh rejects Intel macOS with a
+          # pointed message in the meantime.
           - rid: osx-arm64
             os: macos-latest
             archive: tar.gz
@@ -235,8 +240,6 @@ jobs:
             ./artifacts/twig-win-x64.zip.sha256
             ./artifacts/twig-linux-x64.tar.gz
             ./artifacts/twig-linux-x64.tar.gz.sha256
-            ./artifacts/twig-osx-x64.tar.gz
-            ./artifacts/twig-osx-x64.tar.gz.sha256
             ./artifacts/twig-osx-arm64.tar.gz
             ./artifacts/twig-osx-arm64.tar.gz.sha256
             ./artifacts/SHA256SUMS

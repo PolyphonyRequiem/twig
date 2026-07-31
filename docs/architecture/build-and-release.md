@@ -104,8 +104,24 @@ Triggered by pushing a tag matching `v*`.
 |----------|--------|-----|---------|
 | Windows x64 | `windows-latest` | `win-x64` | `.zip` |
 | Linux x64 | `ubuntu-latest` | `linux-x64` | `.tar.gz` |
-| macOS Intel | `macos-15` | `osx-x64` | `.tar.gz` |
+| macOS Intel | — | `osx-x64` | **not published** (see below) |
 | macOS ARM64 | `macos-latest` | `osx-arm64` | `.tar.gz` |
+
+**macOS Intel (`osx-x64`) is not published.** Dropped from the matrix at v0.85.1.
+The NativeAOT link step fails on the .NET 11 preview toolchain:
+
+```
+ld: unaligned pointer(s) for architecture x86_64
+  '_NetSecurityNative_ImportPrincipalName.gss_krb5_nt_principal_name_desc'
+  from libSystem.Net.Security.Native.a(pal_gssapi.c.o)
+```
+
+The failing object is a **prebuilt Microsoft static library** under Xcode 16.4 — no
+twig code is in the path, and `osx-arm64` links cleanly from the same commit, so
+this is a toolchain defect rather than a repo one. `install.sh` detects Intel macOS
+and exits with an explanation instead of 404ing on a missing asset. Restore the
+matrix leg, the `Create GitHub Release` asset lines, and remove the `install.sh`
+guard once a newer preview links it.
 
 Each platform builds three artifacts:
 

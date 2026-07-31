@@ -331,6 +331,7 @@ a strong *risk factor*.)
 | heavy load, `--diag` on | 70 | 0 | 0% |
 | heavy load, A/B diag OFF arm | 20 | 1 | 5% |
 | heavy load, A/B diag ON arm | 20 | 0 | 0% |
+| heavy load, `dispatch-watch.sh` (#42) | 25 | 0 | 0% |
 | idle, A/B (both arms) | 150 | 0 | 0% |
 | idle, rebuild-then-run | 8 | 0 | 0% |
 | idle, cold worktree first-run | 8 | 0 | 0% |
@@ -429,6 +430,28 @@ cut -d' ' -f1-3 /proc/loadavg                         # >20 on 20 cores
 
 Per-attempt duration remains the best single tell: **~11 s idle vs 42-75 s under real
 load** for the Cli suite.
+
+**First loaded hunt with it: 25 attempts, 0 captures.** Conditions verified during the
+run, not assumed: 16 spinners alive, two `build-load.sh` loops cycling a real
+`--no-incremental` rebuild every ~2 s, `VBCSCompiler` up, load average 21→35 on 20
+cores, per-attempt duration 42-75 s against ~11 s idle. No trip, no abort, no `[FAIL]`.
+
+🔴 **Read this as a null result about the BUG, not about the probe.** The two things
+it does not say:
+
+- It does not clear or condemn `dispatch-watch.sh`. The instrument was proven
+  separately by its two self-tests — the detector trips on a stalled trace, and the
+  snapshot path produced a matched socket pair plus host stacks naming
+  `MessageLoopAsync` / `DefaultEngineInvoker` against real live PIDs. A hunt with no
+  abort in it never exercises the probe, so it cannot measure it.
+- It does not re-open "does load matter". At the loaded rate of ~1 in 11-20, a 0/25
+  run is an ordinary outcome. **Expect to need 40-60 loaded attempts**, and note that
+  the two trace-only captures both landed in the first few attempts of their hunts —
+  arrival is clumpy, so do not read an early clean streak as evidence of anything.
+
+**The remaining gap, stated honestly:** the runner-vs-host question is still
+unanswered. The probe that can answer it now exists and is proven to fire; it has
+simply not yet been pointed at a live abort.
 
 🔴 **`pgrep`/`ps` counts can match your own wrapper.** A bare `pgrep -cf cpu-load.sh`
 returned `1` here when the count was truly `0` — it matched the shell command running

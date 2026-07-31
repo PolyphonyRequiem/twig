@@ -67,7 +67,16 @@ for f in "$DIR"/*.snap*.sock; do
 done
 echo
 echo "  Reminder: lastsnd/lastrcv are MILLISECONDS since that side last sent/received."
-echo "  On a real stall the stalled side's counter should be in the hundreds of thousands."
+echo "  Expect roughly the dispatch gap (>=45s, i.e. 45000+), NOT hundreds of thousands:"
+echo "  the watcher fires at the 45s gap, not at the 300s abort, so these counters are"
+echo "  young BY CONSTRUCTION. A capture with lastsnd/lastrcv in the tens of thousands"
+echo "  is normal and must NOT be rejected on that basis (verified: ADO #43 capture,"
+echo "  a true 311 abort, showed 44698-88290 ms across its three snapshots)."
+echo
+echo "  The load-bearing check is not the magnitude but that the counters are FROZEN"
+echo "  across snapshots while both queues stay 0 — and that runner bytes_sent =="
+echo "  host bytes_received (and vice versa), which proves nothing is stranded on the"
+echo "  wire and the stall is a mutual lost wakeup rather than one side's fault."
 echo
 
 echo "──── blocked threads ────"

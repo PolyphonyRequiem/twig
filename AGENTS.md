@@ -380,6 +380,61 @@ suppression or expensive bad luck, `--diag` is not the instrument that will catc
 this. A lighter probe is needed — one that observes the runner/host dispatch
 boundary without writing ~5 MB per side per run.
 
+### The replacement probe: `dispatch-watch.sh` (#42)
+
+`tools/repro-311/dispatch-watch.sh` is that lighter probe. It answers the one
+question left open — **at the moment dispatch stops, is the runner waiting on the
+host, or the host waiting on the runner?**
+
+It watches the existing `TWIG_TEST_TRACE` boundary file's mtime from **outside**
+both processes. A gap of `TWIG_311_STALL_SECS` (default 45 s) trips it, and on trip
+it snapshots both sides:
+
+- the `vstest.console` ↔ `testhost` **TCP socket pair** (`ss -tnpi`) — `Send-Q` /
+  `Recv-Q` are the decisive evidence for which side stalled;
+- managed stacks of every thread (`dotnet-stack report`);
+- per-thread kernel state and wait channel from `/proc`, which still works if the
+  diagnostics IPC endpoint is itself wedged.
+
+`tools/repro-311/dispatch-analyze.sh <capture-dir>` applies the decision rule.
+
+**Cost during a healthy run: one `stat` per second on one file, from a separate
+process.** Nothing is written by either side under test and no diagnostic channel
+is opened until *after* a stall has already happened — so unlike `--diag` it cannot
+perturb the timing that produces the bug.
+
+**Prove the instrument before betting a hunt on it.** Both halves self-test:
+
+```bash
+tools/repro-311/dispatch-watch.sh --selftest-detector   # gap detector, no test run
+TWIG_311_SELFTEST=1 tools/repro-311/dispatch-watch.sh   # snapshot path, real live PIDs
+```
+
+The healthy-run self-test **force-trips** rather than lowering the threshold, and
+that is deliberate: a healthy run contains no gap worth waiting for. Measured here,
+3018 tests execute in **7.3 s wall with a largest in-trace gap of 1.53 s**, and
+`BuildFixture`'s nested build — the largest untraced cost — happens *before the
+first trace line*, in a window the watcher cannot see by construction.
+
+🔴 **`pgrep -cf csc.dll` is a STALE load-validity check on the preview.5 SDK.** Roslyn
+compiles inside the persistent `VBCSCompiler` server, so `csc.dll` reads **zero** even
+under genuine heavy build load — following the old rule literally would make you
+conclude a working stressor was a no-op. Check these instead:
+
+```bash
+ps -eo args --no-headers | grep -c '[V]BCSCompiler'   # Roslyn server up
+ps -eo args --no-headers | grep -c '[b]uild-load.sh'  # loops actually alive
+cut -d' ' -f1-3 /proc/loadavg                         # >20 on 20 cores
+```
+
+Per-attempt duration remains the best single tell: **~11 s idle vs 42-75 s under real
+load** for the Cli suite.
+
+🔴 **`pgrep`/`ps` counts can match your own wrapper.** A bare `pgrep -cf cpu-load.sh`
+returned `1` here when the count was truly `0` — it matched the shell command running
+the check. Use a bracketed pattern (`grep -c '[c]pu-load.sh'`) so the checker cannot
+count itself. This produced a false "load is running" reading during #42.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

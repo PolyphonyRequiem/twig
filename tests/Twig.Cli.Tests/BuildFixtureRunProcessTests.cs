@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Shouldly;
 using Xunit;
 
@@ -28,16 +29,35 @@ public class BuildFixtureRunProcessTests
     /// </summary>
     private static readonly TimeSpan MustReturnWithin = TimeSpan.FromSeconds(120);
 
+    private static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+    /// <summary>
+    /// The platform shell. These tests exercise process/pipe plumbing, which is
+    /// inherently OS-specific — hardcoding <c>/bin/sh</c> made all three fail on
+    /// Windows with Win32Exception(2), caught only by the release matrix because CI
+    /// runs ubuntu-latest alone.
+    /// </summary>
+    private static string ShellFileName => IsWindows ? "cmd.exe" : "/bin/sh";
+
+    private static string ShellArgs(string script) =>
+        IsWindows ? $"/c \"{script}\"" : $"-c \"{script}\"";
+
     [Fact]
     public void RunProcess_WhenGrandchildHoldsStdoutOpen_StillReturns()
     {
         // A grandchild inherits stdout and holds it open well past the parent's exit.
         // The direct child exits immediately, so WaitForExit returns fast — exactly the
         // #311 shape, where the surviving handle is what blocks the reader.
-        var script = "sleep 3600 & echo parent-done";
+        //
+        // Both spellings background a long-lived process that INHERITS the redirected
+        // stdout handle (no redirection to nul/dev-null, or the handle would not be
+        // held and the test would prove nothing).
+        var script = IsWindows
+            ? "start /b ping -n 3600 127.0.0.1 & echo parent-done"
+            : "sleep 3600 & echo parent-done";
 
         var sw = Stopwatch.StartNew();
-        var (stdout, _, _, exited) = RunGuarded("/bin/sh", $"-c \"{script}\"");
+        var (stdout, _, _, exited) = RunGuarded(ShellFileName, ShellArgs(script));
         sw.Stop();
 
         exited.ShouldBeTrue("the direct child exits immediately; only the pipe lingers");
@@ -56,7 +76,7 @@ public class BuildFixtureRunProcessTests
     public void RunProcess_OnNormalProcess_CapturesOutputAndExitCode()
     {
         // Guard against "fixing" the hang by simply never reading the pipes.
-        var (stdout, _, exitCode, exited) = RunGuarded("/bin/sh", "-c \"echo hello-twig\"");
+        var (stdout, _, exitCode, exited) = RunGuarded(ShellFileName, ShellArgs("echo hello-twig"));
 
         exited.ShouldBeTrue();
         exitCode.ShouldBe(0);
@@ -66,7 +86,7 @@ public class BuildFixtureRunProcessTests
     [Fact]
     public void RunProcess_OnNonZeroExit_ReportsExitCode()
     {
-        var (_, _, exitCode, exited) = RunGuarded("/bin/sh", "-c \"exit 3\"");
+        var (_, _, exitCode, exited) = RunGuarded(ShellFileName, ShellArgs("exit 3"));
 
         exited.ShouldBeTrue();
         exitCode.ShouldBe(3);

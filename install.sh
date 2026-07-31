@@ -32,6 +32,19 @@ case "$ARCH" in
 esac
 
 RID="${os}-${arch}"
+
+# macOS Intel is not published. The NativeAOT link step fails on the .NET 11
+# preview toolchain (unaligned pointers in a prebuilt Microsoft static lib under
+# Xcode 16.4), so no osx-x64 asset exists to download. Fail with an explanation
+# rather than letting the user hit a bare 404 on the release asset.
+if [ "$RID" = "osx-x64" ]; then
+    echo "Error: twig does not currently publish a macOS Intel (x86_64) build." >&2
+    echo "       The .NET 11 preview NativeAOT toolchain cannot link it; Apple" >&2
+    echo "       Silicon and Linux/Windows builds are unaffected." >&2
+    echo "       Build from source, or run under Rosetta with the arm64 build." >&2
+    exit 1
+fi
+
 ASSET_NAME="twig-${RID}.tar.gz"
 
 # Verify curl is available

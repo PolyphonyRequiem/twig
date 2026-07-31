@@ -182,16 +182,42 @@ in-test time; the other ~290 s is the hang.
 
 **This falsifies the natural reading of the suspect list.** The stall is not a slow
 or hung test, so per-test theories (SQLite pools, static state, a specific fixture's
-work) cannot explain it on their own. `BuildFixture`'s nested `dotnet build` is a
-real cost — reliably the largest untraced gap, 2.1 s idle scaling to ~6.2 s under
-load, 8/8 runs — but it is **not** the abort: the abort happened at ~40% of the
-suite, and the entrypoint tests run near the end and were never reached.
+work) cannot explain it on their own.
 
-The evidence points at the **runner/host boundary** rather than at test code: the
-vstest host stops requesting work while the process stays alive. That is consistent
-with a communication or scheduling stall between `dotnet test` and the test host
-under CPU/IO contention, which also explains why it reproduces on a busy GitHub
-runner and vanishes on a re-run of the identical commit.
+🔴 **ROOT CAUSE FOUND (ADO #43, 2026-07-31) — it IS `BuildFixture`, and the
+reasoning that ruled it out below was wrong.** Preserved so the mistake is not
+repeated:
+
+> ~~`BuildFixture`'s nested `dotnet build` is a real cost — reliably the largest
+> untraced gap, 2.1 s idle scaling to ~6.2 s under load, 8/8 runs — but it is **not**
+> the abort: the abort happened at ~40% of the suite, and the entrypoint tests run
+> near the end and were never reached.~~
+
+That inference mapped an abort's **test count onto an execution position** — the
+exact move this file forbids two sections above, because xUnit's order is not stable
+between runs. It also assumed `AotSmokeTests`'s `Category=Interactive` exclusion
+covered the fixture; it does not. `OutputFormatEntrypointTests` shares `BuildFixture`
+and is **not** excluded, so the nested build runs on every normal Cli run. The
+captured abort hit at 469/3018 (~15%), not ~40%.
+
+**The actual mechanism:** `BuildFixture.RunProcess` timed out only `WaitForExit`,
+then blocked on an *untimed, uncancellable* `stdoutTask.GetAwaiter().GetResult()`.
+`dotnet build` spawns MSBuild worker nodes and a persistent `VBCSCompiler` that
+**outlive the direct child and inherit the redirected stdout handle**. `ReadToEnd`
+returns at EOF, and EOF arrives only when the *last* holder closes the write end — so
+`WaitForExit` returned promptly while the read blocked forever. The 5-minute timeout
+guarded the one call that could never hang. Because this runs in a fixture
+**constructor**, xUnit's `CreateClassFixture` never returned and the host stopped
+dispatching — producing exactly the "nothing in flight, every START has an END"
+signature seen in all seven captures.
+
+Fixed by bounding every wait in `RunProcess` (see its `<remarks>`), with regression
+coverage in `BuildFixtureRunProcessTests`. Red-green verified: the hang test fails
+against the old implementation and passes against the fixed one.
+
+The evidence *at the boundary* — the vstest host stopping while both processes stay
+alive — remains accurate as a **symptom**; it was the fixture blocking upstream of it
+all along.
 
 Reproducer, for whoever picks this up:
 
@@ -416,6 +442,14 @@ that is deliberate: a healthy run contains no gap worth waiting for. Measured he
 3018 tests execute in **7.3 s wall with a largest in-trace gap of 1.53 s**, and
 `BuildFixture`'s nested build — the largest untraced cost — happens *before the
 first trace line*, in a window the watcher cannot see by construction.
+
+> 🔴 That blind spot is exactly where the root cause was hiding (see "ROOT CAUSE
+> FOUND" above). The watcher could not see the fixture constructor, so it correctly
+> reported a boundary-level symptom while the real hang sat upstream of its view.
+> The capture's **stacks**, not its gap timing, are what named the cause — always
+> read the full `.stack` files, not just the analyzer's filtered "dispatch-relevant
+> frames" section, which by design shows only test-platform frames and omitted the
+> `Twig.Cli.Tests!BuildFixture..ctor()` line that settled it.
 
 🔴 **`pgrep -cf csc.dll` is a STALE load-validity check on the preview.5 SDK.** Roslyn
 compiles inside the persistent `VBCSCompiler` server, so `csc.dll` reads **zero** even

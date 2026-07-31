@@ -240,7 +240,8 @@ found and corrected along the way, each of which had silently invalidated a full
 An open question the negative result raises: whether `--diag` itself perturbs the
 timing enough to suppress the hang (it writes ~5 MB per run per side). Worth
 testing by alternating traced-only and diag-enabled hunts before concluding the
-bug moved.
+bug moved. (Probed — see "The A/B under load" below. Short version: `--diag` is now
+**0 captures in 90 loaded attempts** and should not be used for further hunting.)
 
 ### 🔴 CORRECTION — heavy load is NOT required to trigger the hang
 
@@ -328,6 +329,8 @@ a strong *risk factor*.)
 |---|---|---|---|
 | heavy load, trace only | 11 | 1 | ~9% |
 | heavy load, `--diag` on | 70 | 0 | 0% |
+| heavy load, A/B diag OFF arm | 20 | 1 | 5% |
+| heavy load, A/B diag ON arm | 20 | 0 | 0% |
 | idle, A/B (both arms) | 150 | 0 | 0% |
 | idle, rebuild-then-run | 8 | 0 | 0% |
 | idle, cold worktree first-run | 8 | 0 | 0% |
@@ -339,8 +342,43 @@ hunting has now cost 167 attempts for a single capture. Use
 `tools/repro-311/cpu-load.sh` plus two `build-load.sh` instances, verify the load
 is real with `pgrep -cf csc.dll`, and expect roughly one hit per dozen attempts.
 
-The `--diag` suppression question remains **unresolved** and should be settled by
-running the A/B *under load*, where the control arm actually produces hits.
+### The A/B under load: 1/20 OFF vs 0/20 ON — the control arm finally produced a hit
+
+The A/B was re-run **under heavy load** (16 CPU spinners plus two `build-load.sh`
+instances, load average 19-40 on 20 cores, `pgrep -cf csc.dll` non-zero
+throughout), which is the condition the previous section called for.
+
+| Arm | Runs | Hits |
+|---|---|---|
+| `--diag` OFF | 20 | **1** |
+| `--diag` ON | 20 | 0 |
+
+The hit landed on **attempt 1**, diag OFF, at 310 s. Its shape is identical to all
+three previous captures:
+
+```
+Aborting test run: test run timeout of 300000 milliseconds exceeded.
+Passed!  - Failed: 0, Passed: 1092, Skipped: 0, Total: 1092, Duration: 7 s
+Test Run Aborted.
+```
+
+1092 STARTs, 1092 ENDs, **nothing in flight**, 7.3 s of test-body time spanning
+00:34:53→00:35:00 inside a 310 s run. Four captures now agree: the runner stops
+dispatching and idles out.
+
+**What this does and does not settle.** Unlike the idle A/B, the control arm
+produced a hit, so the arms are no longer both empty — the result is *consistent
+with* `--diag` suppressing the hang. It is **not proof**. One hit in twenty is far
+too few to distinguish suppression from luck: at the observed base rate, a 0/20 ON
+arm is an unremarkable outcome even if `--diag` changes nothing. The script says as
+much in its own verdict rather than letting the reader over-read it.
+
+🔴 **The actionable consequence is the same either way: stop hunting with `--diag`.**
+Across 90 loaded diag-ON attempts (70 in the original hunt, 20 here) it has produced
+**zero** captures, while trace-only has produced two in 31. Whether that is
+suppression or expensive bad luck, `--diag` is not the instrument that will catch
+this. A lighter probe is needed — one that observes the runner/host dispatch
+boundary without writing ~5 MB per side per run.
 
 ## Testing conventions
 

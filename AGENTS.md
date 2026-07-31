@@ -242,6 +242,106 @@ timing enough to suppress the hang (it writes ~5 MB per run per side). Worth
 testing by alternating traced-only and diag-enabled hunts before concluding the
 bug moved.
 
+### 🔴 CORRECTION — heavy load is NOT required to trigger the hang
+
+`tools/repro-311/perturbation-ab.sh` alternates diag-ON and diag-OFF attempts in
+one run (interleaved, not two campaigns, so machine drift hits both arms evenly).
+On its **first validation attempt** it captured the hang — diag OFF, on an
+**idle machine**: load average 2.4, **zero load generators running**.
+
+```
+Aborting test run: test run timeout of 300000 milliseconds exceeded.
+Passed!  - Failed: 0, Passed: 1977, Skipped: 0, Total: 1977, Duration: 3 s
+Test Run Aborted.
+```
+
+Trace: 1977 STARTs, 1977 ENDs, **nothing in flight**, 3.1 s of test-body time in a
+303 s run — the same shape as both earlier captures.
+
+**This corrects an assumption carried since the first repro.** The load generators
+were built because the first two captures happened under load, and that
+correlation was mistaken for *necessity*. It is not strictly necessary — an idle
+box did reach the trigger once.
+
+⚠️ **But do not over-read this heading.** A follow-up 120-attempt idle A/B and two
+further idle probes produced **0 hits in 166 more attempts**, putting the idle
+rate at ~1 in 129 against ~1 in 11 under load. The accurate statement is *load is
+not strictly required, but it raises the hit rate by about an order of
+magnitude* — not *"you can hunt this on an idle box"*. See the 120-attempt
+section below before planning a hunt.
+
+Two hypotheses tested and **killed** immediately afterwards, recorded so nobody
+re-derives them:
+
+- **"It needs load."** Disproven by the idle-box capture above.
+- **"It's the first run after a rebuild."** The one idle hit followed a fresh
+  build, while 30 consecutive warm-state runs were clean — a tempting lead.
+  Tested directly with 8 × (rebuild → run): **0/8 hits**. No correlation.
+  (Distinct from the disproven "cold worktree / first run after checkout" on #39;
+  this was rebuild-of-the-assembly, and it is dead too.)
+
+**Current hit-rate data**, all on an idle box unless noted:
+
+| Conditions | Attempts | Hits |
+|---|---|---|
+| under heavy load, trace only | 11 | 1 |
+| under heavy load, `--diag` on | 70 | 0 |
+| idle, alternating A/B | 30 (15 per arm) | 0 |
+| idle, rebuild-then-run | 8 | 0 |
+| idle, single validation run | 1 | **1** |
+
+The observer-effect question is therefore **still open**: the A/B produced 0 hits
+in *both* arms, which says nothing about `--diag` and only says that 15 attempts
+per arm is too few at this base rate. Do not read it as clearing `--diag`.
+
+### The 120-attempt A/B: 0/60 vs 0/60 — and what that actually means
+
+Re-ran the A/B at **60 attempts per arm** on an idle box (~11 s per run, ~25 min
+total). Result: **0 hits in both arms.**
+
+| Arm | Runs | Hits |
+|---|---|---|
+| `--diag` OFF | 60 | 0 |
+| `--diag` ON | 60 | 0 |
+
+Since the OFF arm also produced nothing, this **still cannot answer the
+observer-effect question** — you cannot measure suppression of an event that
+isn't occurring in the control. What it does establish is sharper and more
+useful: **the idle-box hit was not the start of a reproducible idle regime.**
+
+That single hit now stands at **1 in 129 idle attempts**, versus 1 in 11 under
+heavy load. Reading it as "an idle box reproduces this" was over-reading one
+event — it is better described as *the trigger is not strictly load-gated, but
+load raises the rate by roughly an order of magnitude*.
+
+A further hypothesis, tested and **killed**: the one idle hit was the first-ever
+`dotnet test` in a brand-new worktree, and all 120 clean runs shared one warm
+worktree — a tempting explanation. Probed directly with 8 × (fresh worktree →
+build → one run): **0/8**. Consistent with #39, which already recorded
+first-run-after-checkout as disproven. (Note the distinction #39 rules out:
+first-run is not *sufficient*. These 8 attempts also give no support for it being
+a strong *risk factor*.)
+
+**Full hit-rate table:**
+
+| Conditions | Attempts | Hits | Rate |
+|---|---|---|---|
+| heavy load, trace only | 11 | 1 | ~9% |
+| heavy load, `--diag` on | 70 | 0 | 0% |
+| idle, A/B (both arms) | 150 | 0 | 0% |
+| idle, rebuild-then-run | 8 | 0 | 0% |
+| idle, cold worktree first-run | 8 | 0 | 0% |
+| idle, single validation run | 1 | 1 | — |
+
+🔴 **Practical consequence for the next investigator: hunt under heavy load.** It
+is the only condition with a demonstrated non-trivial hit rate (1 in 11). Idle
+hunting has now cost 167 attempts for a single capture. Use
+`tools/repro-311/cpu-load.sh` plus two `build-load.sh` instances, verify the load
+is real with `pgrep -cf csc.dll`, and expect roughly one hit per dozen attempts.
+
+The `--diag` suppression question remains **unresolved** and should be settled by
+running the A/B *under load*, where the control arm actually produces hits.
+
 ## Testing conventions
 
 Regression tests must **fail on the unfixed code**. A test that passes both before

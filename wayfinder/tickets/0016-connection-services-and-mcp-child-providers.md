@@ -2,7 +2,7 @@
 id: 0016
 title: AddConnectionServices and MCP child providers
 type: task
-status: resolved
+status: closed
 blocked_by: [0004]
 ---
 

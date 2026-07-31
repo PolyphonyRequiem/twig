@@ -4,6 +4,15 @@ title: MCP hints contract
 type: grilling
 status: open
 blocked_by: [0002]
+parked: true
+parked_reason: >
+  0012 froze the MCP surface (2026-07-26) — 41 tools, no new tools, no parity
+  work, new agent capability goes through the script CLI first. Specifying a
+  hint contract for a frozen surface is premature. Per 0012 the freeze lifts on
+  a demonstrated script-CLI gap OR at the 1.0 map (#282), so this ticket's fate
+  is an OUTPUT of chartering 1.0, not an input to it. Do NOT claim it as a
+  frontier ticket: 0002 is closed, so the blocked_by edge no longer holds it
+  back and only this flag does.
 ---
 
 ## Question

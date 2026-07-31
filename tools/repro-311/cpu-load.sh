@@ -10,8 +10,33 @@
 # indefinitely. Verified 2026-07-30; it silently poisoned a baseline run an hour
 # later. It now traps INT/TERM/EXIT and kills its own process group.
 #
-# To be certain the box is clean before trusting any measurement:
-#     pkill -9 -f 'SECONDS=0; while'; cut -d' ' -f1-3 /proc/loadavg
+# 🔴 THE CLEANUP COMMAND CAN KILL ITSELF. Verified ADO #43, 2026-07-31. Running
+# the teardown as a ONE-LINER is the trap:
+#
+#     pkill -f build-load.sh; pkill -9 -f 'SECONDS=0; while'; pkill -f cpu-load.sh
+#
+# The shell executing that line carries the WHOLE line in its own argv, so the
+# middle `pkill -9` matches its own parent shell and SIGKILLs it. Everything after
+# the semicolon never runs, and the spinners survive — while the operator sees a
+# command that "completed". The observed symptom is a shell exiting with -9/-15 and
+# 16 spinners still alive. Bracketing the pattern does NOT save you here: the
+# de-bracketed text still sits in the wrapper's argv.
+#
+# Two consequences, both bitten for real:
+#   * Run each pkill as its OWN command, or use the self-excluding form below.
+#   * `ps | grep -c` / `pgrep -c` inflate for the same reason. A count of "2" with
+#     zero real processes is the checking command matching itself. ALWAYS confirm a
+#     non-zero count by listing the actual rows before believing it.
+#
+# Self-excluding teardown (safe to paste as one line — `--older` skips the
+# just-spawned checking process, `-$$` excludes this shell's own pgid):
+#
+#     pkill -9 -f 'SECONDS=0' --older 2 ; pkill -9 -f 'cpu-load\.sh' --older 2
+#     ps -eo pid,args --no-headers | grep 'SECONDS=0' | grep -v grep   # list, don't count
+#     cut -d' ' -f1-3 /proc/loadavg    # 1-min decaying avg: it TRAILS reality
+#
+# To be certain the box is clean before trusting any measurement, list rows:
+#     ps -eo pid,args --no-headers | grep 'SECONDS=0' | grep -v grep
 set -u
 DURATION="${1:-3600}"
 WORKERS="${2:-16}"

@@ -69,7 +69,9 @@ var typeIconIds = config.TypeAppearances?
     .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
 
 using IApplication app = Application.Create();
+#pragma warning disable IL2026, IL3050 // SPIKE: Terminal.Gui 5185 annotates Init(); upstream v2_develop has removed these. ConfigurationManager is opt-in and twig never enables it.
 app.Init();
+#pragma warning restore IL2026, IL3050
 
 using var mainWindow = new Window
 {

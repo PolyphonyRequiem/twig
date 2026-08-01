@@ -83,7 +83,6 @@ public sealed class ProgramBootstrapTests
                     o.ServerInfo = new() { Name = "twig-mcp", Version = "1.0.0-test" };
                 })
                 .WithStdioServerTransport()
-                .WithTools<ContextTools>()
                 .WithTools<ReadTools>()
                 .WithTools<MutationTools>()
                 .WithTools<WorkspaceTools>();

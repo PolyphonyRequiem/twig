@@ -22,28 +22,11 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
     [InlineData("   ")]
     public async Task Note_EmptyOrWhitespaceText_ReturnsError(string text)
     {
-        var result = await CreateMutationSut().Note(text);
+        var result = await CreateMutationSut().Note(text, id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
             .Text.ShouldContain("requires non-empty text");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  No context — no active item
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Note_NoContext_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
-            .Returns((int?)null);
-
-        var result = await CreateMutationSut().Note("A comment");
-
-        result.IsError.ShouldBe(true);
-        result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("No active work item");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -60,7 +43,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         // AddCommentAsync succeeds (no throw)
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Note("This is a comment");
+        var result = await CreateMutationSut().Note("This is a comment", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -82,7 +65,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
-        var result = await CreateMutationSut().Note("A note");
+        var result = await CreateMutationSut().Note("A note", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -107,7 +90,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
 
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        await CreateMutationSut().Note("Comment text");
+        await CreateMutationSut().Note("Comment text", id: 42);
 
         await _pendingChangeStore.Received(1).ClearChangesByTypeAsync(
             42, "note", Arg.Any<CancellationToken>());
@@ -127,7 +110,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
-        await CreateMutationSut().Note("Some note");
+        await CreateMutationSut().Note("Some note", id: 42);
 
         await _pendingChangeStore.DidNotReceive().ClearChangesByTypeAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -148,7 +131,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Resync failure"));
 
-        var result = await CreateMutationSut().Note("A comment");
+        var result = await CreateMutationSut().Note("A comment", id: 42);
 
         // Should still succeed even though resync failed
         result.IsError.ShouldBeNull();
@@ -169,7 +152,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
 
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        await CreateMutationSut().Note("A note");
+        await CreateMutationSut().Note("A note", id: 42);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
@@ -187,7 +170,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
 
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Note("Some note");
+        var result = await CreateMutationSut().Note("Some note", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -207,7 +190,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Note("# Heading");
+        var result = await CreateMutationSut().Note("# Heading", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received(1).AddCommentAsync(42,
@@ -227,7 +210,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Note("<p>raw html</p>", format: "raw");
+        var result = await CreateMutationSut().Note("<p>raw html</p>", format: "raw", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received(1).AddCommentAsync(42, "<p>raw html</p>", Arg.Any<CancellationToken>());

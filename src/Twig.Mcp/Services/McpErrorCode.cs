@@ -12,7 +12,7 @@ public static class McpErrorCode
     /// <summary>Caller provided invalid input (missing field, bad format, etc.).</summary>
     public const string InvalidInput = "INVALID_INPUT";
 
-    /// <summary>No active work item set — caller must use <c>twig_set</c> first.</summary>
+    /// <summary>No active work item set — caller must pass an explicit work item id.</summary>
     public const string NoContext = "NO_CONTEXT";
 
     /// <summary>ADO API is unreachable (network error, auth failure, timeout).</summary>

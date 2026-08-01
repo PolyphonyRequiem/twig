@@ -21,7 +21,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for read-only navigation: twig_show, twig_query, twig_children, twig_parent, twig_sprint.
+/// MCP tools for read-only navigation: twig_show, twig_query, twig_sprint, twig_verify_descendants.
 /// All tools accept explicit IDs or search parameters and do not require or modify the active context.
 /// </summary>
 [McpServerToolType]
@@ -151,45 +151,6 @@ public sealed class NavigationTools(ConnectionResolver resolver)
 
         var queryDescription = BuildQueryDescription(parameters);
         var toolResult = McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Connection.ToString());
-        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
-    }
-
-    [McpServerTool(Name = "twig_children"), Description("List the direct children of a work item by ID")]
-    public async Task<CallToolResult> Children(
-        [Description("Parent work item ID")] int id,
-        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
-        [Description("When true, includes contextual hints in the response")] bool verbose = false,
-        CancellationToken ct = default)
-    {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
-
-        var children = await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(id, ct);
-        var toolResult = McpResultBuilder.FormatChildren(id, children, ctx.Connection.ToString());
-        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
-    }
-
-    [McpServerTool(Name = "twig_parent"), Description("Get the parent of a work item by ID")]
-    public async Task<CallToolResult> Parent(
-        [Description("Child work item ID")] int id,
-        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
-        [Description("When true, includes contextual hints in the response")] bool verbose = false,
-        CancellationToken ct = default)
-    {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
-
-        var (childResult, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(id, ct);
-        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
-        var child = childResult!;
-
-        // Resolve parent — cache-first, ADO fallback (best-effort: null if fetch fails)
-        WorkItem? parent = null;
-        if (child.ParentId.HasValue)
-        {
-            var (p, _) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(child.ParentId.Value, ct);
-            parent = p;
-        }
-
-        var toolResult = McpResultBuilder.FormatParent(child, parent, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 

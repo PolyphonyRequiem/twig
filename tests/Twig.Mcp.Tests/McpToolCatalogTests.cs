@@ -32,8 +32,9 @@ public sealed class McpToolCatalogTests
             McpToolProfile.Compact,
             exposeWorkspaceOverride: false);
 
-        // twig_history joined the compact/default catalog (twig#241).
-        result.Tools.Count.ShouldBe(11);
+        // twig_history joined the compact/default catalog (twig#241); wayfinder 0021 then
+        // removed twig_set from it, taking the advertised surface from 11 to 10.
+        result.Tools.Count.ShouldBe(10);
         result.Tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal)
             .SetEquals(McpToolCatalog.CompactToolNames).ShouldBeTrue();
         // Budget raised from 8_500 for the 11th tool (twig_history, twig#241). The per-tool
@@ -66,7 +67,9 @@ public sealed class McpToolCatalogTests
             McpToolProfile.Full,
             exposeWorkspaceOverride: true);
 
-        result.Tools.Count.ShouldBe(41);
+        // 41 before wayfinder 0021 removed twig_set, twig_parent, and twig_children as
+        // consequences of the explicit-context rule.
+        result.Tools.Count.ShouldBe(38);
         // Budget raised from 37_000 for the 41st tool (twig_history, twig#241).
         GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(38_000);
 
@@ -78,7 +81,7 @@ public sealed class McpToolCatalogTests
             if (properties.TryGetProperty("workspace", out _)) workspaceCount++;
         }
 
-        workspaceCount.ShouldBe(40);
+        workspaceCount.ShouldBe(37);
     }
 
     [Fact]
@@ -99,7 +102,6 @@ public sealed class McpToolCatalogTests
 
     [Theory]
     [InlineData("twig_batch", false, true, false, true)]
-    [InlineData("twig_set", false, false, false, true)]
     [InlineData("twig_refresh", false, false, false, true)]
     [InlineData("twig_seed_publish", false, true, false, true)]
     [InlineData("twig_cache_status", true, false, true, false)]
@@ -156,7 +158,7 @@ public sealed class McpToolCatalogTests
     public void FilterList_PreservesCursorAndDoesNotMutateRegisteredSchema()
     {
         var registered = GetRegisteredTools();
-        var sourceTool = registered.Single(tool => tool.Name == "twig_set");
+        var sourceTool = registered.Single(tool => tool.Name == "twig_show");
         var sourceSchema = sourceTool.InputSchema.GetRawText();
 
         var result = McpToolCatalog.FilterList(
@@ -202,7 +204,6 @@ public sealed class McpToolCatalogTests
         services.AddLogging();
         services
             .AddMcpServer()
-            .WithTools<ContextTools>()
             .WithTools<ReadTools>()
             .WithTools<MutationTools>()
             .WithTools<NavigationTools>()

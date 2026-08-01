@@ -15,7 +15,7 @@ namespace Twig.Mcp.Services;
 /// <summary>
 /// Resolves a <see cref="ConnectionScope"/> for a tool call based on available signals.
 /// Resolution order: explicit param → single-workspace default → active workspace → error.
-/// Also handles cross-workspace probing for <c>twig_set</c> by numeric ID.
+/// Also handles cross-workspace probing by numeric ID via <see cref="ResolveForSetAsync"/>.
 /// </summary>
 public sealed class ConnectionResolver(
     IConnectionRegistry registry,
@@ -24,7 +24,9 @@ public sealed class ConnectionResolver(
     private volatile Connection? _activeWorkspace;
 
     /// <summary>
-    /// Gets or sets the active workspace. Set by <c>twig_set</c> on successful resolution.
+    /// Gets or sets the active workspace — the workspace (org/project) subsequent calls resolve
+    /// against when none is named. This is workspace routing only, NOT a work item target: since
+    /// wayfinder 0021 no tool infers a work item from shared context.
     /// Thread-safe via <see langword="volatile"/> read/write.
     /// </summary>
     public Connection? ActiveWorkspace
@@ -46,7 +48,7 @@ public sealed class ConnectionResolver(
     }
 
     /// <summary>
-    /// Resolves a <see cref="ConnectionScope"/> for a standard tool call (not <c>twig_set</c>).
+    /// Resolves a <see cref="ConnectionScope"/> for a standard tool call (not a probing call).
     /// </summary>
     /// <param name="workspace">Optional explicit workspace string (<c>"org/project"</c>).</param>
     /// <returns>The resolved <see cref="ConnectionScope"/>.</returns>
@@ -74,7 +76,7 @@ public sealed class ConnectionResolver(
             return factory.GetOrCreate(registry.Workspaces[0]);
         }
 
-        // 3. Active workspace (set by last twig_set)
+        // 3. Active workspace (last workspace resolved by a probing call)
         var active = _activeWorkspace;
         if (active is not null)
         {
@@ -86,7 +88,7 @@ public sealed class ConnectionResolver(
     }
 
     /// <summary>
-    /// Resolves a workspace for <c>twig_set</c> by probing all registered workspaces
+    /// Resolves a workspace by probing all registered workspaces
     /// for the given numeric work item ID. Sets the active workspace on success.
     /// </summary>
     /// <param name="id">The numeric work item ID to search for.</param>

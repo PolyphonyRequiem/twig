@@ -68,6 +68,16 @@ internal static class TestConnectionScope
         services.AddSingleton(unitOfWork);
         services.AddSingleton(trackingRepo ?? NSubstitute.Substitute.For<ITrackingRepository>());
 
+        // ITrackingService is registered by AddConnectionServices, not by
+        // AddConnectionDomainServices below. RefreshOrchestrator takes it as an OPTIONAL
+        // dependency and silently returns 0 when it is absent — so without this line
+        // twig_sync's tracked-tree refresh is a no-op in tests and any assertion about it
+        // passes vacuously. Register it here, as production does.
+        services.AddSingleton<ITrackingService>(sp => new TrackingService(
+            sp.GetRequiredService<ITrackingRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IProcessTypeStore>()));
+
         // Seed identity and the intent ledger are STATEFUL: ids are minted and read back
         // within a single test. NSubstitute would return 0 for every mint, silently turning
         // "allocate a distinct negative seed id" into "always 0" and hollowing the assertions

@@ -34,7 +34,6 @@ public sealed class ToolDispatcherTests
 
         var navigationTools = new NavigationTools(resolver);
         _dispatcher = new ToolDispatcher(
-            new ContextTools(resolver),
             new ReadTools(resolver, navigationTools),
             new MutationTools(resolver),
             navigationTools,
@@ -99,12 +98,11 @@ public sealed class ToolDispatcherTests
 
     // ── Routing tests: required arg validation proves correct branch ──
     //
-    // If DispatchAsync("twig_set", {}) throws ArgumentException("idOrPattern"),
-    // that proves routing reached the twig_set branch (no other branch
+    // If DispatchAsync("twig_state", {}) throws ArgumentException("stateName"),
+    // that proves routing reached the twig_state branch (no other branch
     // extracts that parameter).
 
     [Theory]
-    [InlineData("twig_set", "idOrPattern")]
     [InlineData("twig_state", "stateName")]
     [InlineData("twig_update", "field")]
     [InlineData("twig_note", "text")]
@@ -112,8 +110,6 @@ public sealed class ToolDispatcherTests
     [InlineData("twig_find_or_create", "type")]
     [InlineData("twig_link", "sourceId")]
     [InlineData("twig_show", "id")]
-    [InlineData("twig_children", "id")]
-    [InlineData("twig_parent", "id")]
     public async Task DispatchAsync_MissingRequiredArg_ThrowsWithParamName(string toolName, string expectedParam)
     {
         var ex = await Should.ThrowAsync<ArgumentException>(async () =>
@@ -553,7 +549,7 @@ public sealed class ToolDispatcherTests
         // registry), but the call reaches MutationTools.Update (no arg exception).
         var result = await _dispatcher.DispatchAsync(
             "twig_update",
-            Args(("field", "System.Description"), ("value", "appended text"), ("append", true)),
+            Args(("field", "System.Description"), ("value", "appended text"), ("id", 42), ("append", true)),
             null, CancellationToken.None);
 
         result.IsError.ShouldBe(true);
@@ -582,10 +578,10 @@ public sealed class ToolDispatcherTests
     }
 
     [Fact]
-    public async Task DispatchAsync_TwigChildren_LongId_ParsesCorrectly()
+    public async Task DispatchAsync_TwigShow_LongId_ParsesCorrectly()
     {
         var result = await _dispatcher.DispatchAsync(
-            "twig_children", Args(("id", (long)99)), null, CancellationToken.None);
+            "twig_show", Args(("id", (long)99)), null, CancellationToken.None);
 
         result.IsError.ShouldBe(true);
         GetText(result).ShouldNotContain("Unknown tool");

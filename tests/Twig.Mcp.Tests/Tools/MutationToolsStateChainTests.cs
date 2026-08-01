@@ -55,7 +55,7 @@ public sealed class MutationToolsStateChainTests : MutationToolsTestBase
                 2, Arg.Any<CancellationToken>())
             .Returns(3);
 
-        var result = await CreateMutationSut().State("Closed");
+        var result = await CreateMutationSut().State("Closed", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -94,7 +94,7 @@ public sealed class MutationToolsStateChainTests : MutationToolsTestBase
                 1, Arg.Any<CancellationToken>())
             .ThrowsAsync(TransitionError("Active", "?"));
 
-        var result = await CreateMutationSut().State("Closed");
+        var result = await CreateMutationSut().State("Closed", id: 42);
 
         result.IsError.ShouldBe(true);
         var msg = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
@@ -126,7 +126,7 @@ public sealed class MutationToolsStateChainTests : MutationToolsTestBase
             .ThrowsAsync(new AdoBadRequestException(
                 "Rule Error for field Substate. Value Ready is not allowed."));
 
-        var result = await CreateMutationSut().State("Closed");
+        var result = await CreateMutationSut().State("Closed", id: 42);
 
         result.IsError.ShouldBe(true);
         var error = ParseResult(result).GetProperty("error");
@@ -151,7 +151,7 @@ public sealed class MutationToolsStateChainTests : MutationToolsTestBase
                 Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(1);
 
-        var result = await CreateMutationSut().State("Active");
+        var result = await CreateMutationSut().State("Active", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

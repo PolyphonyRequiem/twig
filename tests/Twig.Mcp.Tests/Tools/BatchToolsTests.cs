@@ -73,7 +73,7 @@ public sealed class BatchToolsTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "42" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "42" } },
                 { "type": "step", "tool": "twig_note", "args": { "text": "hello" } }
             ]
         }
@@ -84,7 +84,7 @@ public sealed class BatchToolsTests
 
         root.GetProperty("summary").GetProperty("total").GetInt32().ShouldBe(2);
         root.GetProperty("summary").GetProperty("succeeded").GetInt32().ShouldBe(2);
-        order.ShouldBe(["twig_set", "twig_note"]);
+        order.ShouldBe(["twig_show", "twig_note"]);
     }
 
     // ── Validation: empty graph ─────────────────────────────────────
@@ -236,7 +236,7 @@ public sealed class BatchToolsTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "1" } },
                 { "type": "step", "tool": "twig_note", "args": { "text": "hello" } },
                 { "type": "step", "tool": "twig_state", "args": { "stateName": "Doing" } }
             ]
@@ -282,7 +282,7 @@ public sealed class BatchToolsTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "1" } },
                 {
                     "type": "parallel",
                     "steps": [
@@ -342,7 +342,7 @@ public sealed class BatchToolsTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "1" } },
                 { "type": "step", "tool": "twig_state", "args": { "stateName": "Done" } },
                 { "type": "step", "tool": "twig_note", "args": { "text": "won't run" } }
             ]
@@ -401,7 +401,7 @@ public sealed class BatchToolsTests
             return tool switch
             {
                 "twig_new" => Task.FromResult(SuccessResult("{\"id\":1234,\"title\":\"My Task\"}")),
-                "twig_set" => Task.FromResult(SuccessResult("{\"id\":1234,\"ok\":true}")),
+                "twig_show" => Task.FromResult(SuccessResult("{\"id\":1234,\"ok\":true}")),
                 "twig_update" => Task.FromResult(SuccessResult("{\"id\":1234,\"updated\":true}")),
                 _ => Task.FromResult(SuccessResult("{\"ok\":true}"))
             };
@@ -413,7 +413,7 @@ public sealed class BatchToolsTests
             "type": "sequence",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "My Task", "parentId": 42 } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.id}}" } },
                 { "type": "step", "tool": "twig_update", "args": { "field": "System.Description", "value": "Created item {{steps.0.id}}", "format": "markdown" } }
             ]
         }
@@ -424,8 +424,8 @@ public sealed class BatchToolsTests
 
         root.GetProperty("summary").GetProperty("succeeded").GetInt32().ShouldBe(3);
 
-        // Step 1 (twig_set): idOrPattern should be resolved to integer 1234 (type preservation).
-        callLog[1].args["idOrPattern"].ShouldBe(1234);
+        // Step 1 (twig_show): id should be resolved to integer 1234 (type preservation).
+        callLog[1].args["id"].ShouldBe(1234);
 
         // Step 2 (twig_update): value should be partial interpolation → string "Created item 1234".
         callLog[2].args["value"].ShouldBe("Created item 1234");
@@ -439,7 +439,7 @@ public sealed class BatchToolsTests
         var capturedArgs = new Dictionary<string, object?>();
         var dispatcher = new TestToolDispatcher((tool, args, _) =>
         {
-            if (tool == "twig_set")
+            if (tool == "twig_show")
             {
                 lock (capturedArgs)
                     foreach (var kv in args) capturedArgs[kv.Key] = kv.Value;
@@ -455,7 +455,7 @@ public sealed class BatchToolsTests
             "type": "sequence",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "Test" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.item.id}}" } }
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.item.id}}" } }
             ]
         }
         """;
@@ -464,7 +464,7 @@ public sealed class BatchToolsTests
         var root = ParseResult(result);
 
         root.GetProperty("summary").GetProperty("succeeded").GetInt32().ShouldBe(2);
-        capturedArgs["idOrPattern"].ShouldBe(5678);
+        capturedArgs["id"].ShouldBe(5678);
     }
 
     // ── Template: type preservation for full-value templates ────────
@@ -575,7 +575,7 @@ public sealed class BatchToolsTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.1.id}}" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.1.id}}" } },
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "Late" } }
             ]
         }
@@ -598,8 +598,8 @@ public sealed class BatchToolsTests
         var graph = """
         {
             "type": "step",
-            "tool": "twig_set",
-            "args": { "idOrPattern": "{{steps.0.id}}" }
+            "tool": "twig_show",
+            "args": { "id": "{{steps.0.id}}" }
         }
         """;
 
@@ -622,7 +622,7 @@ public sealed class BatchToolsTests
             "type": "parallel",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "A" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } }
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.id}}" } }
             ]
         }
         """;
@@ -648,7 +648,7 @@ public sealed class BatchToolsTests
             "type": "sequence",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "Test" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.nonExistent}}" } }
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.nonExistent}}" } }
             ]
         }
         """;

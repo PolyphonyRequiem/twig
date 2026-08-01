@@ -4,6 +4,8 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Enums;
+using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
 
@@ -97,7 +99,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Sync_ActiveItem_SyncsItemAndChildren()
+    public async Task Sync_TrackedTree_SyncsTrackedItemAndChildren()
     {
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
@@ -107,27 +109,28 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         var child = new WorkItemBuilder(43, "Child Task").AsTask().InState("To Do")
             .WithParent(42).LastSyncedAt(null).Build();
 
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        // 🔴 The refresh scope is the explicit tracking set, NOT the active item.
+        // An active pointer is deliberately set to a DIFFERENT id so a regression that
+        // reintroduced active-item resolution would fetch 7 and fail the assertions below.
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(7);
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { new TrackedItem(42, TrackingMode.Tree, DateTimeOffset.UtcNow) });
+
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(new[] { child });
         _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        // FetchAsync will be called for sync — item has no LastSyncedAt so it's stale
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.FetchAsync(43, Arg.Any<CancellationToken>()).Returns(child);
-
-        // Provide pending change store empty for sync guard checks
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
 
         var result = await CreateMutationSut().Sync();
 
         result.IsError.ShouldBeNull();
 
-        // Should have called FetchAsync at least for the active item
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(7, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -270,6 +273,8 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
             .LastSyncedAt(null).Build();
 
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { new TrackedItem(42, TrackingMode.Tree, DateTimeOffset.UtcNow) });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())

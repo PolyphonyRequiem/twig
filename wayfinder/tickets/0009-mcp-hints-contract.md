@@ -4,15 +4,30 @@ title: MCP hints contract
 type: grilling
 status: open
 blocked_by: [0002]
-parked: true
-parked_reason: >
-  0012 froze the MCP surface (2026-07-26) — 41 tools, no new tools, no parity
-  work, new agent capability goes through the script CLI first. Specifying a
-  hint contract for a frozen surface is premature. Per 0012 the freeze lifts on
-  a demonstrated script-CLI gap OR at the 1.0 map (#282), so this ticket's fate
-  is an OUTPUT of chartering 1.0, not an input to it. Do NOT claim it as a
-  frontier ticket: 0002 is closed, so the blocked_by edge no longer holds it
-  back and only this flag does.
+parked: false
+unparked: 2026-07-31
+unparked_reason: >
+  UNPARKED (2026-07-31). Both reasons that held this ticket are now spent.
+
+  The 0012 freeze lifted at the 1.0 map (0012's own second clause). And the
+  MCP map this ticket was reassigned to was NEVER CHARTERED — Daniel reframed
+  the question first ("what WOULD be worthwhile to put into an MCP? If
+  anything"), and 0020 answered it in one session: nothing new. A map to
+  design a surface that should not grow is ceremony, so 0020 and 0021 live on
+  the architecture map and THIS TICKET STAYS HERE. Do not move it.
+
+  Its upstream question — "what should MCP expose" — is answered: the 41-tool
+  surface is the ceiling and the answer, minus the three tools 0021 deletes.
+  The hint contract is now a well-posed question against a settled surface.
+
+  SEQUENCING: resolve AFTER 0021. That ticket changes tool signatures and
+  deletes three tools, so specifying a hint contract before it lands would
+  specify hints for a surface that is about to change shape.
+
+  One fact from 0020 that bears on this ticket: MCP read payloads carry no
+  `as_of` field, and 0012's cache guidance recommended one so a model can
+  report staleness honestly. That is an envelope-level field and plausibly
+  belongs to whatever this ticket decides the envelope contract is.
 ---
 
 ## Question

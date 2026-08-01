@@ -82,17 +82,6 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
     //  State — without id falls back to active context (existing behavior)
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task State_WithoutId_UsesActiveContext()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await CreateMutationSut().State("Doing", id: null);
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Update — direct ID operates on specified item
     // ═══════════════════════════════════════════════════════════════
@@ -236,6 +225,37 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
     //  Direct ID — seed items work too
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// 🔴 Regression for the seed-id guard defect introduced by wayfinder 0021.
+    /// <c>WorkItemResolver.ResolveExplicitAsync</c> opened with <c>if (id &lt;= 0) return InvalidInput</c>,
+    /// which is wrong: a NEGATIVE id is twig's display alias for a staged, unpublished seed
+    /// (0003/0014's identity model — the same convention the tool catalog encodes as
+    /// <c>maximum: -1</c> on the seed-only tools). That guard made every seed mutation over MCP
+    /// fail with a validation error instead of editing the seed. Only <c>0</c> is meaningless.
+    /// This test fails against the unfixed guard.
+    /// </summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(-7)]
+    public async Task Mutation_WithNegativeSeedId_IsNotRejectedAsInvalidInput(int seedId)
+    {
+        var seed = new WorkItemBuilder(seedId, "Seed Item").AsTask().AsSeed().InState("To Do").Build();
+        _workItemRepo.GetByIdAsync(seedId, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated Seed", id: seedId);
+
+        result.IsError.ShouldBeNull();
+    }
+
+    /// <summary>Zero is neither a published ADO id nor a seed alias, so it is still rejected.</summary>
+    [Fact]
+    public async Task Mutation_WithZeroId_ReturnsInvalidInput()
+    {
+        var result = await CreateMutationSut().Update("System.Title", "x", id: 0);
+
+        result.IsError.ShouldBe(true);
+    }
+
     [Fact]
     public async Task Update_WithDirectId_SeedItem_RoutesToSeedMutation()
     {
@@ -337,39 +357,6 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
     // ═══════════════════════════════════════════════════════════════
     //  Without id — falls back to active context (Update, Patch, Note)
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Update_WithoutId_UsesActiveContext()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await CreateMutationSut().Update("System.Title", "x", id: null);
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
-    }
-
-    [Fact]
-    public async Task Patch_WithoutId_UsesActiveContext()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"x\"}", id: null);
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
-    }
-
-    [Fact]
-    public async Task Note_WithoutId_UsesActiveContext()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await CreateMutationSut().Note("some text", id: null);
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Parallel batch — two direct-ID calls target different items

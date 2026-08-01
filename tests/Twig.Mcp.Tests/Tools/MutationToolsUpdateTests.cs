@@ -25,7 +25,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
     [InlineData("   ")]
     public async Task Update_EmptyField_ReturnsError(string field)
     {
-        var result = await CreateMutationSut().Update(field, "some value");
+        var result = await CreateMutationSut().Update(field, "some value", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -39,7 +39,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
     [Fact]
     public async Task Update_NullValue_ReturnsError()
     {
-        var result = await CreateMutationSut().Update("System.Title", null!);
+        var result = await CreateMutationSut().Update("System.Title", null!, id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -53,28 +53,11 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
     [Fact]
     public async Task Update_UnknownFormat_ReturnsError()
     {
-        var result = await CreateMutationSut().Update("System.Title", "value", format: "xml");
+        var result = await CreateMutationSut().Update("System.Title", "value", id: 42, format: "xml");
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
             .Text.ShouldContain("Unknown format");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  No context — no active item
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Update_NoContext_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
-            .Returns((int?)null);
-
-        var result = await CreateMutationSut().Update("System.Title", "New Title");
-
-        result.IsError.ShouldBe(true);
-        result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("No active work item");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -93,7 +76,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated Title");
+        var result = await CreateMutationSut().Update("System.Title", "Updated Title", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -121,7 +104,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "**bold text**", format: "markdown");
+            "System.Description", "**bold text**", format: "markdown", id: 42);
 
         // Should succeed — the markdown was converted (we don't verify exact HTML)
         result.IsError.ShouldBeNull();
@@ -149,7 +132,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Update("System.Title", "plain value");
+        var result = await CreateMutationSut().Update("System.Title", "plain value", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -176,7 +159,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(5, "conflict"));
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -197,7 +180,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoAuthenticationException());
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -220,7 +203,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoServerException(503));
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -243,7 +226,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoUnexpectedResponseException(200, "text/html", "https://dev.azure.com/test", "<html>..."));
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -275,7 +258,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -305,7 +288,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("push failed"));
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBeNull();
     }
@@ -328,7 +311,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _promptStateWriter.WritePromptStateAsync()
             .ThrowsAsync(new IOException("disk full"));
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated");
+        var result = await CreateMutationSut().Update("System.Title", "Updated", id: 42);
 
         result.IsError.ShouldBeNull();
     }
@@ -351,7 +334,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated Title");
+        var result = await CreateMutationSut().Update("System.Title", "Updated Title", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -377,7 +360,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
 
         var longValue = new string('x', 200);
 
-        var result = await CreateMutationSut().Update("System.Description", longValue);
+        var result = await CreateMutationSut().Update("System.Description", longValue, id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -402,7 +385,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        await CreateMutationSut().Update("System.Title", "New Title");
+        await CreateMutationSut().Update("System.Title", "New Title", id: 42);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
@@ -426,7 +409,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "appended text", append: true);
+            "System.Description", "appended text", append: true, id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -458,7 +441,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "new content", append: true);
+            "System.Description", "new content", append: true, id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -487,7 +470,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "new value", append: true);
+            "System.Description", "new value", append: true, id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -517,7 +500,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "**bold**", format: "markdown", append: true);
+            "System.Description", "**bold**", format: "markdown", append: true, id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -553,7 +536,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "new value", append: false);
+            "System.Description", "new value", append: false, id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -575,7 +558,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated Seed");
+        var result = await CreateMutationSut().Update("System.Title", "Updated Seed", id: -1);
 
         result.IsError.ShouldBeNull();
 
@@ -594,7 +577,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().Update("System.Title", "Updated Seed");
+        var result = await CreateMutationSut().Update("System.Title", "Updated Seed", id: -1);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -614,7 +597,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
         var result = await CreateMutationSut().Update(
-            "System.Description", "appended text", append: true);
+            "System.Description", "appended text", id: -1, append: true);
 
         result.IsError.ShouldBeNull();
 
@@ -631,7 +614,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        await CreateMutationSut().Update("System.Title", "Updated");
+        await CreateMutationSut().Update("System.Title", "Updated", id: -1);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }

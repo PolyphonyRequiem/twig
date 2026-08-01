@@ -4,23 +4,30 @@ title: MCP hints contract
 type: grilling
 status: open
 blocked_by: [0002]
-parked: true
-parked_reason: >
-  STILL PARKED, NEW REASON (2026-07-31, chartering the 1.0 map). The 0012 freeze
-  that originally parked this ticket has LIFTED — 0012 said it lifts on a
-  demonstrated script-CLI gap OR at the 1.0 map, and chartering the 1.0 map is
-  that second clause. So the old reason is spent.
+parked: false
+unparked: 2026-07-31
+unparked_reason: >
+  UNPARKED (2026-07-31). Both reasons that held this ticket are now spent.
 
-  It stays parked because the owner ruled that the MCP experience gets its OWN
-  wayfinder map — where MCP fits in twig's design, its principles, and what it
-  should expose — and that map is not yet chartered. MCP is also OUT of twig 1.0
-  by decision, so nothing on the 1.0 map needs this resolved.
+  The 0012 freeze lifted at the 1.0 map (0012's own second clause). And the
+  MCP map this ticket was reassigned to was NEVER CHARTERED — Daniel reframed
+  the question first ("what WOULD be worthwhile to put into an MCP? If
+  anything"), and 0020 answered it in one session: nothing new. A map to
+  design a surface that should not grow is ceremony, so 0020 and 0021 live on
+  the architecture map and THIS TICKET STAYS HERE. Do not move it.
 
-  This ticket BELONGS TO THAT MAP, not to the architecture map. When the MCP map
-  is chartered it should be moved there or restated as one of its tickets; the
-  hint contract is downstream of "what should MCP expose", which is that map's
-  first question. Do NOT claim it as a frontier ticket here: 0002 is closed, so
-  the blocked_by edge no longer holds it back and only this flag does.
+  Its upstream question — "what should MCP expose" — is answered: the 41-tool
+  surface is the ceiling and the answer, minus the three tools 0021 deletes.
+  The hint contract is now a well-posed question against a settled surface.
+
+  SEQUENCING: resolve AFTER 0021. That ticket changes tool signatures and
+  deletes three tools, so specifying a hint contract before it lands would
+  specify hints for a surface that is about to change shape.
+
+  One fact from 0020 that bears on this ticket: MCP read payloads carry no
+  `as_of` field, and 0012's cache guidance recommended one so a model can
+  report staleness honestly. That is an envelope-level field and plausibly
+  belongs to whatever this ticket decides the envelope contract is.
 ---
 
 ## Question

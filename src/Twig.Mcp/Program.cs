@@ -62,7 +62,6 @@ builder.Services.AddSingleton<IToolDispatcher, ToolDispatcher>();
 // (e.g., ReadTools depends on NavigationTools) and so ToolDispatcher can compose them.
 // WithTools<T>() below registers MCP tool metadata for discovery but does NOT add the
 // type to the service container; that's our responsibility.
-builder.Services.AddSingleton<ContextTools>();
 builder.Services.AddSingleton<ReadTools>();
 builder.Services.AddSingleton<MutationTools>();
 builder.Services.AddSingleton<NavigationTools>();
@@ -105,7 +104,6 @@ var mcpBuilder = builder.Services
     });
 
 mcpBuilder
-    .WithTools<ContextTools>()
     .WithTools<ReadTools>()
     .WithTools<MutationTools>()
     .WithTools<NavigationTools>()

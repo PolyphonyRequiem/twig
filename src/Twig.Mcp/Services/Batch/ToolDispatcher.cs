@@ -12,7 +12,6 @@ namespace Twig.Mcp.Services.Batch;
 /// parameter is injected into each call unless the step has its own <c>workspace</c> arg.
 /// </summary>
 internal sealed class ToolDispatcher(
-    ContextTools contextTools,
     ReadTools readTools,
     MutationTools mutationTools,
     NavigationTools navigationTools,
@@ -26,7 +25,7 @@ internal sealed class ToolDispatcher(
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
     /// </summary>
-    /// <param name="toolName">The MCP tool name (e.g. <c>twig_set</c>).</param>
+    /// <param name="toolName">The MCP tool name (e.g. <c>twig_show</c>).</param>
     /// <param name="args">Argument dictionary with scalar values parsed from JSON.</param>
     /// <param name="workspaceOverride">Batch-level workspace override; used when the step has no explicit <c>workspace</c> arg.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -48,11 +47,6 @@ internal sealed class ToolDispatcher(
 
         return toolName switch
         {
-            // Context tools
-            "twig_set" => contextTools.Set(
-                GetRequiredString(args, "idOrPattern"),
-                workspace, verbose: false, ct),
-
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "id"),
@@ -67,28 +61,28 @@ internal sealed class ToolDispatcher(
             // Mutation tools
             "twig_state" => mutationTools.State(
                 GetRequiredString(args, "stateName"),
-                GetNullableInt(args, "id"),
+                GetRequiredInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_update" => mutationTools.Update(
                 GetRequiredString(args, "field"),
                 GetRequiredString(args, "value"),
+                GetRequiredInt(args, "id"),
                 GetString(args, "format"),
                 GetBool(args, "append"),
-                GetNullableInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_note" => mutationTools.Note(
                 GetRequiredString(args, "text"),
-                GetNullableInt(args, "id"),
+                GetRequiredInt(args, "id"),
                 workspace,
                 GetString(args, "format"),
                 verbose: false, ct),
 
             "twig_patch" => mutationTools.Patch(
                 GetRequiredString(args, "fields"),
+                GetRequiredInt(args, "id"),
                 GetString(args, "format"),
-                GetNullableInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_delete" => mutationTools.Delete(
@@ -97,7 +91,7 @@ internal sealed class ToolDispatcher(
                 workspace, verbose: false, ct),
 
             "twig_discard" => mutationTools.Discard(
-                GetNullableInt(args, "id"),
+                GetRequiredInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),
@@ -171,14 +165,6 @@ internal sealed class ToolDispatcher(
                 changedSince: GetNullableInt(args, "changedSince"),
                 top: GetInt(args, "top", defaultValue: 25),
                 workspace: workspace, verbose: false, ct: ct),
-
-            "twig_children" => navigationTools.Children(
-                GetRequiredInt(args, "id"),
-                workspace, verbose: false, ct),
-
-            "twig_parent" => navigationTools.Parent(
-                GetRequiredInt(args, "id"),
-                workspace, verbose: false, ct),
 
             "twig_verify_descendants" => navigationTools.VerifyDescendants(
                 GetRequiredInt(args, "id"),

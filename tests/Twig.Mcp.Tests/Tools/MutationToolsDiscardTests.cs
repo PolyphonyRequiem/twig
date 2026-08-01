@@ -15,21 +15,6 @@ namespace Twig.Mcp.Tests.Tools;
 public sealed class MutationToolsDiscardTests : MutationToolsTestBase
 {
     // ═══════════════════════════════════════════════════════════════
-    //  No context — no active item, no id supplied
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Discard_NoActiveItem_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
-            .Returns((int?)null);
-
-        var result = await CreateMutationSut().Discard();
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Explicit ID — uses the supplied id, bypasses context store
     // ═══════════════════════════════════════════════════════════════
@@ -61,7 +46,7 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
         _pendingChangeStore.GetChangeSummaryAsync(99, Arg.Any<CancellationToken>())
             .Returns((0, 0));
 
-        var result = await CreateMutationSut().Discard();
+        var result = await CreateMutationSut().Discard(id: 99);
 
         result.IsError.ShouldBeNull();
         await _workItemRepo.Received().GetByIdAsync(99, Arg.Any<CancellationToken>());

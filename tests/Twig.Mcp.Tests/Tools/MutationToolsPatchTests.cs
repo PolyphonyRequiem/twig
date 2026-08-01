@@ -24,7 +24,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
     [InlineData("   ")]
     public async Task Patch_EmptyFields_ReturnsError(string fields)
     {
-        var result = await CreateMutationSut().Patch(fields);
+        var result = await CreateMutationSut().Patch(fields, id: 42);
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("requires a non-empty JSON object");
@@ -38,7 +38,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
     public async Task Patch_UnknownFormat_ReturnsError()
     {
         var result = await CreateMutationSut().Patch(
-            "{\"System.Title\":\"x\"}", format: "xml");
+            "{\"System.Title\":\"x\"}", id: 42, format: "xml");
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("Unknown format");
@@ -51,7 +51,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
     [Fact]
     public async Task Patch_InvalidJson_ReturnsError()
     {
-        var result = await CreateMutationSut().Patch("not json");
+        var result = await CreateMutationSut().Patch("not json", id: 42);
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("Invalid JSON");
@@ -64,26 +64,10 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
     [Fact]
     public async Task Patch_EmptyJsonObject_ReturnsError()
     {
-        var result = await CreateMutationSut().Patch("{}");
+        var result = await CreateMutationSut().Patch("{}", id: 42);
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("non-empty object");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  No context — no active item
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Patch_NoContext_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
-            .Returns((int?)null);
-
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("No active work item");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -98,10 +82,10 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
             .Returns<WorkItem>(_ => throw new InvalidOperationException("not found"));
 
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}", id: 99);
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("unreachable");
+        GetErrorText(result).ShouldContain("not found in cache or ADO");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -121,7 +105,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Patch(
-            "{\"System.Title\":\"Updated\",\"System.Description\":\"New desc\"}");
+            "{\"System.Title\":\"Updated\",\"System.Description\":\"New desc\"}", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -148,7 +132,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New Title\"}");
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New Title\"}", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -175,7 +159,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Patch(
-            "{\"System.Description\":\"**bold**\"}", format: "markdown");
+            "{\"System.Description\":\"**bold**\"}", format: "markdown", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -205,7 +189,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             .Returns(2);
 
         var result = await CreateMutationSut().Patch(
-            "{\"System.Title\":\"plain text\"}");
+            "{\"System.Title\":\"plain text\"}", id: 42);
 
         result.IsError.ShouldBeNull();
         await _adoService.Received().PatchAsync(
@@ -232,7 +216,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoException("Service unavailable"));
 
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}", id: 42);
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("Service unavailable");
@@ -262,7 +246,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}", id: 42);
 
         // Should still succeed even though resync failed
         result.IsError.ShouldBeNull();
@@ -284,7 +268,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}");
+        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}", id: 42);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
@@ -305,7 +289,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}");
+        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}", id: 42);
 
         // AutoPushNotesHelper calls GetChangesAsync to check for pending notes
         await _pendingChangeStore.Received().GetChangesAsync(
@@ -324,7 +308,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
         var result = await CreateMutationSut().Patch(
-            "{\"System.Title\":\"New\",\"System.Description\":\"Desc\"}");
+            "{\"System.Title\":\"New\",\"System.Description\":\"Desc\"}", id: -1);
 
         result.IsError.ShouldBeNull();
 
@@ -344,7 +328,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
         var result = await CreateMutationSut().Patch(
-            "{\"System.Title\":\"Updated\",\"System.Description\":\"New desc\"}");
+            "{\"System.Title\":\"Updated\",\"System.Description\":\"New desc\"}", id: -1);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -373,7 +357,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
                 return callCount <= 1 ? item : null;
             });
 
-        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}", id: -1);
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("System.Title");
@@ -387,7 +371,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}");
+        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}", id: -1);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }

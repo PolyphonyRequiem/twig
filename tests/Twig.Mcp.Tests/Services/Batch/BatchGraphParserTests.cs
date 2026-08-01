@@ -63,7 +63,7 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_set",
+            "tool": "twig_show",
             "args": { "workspace": null }
         }
         """;
@@ -203,7 +203,7 @@ public sealed class BatchGraphParserTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "1" } },
                 {
                     "type": "step",
                     "tool": "twig_state",
@@ -327,7 +327,7 @@ public sealed class BatchGraphParserTests
             "type": "sequence",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "title": "A" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "1" } },
                 { "type": "step", "tool": "twig_state", "args": { "stateName": "Doing" } }
             ]
         }
@@ -889,8 +889,8 @@ public sealed class BatchGraphParserTests
                 },
                 {
                     "type": "step",
-                    "tool": "twig_set",
-                    "args": { "idOrPattern": "{{steps.0.id}}" }
+                    "tool": "twig_show",
+                    "args": { "id": "{{steps.0.id}}" }
                 },
                 {
                     "type": "parallel",
@@ -925,11 +925,11 @@ public sealed class BatchGraphParserTests
         step0.ToolName.ShouldBe("twig_new");
         step0.Arguments["parentId"].ShouldBe(42);
 
-        // Step 1: twig_set with template placeholder (treated as literal string here)
+        // Step 1: twig_show with template placeholder (treated as literal string here)
         var step1 = seq.Children[1].ShouldBeUnionCase<StepNode>();
         step1.GlobalIndex.ShouldBe(1);
-        step1.ToolName.ShouldBe("twig_set");
-        step1.Arguments["idOrPattern"].ShouldBe("{{steps.0.id}}");
+        step1.ToolName.ShouldBe("twig_show");
+        step1.Arguments["id"].ShouldBe("{{steps.0.id}}");
 
         // Parallel block with steps 2 and 3
         var par = seq.Children[2].ShouldBeUnionCase<ParallelNode>();
@@ -957,7 +957,7 @@ public sealed class BatchGraphParserTests
         {
             "type": "sequence",
             "steps": [
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.1.id}}" } },
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.1.id}}" } },
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "Late" } }
             ]
         }
@@ -975,8 +975,8 @@ public sealed class BatchGraphParserTests
         var json = """
         {
             "type": "step",
-            "tool": "twig_set",
-            "args": { "idOrPattern": "{{steps.0.id}}" }
+            "tool": "twig_show",
+            "args": { "id": "{{steps.0.id}}" }
         }
         """;
 
@@ -994,7 +994,7 @@ public sealed class BatchGraphParserTests
             "type": "parallel",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "A" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } }
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.id}}" } }
             ]
         }
         """;
@@ -1013,7 +1013,7 @@ public sealed class BatchGraphParserTests
             "type": "sequence",
             "steps": [
                 { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "First" } },
-                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } }
+                { "type": "step", "tool": "twig_show", "args": { "id": "{{steps.0.id}}" } }
             ]
         }
         """;

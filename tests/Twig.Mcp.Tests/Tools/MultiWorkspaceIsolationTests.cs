@@ -10,65 +10,15 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Integration tests verifying that two workspaces with independent mock sets
-/// maintain fully isolated active context items and pending changes.
+/// Integration tests verifying that two workspaces with independent mock sets keep
+/// pending changes fully isolated. The active-context isolation cases that used to live
+/// here went away with twig_set (wayfinder 0021) — a workspace is now resolved per call
+/// rather than latched by a context-setting tool.
 /// </summary>
 public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
 {
     private static readonly Connection WsAlpha = new("orgA", "projectA");
     private static readonly Connection WsBeta = new("orgB", "projectB");
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Active context: setting in A does not affect B
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_InWorkspaceA_DoesNotSetContextInWorkspaceB()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-        var sut = new ContextTools(resolver);
-
-        var item = new WorkItemBuilder(42, "Alpha Feature").AsFeature().InState("Active").Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        await sut.Set("42");
-
-        await mocks[WsAlpha].ContextStore.Received(1).SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
-        await mocks[WsBeta].ContextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Active context: each workspace tracks its own active item
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_EachWorkspace_TracksOwnActiveItem()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-        var sut = new ContextTools(resolver);
-
-        var itemA = new WorkItemBuilder(10, "Alpha Item").AsTask().InState("Active").Build();
-        var itemB = new WorkItemBuilder(20, "Beta Item").AsTask().InState("New").Build();
-
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(itemA);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(itemB);
-
-        // Set item in workspace A
-        await sut.Set("10");
-        await mocks[WsAlpha].ContextStore.Received(1).SetActiveWorkItemIdAsync(10, Arg.Any<CancellationToken>());
-
-        // Set item in workspace B
-        await sut.Set("20");
-        await mocks[WsBeta].ContextStore.Received(1).SetActiveWorkItemIdAsync(20, Arg.Any<CancellationToken>());
-
-        // Workspace A should not have received the second set
-        await mocks[WsAlpha].ContextStore.DidNotReceive().SetActiveWorkItemIdAsync(20, Arg.Any<CancellationToken>());
-        // Workspace B should not have received the first set
-        await mocks[WsBeta].ContextStore.DidNotReceive().SetActiveWorkItemIdAsync(10, Arg.Any<CancellationToken>());
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Pending changes: note in A does not stage in B
@@ -79,24 +29,19 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
     {
         var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
 
-        // Set up active item in workspace A
+        // Item 42 is resolvable in workspace A only.
         var item = new WorkItemBuilder(42, "Alpha Feature").AsFeature().InState("Active").Build();
         mocks[WsAlpha].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         mocks[WsBeta].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        // First, set context to workspace A
-        var contextTools = new ContextTools(resolver);
-        await contextTools.Set("42");
-
-        // Configure active item resolution for workspace A
-        mocks[WsAlpha].ContextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
 
         // Make ADO AddComment fail to force local staging
         mocks[WsAlpha].AdoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("Network error")));
 
         var mutationTools = new MutationTools(resolver);
-        var result = await mutationTools.Note("Test note for A");
+        // With two registered workspaces and no latching tool, the target workspace must be
+        // named on the call — that is the point of 0021: resolution is explicit, not inherited.
+        var result = await mutationTools.Note("Test note for A", id: 42, workspace: "orgA/projectA");
 
         result.IsError.ShouldBeNull();
 
@@ -108,56 +53,5 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
         await mocks[WsBeta].PendingChangeStore.DidNotReceive().AddChangeAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Prompt state: each workspace writes its own prompt state
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_WritesPromptState_OnlyForResolvedWorkspace()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-        var sut = new ContextTools(resolver);
-
-        var item = new WorkItemBuilder(42, "Alpha Feature").AsFeature().InState("Active").Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        await sut.Set("42");
-
-        await mocks[WsAlpha].PromptStateWriter.Received(1).WritePromptStateAsync();
-        await mocks[WsBeta].PromptStateWriter.DidNotReceive().WritePromptStateAsync();
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Resolver state: active workspace reflects last twig_set call
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Resolver_ActiveWorkspace_ReflectsLastSetCall()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-        var sut = new ContextTools(resolver);
-
-        resolver.ActiveWorkspace.ShouldBeNull();
-
-        var itemA = new WorkItemBuilder(10, "A").AsTask().Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(itemA);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        await sut.Set("10");
-        resolver.ActiveWorkspace.ShouldBe(WsAlpha);
-
-        var itemB = new WorkItemBuilder(20, "B").AsTask().Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(itemB);
-
-        await sut.Set("20");
-        resolver.ActiveWorkspace.ShouldBe(WsBeta);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Resolver fallback: after twig_set, other tools use active ws
-    // ═══════════════════════════════════════════════════════════════
 
 }

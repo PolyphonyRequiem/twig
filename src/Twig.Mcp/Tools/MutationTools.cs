@@ -30,10 +30,10 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class MutationTools(ConnectionResolver resolver)
 {
-    [McpServerTool(Name = "twig_state"),Description("Change the state of a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
+    [McpServerTool(Name = "twig_state"),Description("Change the state of a work item. The target id is required; this tool never infers a target from shared context.")]
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
-        [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
+        [Description("Work item ID to operate on. Required — the active context is never used or changed.")] int id,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -43,7 +43,7 @@ public sealed class MutationTools(ConnectionResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveExplicitAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Seed routing: local-only mutation, no process config or ADO interaction.
@@ -157,13 +157,13 @@ public sealed class MutationTools(ConnectionResolver resolver)
         }
     }
 
-    [McpServerTool(Name = "twig_update"), Description("Update a field on a work item and push to ADO. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
+    [McpServerTool(Name = "twig_update"), Description("Update a field on a work item and push to ADO. The target id is required; this tool never infers a target from shared context.")]
     public async Task<CallToolResult> Update(
         [Description("Field reference name (e.g. System.Title, System.Description, Microsoft.VSTS.Scheduling.StoryPoints)")] string field,
         [Description("New field value")] string value,
+        [Description("Work item ID to operate on. Required — the active context is never used or changed.")] int id,
         [Description("Convert the input value before sending to ADO. Supported: \"markdown\" (force-convert), \"raw\" (pass through unchanged). Default: auto — converts only when the destination field is HTML-typed in ADO (e.g. System.Description).")] string? format = null,
         [Description("When true, append the value to the existing field content instead of replacing it")] bool append = false,
-        [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -180,7 +180,7 @@ public sealed class MutationTools(ConnectionResolver resolver)
         var resolution = await HtmlFieldFormatter.ResolveAsync(field, value, format, ctx.Get<IFieldDefinitionStore>(), onMissingFieldDef: null, ct);
         var effectiveValue = resolution.EffectiveValue;
 
-        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveExplicitAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Seed routing: local-only mutation, no ADO interaction.
@@ -232,11 +232,11 @@ public sealed class MutationTools(ConnectionResolver resolver)
         }
     }
 
-    [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
+    [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on a work item. The target id is required; this tool never infers a target from shared context.")]
     public async Task<CallToolResult> Patch(
         [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
+        [Description("Work item ID to operate on. Required — the active context is never used or changed.")] int id,
         [Description("Convert values before sending. Supported: \"markdown\" (force-convert all fields), \"raw\" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.")] string? format = null,
-        [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -264,7 +264,7 @@ public sealed class MutationTools(ConnectionResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveExplicitAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Build FieldChange[] with per-field conversion (auto-detected via field type)
@@ -315,10 +315,10 @@ public sealed class MutationTools(ConnectionResolver resolver)
         };
     }
 
-    [McpServerTool(Name = "twig_note"), Description("Add a comment/note to a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
+    [McpServerTool(Name = "twig_note"), Description("Add a comment/note to a work item. The target id is required; this tool never infers a target from shared context.")]
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
-        [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
+        [Description("Work item ID to operate on. Required — the active context is never used or changed.")] int id,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert the note text before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
@@ -333,7 +333,7 @@ public sealed class MutationTools(ConnectionResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveExplicitAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         var commentResolution = HtmlFieldFormatter.ResolveComment(text, format);
@@ -408,38 +408,19 @@ public sealed class MutationTools(ConnectionResolver resolver)
         };
     }
 
-    [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]
+    [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item. The target id is required; this tool never infers a target from shared context.")]
     public async Task<CallToolResult> Discard(
-        [Description("Work item ID (optional — defaults to the active work item)")] int? id = null,
+        [Description("Work item ID to operate on. Required — the active context is never used or changed.")] int id,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        int itemId;
-        if (id.HasValue)
-        {
-            itemId = id.Value;
-        }
-        else
-        {
-            var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
-            if (activeId is null)
-                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
-            itemId = activeId.Value;
-        }
+        var (item, resolveError) = await WorkItemResolver.ResolveExplicitAsync(ctx, id, ct);
+        if (item is null) return resolveError!;
 
-        // Resolve item: cache-first, ADO fallback
-        var item = await ctx.Get<IWorkItemRepository>().GetByIdAsync(itemId, ct);
-        if (item is null)
-        {
-            try { item = await ctx.Get<IAdoWorkItemService>().FetchAsync(itemId, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{itemId} could not be resolved: {ex.Message}", ctx, ct);
-            }
-        }
+        var itemId = item.Id;
 
         var outcome = await ctx.Get<DiscardWorkflow>().ExecuteAsync(item, ct);
 
@@ -455,7 +436,25 @@ public sealed class MutationTools(ConnectionResolver resolver)
         };
     }
 
-    [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
+    /// <summary>
+    /// Flushes pending changes then refreshes the local cache.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Pull target rule (wayfinder 0021).</b> This tool previously resolved the active work item
+    /// and pulled its parent chain and children. That made the refresh set depend on a mutable row
+    /// in the shared context store — the same row the CLI writes — so what the MCP refreshed could
+    /// change underneath a model without the model naming anything.
+    /// </para>
+    /// <para>
+    /// The replacement is <b>tracked trees</b>, which is what <c>twig sync</c> on the CLI has always
+    /// pulled (<c>RefreshCommand</c> → <c>RefreshOrchestrator.SyncTrackedTreesAsync</c>). Tracking is
+    /// an explicit, durable, user-declared set managed through <c>twig_track</c>/<c>twig_untrack</c>,
+    /// so the refresh scope is now stated rather than inferred, and the two surfaces agree on what
+    /// "sync" means. Callers wanting a single item still have <c>twig_refresh</c> with an explicit id.
+    /// </para>
+    /// </remarks>
+    [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh tracked work item trees from ADO. The refresh scope is the explicit tracking set, not any implied active item.")]
     public async Task<CallToolResult> Sync(
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, skip the flush phase and only pull (refresh) from ADO.")] bool pull_only = false,
@@ -471,35 +470,13 @@ public sealed class MutationTools(ConnectionResolver resolver)
             flushSummary = await ctx.Get<McpPendingChangeFlusher>().FlushAllAsync(ct);
         }
 
-        // Phase 2 — Pull: sync active item context from ADO
-        var resolved = await ctx.Get<ActiveItemResolver>().GetActiveItemAsync(ct);
-        if (resolved is Found or FetchedFromAdo)
+        // Phase 2 — Pull: refresh the explicitly tracked trees (see remarks).
+        try
         {
-            var item = resolved switch
-            {
-                Found f => f.WorkItem,
-                FetchedFromAdo a => a.WorkItem,
-                _ => throw new InvalidOperationException("Unexpected active item result"),
-            };
-
-            var idsToSync = new List<int> { item.Id };
-
-            if (item.ParentId.HasValue)
-            {
-                var chain = await ctx.Get<IWorkItemRepository>().GetParentChainAsync(item.ParentId.Value, ct);
-                idsToSync.AddRange(chain.Select(p => p.Id));
-            }
-
-            var children = await ctx.Get<IWorkItemRepository>().GetChildrenAsync(item.Id, ct);
-            idsToSync.AddRange(children.Select(c => c.Id));
-
-            try
-            {
-                await ctx.Get<SyncCoordinatorFactory>().ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { /* best-effort */ }
+            await ctx.Get<RefreshOrchestrator>().SyncTrackedTreesAsync(ct);
         }
+        catch (OperationCanceledException) { throw; }
+        catch { /* best-effort */ }
 
         await ctx.Get<IPromptStateWriter>().WritePromptStateAsync();
 

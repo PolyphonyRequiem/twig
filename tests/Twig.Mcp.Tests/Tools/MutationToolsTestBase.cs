@@ -5,7 +5,7 @@ using Twig.Mcp.Tools;
 
 namespace Twig.Mcp.Tests.Tools;
 
-public abstract class MutationToolsTestBase : ContextToolsTestBase
+public abstract class MutationToolsTestBase : ReadToolsTestBase
 {
     protected MutationTools CreateMutationSut()
     {

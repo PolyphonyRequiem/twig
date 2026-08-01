@@ -31,28 +31,11 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     [InlineData("   ")]
     public async Task State_EmptyStateName_ReturnsError(string stateName)
     {
-        var result = await CreateMutationSut().State(stateName);
+        var result = await CreateMutationSut().State(stateName, id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
             .Text.ShouldContain("requires a target state name");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  No context — no active item
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task State_NoContext_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
-            .Returns((int?)null);
-
-        var result = await CreateMutationSut().State("Doing");
-
-        result.IsError.ShouldBe(true);
-        result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("No active work item");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -69,11 +52,11 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("not found"));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 999);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("unreachable");
+            .Text.ShouldContain("not found in cache or ADO");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -91,7 +74,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         var config = BuildTaskProcessConfig();
         _processConfigProvider.GetConfiguration().Returns(config);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -112,7 +95,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         var config = BuildTaskProcessConfig();
         _processConfigProvider.GetConfiguration().Returns(config);
 
-        var result = await CreateMutationSut().State("Nonexistent");
+        var result = await CreateMutationSut().State("Nonexistent", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -133,7 +116,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         var config = BuildTaskProcessConfig();
         _processConfigProvider.GetConfiguration().Returns(config);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -155,7 +138,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remote);
         _processConfigProvider.GetConfiguration().Returns(BuildTaskProcessConfig());
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -193,7 +176,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(item, updatedItem);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -223,7 +206,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -252,7 +235,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", workspace: "testorg/testproject");
+        var result = await CreateMutationSut().State("Doing", workspace: "testorg/testproject", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -277,7 +260,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _processConfigProvider.GetConfiguration().Returns(featureConfig);
 
         // "Active" resolves fine via StateResolver, but "Custom" → "Active" won't be in transition rules
-        var result = await CreateMutationSut().State("Active");
+        var result = await CreateMutationSut().State("Active", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -314,7 +297,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         // Tool should still return success even though resync failed
         result.IsError.ShouldBeNull();
@@ -343,7 +326,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        await CreateMutationSut().State("Doing");
+        await CreateMutationSut().State("Doing", id: 42);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
@@ -365,7 +348,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoAuthenticationException());
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -391,7 +374,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoServerException(503));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -411,7 +394,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             .ThrowsAsync(new AdoBadRequestException(
                 "The field 'Substate' contains the value 'Proposed' that is not in the list of supported values."));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         var error = ParseResult(result).GetProperty("error");
@@ -441,7 +424,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoRateLimitException(TimeSpan.FromSeconds(30)));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -465,7 +448,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoUnexpectedResponseException(200, "text/html", "https://dev.azure.com/test", "<html>..."));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -497,7 +480,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Notes push failure"));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -528,7 +511,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _promptStateWriter.WritePromptStateAsync()
             .ThrowsAsync(new IOException("Disk full"));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -567,7 +550,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             .Returns(6);
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         // Parent Issue should have been patched to Doing
@@ -600,7 +583,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             .Returns(2);
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         result.IsError.ShouldBeNull();
         // No PatchAsync for parent — it is already in InProgress
@@ -633,7 +616,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Parent patch failed"));
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: 42);
 
         // Tool still returns success — propagation is best-effort
         result.IsError.ShouldBeNull();
@@ -652,7 +635,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: -1);
 
         result.IsError.ShouldBeNull();
 
@@ -671,7 +654,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", id: -1);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -688,7 +671,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
         // No process config set — would fail for non-seed items
-        var result = await CreateMutationSut().State("AnyState");
+        var result = await CreateMutationSut().State("AnyState", id: -1);
 
         result.IsError.ShouldBeNull();
         _processConfigProvider.DidNotReceive().GetConfiguration();
@@ -701,7 +684,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
 
-        await CreateMutationSut().State("Doing");
+        await CreateMutationSut().State("Doing", id: -1);
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }

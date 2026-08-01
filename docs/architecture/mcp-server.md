@@ -17,7 +17,6 @@ Host.CreateApplicationBuilder(args)
     .AddMcpServer(o => o.ServerInfo = new() { Name = "twig-mcp", Version = … })
     .WithStdioServerTransport()
     .WithRequestFilters(/* catalog visibility + schema normalization */)
-    .WithTools<ContextTools>()
     .WithTools<ReadTools>()
     .WithTools<MutationTools>()
     // …all tool families remain callable; tools/list is profile-filtered
@@ -84,7 +83,6 @@ The default **compact** profile advertises ten high-frequency tools:
 
 | Tool | Purpose |
 |------|---------|
-| `twig_set` | Set active context by ID or title pattern |
 | `twig_show` | Read a specific work item |
 | `twig_query` | Search with structured filters |
 | `twig_workspace` | Read sprint/context workspace |
@@ -93,16 +91,17 @@ The default **compact** profile advertises ten high-frequency tools:
 | `twig_state` | Change workflow state |
 | `twig_update` | Update one field |
 | `twig_note` | Add or stage a comment |
-| `twig_sync` | Flush pending changes and refresh context |
+| `twig_sync` | Flush pending changes and refresh tracked trees |
+| `twig_history` | Read an item's change history |
 
 Use `--tool-profile full` or `TWIG_MCP_TOOL_PROFILE=full` to advertise all
-forty tools. `core` aliases `compact`; `all` aliases `full`. Profile filtering
+thirty-eight tools. `core` aliases `compact`; `all` aliases `full`. Profile filtering
 affects discovery only: hidden tools remain callable by name so cached clients
 and explicit integrations continue to work.
 
 The compact profile intentionally hides specialized seed, tracking, process,
 admin, batch, destructive, and compatibility-alias tools. The full catalog is
-grouped across `ContextTools`, `ReadTools`, `MutationTools`, `NavigationTools`,
+grouped across `ReadTools`, `MutationTools`, `NavigationTools`,
 `CreationTools`, `WorkspaceTools`, `ProcessTools`, `AdminTools`, `TrackingTools`,
 `BatchTools`, and `SeedTools`.
 
@@ -243,13 +242,17 @@ Key formatters:
 
 | Method | Used by |
 |--------|---------|
-| `FormatWorkItemWithWorkingSet` | `twig_set` |
 | `FormatTree` | `twig_tree` |
 | `FormatWorkspace` | `twig_workspace` |
 | `FormatStateChange` | `twig_state` |
 | `FormatFieldUpdate` | `twig_update` |
 | `FormatNoteAdded` | `twig_note` |
 | `FormatFlushSummary` | `twig_sync` |
+
+> **Explicit context (wayfinder 0021).** Every mutation takes a required `id`; none
+> infers a target from the shared active-work-item pointer that the CLI also writes.
+> `twig_set`, `twig_parent`, and `twig_children` were deleted as consequences of that
+> rule. Reads may still *report* the active pointer — reporting is not inference.
 
 ### Prompt state writer
 

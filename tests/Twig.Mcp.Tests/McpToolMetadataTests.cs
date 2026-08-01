@@ -12,7 +12,6 @@ public sealed class McpToolMetadataTests
     [
         typeof(AdminTools),
         typeof(BatchTools),
-        typeof(ContextTools),
         typeof(CreationTools),
         typeof(MutationTools),
         typeof(NavigationTools),
@@ -32,7 +31,8 @@ public sealed class McpToolMetadataTests
             .Where(parameter => parameter.Name == "workspace")
             .ToList();
 
-        parameters.Count.ShouldBe(40);
+        // 40 before wayfinder 0021 removed twig_set, twig_parent, and twig_children.
+        parameters.Count.ShouldBe(37);
         McpToolDescriptions.WorkspaceOverride.ShouldContain("Omit");
         McpToolDescriptions.WorkspaceOverride.ShouldContain("repo-local");
 

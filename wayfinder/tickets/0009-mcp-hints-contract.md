@@ -6,13 +6,21 @@ status: open
 blocked_by: [0002]
 parked: true
 parked_reason: >
-  0012 froze the MCP surface (2026-07-26) — 41 tools, no new tools, no parity
-  work, new agent capability goes through the script CLI first. Specifying a
-  hint contract for a frozen surface is premature. Per 0012 the freeze lifts on
-  a demonstrated script-CLI gap OR at the 1.0 map (#282), so this ticket's fate
-  is an OUTPUT of chartering 1.0, not an input to it. Do NOT claim it as a
-  frontier ticket: 0002 is closed, so the blocked_by edge no longer holds it
-  back and only this flag does.
+  STILL PARKED, NEW REASON (2026-07-31, chartering the 1.0 map). The 0012 freeze
+  that originally parked this ticket has LIFTED — 0012 said it lifts on a
+  demonstrated script-CLI gap OR at the 1.0 map, and chartering the 1.0 map is
+  that second clause. So the old reason is spent.
+
+  It stays parked because the owner ruled that the MCP experience gets its OWN
+  wayfinder map — where MCP fits in twig's design, its principles, and what it
+  should expose — and that map is not yet chartered. MCP is also OUT of twig 1.0
+  by decision, so nothing on the 1.0 map needs this resolved.
+
+  This ticket BELONGS TO THAT MAP, not to the architecture map. When the MCP map
+  is chartered it should be moved there or restated as one of its tickets; the
+  hint contract is downstream of "what should MCP expose", which is that map's
+  first question. Do NOT claim it as a frontier ticket here: 0002 is closed, so
+  the blocked_by edge no longer holds it back and only this flag does.
 ---
 
 ## Question

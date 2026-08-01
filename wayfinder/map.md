@@ -3,17 +3,28 @@
 ## Destination
 A twig codebase whose architecture matches its stated ideology — four experiences (rich CLI, script CLI, MCP-as-LLM-toolkit, TUI) over deep shared modules — with a persistence model chosen on evidence, and documentation that is true. Reached when every ticket below is closed and nothing structural is left to decide.
 
-**Scope note (2026-07-26):** this map's destination is *decisions*, not shipped work. A
-second map with the destination "twig 1.0 shipped" is chartered separately in issue #282
-and deliberately deferred — a different destination means a NEW map, not a child of this
-one. This map does not spawn sub-maps: work that cannot yet be phrased sharply belongs in
+**Scope note (2026-07-26, updated 2026-07-31):** this map's destination is *decisions*, not
+shipped work. Two sibling maps now exist alongside it, each with its own destination; none
+is a child of another, because a different destination means a NEW map.
+
+- **[twig 1.0](../wayfinder-1.0/map.md)** — destination: 1.0 shipped. Chartered 2026-07-31
+  (issue #282). Consumes this map's `Decisions so far` as settled input. Three rulings here
+  are decided-but-unbuilt and their execution belongs there: 0002's capability-seam
+  collapse, 0004's reconciliation module, 0006's three-argument `Resolve`.
+- **MCP experience** — *not yet chartered.* Destination roughly: where MCP fits in twig's
+  design, its principles, what it should expose. Owner's call, 2026-07-31. MCP is OUT of
+  1.0 by decision, decided independently rather than as a demotion, and may be added back
+  if that map resolves early. **0009 belongs to that map**, not this one — see its
+  frontmatter.
+
+This map does not spawn sub-maps: work that cannot yet be phrased sharply belongs in
 **Not yet specified** below and graduates into tickets as the frontier reaches it.
 
 ## Notes
 - Domain vocabulary: `CONTEXT.md` at repo root is authoritative for NAMES. Architecture vocabulary: the `codebase-design` skill (module, interface, depth, seam, adapter, leverage, locality; the deletion test; one adapter = hypothetical seam, two = real).
 - Skills every session should consult: `codebase-design`, `grilling`, `decision-mapping`, `improve-codebase-architecture`.
 - Evidence ledgers live in `%TEMP%\twig-review\`: ledger-specs.md, ledger-architecture.md (arch-a/arch-b), ledger-parity.md, candidates-surface.md, candidates-state.md, candidates-output.md. ~130 audited findings, all cited path:line.
-- Twig has FOUR experiences and THREE composition roots (CLI, MCP, TUI). Only the CLI references Twig.RenderTree. The four experiences are defined in `CONTEXT.md` §4 and ticket 0002 — do not use the older "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model.
+- Twig has FOUR experiences and (as of 2026-07-31) TWO composition roots in the 1.0 target: CLI and MCP. The TUI's root goes away with the one-binary fold — see **Not yet specified**. Only the CLI references Twig.RenderTree. The four experiences are defined in `CONTEXT.md` §4 and ticket 0002 — do not use the older "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model. Note 0007 was decided when there were three roots; its seam finding (the shared module stops at repositories, so `WorkspaceContextFactory` hand-mirrors CLI DI) survives the change, its root *count* does not.
 - VOCABULARY CHANGED (0001): `Workspace` is retired in favour of **Connection** (one {org}/{project} ADO endpoint) and **Bench** (a named, switchable set of work items). `Sprig` is RESERVED for a future planning-over-seeds mode. See `CONTEXT.md` §4.
 - ADO API facts established by research (0001 §7, full findings in `%TEMP%\twig-review\research-ado-*.md`): no self-servable event source, so polling is structural; `reporting/workitemrevisions` + continuationToken is a clock-free watermark and beats the staleness clock; `$batch` is NOT atomic; creates have NO idempotency key, so push-and-recover is forced rather than chosen.
 - This is a PLANNING map. Produce decisions, not deliverables. One ticket per session.
@@ -55,8 +66,23 @@ one. This map does not spawn sub-maps: work that cannot yet be phrased sharply b
 - [One accept-list for output formats](tickets/0019-output-format-accept-list.md) — **Built, narrow entrypoint-only per the ticket's own escape hatch** (0002 has not landed, so the 33 copy-pasted predicates are untouched and this is explicitly the SEED of that collapse, not the collapse). `src/Twig/Formatters/OutputFormats.cs` is the single literal accept-list — `human`, `json`, `json-full`, `json-compact`, `minimal`, `ids`, membership unchanged so no 0010 breaking-change rule is tripped — exposing `Normalize`/`IsAccepted`/`Describe`/`Default`. `OutputFormatArgumentValidator.Validate(args)` runs ONCE in `Program.cs`, after the unknown-command interception and BEFORE `app.Run`, and an off-list value exits **2** with `Unknown output format 'X'. Valid formats: …` on stderr; it handles `-o V`, `--output V`, `-o=V`, `--output=V`, stops at `--`, and leaves a bare trailing `-o` to the parser. Both factories (`RendererFactory` ×2 overloads, `OutputFormatterFactory`) now switch over `OutputFormats.Normalize(…)` and forward their `DefaultFormat` constants to it, so the two duplicate arm lists that motivated the ticket can no longer drift — their `_ =>` arms survive but are unreachable from CLI input, which is what stops a typo from meaning human-with-exit-0. **The pre-fix behaviour was proven, not assumed:** a probe written against only the e899de46 API surface failed **5/5** in a detached worktree there, confirming `-o jsno` silently resolved to `SpectreNodeRenderer`/`HumanOutputFormatter`. 31 new tests pin typo rejection in all four flag spellings, every accepted value resolving to both a renderer and a formatter in the correct family (0010 rule 2), unchanged `ToLowerInvariant` case handling, and `Describe()` matching the list exactly. Scope held per 0010: no `schemaVersion`, no JSON schemas, no golden payload tests, `PlainOutputFormatter` and MCP untouched, `json`/`json-full`/`json-compact` still deliberately un-collapsed. **Fact for 0002: collapse the 33 predicates onto `OutputFormats` — do not build a second list.** 7,379 → 7,410 tests, exit 0 on all four projects.
 
 ## Not yet specified
-- Whether the TUI ships as its own product or as a mode of one binary. Partly clarified (owner, 2026-07-26): the TUI is a CLI *concept* — same user, same terminal, same mental model — but "can be its own product." That places it conceptually without deciding packaging, so whether `src/Twig.Tui` keeps its own composition root and output stack stays open. See tickets 0002 and 0007.
-  **Scope settled (owner, 2026-07-31): the TUI is COMMITTED to 1.0, and needs substantial real work.** This is a scope call, not a packaging one — packaging (own binary vs mode) and the composition-root/output-stack questions above remain open. Consequences for the 1.0 map: the TUI is a first-class surface with its own phase (design → UX mockup → execute), its ~774 lines across 3 files in `src/Twig.Tui` are a starting point rather than a deliverable, and it must converge on 0019's output-format accept-list rather than keeping a separate output stack. 0002's three-surfaces-at-one-capability-seam ruling and 0007's three-composition-roots ruling both now carry real weight instead of being provisional on the TUI's survival.
+- ~~Whether the TUI ships as its own product or as a mode of one binary.~~ **DECIDED
+  (owner, 2026-07-31, while chartering the 1.0 map): ONE BINARY, `twig tui` as a mode.**
+  The AOT blocker that appeared to force the split was disproven by execution on Linux
+  (19 MB native ELF rendering the full TUI — branch `origin/spike/tui-aot` @ `0a8c185d`),
+  so the split was a choice rather than a constraint, and `Twig.Tui.csproj:6-10` documents
+  the opposite in two false comments. Gated on #359 (Windows AOT, owner-run). Execution
+  belongs to the 1.0 map: [Fold the TUI into one binary](../wayfinder-1.0/tickets/1002-fold-the-tui-into-one-binary.md).
+  Consequence for THIS map: 0007's three-composition-roots ruling loses the TUI's root —
+  what survives of that ruling is the MCP root and the seam defect it actually identified,
+  not the root count.
+  **Scope call (owner, 2026-07-31): the TUI is COMMITTED to 1.0, and needs substantial real
+  work.** Its ~774 lines across 3 files in `src/Twig.Tui` are a starting point rather than a
+  deliverable, and it must converge on 0019's output-format accept-list rather than keeping
+  a separate output stack. 0002's three-surfaces-at-one-capability-seam ruling carries real
+  weight rather than being provisional on the TUI's survival. What a finished 1.0 TUI *does*
+  is unspecified and is the 1.0 map's largest open area:
+  [What is the 1.0 TUI?](../wayfinder-1.0/tickets/1003-what-is-the-1-0-tui.md).
 - **Is the pending set per-Bench or per-Connection?** Decides what "selective push" actually selects, and therefore what the reconciliation module owns. Sharp enough to be near-ticketable; held here only because it may be answered inside 0004.
 - **Does a Bench scope the sync boundary, or only reads?** If a Bench is the unit of refresh, it interacts with the watermark polling strategy from 0001 §7.
 - **Who owns the sync boundary when an LLM triggers a fetch?** 0001 §5 says the boundary must be explicit and user-owned; 0002 §b notes MCP can be asked about data twig has never cached. Those two are in tension and nothing currently resolves it.

@@ -68,6 +68,11 @@ jobs:
     # future tag releases, and a natural place to add manual approval later.
     environment: release
     strategy:
+      # fail-fast: false is a deliberate choice, kept after the `nuget` job was
+      # moved downstream of this one. A failing leg no longer risks anything
+      # irreversible — it only lets its siblings burn CI minutes to completion —
+      # and in exchange you learn about all three platforms from a single tag
+      # push instead of discovering them one at a time across several re-cuts.
       fail-fast: false
       matrix:
         include:
@@ -246,7 +251,14 @@ jobs:
 
   nuget:
     name: Publish NuGet packages
-    needs: verify-ci
+    # MUST depend on `build`, not `verify-ci`. A nuget.org push is permanently
+    # irreversible — a version cannot be deleted or re-pushed. Hanging this job
+    # off verify-ci raced it against the platform build legs, which is how
+    # v0.85.0 published packages that no binaries were ever built for, burning
+    # that version string for good. `--skip-duplicate` on the push below only
+    # makes RE-runs safe; it does nothing about publishing a version that should
+    # never have existed. Do not weaken this dependency.
+    needs: build
     runs-on: ubuntu-latest
 
     steps:

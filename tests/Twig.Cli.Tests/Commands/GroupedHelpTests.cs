@@ -374,6 +374,52 @@ public sealed class GroupedHelpTests
         GroupedHelp.IsKnownCommand([first, second]).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// twig#77 — the dependency verbs must exist as real CLI handlers.
+    ///
+    /// Before the fix, <c>twig link predecessor 65 --id 66</c> fell through the
+    /// pre-routing interception (because bare "link" IS a known command), printed
+    /// top-level usage, created nothing, and <b>exited 0</b>. That made every
+    /// <c>rc == 0</c> check, <c>set -e</c>, and <c>&amp;&amp;</c> chain read the no-op
+    /// as success — 13 consecutive edges reported ok while none were created.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately looks the handlers up by STRING rather than <c>nameof</c>: against the
+    /// unfixed code a <c>nameof</c> reference is a compile error, and a suite that does not
+    /// build is a weaker red than a suite that builds and fails. This one runs at the pre-fix
+    /// SHA and reports the actual missing verb.
+    /// </remarks>
+    [Theory]
+    [InlineData("LinkPredecessor", "link predecessor")]
+    [InlineData("LinkSuccessor", "link successor")]
+    [InlineData("LinkUnlink", "link unlink")]
+    public void DependencyLinkVerb_IsARegisteredCommandHandler(string methodName, string commandName)
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            methodName,
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull($"TwigCommands.{methodName} not found — 'twig {commandName}' would "
+            + "fall through to top-level usage and exit 0 while creating nothing (twig#77).");
+
+        var commandAttribute = method.GetCustomAttributes()
+            .SingleOrDefault(a => a.GetType().Name == "CommandAttribute");
+        commandAttribute.ShouldNotBeNull($"{methodName} must carry [Command(\"{commandName}\")].");
+
+        GroupedHelp.KnownCommands.ShouldContain(commandName,
+            $"'{commandName}' missing from KnownCommands.");
+    }
+
+    [Fact]
+    public void HelpText_ListsDependencyLinkVerbs()
+    {
+        var helpOutput = CaptureHelp();
+
+        helpOutput.ShouldContain("link predecessor");
+        helpOutput.ShouldContain("link successor");
+        helpOutput.ShouldContain("link unlink");
+    }
+
     private static string CaptureHelp()
     {
         var original = Console.Out;

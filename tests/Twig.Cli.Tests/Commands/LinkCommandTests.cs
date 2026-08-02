@@ -754,6 +754,253 @@ public class LinkCommandTests : IDisposable
         result.ShouldBe(0);
     }
 
+    // ── Dependency link tests (twig#77) ─────────────────────────────
+
+    [Fact]
+    public async Task DependencyAsync_Predecessor_AddsDependencyReverseRelation()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        SetupResyncForItem(66);
+        SetupResyncForItem(65);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_Successor_AddsDependencyForwardRelation()
+    {
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+
+        SetActiveItem(blocker);
+        SetResolvable(blocked);
+        SetupResyncForItem(65);
+        SetupResyncForItem(66);
+        _linkRepo.GetLinksAsync(65, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Successor, 66);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(65, 66, "System.LinkTypes.Dependency-Forward", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_ExplicitId_TargetsNonActiveItem()
+    {
+        var active = new WorkItemBuilder(1, "Active Item").InState("Active").Build();
+        var source = new WorkItemBuilder(66, "Explicit Source").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(active);
+        SetResolvable(source);
+        SetResolvable(blocker);
+        SetupResyncForItem(66);
+        SetupResyncForItem(65);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65, id: 66);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_CaseInsensitiveLinkType_IsAccepted()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        SetupResyncForItem(66);
+        SetupResyncForItem(65);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync("PREDECESSOR", 65);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_SelfLink_ReturnsErrorAndCreatesNothing()
+    {
+        var item = new WorkItemBuilder(66, "Self Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 66);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("itself");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #77's core defect: a link verb that reports success while creating nothing.
+    /// Parent/child must NOT be routed through the dependency path — they have their
+    /// own verbs and guards — and rejecting them must be a non-zero exit, not a no-op.
+    /// </summary>
+    [Theory]
+    [InlineData("parent")]
+    [InlineData("child")]
+    [InlineData("related")]
+    [InlineData("bogus")]
+    [InlineData("")]
+    public async Task DependencyAsync_NonDependencyLinkType_ReturnsNonZeroAndCreatesNothing(string linkType)
+    {
+        var item = new WorkItemBuilder(66, "Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(linkType, 65);
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_TargetNotFound_ReturnsErrorAndCreatesNothing()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        SetActiveItem(blocked);
+        _workItemRepo.GetByIdAsync(65, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(65, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Not found"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("#65");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_NoActiveItem_ReturnsError()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("No active work item");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_DuplicateLink_IsNoOpAndDoesNotCallAdo()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(66, 65, LinkTypes.Predecessor) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        _stdout.ToString().ShouldContain("already has");
+    }
+
+    [Fact]
+    public async Task DependencyAsync_AdoThrows_ReturnsErrorNotSuccess()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+        _adoService.AddLinkAsync(66, 65, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO said no"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("ADO said no");
+    }
+
+    [Fact]
+    public async Task UnlinkDependencyAsync_Predecessor_RemovesDependencyReverseRelation()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        SetupResyncForItem(66);
+        SetupResyncForItem(65);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(66, 65, LinkTypes.Predecessor) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnlinkDependencyAsync(LinkTypes.Predecessor, 65);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).RemoveLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnlinkDependencyAsync_BogusLinkType_ReturnsNonZero()
+    {
+        var item = new WorkItemBuilder(66, "Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnlinkDependencyAsync("bogus", 65);
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_EmitsTelemetryWithLinkTypeInCommandName()
+    {
+        var blocked = new WorkItemBuilder(66, "Blocked Item").InState("Active").Build();
+        var blocker = new WorkItemBuilder(65, "Blocker Item").InState("Active").Build();
+
+        SetActiveItem(blocked);
+        SetResolvable(blocker);
+        SetupResyncForItem(66);
+        SetupResyncForItem(65);
+        _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-predecessor" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m => m.ContainsKey("duration_ms")));
+    }
+
     public void Dispose()
     {
         Console.SetOut(_originalOut);

@@ -784,6 +784,31 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
 
+    /// <summary>Mark the active work item as blocked by another item (Predecessor link).</summary>
+    /// <param name="targetId">Work item ID that must complete first (the blocker).</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link predecessor")]
+    public async Task<int> LinkPredecessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Predecessor, targetId, id, output, ct);
+
+    /// <summary>Mark the active work item as blocking another item (Successor link).</summary>
+    /// <param name="targetId">Work item ID that this item blocks.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link successor")]
+    public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
+
+    /// <summary>Remove a dependency link (predecessor or successor) from a work item.</summary>
+    /// <param name="linkType">Link type to remove: predecessor or successor.</param>
+    /// <param name="targetId">Work item ID at the other end of the link.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link unlink")]
+    public async Task<int> LinkUnlink([Argument] string linkType, [Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnlinkDependencyAsync(linkType, targetId, id, output, ct);
+
     /// <summary>Add an artifact link (URL or vstfs:// URI) to a work item.</summary>
     /// <param name="url">Artifact URL (http/https) or vstfs:// URI.</param>
     /// <param name="name">Display name for the link.</param>
@@ -1282,6 +1307,9 @@ internal static class GroupedHelp
         "link parent",
         "link unparent",
         "link reparent",
+        "link predecessor",
+        "link successor",
+        "link unlink",
         "link artifact",
 
         // Seeds
@@ -1417,6 +1445,9 @@ Work Items:
   link parent <id>     Set the parent of the active work item.
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
+  link predecessor <id>  Mark the active item as blocked by <id>.
+  link successor <id>  Mark the active item as blocking <id>.
+  link unlink <type> <id>  Remove a predecessor/successor link.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).

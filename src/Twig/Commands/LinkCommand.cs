@@ -187,6 +187,161 @@ public sealed class LinkCommand(
         return 0;
     }
 
+    // ── Dependency links (predecessor / successor) — twig#77 ────────
+    //
+    // Every layer below the CLI already understood dependency links: LinkTypeMapper
+    // maps them both ways, AdoResponseMapper reads them back, and twig_link over MCP
+    // has always accepted "predecessor"/"successor". Only the CLI write path was
+    // missing, so a map published via the CLI came out structurally weaker than the
+    // same map published over MCP — blocked_by edges silently absent.
+    //
+    // Cycle detection is deliberately NOT implemented: only self-links are rejected.
+    // A predecessor chain can still be made cyclic; ADO does not reject it and neither
+    // does twig. Say so rather than implying the guard exists.
+
+    /// <summary>
+    /// Add a dependency link (<c>predecessor</c> or <c>successor</c>) from the active
+    /// (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
+    /// </summary>
+    public async Task<int> DependencyAsync(
+        string linkType,
+        int targetId,
+        int? id = null,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await DependencyCoreAsync(linkType, targetId, id, remove: false, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, $"link-{linkType.ToLowerInvariant()}", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    /// <summary>
+    /// Remove a dependency link (<c>predecessor</c> or <c>successor</c>) from the active
+    /// (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
+    /// </summary>
+    public async Task<int> UnlinkDependencyAsync(
+        string linkType,
+        int targetId,
+        int? id = null,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await DependencyCoreAsync(linkType, targetId, id, remove: true, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-unlink", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    private async Task<int> DependencyCoreAsync(
+        string linkType,
+        int targetId,
+        int? id,
+        bool remove,
+        string outputFormat,
+        CancellationToken ct)
+    {
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        // Only the dependency kinds route here; parent/child have dedicated verbs with
+        // their own guards, and accepting them here would give two divergent code paths
+        // for the same operation.
+        if (!IsDependencyLinkType(linkType, out var friendly))
+        {
+            _stderr.WriteLine(fmt.FormatError(
+                $"Unknown dependency link type: '{linkType}'. Supported types: predecessor, successor. "
+                + "Use 'twig link parent' for hierarchy links."));
+            return 1;
+        }
+
+        var adoLinkType = LinkTypeMapper.Resolve(friendly);
+
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync(ct);
+
+        if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
+        {
+            _stderr.WriteLine(fmt.FormatError(errorId is not null
+                ? $"Work item #{errorId} not found in cache."
+                : "No active work item. Run 'twig set <id>' or pass --id."));
+            return 1;
+        }
+
+        if (item.Id == targetId)
+        {
+            _stderr.WriteLine(fmt.FormatError($"Cannot link work item #{item.Id} to itself."));
+            return 1;
+        }
+
+        // Validate the target exists before mutating. #77's whole point is that a link
+        // operation must not report success when nothing was created.
+        var targetResult = await activeItemResolver.ResolveByIdAsync(targetId, ct);
+        if (!targetResult.TryGetWorkItem(out _, out _, out _))
+        {
+            _stderr.WriteLine(fmt.FormatError($"Target work item #{targetId} not found."));
+            return 1;
+        }
+
+        var existing = await linkRepo.GetLinksAsync(item.Id, ct);
+        var alreadyLinked = existing.Any(l =>
+            l.TargetId == targetId &&
+            string.Equals(l.LinkType, friendly, StringComparison.OrdinalIgnoreCase));
+
+        if (!remove && alreadyLinked)
+        {
+            var noopMessage = $"#{item.Id} already has {friendly} #{targetId}. No changes made.";
+            RenderLinkResult("linkUnchanged", noopMessage, existing, outputFormat);
+            return 0;
+        }
+
+        try
+        {
+            if (remove)
+                await adoService.RemoveLinkAsync(item.Id, targetId, adoLinkType, ct);
+            else
+                await adoService.AddLinkAsync(item.Id, targetId, adoLinkType, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _stderr.WriteLine(fmt.FormatError($"Link failed: {ex.Message}"));
+            return 1;
+        }
+
+        await ResyncItemAsync(item.Id, ct);
+        await ResyncItemAsync(targetId, ct);
+
+        var links = await linkRepo.GetLinksAsync(item.Id, ct);
+        var message = remove
+            ? $"Removed {friendly} #{targetId} from #{item.Id}."
+            : $"#{item.Id} now has {friendly} #{targetId}.";
+        RenderLinkResult(remove ? "linkRemoved" : "linkAdded", message, links, outputFormat);
+        return 0;
+    }
+
+    /// <summary>
+    /// Accepts only the dependency half of <see cref="LinkTypeMapper"/>, normalising
+    /// case, and emits the canonical friendly name used in messages and link records.
+    /// </summary>
+    private static bool IsDependencyLinkType(string? linkType, out string friendly)
+    {
+        friendly = string.Empty;
+        if (string.IsNullOrWhiteSpace(linkType)) return false;
+
+        var normalized = linkType.Trim();
+        if (normalized.Equals(LinkTypes.Predecessor, StringComparison.OrdinalIgnoreCase))
+        {
+            friendly = LinkTypes.Predecessor;
+            return true;
+        }
+        if (normalized.Equals(LinkTypes.Successor, StringComparison.OrdinalIgnoreCase))
+        {
+            friendly = LinkTypes.Successor;
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Re-fetches an item from ADO and updates the local cache.
     /// Non-fatal — link mutation already succeeded.

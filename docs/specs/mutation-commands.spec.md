@@ -1,7 +1,7 @@
 # Mutation Commands — Functional Specification
 
 > **Domain:** Work item mutation — changing state, fields, comments, and links  
-> **Commands:** `state`, `update`, `note`, `edit`, `patch`, `batch`, `link parent`, `link unparent`, `link reparent`, `link artifact`  
+> **Commands:** `state`, `update`, `note`, `edit`, `patch`, `batch`, `link parent`, `link unparent`, `link reparent`, `link predecessor`, `link successor`, `link unlink`, `link artifact`  
 > **Removed:** `save` (replaced by `sync`), `discard` (moved to seeds only), `link branch` (git integration removal)
 
 ## Design Principles
@@ -501,6 +501,72 @@ twig link reparent <targetId> [--output <format>]
 
 ---
 
+## `twig link predecessor` / `twig link successor` — Dependency Links
+
+### Purpose
+
+Record that one work item blocks another. `predecessor` means "this item is blocked
+by `<targetId>`"; `successor` is the inverse. These are the edges a frontier
+computation reads — *open + unclaimed + all predecessors closed* — so without them
+every item looks startable and a board survey overstates available work.
+
+Every layer below the CLI already understood these links (`LinkTypeMapper`,
+`AdoResponseMapper`, `WorkTree`, and the `twig_link` MCP tool); only the CLI write
+path was missing, which made a map published via the CLI structurally weaker than
+the same map published over MCP.
+
+### Signature
+
+```
+twig link predecessor <targetId> [--id <int>] [--output <format>]
+twig link successor   <targetId> [--id <int>] [--output <format>]
+twig link unlink <predecessor|successor> <targetId> [--id <int>] [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `targetId` | int | required | Work item at the other end of the link |
+| `--id` | int? | null | Source work item ID; omit for active item |
+| `--output` | string | `human` | Output format |
+
+### ADO relation mapping
+
+| Verb | ADO relation |
+|------|--------------|
+| `predecessor` | `System.LinkTypes.Dependency-Reverse` |
+| `successor` | `System.LinkTypes.Dependency-Forward` |
+
+The relation `url` must be the **org-level** work item URL (no project segment) —
+`AddLinkAsync` already builds it that way.
+
+### Behavior
+
+1. Validate the link type. Anything other than `predecessor`/`successor` → **exit 1**.
+   Hierarchy kinds are deliberately rejected here; `link parent` owns those guards.
+2. Resolve the source item (by `--id` or active context). Exit 1 if not found.
+3. Self-link → exit 1.
+4. Validate the target exists. Exit 1 if not found.
+5. Duplicate link → exit 0, no-op, no ADO call.
+6. Call `AddLinkAsync` / `RemoveLinkAsync` with the mapped relation. On failure exit 1.
+7. Resync both items (non-fatal on failure).
+8. Output confirmation with the item's links.
+
+### Guarantees
+
+**A malformed invocation exits non-zero.** Before these verbs existed,
+`twig link predecessor 65 --id 66` printed top-level usage and **exited 0**, so
+`rc == 0` checks, `set -e`, and `&&` chains all read the no-op as success — 13
+consecutive edges reported ok while none were created. Any link operation that
+creates nothing must fail loudly.
+
+### Not implemented
+
+**Cycle detection.** Only self-links are rejected. A predecessor chain can still be
+made cyclic; ADO does not reject it and neither does twig. Stated explicitly rather
+than implying a guard that does not exist.
+
+---
+
 ## `twig link artifact` — Add Artifact/Hyperlink
 
 ### Purpose
@@ -632,6 +698,9 @@ Remove `LinkBranchCommand.cs`, its tests, and its `Program.cs` registration.
 | `link parent` | `command=link-parent`, `exit_code`, `duration_ms` |
 | `link unparent` | `command=link-unparent`, `exit_code`, `duration_ms` |
 | `link reparent` | `command=link-reparent`, `exit_code`, `duration_ms` |
+| `link predecessor` | `command=link-predecessor`, `exit_code`, `duration_ms` |
+| `link successor` | `command=link-successor`, `exit_code`, `duration_ms` |
+| `link unlink` | `command=link-unlink`, `exit_code`, `duration_ms` |
 | `link artifact` | `command=link-artifact`, `exit_code`, `duration_ms` |
 | `link batch` | `command=link-batch`, `exit_code`, `operation_count`, `duration_ms` |
 

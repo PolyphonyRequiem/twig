@@ -195,6 +195,21 @@ internal static class CommandExamples
             "twig link reparent 5678        Move the active item under parent #5678",
             "twig link reparent 5678 1234   Move item #1234 under parent #5678",
         ],
+        ["link predecessor"] =
+        [
+            "twig link predecessor 65        Mark the active item as blocked by #65",
+            "twig link predecessor 65 --id 66  Mark #66 as blocked by #65",
+        ],
+        ["link successor"] =
+        [
+            "twig link successor 66          Mark the active item as blocking #66",
+            "twig link successor 66 --id 65  Mark #65 as blocking #66",
+        ],
+        ["link unlink"] =
+        [
+            "twig link unlink predecessor 65   Remove the predecessor link to #65",
+            "twig link unlink successor 66 --id 65  Remove #65's successor link to #66",
+        ],
         ["link artifact"] =
         [
             "twig link artifact https://example.com/doc --name \"Plan\"  Add a hyperlink",

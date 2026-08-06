@@ -110,6 +110,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<QueryCommand>();
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();
+        services.AddSingleton<ProcessLayoutCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
         services.AddSingleton<AreaCommand>();

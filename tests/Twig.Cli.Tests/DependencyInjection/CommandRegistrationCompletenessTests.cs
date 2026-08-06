@@ -69,6 +69,7 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IPromptStateWriter>());
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
+        services.AddSingleton(Substitute.For<IFormLayoutProvider>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
         services.AddSingleton(Substitute.For<ITrackingService>());
         services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());

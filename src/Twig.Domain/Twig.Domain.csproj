@@ -52,6 +52,9 @@
     <InternalsVisibleTo Include="Twig.Mcp" />
     <InternalsVisibleTo Include="twig-mcp" />
     <InternalsVisibleTo Include="Twig.Mcp.Tests" />
+    <!-- Lets NSubstitute proxy INTERNAL domain interfaces (e.g. IFormLayoutProvider).
+         Twig.Infrastructure already carries the same grant for the same reason. -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 
 </Project>

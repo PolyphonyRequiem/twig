@@ -11,7 +11,7 @@ namespace Twig.Infrastructure.Ado;
 /// Implements <see cref="IIterationService"/> via ADO REST API.
 /// Provides current iteration detection and process template inference.
 /// </summary>
-internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider
+internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider, IFormLayoutProvider
 {
     private const string ApiVersion = "7.1";
 
@@ -28,6 +28,8 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     private Task<IReadOnlyList<FieldDefinition>>? _fieldDefinitionsCache;
     private Task<IReadOnlyList<TeamIteration>>? _teamIterationsCache;
     private readonly Dictionary<string, Task<IReadOnlyList<ProcessRule>>> _processRulesCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task<FormLayout?>> _formLayoutCache =
         new(StringComparer.OrdinalIgnoreCase);
 
     public AdoIterationService(
@@ -202,6 +204,19 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         return rulesTask;
     }
 
+    public Task<FormLayout?> GetFormLayoutAsync(
+        string workItemTypeName,
+        CancellationToken ct = default)
+    {
+        if (!_formLayoutCache.TryGetValue(workItemTypeName, out var layoutTask))
+        {
+            layoutTask = FetchFormLayoutAsync(workItemTypeName, ct);
+            _formLayoutCache[workItemTypeName] = layoutTask;
+        }
+
+        return layoutTask;
+    }
+
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/teamfieldvalues?api-version={ApiVersion}";
@@ -339,6 +354,104 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
                 action.Value)).ToList() ?? [],
             rule.IsDisabled)).ToList();
     }
+
+    /// <summary>
+    /// Fetches and parses the server-defined form layout for one work item type.
+    /// </summary>
+    /// <remarks>
+    /// Reuses the same process-template + work-item-type resolution as
+    /// <see cref="FetchProcessRulesAsync"/>: the layout endpoint is process-scoped and
+    /// keyed by the type's REFERENCE name, not its display name.
+    /// <para>
+    /// Returns <c>null</c> rather than an empty layout when the process or type cannot be
+    /// resolved, or when the server does not serve a layout. Those are different facts
+    /// from "this type has a layout with no pages in it", and the caller reports them
+    /// differently — whether stock processes serve a layout at all is unverified, and
+    /// collapsing the two would hide the answer.
+    /// </para>
+    /// </remarks>
+    private async Task<FormLayout?> FetchFormLayoutAsync(
+        string workItemTypeName,
+        CancellationToken ct)
+    {
+        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
+        var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
+            !type.IsDisabled &&
+            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId) ||
+            string.IsNullOrWhiteSpace(workItemType?.ReferenceName))
+        {
+            return null;
+        }
+
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
+            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/layout?api-version={ApiVersion}";
+
+        AdoFormLayoutResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream,
+                TwigJsonContext.Default.AdoFormLayoutResponse,
+                ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException)
+        {
+            // The process serves no layout for this type. A real answer, not a failure.
+            return null;
+        }
+
+        if (result?.Pages is null)
+            return null;
+
+        return new FormLayout(
+            workItemType.ReferenceName,
+            processTemplate.TemplateTypeId,
+            result.Pages.Select(MapLayoutPage).ToList());
+    }
+
+    private static LayoutPage MapLayoutPage(AdoLayoutPageResponse page) => new(
+        page.Id ?? string.Empty,
+        page.Label ?? string.Empty,
+        page.PageType ?? "custom",
+        // Absent 'visible' means visible: ADO omits the flag on the common case.
+        page.Visible ?? true,
+        page.IsContribution,
+        // Sections (the web form's COLUMNS) are preserved, not flattened. Merging them
+        // into one column is a rendering choice and stays with the renderer — see
+        // FormLayout's remarks, and LayoutPage.AllGroups for the merged projection.
+        (page.Sections ?? []).Select(MapLayoutSection).ToList());
+
+    private static LayoutSection MapLayoutSection(AdoLayoutSectionResponse section) => new(
+        section.Id ?? string.Empty,
+        (section.Groups ?? [])
+            .OrderBy(g => g.Order ?? int.MaxValue)
+            .Select(MapLayoutGroup)
+            .ToList());
+
+    private static LayoutGroup MapLayoutGroup(AdoLayoutGroupResponse group) => new(
+        group.Id ?? string.Empty,
+        group.Label ?? string.Empty,
+        group.Visible ?? true,
+        group.IsContribution,
+        (group.Controls ?? [])
+            .OrderBy(c => c.Order ?? int.MaxValue)
+            .Select(MapLayoutControl)
+            .ToList());
+
+    private static LayoutControl MapLayoutControl(AdoLayoutControlResponse control) => new(
+        control.Id ?? string.Empty,
+        control.Label ?? string.Empty,
+        control.ControlType ?? string.Empty,
+        control.ReadOnly,
+        control.Visible ?? true,
+        control.IsContribution);
+
 
     private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct)
     {

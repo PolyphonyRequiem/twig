@@ -65,6 +65,12 @@ internal static class CommandExamples
             "twig process Task          Show states, fields, and transitions for Task type",
             "twig process Bug -o json   Show Bug type details as JSON",
         ],
+        ["process layout"] =
+        [
+            "twig process layout Bug                      Show the Bug form's tabs, boxes, and fields",
+            "twig process layout Bug --out layout.txt     Write the readable layout to a file",
+            "twig process layout Bug -o json --out l.json Write the machine-readable layout to a file",
+        ],
         ["new"] =
         [
             "twig new task \"Write tests\"         Create a new Task under the active item",

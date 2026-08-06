@@ -84,9 +84,37 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > synonym. (`CONTEXT.md` rule 3: don't invent a name to avoid a rename — the inverse also
 > holds, don't burn a good name on the wrong concept.)
 >
-> Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
+> ~~Open: whether the pending set is per-Bench or per-Connection; whether a Bench scopes
 > the sync boundary as well as reads; whether benches must be concurrent in one process
-> or merely switchable.
+> or merely switchable.~~
+>
+> **Resolved 2026-08-06 (wayfinder 0022), except one:**
+>
+> - **Does a Bench scope the sync boundary?** **No.** Reconciliation scopes to the pending
+>   set, per Connection; a Bench is a view and is never a sync unit (0004 §2).
+> - **Concurrent or merely switchable?** **Benches are switchable; Contexts are concurrent.**
+>   Several Contexts may be open at once, each naming which Bench it stands on.
+> - **Does `WorkingSet` survive as a Bench's derived projection?** **Yes — it IS one.**
+>   Today's working set is a Bench with one hard-coded query plus hand pins and hand
+>   exclusions, computed per access with nowhere to persist the hand edits. 0022 stage 2
+>   promotes it rather than replacing it.
+> - **Still open:** whether the pending set is *stored* per-Bench or per-Connection. Only
+>   the reconciliation boundary is settled.
+>
+> **A Bench holds** pinned items, queries and exclusions. It stores the RULE, never the
+> results. It is a saved backlog — *my sprint*, *the bugs I own*, *release blockers* — named
+> once and returned to. Every Context standing on a Bench sees the same Bench; there are no
+> private pins.
+>
+> **Context** (wayfinder 0022) — a **disposable place to stand**, opened by a caller and
+> closed when done, holding only the active item and what derives from it. `tree`, `nav` and
+> an untargeted `set` need one; any command that names its own work item needs a Connection
+> and nothing else. **Being on a Bench means only that you can stand there** — it is a place,
+> not a record of interest. A targeted read neither needs a Bench nor joins one.
+>
+> ⚠ Do **not** say a Bench "reconciles" Contexts. `Reconciliation` is 0004's module
+> (staged → published → reconciled → invalidated against ADO). What a Bench does is **merge
+> views for display**.
 >
 > **The four experiences** (owner, 2026-07-26) — supersedes the loose
 > "human/AI/toolchain/TUI" shorthand, which conflated audience with interaction model:

@@ -11,16 +11,17 @@ blocked_by: []
 Make the TUI a mode of the main `twig` binary (`twig tui`) rather than a separately
 distributed `twig-tui` companion, and AOT it.
 
-**Gated on #359** — Windows NativeAOT verification, which the owner runs on his own
-hardware. Cross-OS native compilation is not supported, so no Linux box can answer it. Do
-not start the fold before #359 is green; if it comes back red, this ticket's answer is the
-fallback instead (see below).
+**#359 is GREEN — this ticket is UNBLOCKED.** Owner-run on Windows 11, 2026-08-06:
+native publish at **19.2 MB** (vs 79 MB shipped), and the binary **drew the full TUI in a
+real Windows console** — both panes, all field labels, rounded borders — took input, and
+exited 0. The pre-`Main` `Theme is not a ConfigProperty` crash did not occur. Four
+non-fatal `IL3051` warnings on `ScopeJsonConverter<T>.Read`. Full result:
+<https://github.com/PolyphonyRequiem/twig/issues/359#issuecomment-5209252542>.
 
-**The verification procedure is written and ready to run:**
+**The fallback below is therefore NOT taken.** Proceed with the fold.
+
+**The procedure that answered it, for the record:**
 [docs/handoffs/windows-native-tui-check.md](../../docs/handoffs/windows-native-tui-check.md).
-It is self-contained and copy-pasteable from a Windows machine with no prior context. The
-pass bar is the binary **drawing its interface in a real console** — a clean compile is not
-a pass, because the naive fix compiles and then crashes before `Main`.
 
 ## What is already established
 

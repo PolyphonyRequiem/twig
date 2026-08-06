@@ -81,6 +81,7 @@ public static class NetworkServiceModule
         });
         services.AddSingleton<IIterationService>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
+        services.AddSingleton<IFormLayoutProvider>(sp => sp.GetRequiredService<AdoIterationService>());
 
         return services;
     }

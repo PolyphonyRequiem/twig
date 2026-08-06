@@ -502,6 +502,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct);
 
+    /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>
+    /// <param name="type">Work item type name (e.g. Bug, Task, User Story).</param>
+    /// <param name="out">Write the rendered layout to this file instead of stdout.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("process layout")]
+    public async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ProcessLayoutCommand>().ExecuteAsync(type, @out, output, ct);
+
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
@@ -1294,6 +1302,7 @@ internal static class GroupedHelp
 
         // Work Items
         "process",
+        "process layout",
         "state",
         "states",
         "batch",
@@ -1435,6 +1444,7 @@ Navigation:
 Work Items:
   process              List all work item types with state counts.
   process <type>       Show states, fields, transitions for a type.
+  process layout <type>  Show the form layout (tabs, boxes, fields) for a type.
   state <name>         Change the state (e.g. Active, Closed).
   batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.

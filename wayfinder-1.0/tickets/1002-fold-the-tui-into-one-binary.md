@@ -16,6 +16,12 @@ hardware. Cross-OS native compilation is not supported, so no Linux box can answ
 not start the fold before #359 is green; if it comes back red, this ticket's answer is the
 fallback instead (see below).
 
+**The verification procedure is written and ready to run:**
+[docs/handoffs/windows-native-tui-check.md](../../docs/handoffs/windows-native-tui-check.md).
+It is self-contained and copy-pasteable from a Windows machine with no prior context. The
+pass bar is the binary **drawing its interface in a real console** — a clean compile is not
+a pass, because the naive fix compiles and then crashes before `Main`.
+
 ## What is already established
 
 - **The stated blocker is false.** `src/Twig.Tui/Twig.Tui.csproj:6-10` carries two claims:

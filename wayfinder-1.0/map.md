@@ -69,7 +69,9 @@ number disambiguates only when two maps are open at once.
   the installed v0.85.1: `twig` 18 MB AOT, `twig-mcp` 22 MB AOT, **`twig-tui` 79 MB**
   non-AOT self-contained — the TUI alone is 4.4× the CLI and the largest artifact twig
   ships. **Gated on #359** (Windows AOT verification, owner-run: cross-OS native
-  compilation is not supported, so no Linux box can answer it). Fallback if #359 is red:
+  compilation is not supported, so no Linux box can answer it — procedure ready to run at
+  [docs/handoffs/windows-native-tui-check.md](../docs/handoffs/windows-native-tui-check.md)).
+  Fallback if #359 is red:
   keep the split, and rewrite the csproj comment to the TRUE reason — deliberate risk
   isolation — rather than leaving a disproven one in the tree.
 
@@ -113,12 +115,29 @@ number disambiguates only when two maps are open at once.
   loss, and it levies a standing CI-minutes tax on every PR forever. Post-1.0, its own
   decision.
 
+- **The TUI's editor is server-driven** (owner, 2026-08-01, ticket 1003). ADO exposes the
+  work item form layout per type — tabs, groups, ordered fields — and the 1.0 editor takes
+  its structure from there rather than from a hand-written layout. **In 1.0, not deferred.**
+  Two unverified caveats carried in 1003: whether stock (non-inherited) processes return a
+  layout at all, and that structure transfers while widgets do not — mapping control kinds
+  to terminal presentation is still hand-written work.
+
+- **The TUI is not a place you go — it is what a command does when it is interactive**
+  (owner, 2026-08-01, ticket 1003). Many entry points; `edit` becoming interactive by
+  default is the owner's example. Consequence for the fold: this removes the *product*
+  argument for keeping `twig-tui` a separate binary. It does not decide the packaging
+  question — still gated on #359 — but if the split survives it survives as a packaging
+  compromise, not a design.
+
 ## Not yet specified
-- **What the TUI actually does.** The scope call is banked (committed to 1.0, needs "a lot
-  of real work", its ~774 lines across 3 files are a starting point not a deliverable) but
-  no one has said what a finished 1.0 TUI *is*. This is the largest unspecified area on the
-  map and almost certainly graduates into several tickets — design, UX mockup, execute —
-  once someone can phrase the first question sharply. Deliberately not pre-sliced.
+- **What a 1.0 TUI session IS.** 1003 banked the interactions (looking, setting field
+  values, rapid tree navigation, viewing/navigating query results) and the many-entry-points
+  reframe, but **session vs one-shot is unanswered**: once a command opens interactively,
+  do you stay until you quit, or finish one item and return to the shell? That is the
+  largest remaining cost driver on the TUI — most of the named interactions do not survive
+  a surface that exits after one item. Also unprobed: what "multiple modes and views" means,
+  whether the TUI is the reconciliation cockpit, whether Bench management is a TUI job, and
+  what the TUI is NOT.
 - How much of the ~110 doc-rot corrections "docs are true" actually demands, and whether
   the bar is per-file accuracy or a narrower "nothing user-facing is false".
 - Whether the architecture map's decided-but-unbuilt rulings (capability-seam collapse,

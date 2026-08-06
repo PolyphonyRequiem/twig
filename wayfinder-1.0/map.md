@@ -68,12 +68,18 @@ number disambiguates only when two maps are open at once.
   `TrimMode=partial` rather than avoiding trimming. Measured cost of the split today, from
   the installed v0.85.1: `twig` 18 MB AOT, `twig-mcp` 22 MB AOT, **`twig-tui` 79 MB**
   non-AOT self-contained — the TUI alone is 4.4× the CLI and the largest artifact twig
-  ships. **Gated on #359** (Windows AOT verification, owner-run: cross-OS native
-  compilation is not supported, so no Linux box can answer it — procedure ready to run at
-  [docs/handoffs/windows-native-tui-check.md](../docs/handoffs/windows-native-tui-check.md)).
-  Fallback if #359 is red:
-  keep the split, and rewrite the csproj comment to the TRUE reason — deliberate risk
-  isolation — rather than leaving a disproven one in the tree.
+  ships. **#359 is GREEN — the gate is cleared and 1002 is unblocked** (owner-run on
+  Windows 11, 2026-08-06, via
+  [docs/handoffs/windows-native-tui-check.md](../docs/handoffs/windows-native-tui-check.md)):
+  native publish succeeded at **19.2 MB** against the 79 MB shipped artifact, and the
+  binary **drew the full TUI in a real Windows console** — both panes, all field labels,
+  rounded borders, em-dash intact — took input, and exited 0. The pre-`Main`
+  `Theme is not a ConfigProperty` cctor crash did not occur, so the one genuine unknown
+  going in — Windows' direct console-API calls under native compilation — is answered.
+  Four non-fatal `IL3051` warnings on `ScopeJsonConverter<T>.Read`. The red fallback (keep
+  the split, rewrite the csproj comment to the TRUE reason) is therefore **not taken**.
+  Note for whoever builds 1002: `spike/tui-aot` is **evidence, NOT for merge** — it
+  suppresses trim warnings rather than fixing them.
 
 - **MCP is OUT of 1.0** — and the decision is independent, not a demotion. The MCP
   experience gets its own wayfinder map: where it fits in twig's design, its principles,
@@ -138,6 +144,17 @@ number disambiguates only when two maps are open at once.
   a surface that exits after one item. Also unprobed: what "multiple modes and views" means,
   whether the TUI is the reconciliation cockpit, whether Bench management is a TUI job, and
   what the TUI is NOT.
+- **Whether twig needs a server, and what a notification would be.** Ticket
+  [1005](tickets/1005-does-twig-need-a-server.md), raised off the #359 run: a leftover
+  `twig-tui.exe` held the SQLite files open. That symptom is NOT evidence for a server —
+  it was Windows refusing to delete an open handle, and `SqliteCacheStore.cs:113-117`
+  already sets `journal_mode=WAL` + `busy_timeout=5000`, which is exactly the
+  background-agent-reads-while-TUI-is-open case. The real gap it surfaced is that twig
+  has no way to tell anyone something changed. Constrained hard by the architecture map's
+  0001 §7: **there is no self-servable event source** — personal subscriptions filter by
+  field, service hooks need admin, polling is structural. So a server could only
+  centralise polling and fan out locally, never subscribe upstream. **Not a 1.0 blocker**
+  unless the TUI turns out to need it.
 - How much of the ~110 doc-rot corrections "docs are true" actually demands, and whether
   the bar is per-file accuracy or a narrower "nothing user-facing is false".
 - Whether the architecture map's decided-but-unbuilt rulings (capability-seam collapse,

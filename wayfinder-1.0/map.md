@@ -144,6 +144,17 @@ number disambiguates only when two maps are open at once.
   a surface that exits after one item. Also unprobed: what "multiple modes and views" means,
   whether the TUI is the reconciliation cockpit, whether Bench management is a TUI job, and
   what the TUI is NOT.
+- **What a Bench IS, concretely enough to build.** Ticket
+  [1006](tickets/1006-what-is-a-bench.md). The noun is agreed (`CONTEXT.md` §4), it does
+  NOT scope the sync boundary (0004 §2), and it lives in the durable `pending.db` (0005) —
+  but four questions are open across two maps and are entangled: pending set stored
+  per-Bench or per-Connection; whether `WorkingSet` survives as a Bench's derived
+  projection; whether benches are concurrent in one process or merely switchable; and
+  whose job Bench management is. Answered together or not at all — per-Bench storage plus
+  concurrent benches is a different data model from per-Connection plus an ambient
+  switchable selection. **Note `CONTEXT.md` §4 is stale**: it still lists the sync-boundary
+  question as open when 0004 closed it. Likely a 1.0 blocker, since Bench is user-facing
+  vocabulary twig has committed to.
 - **Whether twig needs a server, and what a notification would be.** Ticket
   [1005](tickets/1005-does-twig-need-a-server.md), raised off the #359 run: a leftover
   `twig-tui.exe` held the SQLite files open. That symptom is NOT evidence for a server —

@@ -112,6 +112,28 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > and nothing else. **Being on a Bench means only that you can stand there** — it is a place,
 > not a record of interest. A targeted read neither needs a Bench nor joins one.
 >
+> **Addressing a Context** (wayfinder 0023, owner 2026-08-06):
+>
+> | Caller | Standing command, no Context named | Non-default Context |
+> |---|---|---|
+> | human format | the default Context for the current Connection | must name it |
+> | machine format | **hard error** | must name it |
+>
+> **One default Context per Connection**, and it is the only Context twig creates on its own
+> — so it is never reaped. A machine-format caller names its Context ALWAYS, including the
+> default: that is 0021's rule (every MCP tool names its work item) one level up. The format
+> flag is a **declaration, not an inference** — twig must not sniff for a tty.
+>
+> **An unknown or expired Context is a HARD ERROR** — not a fallback, not a warning, not a
+> silent fresh Context. Prior art splits by failure: a *handle* must resolve, so a stale one
+> fails loud (docker, ssh-agent); a *name in a shared file* always resolves, so a stale one
+> acts on the wrong target silently (kubectl, terraform, gh). twig is the second family
+> structurally — a row always resolves — and 0023 moves it to the first.
+>
+> **Closing a Context never refuses and never gets a force flag.** The pending set belongs to
+> the Connection, so close structurally cannot discard work; it exits 0 and reports what
+> remains pending. Discard stays a separate explicit verb.
+>
 > ⚠ Do **not** say a Bench "reconciles" Contexts. `Reconciliation` is 0004's module
 > (staged → published → reconciled → invalidated against ADO). What a Bench does is **merge
 > views for display**.

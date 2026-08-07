@@ -737,7 +737,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         await _console.Live(treeRenderable)
             .StartAsync(async ctx =>
             {
-                ctx.Refresh();
+                // 🔴 Do NOT refresh here. Spectre Live has already drawn treeRenderable before
+                // entering this callback. Refreshing immediately redraws the identical focused
+                // row before any child/link data exists. On terminals that preserve carriage-
+                // return redraws, `twig tree` visibly prints the row twice and leaves the cursor
+                // on the shell prompt row. Refresh only after the renderable actually changes.
 
                 // Stage 3: Load children progressively
                 var children = await getChildren();

@@ -160,6 +160,10 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
         var output = _testConsole.Output;
         output.ShouldContain("#1");
         output.ShouldContain("Cached Tree Item");
+        output.Split("#1").Length.ShouldBe(2,
+            "A leaf tree must render its focused row exactly once. Spectre Live already draws " +
+            "the initial renderable; an immediate ctx.Refresh() redraws the same row, which some " +
+            "terminals preserve as a duplicate and which leaves the cursor on the prompt row.");
 
         await _adoService.DidNotReceive().FetchAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());

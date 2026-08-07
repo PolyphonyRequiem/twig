@@ -39,6 +39,7 @@ public sealed class McpResultBuilderProcessTests
                 },
                 ValidChildTypes = ["Task"],
                 ColorHex = "CC293D",
+                IconId = "icon_insect",
             }
         };
 
@@ -54,6 +55,7 @@ public sealed class McpResultBuilderProcessTests
         entry.GetProperty("stateCount").GetInt32().ShouldBe(3);
         entry.GetProperty("childTypeCount").GetInt32().ShouldBe(1);
         entry.GetProperty("color").GetString().ShouldBe("CC293D");
+        entry.GetProperty("iconId").GetString().ShouldBe("icon_insect");
     }
 
     [Fact]
@@ -117,6 +119,7 @@ public sealed class McpResultBuilderProcessTests
         var root = ParseJson(result);
 
         root.GetProperty("types")[0].GetProperty("color").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.GetProperty("types")[0].GetProperty("iconId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ── FormatProcessType ───────────────────────────────────────────
@@ -130,6 +133,7 @@ public sealed class McpResultBuilderProcessTests
             States = [new StateEntry("New", StateCategory.Proposed, "b2b2b2")],
             ValidChildTypes = [],
             ColorHex = "CC293D",
+            IconId = "icon_insect",
         };
 
         var result = McpResultBuilder.FormatProcessType(type, []);
@@ -137,6 +141,7 @@ public sealed class McpResultBuilderProcessTests
 
         root.GetProperty("typeName").GetString().ShouldBe("Bug");
         root.GetProperty("color").GetString().ShouldBe("CC293D");
+        root.GetProperty("iconId").GetString().ShouldBe("icon_insect");
     }
 
     [Fact]
@@ -154,6 +159,7 @@ public sealed class McpResultBuilderProcessTests
         var root = ParseJson(result);
 
         root.GetProperty("color").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.GetProperty("iconId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Fact]

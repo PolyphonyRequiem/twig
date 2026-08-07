@@ -83,6 +83,7 @@ public sealed class ProcessCommandTests : IDisposable
                 States = [new StateEntry("New", StateCategory.Proposed, "b2b2b2"), new StateEntry("Closed", StateCategory.Completed, "339933")],
                 ValidChildTypes = ["Task"],
                 ColorHex = "CC293D",
+                IconId = "icon_insect",
             },
             new ProcessTypeRecord
             {
@@ -90,6 +91,7 @@ public sealed class ProcessCommandTests : IDisposable
                 States = [new StateEntry("To Do", StateCategory.Proposed, null), new StateEntry("Done", StateCategory.Completed, null)],
                 ValidChildTypes = [],
                 ColorHex = null,
+                IconId = null,
             }
         ]);
 
@@ -100,6 +102,8 @@ public sealed class ProcessCommandTests : IDisposable
         output.ShouldContain("\"typeName\": \"Bug\"");
         output.ShouldContain("\"typeName\": \"Task\"");
         output.ShouldContain("\"stateCount\": 2");
+        output.ShouldContain("\"iconId\": \"icon_insect\"");
+        output.ShouldContain("\"iconId\": null");
     }
 
     [Fact]

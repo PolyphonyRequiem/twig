@@ -89,6 +89,14 @@ internal static class TestConnectionScope
         services.AddSingleton<IPublishIntentRepository>(
             publishIntentRepo ?? new SqlitePublishIntentRepository(cacheStore));
 
+        // ADO #144. The Bench is STATEFUL for the same reason as the two above: selectors are
+        // written and read back within one test, and a substitute returning an empty Bench would
+        // make every evaluation match nothing while the assertions still looked plausible. The
+        // iteration calendar is backed by the same real store so the sprint rule is answered from
+        // local data — which is the behaviour under test, not a detail of the fixture.
+        services.AddSingleton<IBenchRepository>(new SqliteBenchRepository(cacheStore));
+        services.AddSingleton<IIterationCalendar>(new SqliteIterationCalendar(cacheStore));
+
         // The real shared wiring — the same call production makes.
         services.AddConnectionDomainServices();
 

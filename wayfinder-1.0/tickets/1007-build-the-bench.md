@@ -8,6 +8,32 @@ tracked_in: [144, 145, 146, 147, 148, 149, 150, 151]
 
 ## Why this is first
 
+> 🔴 **CORRECTION (2026-08-06, during ADO #144). The data-loss premise below is FALSE. Do not
+> inherit it.** The tables it names are declared and dropped, so a grep finds exactly what this
+> brief describes — but **nothing reads them**. `ITrackingRepository` resolves to
+> `FileTrackingRepository` (the only registration in `TwigServiceRegistration.cs`), and
+> `SqliteTrackingRepository` has **zero construction sites**. Pins already moved to a file
+> beside the cache that a rebuild does not touch, and a one-time import carried existing rows
+> across. Persistence ruling 0005 records the same fact from the other direction.
+>
+> **Consequences, because this changes the plan and not only a sentence:**
+>
+> - **Bench-first is still right, for a different reason.** Not "it fixes silent data loss" —
+>   that is already fixed. It is that a Bench is a self-contained product change needing no
+>   Context work, leaving the computed view behaving identically throughout.
+> - **Mandatory tests 1 and 2 below PASS TODAY** and must not be written as briefed. Doing so
+>   produces exactly the inert guard this brief warns about in red. `docs/specs/bench.spec.md`
+>   replaces them with tests that can actually fail.
+> - **A migration is still mandatory and it is a DIFFERENT migration** — out of the file, into
+>   the durable store (ADO #146). The silence argument is unchanged and still decisive.
+> - **Exclusions were cut from the Bench entirely** (2026-08-06). `exclude` does not currently
+>   exclude anything: nothing subtracts excluded items from the view. Building it into the
+>   Bench would be *specifying a behaviour for the first time* wearing the costume of a data
+>   move. The existing commands are left exactly as they are.
+>
+> The authoritative document is now `docs/specs/bench.spec.md`. Where the two disagree, the
+> spec wins.
+
 0022 staged the Bench pivot as *Context first, Bench second*. **Reversed by the owner
 (2026-08-06)**, and the evidence supports the reversal rather than merely permitting it.
 

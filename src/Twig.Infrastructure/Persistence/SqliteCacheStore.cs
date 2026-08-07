@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 12;
+    internal const int SchemaVersion = 13;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 3;
+    internal const int DurableSchemaVersion = 4;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -392,6 +392,55 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_publish_intents_open
                 ON publish_intents(published_id);
             """,
+
+        // ADO #144 / wayfinder 1007, docs/specs/bench.spec.md §1. The Bench.
+        //
+        // WHY DURABLE by 0005's test ("can ADO rebuild it?"): no. A Bench is an arrangement the
+        // person built by hand — pins ADO has never heard of, and a name only they chose. A
+        // disposable copy would be erased by a SchemaVersion bump, and pins are SILENT: nothing
+        // prompts and nothing refuses, so the loss surfaces weeks later. This is the first NEW
+        // durable table since the store split and can never be dropped-and-recreated.
+        //
+        // `selector_kind` is TEXT and `selector_payload` is an opaque per-kind blob rather than a
+        // column per kind, because spec §2 requires the model to admit further selector kinds
+        // WITHOUT a schema change. A boolean column per kind would make every new kind a
+        // migration against a table that can never be rebuilt.
+        //
+        // 🔴 There is NO ordinal column, and that absence is load-bearing. Membership is the
+        // UNION of a Bench's selectors and order does not matter (spec, Solution). Storing a
+        // position would invite an implementation to evaluate in sequence, which passes every
+        // other test while silently making two Benches with identical selectors behave
+        // differently by construction order. The UNIQUE constraint carries the other half: the
+        // same selector added twice is one row, so overlap cannot duplicate.
+        //
+        // `is_default` marks the one Bench twig creates on its own (spec §4). It is a column
+        // rather than a reserved name so the default is an ordinary row of the same mechanism —
+        // if the default were special-cased, it would not be a Bench and the parity bar would be
+        // met by a fiction.
+        [4] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.benches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS {DurableSchema}.idx_benches_name
+                ON benches(name COLLATE NOCASE);
+            CREATE UNIQUE INDEX IF NOT EXISTS {DurableSchema}.idx_benches_default
+                ON benches(is_default) WHERE is_default = 1;
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.bench_selectors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bench_id INTEGER NOT NULL REFERENCES benches(id) ON DELETE CASCADE,
+                selector_kind TEXT NOT NULL,
+                selector_payload TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_bench_selectors_bench
+                ON bench_selectors(bench_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS {DurableSchema}.idx_bench_selectors_unique
+                ON bench_selectors(bench_id, selector_kind, selector_payload);
+            """,
     };
 
     private bool SchemaExists()
@@ -417,7 +466,7 @@ public sealed class SqliteCacheStore : IDisposable
         // 0013: this list is the DISPOSABLE mirror only. Durable tables (pending_changes,
         // publish_id_map, seed_links) live in the attached `pending` schema and are NEVER
         // dropped — a SchemaVersion bump must not be able to reach them.
-        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "tracked_items", "excluded_items"];
+        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "tracked_items", "excluded_items", "iteration_calendar"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -484,6 +533,24 @@ public sealed class SqliteCacheStore : IDisposable
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- ADO #144. The local mapping from an iteration path to the span of time it covers.
+        --
+        -- A sprint is a NAME mapped to a date range: the path is the stable identity, the dates
+        -- are an attribute that can be moved. So a Bench stores the rule ("the iteration covering
+        -- today") and this table answers WHICH iteration that is, from local data plus the local
+        -- clock — never a network call, which is what lets a Bench evaluate offline.
+        --
+        -- In the DISPOSABLE mirror by 0005's test: ADO can rebuild it, because it is a copy of
+        -- ADO's own iteration list. The refresh path repopulates it when twig already has a
+        -- connection.
+        CREATE TABLE iteration_calendar (
+            path TEXT PRIMARY KEY,
+            start_date TEXT,
+            end_date TEXT
+        );
+
+        CREATE INDEX idx_iteration_calendar_range ON iteration_calendar(start_date, end_date);
 
         CREATE INDEX idx_work_items_type ON work_items(type);
         CREATE INDEX idx_work_items_parent ON work_items(parent_id);

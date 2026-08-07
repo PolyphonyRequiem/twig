@@ -4,6 +4,26 @@
 
 ## 1. Workspace Model
 
+> **Superseded in part by the Bench (ADO #144, `docs/specs/bench.spec.md`), 2026-08-06.**
+> The computed view is now **one Bench** — the default one — and several may exist. Its
+> membership is the **union of its selectors**, evaluated against the local cache. A pin and a
+> sprint query are the same kind of thing, differing only in how many items they match; the
+> hard-coded sprint question is one query selector, not a special case beside the mechanism.
+>
+> 🔴 **The "minus exclusions" clause below was already false before the Bench, and is retained
+> here only so the correction is visible.** Nothing subtracts excluded items: the service that
+> computes the view never reads them. The ids are carried into the read model and printed as a
+> dim footer while the items themselves appear in the list. Exclusions are deliberately **out of
+> the Bench entirely**; the existing exclude commands are untouched and still write to the file.
+>
+> **What has NOT moved yet:** pins still live in `.twig/tracking.json` and are read from there.
+> ADO #146 migrates them into the durable store as selectors on the default Bench. Until it
+> lands, the file is the live source and the table below still describes storage accurately.
+>
+> Untouched by the Bench and still current: the entire sync model — push ordering,
+> notes-before-fields, conflict resolution, protected items, the dirty-state lifecycle. A Bench
+> is never a sync unit, so nothing in that half moves.
+
 The workspace is the user's configurable view of relevant work items. It is the union
 of **configured sources** (sprints, area paths) and **manual pins** (tracked items/trees),
 minus **exclusions**.

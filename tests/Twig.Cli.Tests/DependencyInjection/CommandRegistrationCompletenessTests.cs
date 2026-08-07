@@ -71,6 +71,10 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<IFormLayoutProvider>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
+        // ADO #144. Substituted like the other stores here — this fixture asserts that every
+        // registered command's widest constructor RESOLVES, not what a Bench evaluates to.
+        services.AddSingleton(Substitute.For<IBenchRepository>());
+        services.AddSingleton(Substitute.For<IIterationCalendar>());
         services.AddSingleton(Substitute.For<ITrackingService>());
         services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());
         services.AddSingleton(Substitute.For<IAuthenticationProvider>());

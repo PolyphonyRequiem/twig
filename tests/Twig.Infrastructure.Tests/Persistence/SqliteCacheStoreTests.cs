@@ -276,7 +276,8 @@ public class SqliteCacheStoreTests
 
         string[] expectedMirror =
             ["metadata", "work_items", "process_types", "context", "field_definitions",
-             "work_item_links", "navigation_history", "tracked_items", "excluded_items"];
+             "work_item_links", "navigation_history", "tracked_items", "excluded_items",
+             "iteration_calendar"];
         // staged_identities is DURABLE (wayfinder 0014): it is the source of truth for a
         // staged seed's identity, its display alias, and the retirement record that makes
         // "never recycled" structural. Putting it in the mirror would make a durable identity
@@ -285,8 +286,16 @@ public class SqliteCacheStoreTests
         // and its outcome after. It is durable by 0005's "can ADO rebuild it?" test — it cannot
         // be, because it is precisely the record of a call whose outcome ADO may or may not
         // hold. A droppable copy would be erased by the crash it exists to survive.
+        // benches and bench_selectors are DURABLE (ADO #144): a Bench holds pins the person made
+        // by hand and a name only they chose, so ADO cannot rebuild it. Their loss is SILENT —
+        // nothing prompts and nothing refuses — so a droppable copy would surface as a missing
+        // pin weeks later.
+        // iteration_calendar is a MIRROR table by the same test read the other way: it is a copy
+        // of ADO's own iteration list, so ADO CAN rebuild it and the next refresh does. It is
+        // cached locally only so a Bench's sprint rule can be answered without a network call.
         string[] expectedDurable =
-            ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents"];
+            ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
+             "benches", "bench_selectors"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);

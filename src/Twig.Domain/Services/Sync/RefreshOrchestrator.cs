@@ -20,8 +20,39 @@ public sealed class RefreshOrchestrator(
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
     IIterationService iterationService,
-    ITrackingService? trackingService = null)
+    ITrackingService? trackingService = null,
+    IIterationCalendar? iterationCalendar = null)
 {
+
+    /// <summary>
+    /// Refreshes the local iteration calendar from ADO (ADO #144).
+    /// <para>
+    /// This is the ONLY place the iteration list crosses the network. A Bench's sprint rule is
+    /// answered afterwards from this cached mapping plus the local clock, so looking at a Bench
+    /// never calls out and works with the endpoint unreachable.
+    /// </para>
+    /// <para>
+    /// Best-effort by design: a calendar refresh failure must not fail the whole refresh, because
+    /// the previous mapping still answers the rule correctly until the dates actually move.
+    /// </para>
+    /// </summary>
+    public async Task RefreshIterationCalendarAsync(CancellationToken ct = default)
+    {
+        if (iterationCalendar is null)
+            return;
+
+        try
+        {
+            var iterations = await iterationService.GetTeamIterationsAsync(ct);
+            if (iterations.Count > 0)
+                await iterationCalendar.SaveAsync(iterations, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Keep the previous mapping rather than emptying it — an empty calendar would make
+            // the sprint rule match nothing and silently empty the person's view.
+        }
+    }
 
     /// <summary>
     /// Fetches sprint items, active item, and children from ADO. Returns conflicts if any.

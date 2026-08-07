@@ -65,6 +65,51 @@ Both have a real failure mode:
    in a repo is still a caller, and silently changing what it targets is the 0021 defect wearing
    a new hat.
 
+### RULING — how a caller names its Context (owner, 2026-08-06)
+
+**Silence means the default Context, and only for a human-format caller. Anything that is not
+the default must be named, by anyone. A machine-format caller names it ALWAYS — including when
+it is the default.**
+
+**There is one default Context per Connection.** Not one overall. A Connection already owns the
+cache, the credentials and the pending set; its default Context is the place you stand in that
+Connection.
+
+| Caller | Command | No Context named | Non-default Context |
+|---|---|---|---|
+| human format | standing | default Context for the current Connection | must name it |
+| machine format | standing | **hard error** | must name it |
+| any | targeted | no Context involved | naming one is meaningless |
+
+**Why this shape.**
+
+- **A human can never drift.** The only thing obtainable without naming it is the default, and
+  it is the same thing every time. There is no state in which silence lands you somewhere
+  unexpected — which is the kubectl failure mode, in one sentence.
+- **A machine inherits nothing, ever.** No memory between runs, no prompt to glance at, so
+  requiring the name even for the default costs one flag and removes the whole class. This is
+  0021's rule one level up: that ruling made every MCP tool name its *work item*; this makes
+  every machine caller name its *Context*.
+- **It costs scripts almost nothing.** Most machine calls are TARGETED (they name their own
+  work item and need no Context at all), so the requirement bites only where a script walks a
+  tree or moves around — rare, and exactly where naming is right.
+- **The hard-error rule survives intact, with no exception carved into it.** A named Context
+  that is gone still stops you. The default is not exempt from the rule; it simply cannot go
+  missing, because twig owns it.
+
+**Consequence for lifetime.** The default is the ONLY Context twig creates on its own.
+Everything else is opened deliberately by a caller. That makes reaping simple: **the default
+Context is never reaped**; everything else was named by someone who can be told it is gone.
+
+🔴 **This is a contract decision, and the format flag is a DECLARATION, not an inference.**
+Twig must not sniff for a tty to decide whether to join a Context — that reintroduces the
+per-surface rule 0022 deleted, and it is the named falsifier below. Reading a flag the caller
+supplied is a contract; guessing from the environment is not.
+
+**Not yet decided:** what identifies a non-default Context (opaque handle vs user-chosen name),
+and the transport for carrying it in a shell. The memo's recommendation — open/close returning
+a handle, carried in the environment, overridable per invocation — stands unless contradicted.
+
 ## The finding that settles the shape (2026-08-06)
 
 Research landed in two memos:

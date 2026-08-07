@@ -524,3 +524,53 @@ git show origin/main:path/to/File.cs | grep -c "YourNewSymbol"
 
 GitHub auto-close keywords do not chain: `Fixes #253 and #252` closes only #253.
 Repeat the keyword — `Fixes #253, fixes #252`.
+
+## Where work is tracked
+
+**Consolidated 2026-08-06.** Three trackers held three layers of the same work and no
+single surface answered "what is the state of X". The split is now deliberate:
+
+| What | Lives in | Why |
+|---|---|---|
+| **Work** — defects, tasks, anything schedulable | **ADO** (`PolyphonyRequiem/Twig`) | One board. This is the source of truth for status and scheduling. |
+| **Decisions** — wayfinder rulings, specs | **This repo** (`wayfinder/`, `wayfinder-1.0/`, `docs/specs/`) | They are reviewed with the code they govern, diff cleanly, and carry evidence a work item cannot hold. |
+| **Public record** — issues from outside | **GitHub** | Contributors have no ADO access. Issues stay open; tracking moves to ADO. |
+
+**The rule that makes this work is bidirectional linking.** A tracker split without links
+just moves the problem — you get two places to look instead of one, and no way to get from
+either to the other:
+
+- An ADO item implementing a ruling **names that ruling** in its description.
+- A ruling that has been scheduled declares its board items in **frontmatter**:
+  `tracked_in: [139]`.
+- A GitHub issue migrated to ADO gets a comment naming the ADO item, and the ADO item's
+  description opens with the GitHub URL. The issue stays open — closing it would hide a
+  live defect from the public.
+
+### Enforcing it
+
+Prose does not hold. This repo already learned that when guidance telling humans to
+"remember the exit code" failed often enough to need `tools/run-tests.sh`. So the links
+are checked by a script:
+
+```bash
+tools/check-tracking.sh              # verify every declared link
+tools/check-tracking.sh 1007         # one ticket
+tools/check-tracking.sh --selftest   # prove the checker can fail AND pass
+```
+
+It asserts both directions: the work item must **resolve** (a dangling id is a hard error,
+the same stale-reference class the Bench design rejects elsewhere), and the item's
+description must **name the ticket back** (a one-way link leaves you on a board item with
+no idea which ruling it implements).
+
+A ticket with no `tracked_in` is **not** an error. Most rulings were never scheduled, and
+demanding a board item for each would push ceremony onto the decision layer.
+
+🔴 **The selftest has three arms, two negative and one positive, and that is deliberate.**
+Testing only that a guard rejects bad input cannot distinguish a working guard from one
+that always fails. The positive arm creates a real work item, verifies the checker accepts
+it, then deletes it. Run `--selftest` after touching the script.
+
+Three issues (#333, #357, #359) were migrated this way. Existing commit-message ADO tags
+(`AB#nnnn`) are unaffected and remain the commit↔item link.

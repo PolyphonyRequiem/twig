@@ -4,6 +4,7 @@ title: Fold the TUI into one binary
 type: task
 status: open
 blocked_by: []
+tracked_in: [139]
 ---
 
 ## Question

@@ -4,6 +4,7 @@ title: Release pipeline cannot burn a version number
 type: task
 status: resolved
 blocked_by: []
+tracked_in: [140]
 ---
 
 ## Question

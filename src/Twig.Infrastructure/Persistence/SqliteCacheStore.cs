@@ -493,7 +493,12 @@ public sealed class SqliteCacheStore : IDisposable
         // 0013: this list is the DISPOSABLE mirror only. Durable tables (pending_changes,
         // publish_id_map, seed_links) live in the attached `pending` schema and are NEVER
         // dropped — a SchemaVersion bump must not be able to reach them.
-        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "tracked_items", "excluded_items", "iteration_calendar"];
+        // ADO #151: tracked_items and excluded_items are GONE. They were declared, dropped, and
+        // read by nothing — a grep found them and told the reader a false story about where pins
+        // live, which is exactly the premise the Bench build brief inherited and got wrong. Pins
+        // are selectors on a Bench in the durable store (#145/#146); exclusions live in the
+        // tracking file and are deliberately outside the Bench.
+        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "iteration_calendar"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -609,16 +614,6 @@ public sealed class SqliteCacheStore : IDisposable
             visited_at TEXT NOT NULL
         );
 
-        CREATE TABLE tracked_items (
-            id INTEGER PRIMARY KEY,
-            mode TEXT NOT NULL DEFAULT 'single',
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE excluded_items (
-            id INTEGER PRIMARY KEY,
-            created_at TEXT NOT NULL
-        );
         """;
 
     public void Dispose()

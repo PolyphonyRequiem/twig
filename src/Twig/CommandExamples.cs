@@ -292,6 +292,18 @@ internal static class CommandExamples
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
         ],
+        // ADO #148 — Bench. The name is a plain argument, which spec §8 flags as PROVISIONAL:
+        // whether a Bench is addressed the same way as a Context is a later ruling.
+        ["bench create"] =
+        [
+            "twig bench create \"release blockers\"   Create a Bench you can return to",
+            "twig bench create \"bugs I own\" -o json  Create one, reporting the result as JSON",
+        ],
+        ["bench list"] =
+        [
+            "twig bench list                        List Benches, marking the current one",
+            "twig bench list -o json                List them for a script to read",
+        ],
         ["workspace area"] =
         [
             "twig workspace area                    Show area-filtered workspace view",

@@ -308,7 +308,23 @@ the unknown-Bench error.
 
 ### 5. Verbs: create, name, switch, list, delete
 
-Standing-command territory, CLI for now. Two rules are inherited and non-negotiable:
+Standing-command territory, CLI for now.
+
+**Shipped as of ADO #148: `twig bench create <name>` and `twig bench list`.** Creating names a
+Bench; listing shows what exists with the current one marked, and carries the same facts in
+machine-readable form (`-o json`) so a script can check what exists before acting. Both route
+through one `BenchWorkflow` at the existing mutation-workflow seam, so the human and agent
+surfaces cannot disagree about what a Bench is. A new Bench is EMPTY — creating one is not a way
+to copy an arrangement — and a name already taken is refused with a non-zero exit rather than
+adopted, which would be create-on-reference wearing a different name. Names are matched
+case-insensitively, so a person cannot end up with two Benches a listing cannot tell apart.
+
+**Switching (#149) and deleting (#150) are NOT shipped.** Until switching exists, the current
+Bench is always the default one. The listing reports the current Bench as its own field rather
+than leaving a reader to infer it from `is_default`, so that when switching lands only one call
+site changes and no surface is left rendering a stale inference.
+
+Two rules are inherited and non-negotiable:
 
 - 🔴 **An unknown Bench is a hard error.** Non-zero exit, name what was asked for, say what
   to do. Not a fallback, not a warning, not a silently-created Bench. twig is deliberately
@@ -355,6 +371,19 @@ How a Context is addressed is ruled. Whether a Bench is named by the same mechan
 **deliberately unanswered**. This spec uses the simplest thing that works — an explicit name
 on the command — and flags it as unresolved rather than quietly establishing a precedent
 that a later ruling has to undo.
+
+🔴 **PROVISIONAL, and shipped as such (ADO #148).** `twig bench create <name>` and
+`twig bench list` take the name as a plain command argument. That is the simplest thing that
+works and it is **not** a ruling that Bench addressing is separate from Context addressing. A
+later ruling binding the two is expected to change this surface, and nothing may be built that
+depends on the name being a bare argument.
+
+The related settled part is the SURFACE PRINCIPLE, which does hold: **human simple, machine
+strict.** A person who names no Bench gets the default; a script must name the Bench every
+time, including the default, and omitting it is a hard error rather than a fallback. That is
+wayfinder 0023's Context addressing rule one level up. 🔴 The output format is **declared** on
+the command and never inferred from whether a tty is attached — twig does not sniff for a
+terminal, so a command means the same thing in a pipe as at a prompt.
 
 ---
 

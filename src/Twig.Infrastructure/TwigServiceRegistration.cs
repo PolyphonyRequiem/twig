@@ -231,6 +231,13 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<DefaultBenchSelectors>(),
             sp.GetService<ITrackingRepository>()));
 
+        // ADO #148: creating and listing Benches. Same seam, same module, same reason — both
+        // surfaces route through this workflow, so registering it beside one adapter would leave
+        // the other unable to build it.
+        services.TryAddSingleton<BenchWorkflow>(sp => new BenchWorkflow(
+            sp.GetRequiredService<IBenchRepository>(),
+            sp.GetRequiredService<DefaultBenchSelectors>()));
+
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),

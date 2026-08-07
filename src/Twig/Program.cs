@@ -966,6 +966,21 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
+    // ── Bench (ADO #148) ──
+
+    /// <summary>Create a Bench with a name you will recognise later.</summary>
+    /// <param name="name">Name for the new Bench, e.g. "release blockers".</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench create")]
+    public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct);
+
+    /// <summary>List the Benches that exist, marking the current one.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench list")]
+    public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct);
+
     // ── Workspace Area Path Management ──
 
     /// <summary>Show the area-filtered workspace view.</summary>
@@ -1281,6 +1296,10 @@ internal static class GroupedHelp
         "workspace sprint remove",
         "workspace sprint list",
 
+        // Bench (ADO #148)
+        "bench create",
+        "bench list",
+
         // Context
         "set",
         "show",
@@ -1421,6 +1440,10 @@ Workspace:
   workspace sprint add <expr>  Add a sprint iteration expression.
   workspace sprint remove <expr>  Remove a sprint iteration expression.
   workspace sprint list      List configured sprint expressions.
+
+Bench:
+  bench create <name>        Create a Bench with a name you will recognise later.
+  bench list                 List Benches, marking the current one.
 
 Context:
   set <id|pattern>     Set the active work item.

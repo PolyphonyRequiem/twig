@@ -28,6 +28,19 @@ public interface IBenchRepository
     /// <summary>Returns a Bench by name, or null. Name matching is case-insensitive.</summary>
     Task<Bench?> GetByNameAsync(string name, CancellationToken ct = default);
 
+    /// <summary>
+    /// Creates a non-default Bench with no selectors, or returns null when the name is taken
+    /// (ADO #148, spec §5).
+    /// <para>
+    /// 🔴 Returning null rather than overwriting is the point. A create that quietly adopted an
+    /// existing Bench would be the create-on-reference defect twig is escaping: the person would
+    /// believe they had a fresh arrangement and would in fact be editing one they already had.
+    /// Name matching is case-insensitive, so the caller cannot end up with two Benches a listing
+    /// cannot tell apart.
+    /// </para>
+    /// </summary>
+    Task<Bench?> CreateAsync(string name, CancellationToken ct = default);
+
     /// <summary>Returns every Bench, ordered by name.</summary>
     Task<IReadOnlyList<Bench>> GetAllAsync(CancellationToken ct = default);
 

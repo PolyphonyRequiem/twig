@@ -216,6 +216,20 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IIterationCalendar>()));
 
+        // ADO #145: the one answer to "what does a fresh default Bench hold", shared by the view
+        // and by the pin workflow so the read and write paths cannot disagree.
+        services.TryAddSingleton<DefaultBenchSelectors>(sp => new DefaultBenchSelectors(
+            sp.GetService<ITrackingRepository>(),
+            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+
+        // ADO #145: pinning and unpinning act on the current Bench. Registered in the SHARED
+        // domain-services module because both the CLI and the MCP surface route through it —
+        // registering it beside one adapter would leave the other unable to build it.
+        services.TryAddSingleton<PinWorkflow>(sp => new PinWorkflow(
+            sp.GetRequiredService<IBenchRepository>(),
+            sp.GetRequiredService<DefaultBenchSelectors>(),
+            sp.GetService<ITrackingRepository>()));
+
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),

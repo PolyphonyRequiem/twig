@@ -46,23 +46,21 @@ public sealed class TrackingTools(ConnectionResolver resolver)
         if (ids.Count == 0)
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Could not parse any valid work item IDs from the provided input.");
 
-        var mode = recursive ? TrackingMode.Tree : TrackingMode.Single;
+        // ADO #145: pinning goes through the shared mutation-workflow seam, so this surface and
+        // the CLI cannot disagree about what a pin means.
+        //
+        // 🔴 A recursive pin no longer WALKS the tree and pins each descendant it finds. That
+        // implementation captured the subtree as it stood at pin time, so a child created
+        // afterwards was never on the Bench — the exact defect the spec singles out. One subtree
+        // selector is stored instead, and the descendants are matched live on every look.
+        // Consequently trackedIds/trackedCount now report what was PINNED (the roots), not a
+        // snapshot of what that pin currently expands to.
         var trackedIds = new List<int>();
 
         foreach (var workItemId in ids)
         {
-            await ctx.Get<ITrackingRepository>().UpsertTrackedAsync(workItemId, mode, ct);
+            await ctx.Get<PinWorkflow>().PinAsync(workItemId, includeSubtree: recursive, ct);
             trackedIds.Add(workItemId);
-
-            if (recursive)
-            {
-                var descendantIds = await ResolveDescendantsAsync(ctx, workItemId, ct);
-                foreach (var descId in descendantIds)
-                {
-                    await ctx.Get<ITrackingRepository>().UpsertTrackedAsync(descId, TrackingMode.Single, ct);
-                    trackedIds.Add(descId);
-                }
-            }
         }
 
         var uniqueCount = trackedIds.Distinct().Count();
@@ -103,7 +101,7 @@ public sealed class TrackingTools(ConnectionResolver resolver)
         var removedIds = new List<int>();
         foreach (var workItemId in ids)
         {
-            await ctx.Get<ITrackingRepository>().RemoveTrackedAsync(workItemId, ct);
+            await ctx.Get<PinWorkflow>().UnpinAsync(workItemId, ct);
             removedIds.Add(workItemId);
         }
 
@@ -177,36 +175,6 @@ public sealed class TrackingTools(ConnectionResolver resolver)
 
             writer.WriteNumber("totalCount", tracked.Count);
         }, verbose, ct);
-    }
-
-    /// <summary>
-    /// Recursively resolves all descendant work item IDs for a given parent.
-    /// Uses cache-first with ADO fallback via <see cref="ConnectionScope.FetchChildrenWithFallbackAsync"/>.
-    /// </summary>
-    private static async Task<List<int>> ResolveDescendantsAsync(
-        ConnectionScope ctx, int parentId, CancellationToken ct)
-    {
-        var result = new List<int>();
-        var queue = new Queue<int>();
-        queue.Enqueue(parentId);
-        var visited = new HashSet<int> { parentId };
-
-        while (queue.Count > 0)
-        {
-            var currentId = queue.Dequeue();
-            var children = await ctx.Get<WorkItemFetcher>().FetchChildrenWithFallbackAsync(currentId, ct);
-
-            foreach (var child in children)
-            {
-                if (visited.Add(child.Id))
-                {
-                    result.Add(child.Id);
-                    queue.Enqueue(child.Id);
-                }
-            }
-        }
-
-        return result;
     }
 
     /// <summary>

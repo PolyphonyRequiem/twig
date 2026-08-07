@@ -1,6 +1,8 @@
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Sync;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Formatters;
 using Twig.RenderTree;
 using Twig.Rendering;
@@ -24,6 +26,7 @@ public sealed class TrackingCommand(
     ITrackingService trackingService,
     IWorkItemRepository workItemRepo,
     OutputFormatterFactory formatterFactory,
+    PinWorkflow pinWorkflow,
     RendererFactory? rendererFactory = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
@@ -47,7 +50,11 @@ public sealed class TrackingCommand(
             return 2;
         }
 
-        var wasTracked = await trackingService.UntrackAsync(id, ct);
+        // ADO #145: unpinning takes the selector off the CURRENT BENCH. It routes through the
+        // mutation-workflow seam, which both surfaces share, so the CLI decides nothing about
+        // what a pin means beyond resolving the target and rendering the outcome.
+        var outcome = await pinWorkflow.UnpinAsync(id, ct);
+        var wasTracked = outcome is PinOutcome.Unpinned { WasPinned: true };
         if (wasTracked)
             RenderOutcome("untracked", $"Untracked #{id}.", id, outputFormat, Severity.Success);
         else
@@ -170,10 +177,10 @@ public sealed class TrackingCommand(
             return 2;
         }
 
-        if (mode == TrackingMode.Tree)
-            await trackingService.TrackTreeAsync(id, ct);
-        else
-            await trackingService.TrackAsync(id, mode, ct);
+        // ADO #145: pinning adds a selector to the CURRENT BENCH — an item selector for a single
+        // pin, a subtree selector for a tree pin. The subtree is NOT expanded here; it is matched
+        // live at evaluation time, which is what makes it pick up children created later.
+        await pinWorkflow.PinAsync(id, includeSubtree: mode == TrackingMode.Tree, ct);
 
         var title = await GetTitleAsync(id, ct);
         var modeLabel = mode == TrackingMode.Tree ? " (tree)" : "";

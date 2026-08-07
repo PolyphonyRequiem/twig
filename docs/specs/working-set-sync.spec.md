@@ -16,9 +16,19 @@
 > dim footer while the items themselves appear in the list. Exclusions are deliberately **out of
 > the Bench entirely**; the existing exclude commands are untouched and still write to the file.
 >
-> **What has NOT moved yet:** pins still live in `.twig/tracking.json` and are read from there.
-> ADO #146 migrates them into the durable store as selectors on the default Bench. Until it
-> lands, the file is the live source and the table below still describes storage accurately.
+> **What moved in ADO #145:** the pin COMMANDS now act on the current Bench. `twig workspace
+> track <id>` adds an **item selector** and `track-tree <id>` adds a **subtree selector** to the
+> default Bench in the durable store, through one shared mutation workflow that both the CLI and
+> the agent surface route through. A subtree selector is a RULE, not a snapshot: it matches the
+> item's descendants as they are at every later look, including children created after the pin.
+> (The agent surface previously walked the tree at pin time and pinned each descendant it found —
+> that snapshot could not see a later child, and is gone.)
+>
+> **What has NOT moved yet:** the pin is still ALSO written to `.twig/tracking.json`, which
+> remains the live source for tracked-tree refresh, the tracking cleanup policy, and
+> `twig_tracking_status`. So the table below still describes storage accurately, with the Bench
+> now holding the same pins alongside it. ADO #146 migrates the file's contents into the durable
+> store and retires that second write.
 >
 > Untouched by the Bench and still current: the entire sync model — push ordering,
 > notes-before-fields, conflict resolution, protected items, the dirty-state lifecycle. A Bench

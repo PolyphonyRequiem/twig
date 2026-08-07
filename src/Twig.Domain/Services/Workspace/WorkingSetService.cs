@@ -157,34 +157,12 @@ public sealed class WorkingSetService
             membership.IterationPaths.Count > 0 ? membership.IterationPaths : requestedIterations);
 
     /// <summary>
-    /// The selectors the default Bench is created with: the sprint rule, plus one selector per
-    /// existing hand pin.
-    /// <para>
-    /// Pins are read from the file here because MIGRATING them into the durable store is ticket
-    /// #146, deliberately not this one. Until that lands the file remains the live source and the
-    /// two coexist — but they are already expressed as selectors and evaluated by the selector
-    /// mechanism, so #146 changes only where they are read from.
-    /// </para>
+    /// The selectors the default Bench is created with, composed by
+    /// <see cref="DefaultBenchSelectors"/> — the single answer shared with the pin workflow, so
+    /// the read path and the write path cannot disagree about what a fresh default Bench holds.
     /// </summary>
-    private async Task<IReadOnlyCollection<BenchSelector>> DefaultSelectorsAsync(CancellationToken ct)
-    {
-        var selectors = new List<BenchSelector>
-        {
-            BenchSelector.ForCurrentSprint(_userDisplayName),
-        };
-
-        if (_trackingRepo is not null)
-        {
-            foreach (var tracked in await _trackingRepo.GetAllTrackedAsync(ct))
-            {
-                selectors.Add(tracked.Mode == Enums.TrackingMode.Tree
-                    ? BenchSelector.ForSubtree(tracked.WorkItemId)
-                    : BenchSelector.ForItem(tracked.WorkItemId));
-            }
-        }
-
-        return selectors;
-    }
+    private Task<IReadOnlyCollection<BenchSelector>> DefaultSelectorsAsync(CancellationToken ct)
+        => new DefaultBenchSelectors(_trackingRepo, _userDisplayName).BuildAsync(ct);
 
     /// <summary>
     /// Used only when a caller supplies iterations directly and no calendar is wired up, so the

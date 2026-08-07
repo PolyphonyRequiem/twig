@@ -223,20 +223,29 @@ public static class TwigServiceRegistration
             sp.GetService<ITrackingRepository>(),
             sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
 
+        // ADO #149: ONE answer to "which Bench am I standing on". Shared by the view, the pin
+        // workflow and the Bench workflow — a second copy is how one surface gets left reading the
+        // default after a switch, showing the wrong arrangement with nothing to fail.
+        services.TryAddSingleton<CurrentBenchResolver>(sp => new CurrentBenchResolver(
+            sp.GetRequiredService<IBenchRepository>(),
+            sp.GetRequiredService<DefaultBenchSelectors>()));
+
         // ADO #145: pinning and unpinning act on the current Bench. Registered in the SHARED
         // domain-services module because both the CLI and the MCP surface route through it —
         // registering it beside one adapter would leave the other unable to build it.
         services.TryAddSingleton<PinWorkflow>(sp => new PinWorkflow(
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<DefaultBenchSelectors>(),
-            sp.GetService<ITrackingRepository>()));
+            sp.GetService<ITrackingRepository>(),
+            sp.GetRequiredService<CurrentBenchResolver>()));
 
-        // ADO #148: creating and listing Benches. Same seam, same module, same reason — both
-        // surfaces route through this workflow, so registering it beside one adapter would leave
-        // the other unable to build it.
+        // ADO #148/#149: creating, listing and switching Benches. Same seam, same module, same
+        // reason — both surfaces route through this workflow, so registering it beside one adapter
+        // would leave the other unable to build it.
         services.TryAddSingleton<BenchWorkflow>(sp => new BenchWorkflow(
             sp.GetRequiredService<IBenchRepository>(),
-            sp.GetRequiredService<DefaultBenchSelectors>()));
+            sp.GetRequiredService<DefaultBenchSelectors>(),
+            sp.GetRequiredService<CurrentBenchResolver>()));
 
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(

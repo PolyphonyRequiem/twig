@@ -293,9 +293,13 @@ public class SqliteCacheStoreTests
         // iteration_calendar is a MIRROR table by the same test read the other way: it is a copy
         // of ADO's own iteration list, so ADO CAN rebuild it and the next refresh does. It is
         // cached locally only so a Bench's sprint rule can be answered without a network call.
+        // current_bench is DURABLE (ADO #149): which arrangement the person is standing on is
+        // theirs and ADO has never heard of it, so ADO cannot rebuild it. A droppable copy would
+        // silently move somebody back to the default on a SchemaVersion bump — the same
+        // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
         string[] expectedDurable =
             ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors"];
+             "benches", "bench_selectors", "current_bench"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);

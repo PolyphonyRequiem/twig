@@ -66,7 +66,8 @@ public sealed class WorkingSetService
     }
 
     /// <summary>
-    /// Computes the current working set by evaluating the default Bench against the local cache.
+    /// Computes the current working set by evaluating the CURRENT Bench against the local cache —
+    /// the one the person last switched to (#149), or the default when they never have.
     /// When <paramref name="iterationPaths"/> is provided the sprint rule resolves to it directly;
     /// otherwise the rule is answered from local state.
     /// </summary>
@@ -145,7 +146,9 @@ public sealed class WorkingSetService
             return Project(transientMembership, iterations);
         }
 
-        var bench = await _benchRepo.GetOrCreateDefaultAsync(await DefaultSelectorsAsync(ct), ct);
+        var bench = await new CurrentBenchResolver(
+                _benchRepo, new DefaultBenchSelectors(_trackingRepo, _userDisplayName))
+            .ResolveAsync(ct);
         var membership = await _benchEvaluator.EvaluateAsync(bench, iterations, ct);
         return Project(membership, iterations);
     }

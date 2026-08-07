@@ -45,6 +45,30 @@ public interface IBenchRepository
     Task<IReadOnlyList<Bench>> GetAllAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Returns the Bench the person is standing on, or null when they have never switched
+    /// (ADO #149, spec §5).
+    /// <para>
+    /// 🔴 Null means "nobody has switched", NOT "the stored Bench is missing". The caller resolves
+    /// null to the default, which cannot go missing. This is deliberately not stored as an eager
+    /// pointer to the default at first use: a pointer that must always resolve is one more thing
+    /// that can be wrong, and there is nothing for it to say that its absence does not.
+    /// </para>
+    /// </summary>
+    Task<Bench?> GetCurrentAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Records which Bench is current. Takes a Bench that has already been resolved by name, so a
+    /// name that resolves to nothing cannot reach storage.
+    /// <para>
+    /// 🔴 There is deliberately NO overload taking a name. A store method that accepted a name
+    /// would have to decide what to do with one that does not exist, and the only answers are the
+    /// two this change exists to refuse: create it, or point at nothing. Resolution happens above,
+    /// once, where the unknown-Bench error is raised.
+    /// </para>
+    /// </summary>
+    Task SetCurrentAsync(long benchId, CancellationToken ct = default);
+
+    /// <summary>
     /// Adds a selector to a Bench. Idempotent: adding the same selector twice leaves one, so
     /// membership cannot be changed by repetition.
     /// </summary>

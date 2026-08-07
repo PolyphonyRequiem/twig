@@ -41,9 +41,11 @@ public sealed class BenchWorkflowTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private BenchWorkflow CreateSut() => new(
-        _benchRepo,
-        new DefaultBenchSelectors(_trackingRepo, userDisplayName: null));
+    private BenchWorkflow CreateSut()
+    {
+        var selectors = new DefaultBenchSelectors(_trackingRepo, userDisplayName: null);
+        return new BenchWorkflow(_benchRepo, selectors, new CurrentBenchResolver(_benchRepo, selectors));
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Acceptance 1 — a named Bench can be created and appears in the listing

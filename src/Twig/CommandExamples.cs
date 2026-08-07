@@ -304,6 +304,11 @@ internal static class CommandExamples
             "twig bench list                        List Benches, marking the current one",
             "twig bench list -o json                List them for a script to read",
         ],
+        ["bench switch"] =
+        [
+            "twig bench switch \"release blockers\"   Stand on another Bench",
+            "twig bench switch default              Go back to the Bench you started with",
+        ],
         ["workspace area"] =
         [
             "twig workspace area                    Show area-filtered workspace view",

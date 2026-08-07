@@ -981,6 +981,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct);
 
+    /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
+    /// <param name="name">Name of an existing Bench.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench switch")]
+    public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct);
+
     // ── Workspace Area Path Management ──
 
     /// <summary>Show the area-filtered workspace view.</summary>
@@ -1296,9 +1303,10 @@ internal static class GroupedHelp
         "workspace sprint remove",
         "workspace sprint list",
 
-        // Bench (ADO #148)
+        // Bench (ADO #148, #149)
         "bench create",
         "bench list",
+        "bench switch",
 
         // Context
         "set",
@@ -1444,6 +1452,7 @@ Workspace:
 Bench:
   bench create <name>        Create a Bench with a name you will recognise later.
   bench list                 List Benches, marking the current one.
+  bench switch <name>        Stand on another Bench (an unknown name is an error).
 
 Context:
   set <id|pattern>     Set the active work item.

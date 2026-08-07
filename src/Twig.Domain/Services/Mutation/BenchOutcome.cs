@@ -36,4 +36,29 @@ public abstract record BenchOutcome
     /// <param name="RequestedName">The name the person asked for, as they typed it.</param>
     /// <param name="Reason">What is wrong with it, phrased for the person to act on.</param>
     public sealed record NameRejected(string RequestedName, string Reason) : BenchOutcome;
+
+    /// <summary>The person is now standing on <paramref name="Bench"/>; the one they left is unchanged.</summary>
+    /// <param name="Bench">The Bench switched to, with the name as stored.</param>
+    /// <param name="PreviousBenchName">The Bench they were on before, so the surface can say what changed.</param>
+    public sealed record Switched(Bench Bench, string PreviousBenchName) : BenchOutcome;
+
+    /// <summary>
+    /// Nothing happened: there is no Bench by that name.
+    /// <para>
+    /// 🔴 This is an OUTCOME rather than a silently-created Bench, and that is the whole point of
+    /// ADO #149. Prior art splits by failure mode: a HANDLE must resolve, so a stale one fails
+    /// loud (docker, ssh-agent); a NAME in a shared file always resolves, so a stale one silently
+    /// acts on the WRONG target (kubectl, terraform, gh). twig is moving to the first family, and
+    /// a Bench created on reference would reproduce exactly the defect being escaped, one level
+    /// up — the person would believe they were on an arrangement they had built and would in fact
+    /// be standing on an empty one.
+    /// </para>
+    /// <para>
+    /// It carries the names that DO exist so the surface can tell the person what to do rather
+    /// than only that they were wrong.
+    /// </para>
+    /// </summary>
+    /// <param name="RequestedName">The name the person asked for, as they typed it.</param>
+    /// <param name="KnownBenchNames">Every Bench that does exist, ordered by name.</param>
+    public sealed record UnknownBench(string RequestedName, IReadOnlyList<string> KnownBenchNames) : BenchOutcome;
 }

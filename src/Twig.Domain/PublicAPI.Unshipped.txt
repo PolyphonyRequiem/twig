@@ -990,3 +990,38 @@ Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.RequestedName.init -> vo
 virtual Twig.Domain.Services.Mutation.BenchOutcome.EqualityContract.get -> System.Type!
 virtual Twig.Domain.Services.Mutation.BenchOutcome.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
 virtual Twig.Domain.Services.Mutation.BenchOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Interfaces.IBenchRepository.GetCurrentAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.SetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Mutation.BenchOutcome.Switched
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.Bench.get -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.Bench.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench, out string! PreviousBenchName) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.Equals(Twig.Domain.Services.Mutation.BenchOutcome.Switched? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.PreviousBenchName.get -> string!
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.PreviousBenchName.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Switched.Switched(Twig.Domain.Aggregates.Bench! Bench, string! PreviousBenchName) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Deconstruct(out string! RequestedName, out System.Collections.Generic.IReadOnlyList<string!>! KnownBenchNames) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Equals(Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.KnownBenchNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.KnownBenchNames.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.RequestedName.get -> string!
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.RequestedName.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.UnknownBench(string! RequestedName, System.Collections.Generic.IReadOnlyList<string!>! KnownBenchNames) -> void
+Twig.Domain.Services.Workspace.CurrentBenchResolver
+Twig.Domain.Services.Workspace.CurrentBenchResolver.CurrentBenchResolver(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors) -> void
+Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+override Twig.Domain.Services.Mutation.BenchOutcome.Switched.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.Switched!
+override Twig.Domain.Services.Mutation.BenchOutcome.Switched.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.Switched.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.Switched.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench!
+override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.ToString() -> string!
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.Switched.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Switched.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.Switched? left, Twig.Domain.Services.Mutation.BenchOutcome.Switched? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Switched.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.Switched? left, Twig.Domain.Services.Mutation.BenchOutcome.Switched? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? left, Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? left, Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? right) -> bool

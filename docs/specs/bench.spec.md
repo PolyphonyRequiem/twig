@@ -319,10 +319,25 @@ to copy an arrangement — and a name already taken is refused with a non-zero e
 adopted, which would be create-on-reference wearing a different name. Names are matched
 case-insensitively, so a person cannot end up with two Benches a listing cannot tell apart.
 
-**Switching (#149) and deleting (#150) are NOT shipped.** Until switching exists, the current
-Bench is always the default one. The listing reports the current Bench as its own field rather
-than leaving a reader to infer it from `is_default`, so that when switching lands only one call
-site changes and no surface is left rendering a stale inference.
+**Shipped as of ADO #149: `twig bench switch <name>`.** Switching moves a POINTER and nothing
+else — the Bench left behind is not touched, so switching back finds it exactly as it was. That
+pointer is a single row in the durable store (`current_bench`), deliberately separate from
+`IContextStore`'s shared `active_work_item_id`: "which item am I on" and "which arrangement am I
+at" are different questions on different schedules, and coupling them would make both changes
+harder to review. It resolves through ONE `CurrentBenchResolver` shared by the view, the pin
+workflow and the Bench workflow; a second copy of "read the pointer, else the default" is how one
+surface gets left reading the default after a switch, showing the wrong arrangement with nothing
+to fail. A stored pointer whose Bench no longer exists falls back to the default rather than
+throwing — that is twig's own bookkeeping, not a name a person just typed, and the default cannot
+go missing.
+
+🔴 **Switching to a Bench that does not exist creates NOTHING**, exits non-zero, names what was
+asked for and lists what does exist. The lookup happens before any write, including before the
+default Bench would be ensured, so a typo cannot even be the command that brings a Bench into
+being as a side effect. `default` is the one name that resolves on a store where nothing has been
+created yet, because it cannot go missing (§4) and is never subject to the unknown-Bench error.
+
+**Deleting (#150) is NOT shipped.**
 
 Two rules are inherited and non-negotiable:
 

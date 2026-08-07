@@ -921,3 +921,72 @@ Twig.Domain.Services.Workspace.BenchMembership.SeedIds.init -> void
 Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.get -> System.Collections.Generic.IReadOnlySet<int>!
 Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.init -> void
 Twig.Domain.Services.Workspace.BenchMembership.SelectedIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+abstract Twig.Domain.Services.Mutation.BenchOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome!
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.BenchListing.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchListing.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchListing.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.Created!
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameRejected!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.ToString() -> string!
+static Twig.Domain.Services.Mutation.BenchListing.operator !=(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
+static Twig.Domain.Services.Mutation.BenchListing.operator ==(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.operator !=(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.operator ==(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
+Twig.Domain.Interfaces.IBenchRepository.CreateAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Services.Mutation.BenchListing
+Twig.Domain.Services.Mutation.BenchListing.Benches.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Services.Mutation.BenchListing.Benches.init -> void
+Twig.Domain.Services.Mutation.BenchListing.BenchListing(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>! Benches, string! CurrentBenchName) -> void
+Twig.Domain.Services.Mutation.BenchListing.<Clone>$() -> Twig.Domain.Services.Mutation.BenchListing!
+Twig.Domain.Services.Mutation.BenchListing.CurrentBenchName.get -> string!
+Twig.Domain.Services.Mutation.BenchListing.CurrentBenchName.init -> void
+Twig.Domain.Services.Mutation.BenchListing.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>! Benches, out string! CurrentBenchName) -> void
+Twig.Domain.Services.Mutation.BenchListing.Equals(Twig.Domain.Services.Mutation.BenchListing? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome
+Twig.Domain.Services.Mutation.BenchOutcome.BenchOutcome(Twig.Domain.Services.Mutation.BenchOutcome! original) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Created
+Twig.Domain.Services.Mutation.BenchOutcome.Created.Bench.get -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Services.Mutation.BenchOutcome.Created.Bench.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Created.Created(Twig.Domain.Aggregates.Bench! Bench) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Created.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(Twig.Domain.Services.Mutation.BenchOutcome.Created? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Deconstruct(out string! RequestedName, out Twig.Domain.Aggregates.Bench! Existing) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Existing.get -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Existing.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.NameAlreadyExists(string! RequestedName, Twig.Domain.Aggregates.Bench! Existing) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.RequestedName.get -> string!
+Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.RequestedName.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Deconstruct(out string! RequestedName, out string! Reason) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? other) -> bool
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.NameRejected(string! RequestedName, string! Reason) -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Reason.get -> string!
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Reason.init -> void
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.RequestedName.get -> string!
+Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.RequestedName.init -> void
+virtual Twig.Domain.Services.Mutation.BenchOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.BenchOutcome.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+virtual Twig.Domain.Services.Mutation.BenchOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool

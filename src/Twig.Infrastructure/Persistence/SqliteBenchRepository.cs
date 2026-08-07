@@ -62,6 +62,32 @@ public sealed class SqliteBenchRepository : IBenchRepository
     public Task<Bench?> GetByNameAsync(string name, CancellationToken ct = default)
         => LoadAsync("name = @name COLLATE NOCASE", null, ct, name);
 
+    public async Task<Bench?> CreateAsync(string name, CancellationToken ct = default)
+    {
+        // The uniqueness decision is the TABLE's, not a read-then-write here: a check followed by
+        // an insert can be raced, and the case-insensitive UNIQUE index is the only place that
+        // cannot be. DO NOTHING makes a taken name return no row, which the caller reports.
+        var conn = _store.GetConnection();
+
+        long? benchId;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = _store.ActiveTransaction;
+            cmd.CommandText = """
+                INSERT INTO benches (name, is_default, created_at)
+                VALUES (@name, 0, @createdAt)
+                ON CONFLICT(name COLLATE NOCASE) DO NOTHING
+                RETURNING id;
+                """;
+            cmd.Parameters.AddWithValue("@name", name);
+            cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("O"));
+            var scalar = await cmd.ExecuteScalarAsync(ct);
+            benchId = scalar is null or DBNull ? null : Convert.ToInt64(scalar);
+        }
+
+        return benchId is null ? null : await LoadAsync("id = @id", benchId.Value, ct);
+    }
+
     public async Task<IReadOnlyList<Bench>> GetAllAsync(CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

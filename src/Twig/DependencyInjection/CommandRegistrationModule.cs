@@ -113,6 +113,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<ProcessLayoutCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
+        // ADO #148: the Bench command surface. The workflow it depends on is registered in the
+        // SHARED domain-services module, beside PinWorkflow, so the MCP surface can build it too.
+        services.AddSingleton<BenchCommand>();
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
     }

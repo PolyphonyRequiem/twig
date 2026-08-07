@@ -988,6 +988,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct);
 
+    /// <summary>Delete a Bench. One holding pins reports what it holds and deletes nothing.</summary>
+    /// <param name="name">Name of the Bench to delete.</param>
+    /// <param name="confirm">Re-type the Bench's name to delete one that holds pins. There is deliberately no --force.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("bench delete")]
+    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct);
+
     // ── Workspace Area Path Management ──
 
     /// <summary>Show the area-filtered workspace view.</summary>
@@ -1303,10 +1311,11 @@ internal static class GroupedHelp
         "workspace sprint remove",
         "workspace sprint list",
 
-        // Bench (ADO #148, #149)
+        // Bench (ADO #148, #149, #150)
         "bench create",
         "bench list",
         "bench switch",
+        "bench delete",
 
         // Context
         "set",
@@ -1453,6 +1462,7 @@ Bench:
   bench create <name>        Create a Bench with a name you will recognise later.
   bench list                 List Benches, marking the current one.
   bench switch <name>        Stand on another Bench (an unknown name is an error).
+  bench delete <name>        Delete a Bench (one holding pins reports what it holds first).
 
 Context:
   set <id|pattern>     Set the active work item.

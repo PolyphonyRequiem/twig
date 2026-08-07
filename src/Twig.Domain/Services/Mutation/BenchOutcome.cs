@@ -61,4 +61,45 @@ public abstract record BenchOutcome
     /// <param name="RequestedName">The name the person asked for, as they typed it.</param>
     /// <param name="KnownBenchNames">Every Bench that does exist, ordered by name.</param>
     public sealed record UnknownBench(string RequestedName, IReadOnlyList<string> KnownBenchNames) : BenchOutcome;
+
+    /// <summary>The Bench is gone. Nothing outside it was touched — the pending set least of all.</summary>
+    /// <param name="Bench">The Bench that was deleted, as it stood immediately before.</param>
+    public sealed record Deleted(Bench Bench) : BenchOutcome;
+
+    /// <summary>
+    /// Nothing was deleted: the Bench holds selectors, and here is what they are.
+    /// <para>
+    /// 🔴 This is the RED LINE of ADO #150 expressed as a type. A pin is work the person did by
+    /// hand and ADO cannot rebuild it, so a delete that holds pins REPORTS them and stops. The
+    /// report is the outcome rather than a message the adapter composes, so the human and agent
+    /// surfaces cannot differ about what was at stake.
+    /// </para>
+    /// <para>
+    /// 🔴 There is deliberately NO force flag to escape this. A flag needed routinely becomes a
+    /// reflex and stops being read (issue #271's class). The person re-types the Bench's NAME
+    /// instead: it differs every time, so it cannot become muscle memory, and typing it is only
+    /// possible after reading which Bench is about to go.
+    /// </para>
+    /// </summary>
+    /// <param name="Bench">The Bench that was NOT deleted, with everything it holds.</param>
+    /// <param name="ItemSelectorIds">Work items pinned directly onto it, ascending.</param>
+    /// <param name="SubtreeSelectorIds">Work items pinned with their subtrees, ascending.</param>
+    /// <param name="QueryRules">The named query rules it carries, ordered.</param>
+    public sealed record HoldsWork(
+        Bench Bench,
+        IReadOnlyList<int> ItemSelectorIds,
+        IReadOnlyList<int> SubtreeSelectorIds,
+        IReadOnlyList<string> QueryRules) : BenchOutcome;
+
+    /// <summary>
+    /// Nothing was deleted: the default Bench cannot go missing (spec §4).
+    /// <para>
+    /// Refused rather than deleted-and-recreated. The default is the one Bench that is never
+    /// subject to the unknown-Bench error precisely because it always exists; a delete that
+    /// removed it would open a window in which every other rule that leans on that guarantee is
+    /// false, and re-creating it silently would discard its selectors while reporting success.
+    /// </para>
+    /// </summary>
+    /// <param name="Bench">The default Bench, unchanged.</param>
+    public sealed record DefaultBenchCannotBeDeleted(Bench Bench) : BenchOutcome;
 }

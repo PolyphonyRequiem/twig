@@ -192,6 +192,40 @@ public sealed class SqliteBenchRepository : IBenchRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    /// Removes a Bench, its selectors, and the current-Bench pointer when it named this one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 What is NOT touched: the pending set, seeds, exclusions, tracked items. Deleting a Bench
+    /// is a view operation. A cascade that reached staged edits would destroy work twig owes ADO,
+    /// which is precisely the loss this ticket exists to prevent — so the three statements below
+    /// are the whole of the deletion, deliberately.
+    /// </para>
+    /// <para>
+    /// The selectors and the pointer are ALSO declared <c>ON DELETE CASCADE</c> / <c>SET NULL</c>
+    /// in the schema, and Microsoft.Data.Sqlite turns foreign keys on by default, so the first two
+    /// statements are redundant against today's provider — measured, not assumed: with them
+    /// removed the orphan-row test still passes. They are kept because that redundancy is one
+    /// connection PRAGMA away from being load-bearing, and the failure it would produce is silent
+    /// (unreachable rows in the store that is never dropped). Belt and braces here costs two
+    /// statements; the alternative costs a durable-store leak nobody notices.
+    /// </para>
+    /// </remarks>
+    public async Task DeleteAsync(long benchId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = """
+            DELETE FROM bench_selectors WHERE bench_id = @benchId;
+            UPDATE current_bench SET bench_id = NULL WHERE bench_id = @benchId;
+            DELETE FROM benches WHERE id = @benchId;
+            """;
+        cmd.Parameters.AddWithValue("@benchId", benchId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private async Task<Bench?> LoadAsync(string where, long? id, CancellationToken ct, string? name = null)
     {
         var conn = _store.GetConnection();

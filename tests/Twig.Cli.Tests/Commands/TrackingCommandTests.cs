@@ -6,7 +6,10 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
+using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -17,7 +20,26 @@ public sealed class TrackingCommandTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
 
-    private TrackingCommand CreateCommand() => new(_trackingService, _workItemRepo, _formatterFactory);
+    // ADO #145: pin/unpin now route through the shared mutation-workflow seam. The Bench store is
+    // REAL (in-memory SQLite) because selectors are written and read back within a test, and a
+    // substitute returning an empty Bench would make "was it pinned?" answer no every time while
+    // the assertions still looked plausible. The tracking repository stays substituted: the file
+    // is still written until #146, and this fixture only needs to observe THAT it was.
+    private readonly SqliteCacheStore _benchStore = new("Data Source=:memory:");
+    private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
+
+    private TrackingCommand CreateCommand()
+    {
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+
+        var pinWorkflow = new PinWorkflow(
+            new SqliteBenchRepository(_benchStore),
+            new DefaultBenchSelectors(_trackingRepo, userDisplayName: null),
+            _trackingRepo);
+
+        return new TrackingCommand(_trackingService, _workItemRepo, _formatterFactory, pinWorkflow);
+    }
 
     // ── Track ──────────────────────────────────────────────────────────
 
@@ -29,7 +51,7 @@ public sealed class TrackingCommandTests
 
         result.ShouldBe(0);
         stdout.ShouldContain("Tracking #42");
-        await _trackingService.Received(1).TrackAsync(42, TrackingMode.Single, Arg.Any<CancellationToken>());
+        await _trackingRepo.Received(1).UpsertTrackedAsync(42, TrackingMode.Single, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -69,7 +91,7 @@ public sealed class TrackingCommandTests
         result.ShouldBe(0);
         stdout.ShouldContain("Tracking #100");
         stdout.ShouldContain("(tree)");
-        await _trackingService.Received(1).TrackTreeAsync(100, Arg.Any<CancellationToken>());
+        await _trackingRepo.Received(1).UpsertTrackedAsync(100, TrackingMode.Tree, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -87,19 +109,24 @@ public sealed class TrackingCommandTests
     [Fact]
     public async Task Untrack_ValidId_ReturnsZero()
     {
-        _trackingService.UntrackAsync(42, Arg.Any<CancellationToken>()).Returns(true);
+        // The discriminating precondition: it really is pinned before the unpin, so
+        // "Untracked #42" is a report about state and not the message this command always prints.
         var cmd = CreateCommand();
+        await StdoutCapture.RunAsync(() => cmd.TrackAsync(42));
+        _trackingRepo.GetTrackedByWorkItemIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new TrackedItem(42, TrackingMode.Single, DateTimeOffset.UtcNow));
+
         var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42));
 
         result.ShouldBe(0);
         stdout.ShouldContain("Untracked #42");
-        await _trackingService.Received(1).UntrackAsync(42, Arg.Any<CancellationToken>());
+        await _trackingRepo.Received(1).RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Untrack_NotTracked_ShowsNotTrackedMessage()
     {
-        _trackingService.UntrackAsync(42, Arg.Any<CancellationToken>()).Returns(false);
+        // Nothing pinned 42 on the Bench and nothing tracked it in the file.
         var cmd = CreateCommand();
         var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42));
 

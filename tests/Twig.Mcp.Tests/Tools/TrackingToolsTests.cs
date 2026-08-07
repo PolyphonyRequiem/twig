@@ -95,8 +95,23 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
     //  twig_track — recursive mode tracks root as Tree + descendants
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// 🔴 ADO #145 CHANGED THIS BEHAVIOUR DELIBERATELY, and the old assertions are preserved in
+    /// the comment below so the change is legible rather than looking like a weakened test.
+    /// <para>
+    /// This tool used to WALK the tree at pin time and pin each descendant it found as a separate
+    /// Single-mode entry — reporting trackedCount 4 for a root with three descendants. That is a
+    /// SNAPSHOT: a child created afterwards was never on the Bench. One subtree selector is stored
+    /// instead, and descendants are matched live on every look (covered by
+    /// <c>PinWorkflowTests.SubtreePin_MatchesAChildCreatedAfterTheSelectorWasAdded</c>).
+    /// </para>
+    /// <para>
+    /// So the count now reports what was PINNED — one root — and the descendants get no rows of
+    /// their own. That is the point of the ticket, not a regression.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Track_Recursive_TracksRootAsTreeAndDescendants()
+    public async Task Track_Recursive_StoresOneSubtreePin_NotASnapshotOfTodaysDescendants()
     {
         var child1 = new WorkItemBuilder(101, "Child 1").WithParent(100).Build();
         var child2 = new WorkItemBuilder(102, "Child 2").WithParent(100).Build();
@@ -117,14 +132,17 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         result.IsError.ShouldBeNull();
         var data = ParseResult(result);
         data.GetProperty("recursive").GetBoolean().ShouldBeTrue();
-        data.GetProperty("trackedCount").GetInt32().ShouldBe(4); // root + 2 children + 1 grandchild
+        data.GetProperty("trackedCount").GetInt32().ShouldBe(1); // the root; the subtree is a RULE
 
-        // Root tracked as Tree mode
+        // The root carries the subtree pin.
         await _trackingRepo.Received(1).UpsertTrackedAsync(100, TrackingMode.Tree, Arg.Any<CancellationToken>());
-        // Descendants tracked as Single mode
-        await _trackingRepo.Received(1).UpsertTrackedAsync(101, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(102, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(201, TrackingMode.Single, Arg.Any<CancellationToken>());
+
+        // 🔴 The discriminating assertion: the descendants EXIST in the fixture (so this is not a
+        // test that would pass against an empty tree) and are deliberately NOT written as pins.
+        (await _workItemRepo.GetChildrenAsync(100)).Count.ShouldBe(2);
+        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(101, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
+        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(102, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
+        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(201, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════

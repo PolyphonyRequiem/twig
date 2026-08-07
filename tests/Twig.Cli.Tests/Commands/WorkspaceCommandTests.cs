@@ -16,6 +16,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.Cli.Tests.TestSupport;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -42,6 +43,7 @@ public class WorkspaceCommandTests
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _workItemRepo.BridgeBatchIterationReads();
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
@@ -598,6 +600,61 @@ public class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task AsyncPath_PinOnlyCurrentBench_ShowsPinAndNotUnselectedSprintItem()
+    {
+        var pinned = CreateWorkItem(42, "Pinned by current Bench");
+        var unrelated = CreateWorkItem(99, "Unselected sprint item");
+        var bench = new Bench
+        {
+            Id = 7,
+            Name = "focused",
+            Selectors = [BenchSelector.ForItem(42)],
+        };
+
+        var benchRepository = Substitute.For<IBenchRepository>();
+        benchRepository.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
+        var pendingStore = Substitute.For<IPendingChangeStore>();
+        pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetByIdsAsync(
+                Arg.Is<IEnumerable<int>>(ids => ids.SequenceEqual(new[] { 42 })),
+                Arg.Any<CancellationToken>())
+            .Returns(new[] { pinned });
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { unrelated });
+
+        var calendar = Substitute.For<IIterationCalendar>();
+        var workingSet = new WorkingSetService(
+            _contextStore,
+            _workItemRepo,
+            pendingStore,
+            _iterationService,
+            userDisplayName: null,
+            benchRepository,
+            new BenchEvaluator(_workItemRepo, calendar, pendingStore));
+        var command = new WorkspaceCommand(
+            CreateCtx(CreateTtyPipelineFactory()),
+            _contextStore,
+            _workItemRepo,
+            _iterationService,
+            _processTypeStore,
+            _fieldDefinitionStore,
+            _activeItemResolver,
+            workingSet,
+            _trackingService,
+            new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
+
+        var result = await command.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        _testConsole.Output.ShouldContain("Pinned by current Bench");
+        _testConsole.Output.ShouldNotContain("Unselected sprint item");
+    }
+
+    [Fact]
     public async Task AsyncPath_VerifiesDataFetchSequence()
     {
         var active = CreateWorkItem(1, "Active");
@@ -613,11 +670,13 @@ public class WorkspaceCommandTests
         var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
         await cmd.ExecuteAsync("human");
 
-        await _contextStore.Received(1).GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+        // Context is read once for presentation and once by the structural Bench guard.
+        await _contextStore.Received(2).GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).GetByIdAsync(1, Arg.Any<CancellationToken>());
         await _iterationService.Received(1).GetCurrentIterationAsync(Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).GetSeedsAsync(Arg.Any<CancellationToken>());
+        // Selector evaluation determines membership; projection then materializes those rows.
+        await _workItemRepo.Received(2).GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(2).GetSeedsAsync(Arg.Any<CancellationToken>());
     }
 
     // ── SpectreRenderer unit tests ──────────────────────────────────
@@ -1157,9 +1216,9 @@ public class WorkspaceCommandTests
 
         // Should NOT call GetCurrentIterationAsync for sprint item resolution
         // because configured sprints are available
-        await _workItemRepo.Received(1).GetByIterationAsync(
+        await _workItemRepo.Received(2).GetByIterationAsync(
             Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 1"), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).GetByIterationAsync(
+        await _workItemRepo.Received(2).GetByIterationAsync(
             Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 0"), Arg.Any<CancellationToken>());
     }
 
@@ -1245,6 +1304,9 @@ public class WorkspaceCommandTests
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), "Alice Smith", Arg.Any<CancellationToken>())
+            .Returns(new[] { aliceItem });
+        // Bench selectors evaluate all cached rows, then apply their own assignee rule.
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem });
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());

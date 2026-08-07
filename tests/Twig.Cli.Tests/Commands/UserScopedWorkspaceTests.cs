@@ -12,6 +12,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.Cli.Tests.TestSupport;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -34,6 +35,7 @@ public class UserScopedWorkspaceTests
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _workItemRepo.BridgeBatchIterationReads();
         _iterationService = Substitute.For<IIterationService>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();

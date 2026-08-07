@@ -33,7 +33,8 @@ public sealed class DefaultBenchParityTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
     private readonly IIterationService _iterationService = Substitute.For<IIterationService>();
-    private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
+    private readonly IBenchRepository _benchRepo = Substitute.For<IBenchRepository>();
+    private readonly IIterationCalendar _calendar = Substitute.For<IIterationCalendar>();
 
     public DefaultBenchParityTests()
     {
@@ -57,13 +58,39 @@ public sealed class DefaultBenchParityTests
             .Returns(WorkingSetBaselineFixture.PendingIds);
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(WorkingSetBaselineFixture.CurrentIteration);
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(WorkingSetBaselineFixture.TrackedItems);
+        // 🔴 Pins are placed ON THE BENCH, not in the tracking file (ADO #146 wiped the file's
+        // pin half rather than migrating it). The fixture therefore builds a real Bench holding
+        // the sprint rule plus the fixture's pins, which is what a person's Bench looks like
+        // after they have pinned those items — the same state the file used to represent.
+        _benchRepo.GetOrCreateDefaultAsync(
+                Arg.Any<IReadOnlyCollection<BenchSelector>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(BenchWithFixturePins()));
+        _benchRepo.GetCurrentAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<Bench?>(BenchWithFixturePins()));
+    }
+
+    /// <summary>The default Bench as it stands once the fixture's pins have been placed on it.</summary>
+    private static Bench BenchWithFixturePins()
+    {
+        var selectors = new List<BenchSelector>
+        {
+            BenchSelector.ForCurrentSprint(WorkingSetBaselineFixture.UserDisplayName),
+        };
+
+        foreach (var pin in WorkingSetBaselineFixture.TrackedItems)
+        {
+            selectors.Add(pin.Mode == Twig.Domain.Enums.TrackingMode.Tree
+                ? BenchSelector.ForSubtree(pin.WorkItemId)
+                : BenchSelector.ForItem(pin.WorkItemId));
+        }
+
+        return new Bench { Id = 1, Name = Bench.DefaultName, IsDefault = true, Selectors = selectors };
     }
 
     private WorkingSetService CreateSut() => new(
         _contextStore, _workItemRepo, _pendingStore, _iterationService,
-        WorkingSetBaselineFixture.UserDisplayName, _trackingRepo);
+        WorkingSetBaselineFixture.UserDisplayName, _benchRepo,
+        new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
 
     // ═══════════════════════════════════════════════════════════════
     //  The parity bar

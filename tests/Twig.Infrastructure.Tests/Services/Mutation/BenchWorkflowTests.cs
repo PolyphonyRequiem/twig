@@ -43,7 +43,7 @@ public sealed class BenchWorkflowTests : IDisposable
 
     private BenchWorkflow CreateSut()
     {
-        var selectors = new DefaultBenchSelectors(_trackingRepo, userDisplayName: null);
+        var selectors = new DefaultBenchSelectors(null);
         return new BenchWorkflow(_benchRepo, selectors, new CurrentBenchResolver(_benchRepo, selectors));
     }
 
@@ -159,7 +159,7 @@ public sealed class BenchWorkflowTests : IDisposable
         // that rebuilds or clears it — reading what exists is not an edit.
         var sut = CreateSut();
         var before = (await _benchRepo.GetOrCreateDefaultAsync(
-            await new DefaultBenchSelectors(_trackingRepo, null).BuildAsync())).Selectors.ToList();
+            await new DefaultBenchSelectors(null).BuildAsync())).Selectors.ToList();
         before.ShouldNotBeEmpty();
 
         await sut.ListAsync();
@@ -280,7 +280,7 @@ public sealed class BenchWorkflowTests : IDisposable
     public async Task List_ShowsSelectorsAddedByPinning_OnTheCurrentBench()
     {
         var pin = new PinWorkflow(
-            _benchRepo, new DefaultBenchSelectors(_trackingRepo, null), trackingRepository: null);
+            _benchRepo, new DefaultBenchSelectors(null));
         await pin.PinAsync(4242, includeSubtree: false);
 
         var listing = await CreateSut().ListAsync();

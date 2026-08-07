@@ -13,11 +13,29 @@ namespace Twig.Domain.Services.Sync;
 public sealed class TrackingService(
     ITrackingRepository repository,
     IWorkItemRepository workItemRepository,
-    IProcessTypeStore processTypeStore) : ITrackingService
+    IProcessTypeStore processTypeStore,
+    IPinReader? pinReader = null,
+    IPinWriter? pinWriter = null) : ITrackingService
 {
+    /// <summary>
+    /// Pins come from the BENCH, not the tracking file (ADO #146).
+    /// <para>
+    /// 🔴 The file is no longer a pin store. Falling back to it when no reader is wired up would
+    /// resurrect the exact dual-source this ticket removed, and the symptom — a tracked tree that
+    /// quietly stops refreshing — is invisible to the parity baseline. With no reader there are
+    /// no pins, which is honest rather than stale.
+    /// </para>
+    /// </summary>
+    private Task<IReadOnlyList<TrackedItem>> ReadPinsAsync(CancellationToken ct)
+        => pinReader is not null
+            ? pinReader.GetPinsAsync(ct)
+            : Task.FromResult<IReadOnlyList<TrackedItem>>([]);
+
     /// <inheritdoc />
     public Task TrackAsync(int workItemId, TrackingMode mode, CancellationToken ct = default)
-        => repository.UpsertTrackedAsync(workItemId, mode, ct);
+        => pinWriter is not null
+            ? pinWriter.AddPinAsync(workItemId, mode, ct)
+            : Task.CompletedTask;
 
     /// <inheritdoc />
     public Task TrackTreeAsync(int workItemId, CancellationToken ct = default)
@@ -26,12 +44,10 @@ public sealed class TrackingService(
     /// <inheritdoc />
     public async Task<bool> UntrackAsync(int workItemId, CancellationToken ct = default)
     {
-        var existing = await repository.GetTrackedByWorkItemIdAsync(workItemId, ct);
-        if (existing is null)
+        if (pinWriter is null)
             return false;
 
-        await repository.RemoveTrackedAsync(workItemId, ct);
-        return true;
+        return await pinWriter.RemovePinAsync(workItemId, ct);
     }
 
     /// <inheritdoc />
@@ -40,7 +56,7 @@ public sealed class TrackingService(
 
     /// <inheritdoc />
     public Task<IReadOnlyList<TrackedItem>> GetTrackedItemsAsync(CancellationToken ct = default)
-        => repository.GetAllTrackedAsync(ct);
+        => ReadPinsAsync(ct);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<int>> GetExcludedIdsAsync(CancellationToken ct = default)
@@ -78,7 +94,7 @@ public sealed class TrackingService(
     /// <inheritdoc />
     public async Task<int> SyncTrackedTreesAsync(SyncCoordinator syncCoordinator, CancellationToken ct = default)
     {
-        var tracked = await repository.GetAllTrackedAsync(ct);
+        var tracked = await ReadPinsAsync(ct);
         var treeItems = tracked.Where(t => t.Mode == TrackingMode.Tree).ToList();
 
         if (treeItems.Count == 0)
@@ -102,8 +118,11 @@ public sealed class TrackingService(
             await syncCoordinator.SyncRootLinksAsync(item.WorkItemId, ct);
         }
 
-        if (untrackedIds.Count > 0)
-            await repository.RemoveTrackedBatchAsync(untrackedIds, ct);
+        if (untrackedIds.Count > 0 && pinWriter is not null)
+        {
+            foreach (var id in untrackedIds)
+                await pinWriter.RemovePinAsync(id, ct);
+        }
 
         return untrackedIds.Count;
     }
@@ -117,7 +136,7 @@ public sealed class TrackingService(
         if (policy == TrackingCleanupPolicy.None)
             return 0;
 
-        var tracked = await repository.GetAllTrackedAsync(ct);
+        var tracked = await ReadPinsAsync(ct);
         if (tracked.Count == 0)
             return 0;
 
@@ -161,7 +180,13 @@ public sealed class TrackingService(
         }
 
         if (removalIds.Count > 0)
-            await repository.RemoveTrackedBatchAsync(removalIds, ct);
+        {
+            if (pinWriter is not null)
+            {
+                foreach (var id in removalIds)
+                    await pinWriter.RemovePinAsync(id, ct);
+            }
+        }
 
         return removalIds.Count;
     }

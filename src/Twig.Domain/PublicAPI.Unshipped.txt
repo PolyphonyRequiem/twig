@@ -797,168 +797,19 @@ Twig.Domain.Interfaces.IIterationCalendar.GetCurrentIterationsAsync(System.Threa
 Twig.Domain.Interfaces.IIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshIterationCalendarAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null, Twig.Domain.Interfaces.IIterationCalendar? iterationCalendar = null) -> void
-Twig.Domain.Services.Workspace.BenchEvaluator
-Twig.Domain.Services.Workspace.BenchEvaluator.BenchEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IIterationCalendar! iterationCalendar, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore) -> void
-Twig.Domain.Services.Workspace.BenchEvaluator.EvaluateAsync(Twig.Domain.Aggregates.Bench! bench, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationOverride = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.BenchMembership!>!
-Twig.Domain.Services.Workspace.BenchMembership
-Twig.Domain.Services.Workspace.BenchMembership.<Clone>$() -> Twig.Domain.Services.Workspace.BenchMembership!
-Twig.Domain.Services.Workspace.BenchMembership.AllIds.get -> System.Collections.Generic.IReadOnlySet<int>!
-Twig.Domain.Services.Workspace.BenchMembership.BenchMembership() -> void
-Twig.Domain.Services.Workspace.BenchMembership.Equals(Twig.Domain.Services.Workspace.BenchMembership? other) -> bool
-Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!
-Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.init -> void
-Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
-Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.init -> void
-Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!
-Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.init -> void
-Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void
-Twig.Domain.ValueObjects.BenchSelector
-Twig.Domain.ValueObjects.BenchSelector.<Clone>$() -> Twig.Domain.ValueObjects.BenchSelector!
-Twig.Domain.ValueObjects.BenchSelector.AsWorkItemId() -> int
-Twig.Domain.ValueObjects.BenchSelector.BenchSelector(Twig.Domain.Enums.SelectorKind Kind, string! Payload) -> void
-Twig.Domain.ValueObjects.BenchSelector.Deconstruct(out Twig.Domain.Enums.SelectorKind Kind, out string! Payload) -> void
-Twig.Domain.ValueObjects.BenchSelector.Equals(Twig.Domain.ValueObjects.BenchSelector? other) -> bool
-Twig.Domain.ValueObjects.BenchSelector.Kind.get -> Twig.Domain.Enums.SelectorKind
-Twig.Domain.ValueObjects.BenchSelector.Kind.init -> void
-Twig.Domain.ValueObjects.BenchSelector.Payload.get -> string!
-Twig.Domain.ValueObjects.BenchSelector.Payload.init -> void
-Twig.Domain.ValueObjects.BenchSelector.QueryAssignedTo.get -> string?
-Twig.Domain.ValueObjects.BenchSelector.QueryRule.get -> string!
-Twig.Infrastructure.Persistence.SqliteBenchRepository
-Twig.Infrastructure.Persistence.SqliteBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
-Twig.Infrastructure.Persistence.SqliteBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
-Twig.Infrastructure.Persistence.SqliteBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
-Twig.Infrastructure.Persistence.SqliteBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteBenchRepository.SqliteBenchRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
-Twig.Infrastructure.Persistence.SqliteIterationCalendar
-Twig.Infrastructure.Persistence.SqliteIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
-Twig.Infrastructure.Persistence.SqliteIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteIterationCalendar.SqliteIterationCalendar(Twig.Infrastructure.Persistence.SqliteCacheStore! store, System.Func<System.DateTimeOffset>? clock = null) -> void
-const Twig.Domain.Aggregates.Bench.DefaultName = "default" -> string!
-const Twig.Domain.ValueObjects.BenchSelector.CurrentSprintRule = "current-sprint" -> string!
-override Twig.Domain.Aggregates.Bench.Equals(object? obj) -> bool
-override Twig.Domain.Aggregates.Bench.GetHashCode() -> int
-override Twig.Domain.Aggregates.Bench.ToString() -> string!
-override Twig.Domain.Services.Workspace.BenchMembership.Equals(object? obj) -> bool
-override Twig.Domain.Services.Workspace.BenchMembership.GetHashCode() -> int
-override Twig.Domain.Services.Workspace.BenchMembership.ToString() -> string!
-override Twig.Domain.ValueObjects.BenchSelector.Equals(object? obj) -> bool
-override Twig.Domain.ValueObjects.BenchSelector.GetHashCode() -> int
-override Twig.Domain.ValueObjects.BenchSelector.ToString() -> string!
-static Twig.Domain.Aggregates.Bench.operator !=(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
-static Twig.Domain.Aggregates.Bench.operator ==(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
-static Twig.Domain.Services.Workspace.BenchMembership.operator !=(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
-static Twig.Domain.Services.Workspace.BenchMembership.operator ==(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
-static Twig.Domain.ValueObjects.BenchSelector.ForCurrentSprint(string? assignedTo) -> Twig.Domain.ValueObjects.BenchSelector!
-static Twig.Domain.ValueObjects.BenchSelector.ForItem(int workItemId) -> Twig.Domain.ValueObjects.BenchSelector!
-static Twig.Domain.ValueObjects.BenchSelector.ForSubtree(int rootWorkItemId) -> Twig.Domain.ValueObjects.BenchSelector!
-static Twig.Domain.ValueObjects.BenchSelector.operator !=(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
-static Twig.Domain.ValueObjects.BenchSelector.operator ==(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
-*REMOVED*Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null) -> void
-*REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null) -> void
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.SqliteBenchRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
-*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar
-*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.SqliteIterationCalendar(Twig.Infrastructure.Persistence.SqliteCacheStore! store, System.Func<System.DateTimeOffset>? clock = null) -> void
-Twig.Domain.Services.Mutation.PinOutcome
-Twig.Domain.Services.Mutation.PinOutcome.PinOutcome(Twig.Domain.Services.Mutation.PinOutcome! original) -> void
-Twig.Domain.Services.Mutation.PinOutcome.Pinned
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.Bench.get -> Twig.Domain.Aggregates.Bench!
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.Bench.init -> void
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench, out int WorkItemId, out bool IncludesSubtree) -> void
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(Twig.Domain.Services.Mutation.PinOutcome.Pinned? other) -> bool
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.IncludesSubtree.get -> bool
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.IncludesSubtree.init -> void
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.Pinned(Twig.Domain.Aggregates.Bench! Bench, int WorkItemId, bool IncludesSubtree) -> void
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.WorkItemId.get -> int
-Twig.Domain.Services.Mutation.PinOutcome.Pinned.WorkItemId.init -> void
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Bench.get -> Twig.Domain.Aggregates.Bench!
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Bench.init -> void
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench, out int WorkItemId, out bool WasPinned) -> void
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? other) -> bool
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Unpinned(Twig.Domain.Aggregates.Bench! Bench, int WorkItemId, bool WasPinned) -> void
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WasPinned.get -> bool
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WasPinned.init -> void
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WorkItemId.get -> int
-Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WorkItemId.init -> void
-Twig.Domain.Services.Workspace.DefaultBenchSelectors
-Twig.Domain.Services.Workspace.DefaultBenchSelectors.BuildAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>!>!
-Twig.Domain.Services.Workspace.DefaultBenchSelectors.DefaultBenchSelectors(Twig.Domain.Interfaces.ITrackingRepository? trackingRepo, string? userDisplayName) -> void
-abstract Twig.Domain.Services.Mutation.PinOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome!
-override Twig.Domain.Services.Mutation.PinOutcome.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.PinOutcome.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.PinOutcome.Pinned.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome.Pinned!
-override Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.PinOutcome.Pinned.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.PinOutcome.Pinned.ToString() -> string!
-override Twig.Domain.Services.Mutation.PinOutcome.ToString() -> string!
-override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome.Unpinned!
-override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.ToString() -> string!
-override sealed Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
-override sealed Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.Pinned.operator !=(Twig.Domain.Services.Mutation.PinOutcome.Pinned? left, Twig.Domain.Services.Mutation.PinOutcome.Pinned? right) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.Pinned.operator ==(Twig.Domain.Services.Mutation.PinOutcome.Pinned? left, Twig.Domain.Services.Mutation.PinOutcome.Pinned? right) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.Unpinned.operator !=(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? left, Twig.Domain.Services.Mutation.PinOutcome.Unpinned? right) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.Unpinned.operator ==(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? left, Twig.Domain.Services.Mutation.PinOutcome.Unpinned? right) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.operator !=(Twig.Domain.Services.Mutation.PinOutcome? left, Twig.Domain.Services.Mutation.PinOutcome? right) -> bool
-static Twig.Domain.Services.Mutation.PinOutcome.operator ==(Twig.Domain.Services.Mutation.PinOutcome? left, Twig.Domain.Services.Mutation.PinOutcome? right) -> bool
-virtual Twig.Domain.Services.Mutation.PinOutcome.EqualityContract.get -> System.Type!
-virtual Twig.Domain.Services.Mutation.PinOutcome.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
-virtual Twig.Domain.Services.Mutation.PinOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
-Twig.Domain.Services.Workspace.BenchMembership.SeedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
-Twig.Domain.Services.Workspace.BenchMembership.SeedIds.init -> void
-Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.get -> System.Collections.Generic.IReadOnlySet<int>!
-Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.init -> void
-Twig.Domain.Services.Workspace.BenchMembership.SelectedIds.get -> System.Collections.Generic.IReadOnlySet<int>!
-abstract Twig.Domain.Services.Mutation.BenchOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome!
-override sealed Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
-override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
-override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
-override Twig.Domain.Services.Mutation.BenchListing.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.BenchListing.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.BenchListing.ToString() -> string!
-override Twig.Domain.Services.Mutation.BenchOutcome.Created.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.Created!
-override Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.BenchOutcome.Created.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.BenchOutcome.Created.ToString() -> string!
-override Twig.Domain.Services.Mutation.BenchOutcome.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.BenchOutcome.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists!
-override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.ToString() -> string!
-override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameRejected!
-override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.ToString() -> string!
-override Twig.Domain.Services.Mutation.BenchOutcome.ToString() -> string!
-static Twig.Domain.Services.Mutation.BenchListing.operator !=(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
-static Twig.Domain.Services.Mutation.BenchListing.operator ==(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.operator !=(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
-static Twig.Domain.Services.Mutation.BenchOutcome.operator ==(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
 Twig.Domain.Interfaces.IBenchRepository.CreateAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.GetCurrentAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.SetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IPinReader
+Twig.Domain.Interfaces.IPinReader.GetPinsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TrackedItem!>!>!
+Twig.Domain.Interfaces.IPinWriter
+Twig.Domain.Interfaces.IPinWriter.AddPinAsync(int workItemId, Twig.Domain.Enums.TrackingMode mode, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IPinWriter.RemovePinAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Services.Mutation.BenchListing
+Twig.Domain.Services.Mutation.BenchListing.<Clone>$() -> Twig.Domain.Services.Mutation.BenchListing!
+Twig.Domain.Services.Mutation.BenchListing.BenchListing(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>! Benches, string! CurrentBenchName) -> void
 Twig.Domain.Services.Mutation.BenchListing.Benches.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!
 Twig.Domain.Services.Mutation.BenchListing.Benches.init -> void
-Twig.Domain.Services.Mutation.BenchListing.BenchListing(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>! Benches, string! CurrentBenchName) -> void
-Twig.Domain.Services.Mutation.BenchListing.<Clone>$() -> Twig.Domain.Services.Mutation.BenchListing!
 Twig.Domain.Services.Mutation.BenchListing.CurrentBenchName.get -> string!
 Twig.Domain.Services.Mutation.BenchListing.CurrentBenchName.init -> void
 Twig.Domain.Services.Mutation.BenchListing.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>! Benches, out string! CurrentBenchName) -> void
@@ -987,11 +838,6 @@ Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Reason.get -> string!
 Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Reason.init -> void
 Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.RequestedName.get -> string!
 Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.RequestedName.init -> void
-virtual Twig.Domain.Services.Mutation.BenchOutcome.EqualityContract.get -> System.Type!
-virtual Twig.Domain.Services.Mutation.BenchOutcome.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
-virtual Twig.Domain.Services.Mutation.BenchOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
-Twig.Domain.Interfaces.IBenchRepository.GetCurrentAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
-Twig.Domain.Interfaces.IBenchRepository.SetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Services.Mutation.BenchOutcome.Switched
 Twig.Domain.Services.Mutation.BenchOutcome.Switched.Bench.get -> Twig.Domain.Aggregates.Bench!
 Twig.Domain.Services.Mutation.BenchOutcome.Switched.Bench.init -> void
@@ -1008,20 +854,165 @@ Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.KnownBenchNames.init -> 
 Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.RequestedName.get -> string!
 Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.RequestedName.init -> void
 Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.UnknownBench(string! RequestedName, System.Collections.Generic.IReadOnlyList<string!>! KnownBenchNames) -> void
+Twig.Domain.Services.Mutation.PinOutcome
+Twig.Domain.Services.Mutation.PinOutcome.PinOutcome(Twig.Domain.Services.Mutation.PinOutcome! original) -> void
+Twig.Domain.Services.Mutation.PinOutcome.Pinned
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.Bench.get -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.Bench.init -> void
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench, out int WorkItemId, out bool IncludesSubtree) -> void
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(Twig.Domain.Services.Mutation.PinOutcome.Pinned? other) -> bool
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.IncludesSubtree.get -> bool
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.IncludesSubtree.init -> void
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.Pinned(Twig.Domain.Aggregates.Bench! Bench, int WorkItemId, bool IncludesSubtree) -> void
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.WorkItemId.get -> int
+Twig.Domain.Services.Mutation.PinOutcome.Pinned.WorkItemId.init -> void
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Bench.get -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Bench.init -> void
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Deconstruct(out Twig.Domain.Aggregates.Bench! Bench, out int WorkItemId, out bool WasPinned) -> void
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? other) -> bool
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Unpinned(Twig.Domain.Aggregates.Bench! Bench, int WorkItemId, bool WasPinned) -> void
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WasPinned.get -> bool
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WasPinned.init -> void
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WorkItemId.get -> int
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.WorkItemId.init -> void
+Twig.Domain.Services.Sync.TrackingService.TrackingService(Twig.Domain.Interfaces.ITrackingRepository! repository, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepository, Twig.Domain.Interfaces.IProcessTypeStore! processTypeStore, Twig.Domain.Interfaces.IPinReader? pinReader = null, Twig.Domain.Interfaces.IPinWriter? pinWriter = null) -> void
+Twig.Domain.Services.Workspace.BenchEvaluator
+Twig.Domain.Services.Workspace.BenchEvaluator.BenchEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IIterationCalendar! iterationCalendar, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore) -> void
+Twig.Domain.Services.Workspace.BenchEvaluator.EvaluateAsync(Twig.Domain.Aggregates.Bench! bench, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationOverride = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.BenchMembership!>!
+Twig.Domain.Services.Workspace.BenchMembership
+Twig.Domain.Services.Workspace.BenchMembership.<Clone>$() -> Twig.Domain.Services.Workspace.BenchMembership!
+Twig.Domain.Services.Workspace.BenchMembership.AllIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+Twig.Domain.Services.Workspace.BenchMembership.BenchMembership() -> void
+Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.Equals(Twig.Domain.Services.Workspace.BenchMembership? other) -> bool
+Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!
+Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
+Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!
+Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.SeedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
+Twig.Domain.Services.Workspace.BenchMembership.SeedIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.SelectedIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+Twig.Domain.Services.Workspace.BenchPinReader
+Twig.Domain.Services.Workspace.BenchPinReader.AddPinAsync(int workItemId, Twig.Domain.Enums.TrackingMode mode, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Workspace.BenchPinReader.BenchPinReader(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.CurrentBenchResolver! currentBench) -> void
+Twig.Domain.Services.Workspace.BenchPinReader.GetPinsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TrackedItem!>!>!
+Twig.Domain.Services.Workspace.BenchPinReader.RemovePinAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Services.Workspace.CurrentBenchResolver
 Twig.Domain.Services.Workspace.CurrentBenchResolver.CurrentBenchResolver(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors) -> void
 Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Services.Workspace.DefaultBenchSelectors
+Twig.Domain.Services.Workspace.DefaultBenchSelectors.BuildAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>!>!
+Twig.Domain.Services.Workspace.DefaultBenchSelectors.DefaultBenchSelectors(string? userDisplayName) -> void
+Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void
+Twig.Domain.ValueObjects.BenchSelector
+Twig.Domain.ValueObjects.BenchSelector.<Clone>$() -> Twig.Domain.ValueObjects.BenchSelector!
+Twig.Domain.ValueObjects.BenchSelector.AsWorkItemId() -> int
+Twig.Domain.ValueObjects.BenchSelector.BenchSelector(Twig.Domain.Enums.SelectorKind Kind, string! Payload) -> void
+Twig.Domain.ValueObjects.BenchSelector.Deconstruct(out Twig.Domain.Enums.SelectorKind Kind, out string! Payload) -> void
+Twig.Domain.ValueObjects.BenchSelector.Equals(Twig.Domain.ValueObjects.BenchSelector? other) -> bool
+Twig.Domain.ValueObjects.BenchSelector.Kind.get -> Twig.Domain.Enums.SelectorKind
+Twig.Domain.ValueObjects.BenchSelector.Kind.init -> void
+Twig.Domain.ValueObjects.BenchSelector.Payload.get -> string!
+Twig.Domain.ValueObjects.BenchSelector.Payload.init -> void
+Twig.Domain.ValueObjects.BenchSelector.QueryAssignedTo.get -> string?
+Twig.Domain.ValueObjects.BenchSelector.QueryRule.get -> string!
+abstract Twig.Domain.Services.Mutation.BenchOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome!
+abstract Twig.Domain.Services.Mutation.PinOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome!
+const Twig.Domain.Aggregates.Bench.DefaultName = "default" -> string!
+const Twig.Domain.ValueObjects.BenchSelector.CurrentSprintRule = "current-sprint" -> string!
+override Twig.Domain.Aggregates.Bench.Equals(object? obj) -> bool
+override Twig.Domain.Aggregates.Bench.GetHashCode() -> int
+override Twig.Domain.Aggregates.Bench.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchListing.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchListing.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchListing.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.Created!
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.Created.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.NameRejected!
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.ToString() -> string!
 override Twig.Domain.Services.Mutation.BenchOutcome.Switched.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.Switched!
 override Twig.Domain.Services.Mutation.BenchOutcome.Switched.Equals(object? obj) -> bool
 override Twig.Domain.Services.Mutation.BenchOutcome.Switched.GetHashCode() -> int
 override Twig.Domain.Services.Mutation.BenchOutcome.Switched.ToString() -> string!
+override Twig.Domain.Services.Mutation.BenchOutcome.ToString() -> string!
 override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.<Clone>$() -> Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench!
 override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Equals(object? obj) -> bool
 override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.GetHashCode() -> int
 override Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.ToString() -> string!
+override Twig.Domain.Services.Mutation.PinOutcome.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PinOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PinOutcome.Pinned.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome.Pinned!
+override Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PinOutcome.Pinned.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PinOutcome.Pinned.ToString() -> string!
+override Twig.Domain.Services.Mutation.PinOutcome.ToString() -> string!
+override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.<Clone>$() -> Twig.Domain.Services.Mutation.PinOutcome.Unpinned!
+override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PinOutcome.Unpinned.ToString() -> string!
+override Twig.Domain.Services.Workspace.BenchMembership.Equals(object? obj) -> bool
+override Twig.Domain.Services.Workspace.BenchMembership.GetHashCode() -> int
+override Twig.Domain.Services.Workspace.BenchMembership.ToString() -> string!
+override Twig.Domain.ValueObjects.BenchSelector.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.BenchSelector.GetHashCode() -> int
+override Twig.Domain.ValueObjects.BenchSelector.ToString() -> string!
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.Created.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
 override sealed Twig.Domain.Services.Mutation.BenchOutcome.Switched.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
 override sealed Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PinOutcome.Pinned.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
+static Twig.Domain.Aggregates.Bench.operator !=(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
+static Twig.Domain.Aggregates.Bench.operator ==(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
+static Twig.Domain.Services.Mutation.BenchListing.operator !=(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
+static Twig.Domain.Services.Mutation.BenchListing.operator ==(Twig.Domain.Services.Mutation.BenchListing? left, Twig.Domain.Services.Mutation.BenchListing? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.Created.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.Created? left, Twig.Domain.Services.Mutation.BenchOutcome.Created? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? left, Twig.Domain.Services.Mutation.BenchOutcome.NameAlreadyExists? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.NameRejected.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? left, Twig.Domain.Services.Mutation.BenchOutcome.NameRejected? right) -> bool
 static Twig.Domain.Services.Mutation.BenchOutcome.Switched.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.Switched? left, Twig.Domain.Services.Mutation.BenchOutcome.Switched? right) -> bool
 static Twig.Domain.Services.Mutation.BenchOutcome.Switched.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.Switched? left, Twig.Domain.Services.Mutation.BenchOutcome.Switched? right) -> bool
 static Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.operator !=(Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? left, Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? right) -> bool
 static Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench.operator ==(Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? left, Twig.Domain.Services.Mutation.BenchOutcome.UnknownBench? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.operator !=(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.BenchOutcome.operator ==(Twig.Domain.Services.Mutation.BenchOutcome? left, Twig.Domain.Services.Mutation.BenchOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.Pinned.operator !=(Twig.Domain.Services.Mutation.PinOutcome.Pinned? left, Twig.Domain.Services.Mutation.PinOutcome.Pinned? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.Pinned.operator ==(Twig.Domain.Services.Mutation.PinOutcome.Pinned? left, Twig.Domain.Services.Mutation.PinOutcome.Pinned? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.Unpinned.operator !=(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? left, Twig.Domain.Services.Mutation.PinOutcome.Unpinned? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.Unpinned.operator ==(Twig.Domain.Services.Mutation.PinOutcome.Unpinned? left, Twig.Domain.Services.Mutation.PinOutcome.Unpinned? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.operator !=(Twig.Domain.Services.Mutation.PinOutcome? left, Twig.Domain.Services.Mutation.PinOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.PinOutcome.operator ==(Twig.Domain.Services.Mutation.PinOutcome? left, Twig.Domain.Services.Mutation.PinOutcome? right) -> bool
+static Twig.Domain.Services.Workspace.BenchMembership.operator !=(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
+static Twig.Domain.Services.Workspace.BenchMembership.operator ==(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
+static Twig.Domain.ValueObjects.BenchSelector.ForCurrentSprint(string? assignedTo) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.ForItem(int workItemId) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.ForSubtree(int rootWorkItemId) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.operator !=(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
+static Twig.Domain.ValueObjects.BenchSelector.operator ==(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
+virtual Twig.Domain.Services.Mutation.BenchOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.BenchOutcome.Equals(Twig.Domain.Services.Mutation.BenchOutcome? other) -> bool
+virtual Twig.Domain.Services.Mutation.BenchOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+virtual Twig.Domain.Services.Mutation.PinOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.PinOutcome.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
+virtual Twig.Domain.Services.Mutation.PinOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+*REMOVED*Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null) -> void
+*REMOVED*Twig.Domain.Services.Sync.TrackingService.TrackingService(Twig.Domain.Interfaces.ITrackingRepository! repository, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepository, Twig.Domain.Interfaces.IProcessTypeStore! processTypeStore) -> void
+*REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null) -> void
+*REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void

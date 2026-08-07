@@ -113,8 +113,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         // An active pointer is deliberately set to a DIFFERENT id so a regression that
         // reintroduced active-item resolution would fetch 7 and fail the assertions below.
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(7);
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new TrackedItem(42, TrackingMode.Tree, DateTimeOffset.UtcNow) });
+        await PinTreeAsync(42);
 
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
@@ -273,8 +272,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
             .LastSyncedAt(null).Build();
 
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new TrackedItem(42, TrackingMode.Tree, DateTimeOffset.UtcNow) });
+        await PinTreeAsync(42);
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())

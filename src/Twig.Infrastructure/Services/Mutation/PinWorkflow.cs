@@ -25,19 +25,22 @@ namespace Twig.Infrastructure.Services.Mutation;
 /// cannot drift — the defect that made every agent-surface tool name its own target.
 /// </para>
 /// <para>
-/// 🔴 DUAL WRITE, deliberately, until #146. The tracking file is still the live source for
-/// everything that is NOT the Bench: tracked-tree refresh, the cleanup policy, and
-/// <c>twig_tracking_status</c> all read it. Writing only the Bench here would silently stop
-/// tracked trees being refreshed — a behaviour regression the parity baseline cannot see, because
-/// the baseline covers the computed view and not the sync path. So the pin is written to BOTH,
-/// and #146 becomes a data move plus the deletion of the file write, not a second rewrite of this
-/// logic. The Bench repository is idempotent, so a pin present in both places is one selector.
+/// 🔴 THE BENCH IS THE ONLY PIN STORE (ADO #146). The dual write to the tracking file that stood
+/// here until 2026-08-07 is gone, along with the file's pin half. The owner cut the migration —
+/// existing pin state is wiped rather than carried — so there is nothing to reconcile and no
+/// second store to drift from.
+/// </para>
+/// <para>
+/// What made the dual write necessary has moved rather than disappeared: tracked-tree refresh,
+/// the cleanup policy and the agent surface's tracking status used to READ the file. They now read
+/// the Bench through <c>IPinReader</c>. That pairing is the point — a reader and a writer on the
+/// same store cannot disagree, and the failure they used to risk was invisible to the parity
+/// baseline, which covers the computed view and not the sync path.
 /// </para>
 /// </remarks>
 public sealed class PinWorkflow(
     IBenchRepository benchRepository,
     DefaultBenchSelectors defaultSelectors,
-    ITrackingRepository? trackingRepository = null,
     CurrentBenchResolver? currentBench = null)
 {
     /// <summary>
@@ -59,12 +62,6 @@ public sealed class PinWorkflow(
             : BenchSelector.ForItem(workItemId);
 
         await benchRepository.AddSelectorAsync(bench.Id, selector, ct);
-
-        if (trackingRepository is not null)
-        {
-            await trackingRepository.UpsertTrackedAsync(
-                workItemId, includeSubtree ? TrackingMode.Tree : TrackingMode.Single, ct);
-        }
 
         return new PinOutcome.Pinned(await CurrentBenchAsync(ct), workItemId, includeSubtree);
     }
@@ -90,15 +87,7 @@ public sealed class PinWorkflow(
         await benchRepository.RemoveSelectorAsync(bench.Id, item, ct);
         await benchRepository.RemoveSelectorAsync(bench.Id, subtree, ct);
 
-        var wasInTheFile = false;
-        if (trackingRepository is not null)
-        {
-            wasInTheFile = await trackingRepository.GetTrackedByWorkItemIdAsync(workItemId, ct) is not null;
-            await trackingRepository.RemoveTrackedAsync(workItemId, ct);
-        }
-
-        return new PinOutcome.Unpinned(
-            await CurrentBenchAsync(ct), workItemId, wasOnTheBench || wasInTheFile);
+        return new PinOutcome.Unpinned(await CurrentBenchAsync(ct), workItemId, wasOnTheBench);
     }
 
     /// <summary>

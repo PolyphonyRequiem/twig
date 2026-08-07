@@ -56,14 +56,13 @@ public sealed class PinWorkflowTests : IDisposable
 
     private PinWorkflow CreateSut() => new(
         _benchRepo,
-        new DefaultBenchSelectors(_trackingRepo, userDisplayName: null),
-        _trackingRepo);
+        new DefaultBenchSelectors(null));
 
     /// <summary>What the person actually sees: the ids the current Bench evaluates to.</summary>
     private async Task<IReadOnlySet<int>> ViewAsync()
     {
         var bench = await _benchRepo.GetOrCreateDefaultAsync(
-            await new DefaultBenchSelectors(_trackingRepo, null).BuildAsync());
+            await new DefaultBenchSelectors(null).BuildAsync());
         var membership = await new BenchEvaluator(_workItemRepo, _calendar, _pendingStore).EvaluateAsync(bench);
         return membership.AllIds;
     }
@@ -202,26 +201,40 @@ public sealed class PinWorkflowTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Coexistence with the file, until #146
+    //  The Bench is the ONLY pin store (ADO #146)
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// 🔴 Replaces two tests that asserted the pin was ALSO written to the tracking file. That
+    /// dual write existed only so the migration could be a data move; the owner cut the migration
+    /// (2026-08-07 — existing pin state is wiped, not carried), so the file's pin half is gone and
+    /// asserting a write to it would pin a behaviour that no longer exists.
+    /// <para>
+    /// What the dual write protected has NOT been dropped: tracked-tree refresh and the cleanup
+    /// policy still need to find tree pins. They read the Bench now, through <c>IPinReader</c>,
+    /// and <c>TrackingServiceTests</c> covers that. This test holds the other half — that pinning
+    /// writes the Bench and touches nothing else.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task Pin_AlsoWritesTheFile_BecauseItRemainsTheLiveSourceUntilTheMigration()
+    public async Task Pin_WritesOnlyTheBench()
     {
-        // The file still drives tracked-tree refresh, the cleanup policy, and tracking status.
-        // Writing only the Bench would stop tracked trees being refreshed — a regression the
-        // parity baseline cannot see, because it covers the view and not the sync path.
         await CreateSut().PinAsync(42, includeSubtree: true);
 
-        await _trackingRepo.Received(1).UpsertTrackedAsync(42, TrackingMode.Tree, Arg.Any<CancellationToken>());
+        (await SelectorsAsync()).ShouldContain(BenchSelector.ForSubtree(42));
+        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(
+            Arg.Any<int>(), Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Unpin_AlsoClearsTheFile()
+    public async Task Unpin_ClearsOnlyTheBench()
     {
+        await CreateSut().PinAsync(42, includeSubtree: true);
         await CreateSut().UnpinAsync(42);
 
-        await _trackingRepo.Received(1).RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForSubtree(42));
+        await _trackingRepo.DidNotReceive().RemoveTrackedAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════

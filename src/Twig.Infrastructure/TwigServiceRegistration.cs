@@ -109,10 +109,8 @@ public static class TwigServiceRegistration
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
-        services.AddSingleton<ITrackingService>(sp => new TrackingService(
-            sp.GetRequiredService<ITrackingRepository>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IProcessTypeStore>()));
+        // ITrackingService is registered in AddConnectionDomainServices, AFTER the Bench pin
+        // reader/writer it now depends on (ADO #146).
 
         // Seed publish rules provider — loads .twig/seed-rules.json or falls back to defaults.
         services.AddSingleton<ISeedPublishRulesProvider>(sp =>
@@ -217,10 +215,11 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IIterationCalendar>(),
             sp.GetRequiredService<IPendingChangeStore>()));
 
-        // ADO #145: the one answer to "what does a fresh default Bench hold", shared by the view
-        // and by the pin workflow so the read and write paths cannot disagree.
+        // ADO #145/#146: the one answer to "what does a fresh default Bench hold", shared by the
+        // view and by the pin workflow so the read and write paths cannot disagree. Since #146 it
+        // is the sprint rule alone — seeding from the tracking file would resurrect the second pin
+        // store the wipe removed.
         services.TryAddSingleton<DefaultBenchSelectors>(sp => new DefaultBenchSelectors(
-            sp.GetService<ITrackingRepository>(),
             sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
 
         // ADO #149: ONE answer to "which Bench am I standing on". Shared by the view, the pin
@@ -236,8 +235,25 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<PinWorkflow>(sp => new PinWorkflow(
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<DefaultBenchSelectors>(),
-            sp.GetService<ITrackingRepository>(),
             sp.GetRequiredService<CurrentBenchResolver>()));
+
+        // ADO #146: the Bench is the ONLY pin store. One object is both the reader and the writer
+        // so the two cannot end up on different stores — which is the failure the tracking file
+        // caused, and one the parity baseline could not see because it covers the view, not sync.
+        services.TryAddSingleton<BenchPinReader>(sp => new BenchPinReader(
+            sp.GetRequiredService<IBenchRepository>(),
+            sp.GetRequiredService<CurrentBenchResolver>()));
+        services.TryAddSingleton<IPinReader>(sp => sp.GetRequiredService<BenchPinReader>());
+        services.TryAddSingleton<IPinWriter>(sp => sp.GetRequiredService<BenchPinReader>());
+
+        // Tracking now reads and writes pins through the Bench. The tracking REPOSITORY survives
+        // for exclusions only, which are deliberately out of the Bench entirely.
+        services.TryAddSingleton<ITrackingService>(sp => new TrackingService(
+            sp.GetRequiredService<ITrackingRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetService<IPinReader>(),
+            sp.GetService<IPinWriter>()));
 
         // ADO #148/#149: creating, listing and switching Benches. Same seam, same module, same
         // reason — both surfaces route through this workflow, so registering it beside one adapter
@@ -254,7 +270,6 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
             sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
-            sp.GetRequiredService<ITrackingRepository>(),
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<BenchEvaluator>()));
 

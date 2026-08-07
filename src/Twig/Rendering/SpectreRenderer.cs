@@ -471,7 +471,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             RenderFlatItemsIntoContainer(container, loaded.Items,
                                 activeContextId, cacheStaleMinutes, budget);
                             RenderTreeProgressFooter(container, loaded.Items);
-                            ctx.Refresh();
+
+                            // If the sprint is empty, keep the currently rendered Loading row on
+                            // screen until SeedsLoaded arrives. Clearing the mutable container does
+                            // not change the terminal until Refresh; refreshing zero rows crashes
+                            // Spectre, and inserting+refreshing "No sprint items" here would redraw
+                            // the unchanged message again on the immediately following empty seed
+                            // chunk. One final-state refresh is enough.
+                            if (container.Rows.Count > 0)
+                                ctx.Refresh();
                             break;
                         }
 
@@ -500,7 +508,18 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]"));
                             }
 
-                            ctx.Refresh();
+                            if (container.Rows.Count == 0)
+                            {
+                                // The Bench is valid and empty. Add one stable final-state row
+                                // before the only refresh; Spectre cannot lay out zero live lines.
+                                container.AddRow(new Markup("[dim]No sprint items[/]"));
+                            }
+
+                            // Do not refresh here. SeedsLoaded is the final data chunk; Spectre
+                            // renders the final container once when Live exits. Refreshing now and
+                            // then letting Live finalize emits the same row twice in the terminal
+                            // stream. If a stale-while-revalidate pass follows, RefreshStarted is
+                            // the next chunk and paints its own changed status.
                             break;
                         }
 
@@ -511,7 +530,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
 
                         case RefreshCompleted:
-                            ctx.Refresh();
+                            // RefreshStarted already painted the status, and the refreshed
+                            // SprintItemsLoaded/SeedsLoaded chunks paint the replacement. There is
+                            // no renderable mutation here, so refreshing would only duplicate the
+                            // final live row on terminals that preserve carriage-return redraws.
                             break;
                     }
                 }

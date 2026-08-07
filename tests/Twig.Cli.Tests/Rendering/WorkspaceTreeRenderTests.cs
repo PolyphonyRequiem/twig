@@ -28,6 +28,31 @@ public sealed class WorkspaceTreeRenderTests
 
     // ── Tree rendering basics ───────────────────────────────────────
 
+    /// <summary>
+    /// Regression for the real-terminal crash reported 2026-08-07:
+    /// <c>twig workspace</c> against a valid sparse cache printed "Loading workspace..." then
+    /// <c>Sequence contains no elements</c>.
+    /// <para>
+    /// Spectre's production Live renderer calculates its shape with <c>Max(lines)</c>. The empty
+    /// tree path cleared Loading and refreshed a zero-row container. TestConsole does not reproduce
+    /// that render ordering, so asserting "does not throw" is an inert guard; asserting the final
+    /// placeholder exists fails against the old implementation under both consoles.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task TreeMode_EmptyWorkspace_RendersStableFinalRow()
+    {
+        var (console, renderer) = CreateTreeRenderer();
+        var chunks = CreateChunksAsync(
+            new ContextLoaded(null),
+            new SprintItemsLoaded(Array.Empty<WorkItem>(), WorkspaceSections.Build(Array.Empty<WorkItem>())),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
+
+        console.Output.ShouldContain("No sprint items");
+    }
+
     [Fact]
     public async Task TreeMode_RendersHierarchyFromTreeRoots()
     {

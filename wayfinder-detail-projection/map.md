@@ -26,14 +26,15 @@ The map ends at the implementation handoff. Shipping the package and production 
 ## Decisions so far
 
 - **Destination and architecture boundary** — confirmed by Daniel on 2026-08-07: this work should be wayfound before implementation; it is a projection/capability seam, not a shared renderer.
+- **Public package boundary is `Twig.Domain`** (ticket 0001, pinned at `173d1673`): it is already packable as `PolyphonyRequiem.Twig.Domain` with zero project and zero runtime package references, multi-targets `net10.0;net11.0`, is AOT-clean, and already owns `WorkItemSnapshot`/`WorkItemTypeAppearance`/`FormLayout`. The only required source change is promoting `FormLayout`+`LayoutPage`/`Section`/`Group`/`Control` from `internal` to `public` via `PublicAPI.Unshipped.txt`; `IFormLayoutProvider`, `AdoIterationService`, `IPendingChangeStore`-backed editing, `IconSet` glyphs, and `Twig.RenderTree` stay off the consumer contract.
 
 ## Not yet specified
 
 - Which rich/control kinds require typed document values versus a generic raw-value escape hatch.
 - How a missing or unsupported server layout degrades without returning to a permanent hard-coded field list.
 - Which Twig-owned appearance metadata belongs in the core document versus an optional appearance companion.
-- Package/API compatibility promises and versioning at the first external release; sharpen after the package-boundary research.
-- Whether the external-host prototype belongs in this repo as a sample, a test project, or a sibling Bonsai spike; sharpen after the public boundary is known.
+- Package/API compatibility promises and versioning at the first external release. Sharpened by ticket 0001: the vehicle is `PolyphonyRequiem.Twig.Domain`'s existing `PublicAPI.Shipped.txt`/`Unshipped.txt` analyzer discipline, and the open part is now narrower — what compatibility promise attaches to the promoted layout types across `net10.0`/`net11.0`, and whether Domain's broad existing surface should be narrowed into a separate `Twig.Detail` package. Decide at 0006.
+- Whether the external-host prototype belongs in this repo as a sample, a test project, or a sibling Bonsai spike. Sharpened by ticket 0001: whatever the location, it must consume `PolyphonyRequiem.Twig.Domain` as a package/project reference with no `Twig.Infrastructure`, `Terminal.Gui`, or `Spectre.Console`, and must construct a `FormLayout` from fixture data rather than through `IFormLayoutProvider`, whose only implementation is Infrastructure-internal and requires ADO authentication. Decide at 0003.
 
 ## Out of scope
 

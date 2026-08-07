@@ -309,6 +309,14 @@ internal static class CommandExamples
             "twig bench switch \"release blockers\"   Stand on another Bench",
             "twig bench switch default              Go back to the Bench you started with",
         ],
+        // ADO #150 — deleting. There is deliberately NO --force: a Bench holding pins reports
+        // them and stops, and the way past that is re-typing its NAME, which differs every time
+        // and so cannot become the unread reflex a flag becomes.
+        ["bench delete"] =
+        [
+            "twig bench delete \"release blockers\"   Delete it (reports what it holds first)",
+            "twig bench delete \"release blockers\" --confirm \"release blockers\"   Delete one that holds pins",
+        ],
         ["workspace area"] =
         [
             "twig workspace area                    Show area-filtered workspace view",

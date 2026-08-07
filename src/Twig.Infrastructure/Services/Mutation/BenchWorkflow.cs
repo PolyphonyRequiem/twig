@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Workspace;
@@ -113,6 +114,98 @@ public sealed class BenchWorkflow(
         await benchRepository.SetCurrentAsync(target.Id, ct);
         return new BenchOutcome.Switched(target, previous);
     }
+
+    /// <summary>
+    /// Removes an arrangement the person has finished with — after telling them what it holds
+    /// (ADO #150, spec §5).
+    /// </summary>
+    /// <param name="name">The Bench to delete. An unknown name creates nothing and fails.</param>
+    /// <param name="confirmedName">
+    /// The Bench's name, re-typed, when the person has read the report and still wants it gone.
+    /// Null on a first attempt.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// 🔴 DELETING A BENCH NEVER SILENTLY DISCARDS. A Bench holding selectors returns
+    /// <see cref="BenchOutcome.HoldsWork"/> listing them and deletes nothing. Pins are work the
+    /// person did by hand; ADO has never heard of them, nothing prompts when they vanish, and the
+    /// loss surfaces weeks later as "I thought I pinned that".
+    /// </para>
+    /// <para>
+    /// 🔴 The way past that report is RE-TYPING THE NAME, and there is deliberately no force flag.
+    /// A flag is the same three characters for every Bench and every invocation, so it becomes a
+    /// reflex and stops being read — that is how issue #271 recurs. The confirmation here is a
+    /// different string every time, it can only be produced by reading which Bench is at stake, and
+    /// it cannot be pre-baked into a shell alias that then deletes the wrong arrangement.
+    /// </para>
+    /// <para>
+    /// 🔴 An EMPTY Bench deletes on the first call. The rule is about not discarding work; a Bench
+    /// holding nothing has none, and demanding confirmation for it is exactly the routine ceremony
+    /// that trains the reflex the rule exists to prevent.
+    /// </para>
+    /// <para>
+    /// This touches the Bench and nothing else. The pending set, seeds and exclusions are untouched
+    /// — a view operation must never destroy work twig owes ADO. Whether the pending set is stored
+    /// per-Bench or per-Connection is deliberately NOT settled here (spec §7): deleting a Bench only
+    /// has to leave it alone, which it does by never naming it.
+    /// </para>
+    /// </remarks>
+    public async Task<BenchOutcome> DeleteAsync(
+        string name, string? confirmedName = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return new BenchOutcome.NameRejected(
+                name ?? string.Empty, "Name the Bench you want to delete, for example 'release blockers'.");
+        }
+
+        var trimmed = name.Trim();
+
+        // The lookup happens before any write, exactly as switching does: a typo must not be the
+        // command that brings a Bench into existence, not even the default. The default is looked
+        // up rather than ensured, so a delete of it on a fresh store is refused without creating
+        // anything.
+        var target = await benchRepository.GetByNameAsync(trimmed, ct);
+        if (target is null)
+        {
+            if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase))
+            {
+                // The default cannot go missing even before it has been written down: refusing is
+                // the same answer whether or not the row exists yet.
+                return new BenchOutcome.DefaultBenchCannotBeDeleted(
+                    new Bench { Name = Bench.DefaultName, IsDefault = true });
+            }
+
+            var known = (await benchRepository.GetAllAsync(ct)).Select(b => b.Name).ToList();
+            return new BenchOutcome.UnknownBench(trimmed, known);
+        }
+
+        if (target.IsDefault)
+            return new BenchOutcome.DefaultBenchCannotBeDeleted(target);
+
+        var confirmed = confirmedName is not null
+            && string.Equals(confirmedName.Trim(), target.Name, StringComparison.OrdinalIgnoreCase);
+
+        if (target.Selectors.Count > 0 && !confirmed)
+        {
+            return new BenchOutcome.HoldsWork(
+                target,
+                SelectorIds(target, SelectorKind.Item),
+                SelectorIds(target, SelectorKind.Subtree),
+                target.Selectors
+                    .Where(s => s.Kind == SelectorKind.Query)
+                    .Select(s => s.QueryRule)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .ToList());
+        }
+
+        await benchRepository.DeleteAsync(target.Id, ct);
+        return new BenchOutcome.Deleted(target);
+    }
+
+    private static IReadOnlyList<int> SelectorIds(Bench bench, SelectorKind kind)
+        => bench.Selectors.Where(s => s.Kind == kind).Select(s => s.AsWorkItemId()).Order().ToList();
 
     /// <summary>
     /// Every Bench that exists, with the current one named. Creates the default first so the

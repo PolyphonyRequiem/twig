@@ -337,7 +337,31 @@ default Bench would be ensured, so a typo cannot even be the command that brings
 being as a side effect. `default` is the one name that resolves on a store where nothing has been
 created yet, because it cannot go missing (§4) and is never subject to the unknown-Bench error.
 
-**Deleting (#150) is NOT shipped.**
+**Shipped as of ADO #150: `twig bench delete <name>`.** Deleting a Bench that holds selectors
+REPORTS what it holds — which items are pinned, which subtrees, which query rules — exits non-zero
+and deletes nothing. An EMPTY Bench goes on the first call, because the rule is about not
+discarding work and an empty Bench has none; demanding confirmation for it is the routine ceremony
+that trains the very reflex the rule forbids.
+
+🔴 **The way past the report is RE-TYPING THE BENCH'S NAME (`--confirm <name>`), and there is no
+force flag.** A flag is the same characters for every Bench and every invocation, so it becomes a
+reflex and stops being read — that is how issue #271 recurs. A name differs every time, can only be
+produced by reading which Bench is at stake, and cannot be baked into a shell alias that then
+deletes the wrong arrangement. A confirmation naming a DIFFERENT Bench is not a confirmation.
+
+🔴 **The default Bench cannot be deleted**, with or without confirmation. It cannot go missing
+(§4); every rule that leans on "the default always resolves" — including the unknown-Bench error's
+own escape hatch — would otherwise be conditionally false.
+
+Deleting is a VIEW operation: **the pending set, seeds and exclusions are untouched.** A cascade
+stops at the Bench's own selectors. The current-Bench pointer is cleared when it named the deleted
+Bench, so the person lands back on the default rather than standing on something that is gone —
+the fallback `CurrentBenchResolver` already documents, and deletion is the only thing that can
+produce a dangling pointer. Whether the pending set is stored per-Bench or per-Connection remains
+deliberately unsettled (§7): deleting only has to LEAVE IT ALONE, which it does by never naming it.
+
+An unknown name on delete behaves exactly as it does on switch: non-zero, names what was asked for,
+lists what exists, creates nothing — not even the default, on a store where nothing exists yet.
 
 Two rules are inherited and non-negotiable:
 
@@ -454,7 +478,7 @@ Replaced by:
 | 8 | **Overlapping selectors produce one copy.** Pin an item a query selector already matches; assert it appears once. | No Bench. |
 | 9 | **A subtree selector matches a child created after it.** Add a subtree selector, then add a child to that subtree; assert the child is on the Bench. | No Bench. This is what distinguishes a subtree selector from a set of item selectors, and a naive implementation gets it wrong. |
 | 10 | **An unknown Bench is a hard error** — non-zero exit, names what was asked for, and **no Bench is created as a side effect**. | No Bench to be unknown. |
-| 11 | **Deleting a Bench with contents reports what it holds** and does not silently discard. | No delete verb. |
+| 11 | **Deleting a Bench with contents reports what it holds** and does not silently discard. | Shipped by #150. Proven red by mutation: forcing the guard branch off (`if (false && !confirmed)`) fails three tests, including one asserting the Bench survives. |
 | 12 | **A targeted read does not modify any Bench.** Read one item by id; assert the Bench's selectors are byte-identical afterwards. | Passes today — see below. |
 
 🔴 **Test 12 passes today, and that is deliberate — it is a lock, not a regression test.** It

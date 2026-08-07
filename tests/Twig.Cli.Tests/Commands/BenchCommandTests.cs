@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using NSubstitute;
 using Shouldly;
@@ -188,6 +189,152 @@ public sealed class BenchCommandTests : IDisposable
 
         // A script checks what exists before acting, so every Bench has to be in the payload.
         stdout.ShouldContain("release blockers");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ADO #150 — deleting reports what it holds, and there is NO force flag
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 What a SCRIPT sees when the Bench holds work: a NON-ZERO exit, so its pipeline stops
+    /// rather than proceeding as if the Bench were gone. The exit code is the contract; a printed
+    /// warning is invisible to `set -e`.
+    /// </summary>
+    [Fact]
+    public async Task Delete_ABenchThatHoldsPins_ExitsNonZeroAndListsWhatItHolds()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+        await cmd.SwitchAsync("release blockers");
+        await PinAsync(111);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.DeleteAsync("release blockers"));
+
+        result.ShouldNotBe(0);
+        stdout.ShouldContain("111");                 // WHICH item, not just how many
+        stdout.ShouldContain("release blockers");
+
+        // And it really is still there — asserted through the listing, which is what a script
+        // inspects, rather than through the store.
+        var (_, listing) = await StdoutCapture.RunAsync(() => cmd.ListAsync());
+        listing.ShouldContain("release blockers");
+    }
+
+    [Fact]
+    public async Task Delete_WithTheNameRetyped_ReturnsZeroAndTheBenchIsGone()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+        await cmd.SwitchAsync("release blockers");
+        await PinAsync(111);
+
+        var (result, _) = await StdoutCapture.RunAsync(
+            () => cmd.DeleteAsync("release blockers", confirm: "release blockers"));
+
+        result.ShouldBe(0);
+
+        var (_, listing) = await StdoutCapture.RunAsync(() => cmd.ListAsync());
+        listing.ShouldNotContain("release blockers");
+    }
+
+    [Fact]
+    public async Task Delete_AnUnknownBench_ExitsNonZeroAndSaysWhatWasAskedFor()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+
+        var stderr = new StringWriter();
+        var original = Console.Error;
+        Console.SetError(stderr);
+        int result;
+        try
+        {
+            result = await cmd.DeleteAsync("relase blockers");
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        result.ShouldNotBe(0);
+        var message = stderr.ToString();
+        message.ShouldContain("relase blockers");    // what was asked for
+        message.ShouldContain("release blockers");   // what exists
+    }
+
+    [Fact]
+    public async Task Delete_TheDefaultBench_ExitsNonZero()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+
+        var (result, _) = await StdoutCapture.RunAsync(() => cmd.DeleteAsync(Bench.DefaultName));
+
+        result.ShouldNotBe(0);
+    }
+
+    /// <summary>
+    /// The machine-readable half of the report: a script that asked for JSON has to be able to see
+    /// WHICH items were at stake, not just that something went wrong.
+    /// </summary>
+    [Fact]
+    public async Task Delete_ABenchThatHoldsPins_JsonOutput_NamesTheItemsHeld()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+        await cmd.SwitchAsync("release blockers");
+        await PinAsync(111);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.DeleteAsync("release blockers", outputFormat: "json"));
+
+        result.ShouldNotBe(0);
+        using var doc = JsonDocument.Parse(stdout);
+        var carrier = FindObjectWith(doc.RootElement, "pinned");
+        carrier.ShouldNotBeNull("The refusal payload carries no 'pinned' value.");
+        carrier!.Value.GetProperty("pinned").GetString()!.ShouldContain("111");
+    }
+
+    /// <summary>
+    /// 🔴 THE THIRD ACCEPTANCE CRITERION, asserted structurally: there is no force flag on
+    /// <c>bench delete</c>. A flag needed routinely becomes a reflex, and the one time it matters
+    /// the person types it without reading — that is how issue #271 recurs. This is a reflection
+    /// test over the declared surface because a flag can only be added by declaring one, and it
+    /// fails the moment somebody adds it "for scripts".
+    /// </summary>
+    [Fact]
+    public void BenchDelete_HasNoForceFlag()
+    {
+        var command = typeof(TwigCommands).GetMethod(
+            nameof(TwigCommands.BenchDelete), BindingFlags.Public | BindingFlags.Instance);
+        command.ShouldNotBeNull();
+
+        command!.GetParameters()
+            .Any(p => string.Equals(p.Name, "force", StringComparison.OrdinalIgnoreCase))
+            .ShouldBeFalse(
+                "ADO #150: 'twig bench delete' must have NO force flag. The way past the report " +
+                "is re-typing the Bench's name, which differs every time and so cannot become an " +
+                "unread reflex.");
+
+        // The scope control: the confirmation that DOES exist is a name, not a boolean. A bool
+        // named anything else would be a force flag wearing a different label.
+        var confirm = command.GetParameters()
+            .SingleOrDefault(p => string.Equals(p.Name, "confirm", StringComparison.OrdinalIgnoreCase));
+        confirm.ShouldNotBeNull("the confirmation is the Bench's name, re-typed");
+        confirm!.ParameterType.ShouldBe(typeof(string));
+    }
+
+    /// <summary>
+    /// Pins onto whatever Bench is current, through the same workflow the CLI's pin command uses,
+    /// so these tests set up state the way a person would rather than by writing rows.
+    /// </summary>
+    private async Task PinAsync(int workItemId)
+    {
+        var repo = new SqliteBenchRepository(_benchStore);
+        var selectors = new DefaultBenchSelectors(userDisplayName: null);
+        var pin = new PinWorkflow(repo, selectors,
+            new CurrentBenchResolver(repo, selectors));
+        await pin.PinAsync(workItemId, includeSubtree: false);
     }
 
     /// <summary>

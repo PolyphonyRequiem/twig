@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Services.Mutation;
 using Twig.Formatters;
 using Twig.Infrastructure.Services.Mutation;
@@ -115,6 +116,130 @@ public sealed class BenchCommand(
                 return 1;
         }
     }
+
+    /// <summary>
+    /// Delete a Bench, after being told what it holds.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 There is NO force flag here, and adding one would defeat the ticket. A Bench holding
+    /// pins exits NON-ZERO with a report of what it holds and deletes nothing; the person gets past
+    /// it by re-typing that Bench's name, which is a different string every time and therefore
+    /// cannot decay into a reflex the way <c>-f</c> does. The report goes to stdout because it is
+    /// information the person asked for, and the one actionable line goes to stderr beside a
+    /// non-zero exit so a script's pipeline stops rather than assuming the Bench is gone.
+    /// </remarks>
+    public async Task<int> DeleteAsync(
+        string name,
+        string? confirm = null,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var outcome = await benchWorkflow.DeleteAsync(name, confirm, ct);
+
+        switch (outcome)
+        {
+            case BenchOutcome.Deleted deleted:
+                RenderOutcome(
+                    "benchDeleted",
+                    $"Deleted Bench '{deleted.Bench.Name}'. Staged edits are untouched.",
+                    deleted.Bench.Name,
+                    outputFormat,
+                    Severity.Success);
+                return 0;
+
+            case BenchOutcome.HoldsWork holds:
+                RenderHoldsWork(holds, outputFormat);
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Bench '{holds.Bench.Name}' holds {Describe(holds)}, so nothing was deleted. " +
+                    $"Delete it anyway with: twig bench delete \"{holds.Bench.Name}\" --confirm \"{holds.Bench.Name}\""));
+                return 1;
+
+            case BenchOutcome.DefaultBenchCannotBeDeleted:
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"The '{Bench.DefaultName}' Bench cannot be deleted — it is the one Bench that always exists. " +
+                    "Remove what it holds instead, or create another Bench and switch to it."));
+                return 1;
+
+            case BenchOutcome.UnknownBench unknown:
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"There is no Bench named '{unknown.RequestedName}'. {KnownBenchesSentence(unknown)} " +
+                    "Nothing was deleted."));
+                return 1;
+
+            case BenchOutcome.NameRejected rejected:
+                Console.Error.WriteLine(fmt.FormatError(rejected.Reason));
+                return 2;
+
+            default:
+                Console.Error.WriteLine(fmt.FormatError("Unrecognised outcome deleting a Bench."));
+                return 1;
+        }
+    }
+
+    /// <summary>
+    /// What the Bench holds, in the person's terms — work item numbers, not selector rows. A
+    /// count alone would say "3 pins" without saying WHICH, which is not enough to decide whether
+    /// losing them matters.
+    /// </summary>
+    private void RenderHoldsWork(BenchOutcome.HoldsWork holds, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+
+        if (lower is "json" or "json-full" or "json-compact" or "ids")
+        {
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Record(
+                    "benchHoldsWork",
+                    new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                    {
+                        ["name"] = RenderCell.String(holds.Bench.Name),
+                        ["deleted"] = RenderCell.String("false"),
+                        ["pinned"] = RenderCell.String(string.Join(",", holds.ItemSelectorIds)),
+                        ["pinnedSubtrees"] = RenderCell.String(string.Join(",", holds.SubtreeSelectorIds)),
+                        ["queries"] = RenderCell.String(string.Join(",", holds.QueryRules)),
+                        ["message"] = RenderCell.String(
+                            $"Bench '{holds.Bench.Name}' holds {Describe(holds)}; nothing was deleted."),
+                    }),
+            }));
+            return;
+        }
+
+        var nodes = new List<RenderNode>
+        {
+            new RenderNode.Text($"Bench '{holds.Bench.Name}' holds:", Severity.Info),
+        };
+
+        if (holds.ItemSelectorIds.Count > 0)
+            nodes.Add(new RenderNode.Text(
+                "  pinned: " + string.Join(", ", holds.ItemSelectorIds.Select(id => $"#{id}")), Severity.Info));
+        if (holds.SubtreeSelectorIds.Count > 0)
+            nodes.Add(new RenderNode.Text(
+                "  pinned with subtree: " + string.Join(", ", holds.SubtreeSelectorIds.Select(id => $"#{id}")),
+                Severity.Info));
+        if (holds.QueryRules.Count > 0)
+            nodes.Add(new RenderNode.Text("  queries: " + string.Join(", ", holds.QueryRules), Severity.Info));
+
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(nodes));
+    }
+
+    private static string Describe(BenchOutcome.HoldsWork holds)
+    {
+        var parts = new List<string>(3);
+        if (holds.ItemSelectorIds.Count > 0)
+            parts.Add($"{holds.ItemSelectorIds.Count} pin(s)");
+        if (holds.SubtreeSelectorIds.Count > 0)
+            parts.Add($"{holds.SubtreeSelectorIds.Count} subtree pin(s)");
+        if (holds.QueryRules.Count > 0)
+            parts.Add($"{holds.QueryRules.Count} query rule(s)");
+        return parts.Count == 0 ? "work you added by hand" : string.Join(", ", parts);
+    }
+
+    private static string KnownBenchesSentence(BenchOutcome.UnknownBench unknown)
+        => unknown.KnownBenchNames.Count == 0
+            ? "There are no Benches yet."
+            : "Benches that exist: " + string.Join(", ", unknown.KnownBenchNames) + ".";
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
     public async Task<int> ListAsync(

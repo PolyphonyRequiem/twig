@@ -76,4 +76,22 @@ public interface IBenchRepository
 
     /// <summary>Removes a selector from a Bench. No-op when it is not present.</summary>
     Task RemoveSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes a Bench and the selectors that belong to it (ADO #150, spec §5).
+    /// <para>
+    /// 🔴 Takes an id, never a name, for the same reason <see cref="SetCurrentAsync"/> does: a
+    /// store method that accepted a name would have to decide what a name that resolves to nothing
+    /// means, and the only answers are the ones this family of tickets refuses. Whether the Bench
+    /// may be deleted at all — and whether the person has been told what it holds — is settled
+    /// above, before an id exists.
+    /// </para>
+    /// <para>
+    /// 🔴 The cascade stops at selectors. A Bench is a VIEW: deleting one must not touch the
+    /// pending set, which is work twig owes ADO and cannot rebuild. The pointer at the current
+    /// Bench is cleared when it named this one, so the caller falls back to the default rather
+    /// than standing on a Bench that is gone.
+    /// </para>
+    /// </summary>
+    Task DeleteAsync(long benchId, CancellationToken ct = default);
 }

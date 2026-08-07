@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 4;
+    internal const int DurableSchemaVersion = 5;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -440,6 +440,33 @@ public sealed class SqliteCacheStore : IDisposable
                 ON bench_selectors(bench_id);
             CREATE UNIQUE INDEX IF NOT EXISTS {DurableSchema}.idx_bench_selectors_unique
                 ON bench_selectors(bench_id, selector_kind, selector_payload);
+            """,
+
+        // ADO #149 / docs/specs/bench.spec.md §5. WHICH Bench is current.
+        //
+        // WHY DURABLE by 0005's test ("can ADO rebuild it?"): no. Which arrangement the person is
+        // standing on is theirs, and ADO has never heard of it. It also must not be droppable: a
+        // SchemaVersion bump that silently moved somebody back to the default Bench would look
+        // exactly like the "a name always resolves, so it resolves to the WRONG thing" failure
+        // family this change exists to escape.
+        //
+        // 🔴 This is a SEPARATE slot from IContextStore's active_work_item_id, deliberately. That
+        // one is Context work on its own schedule; absorbing it here would make both changes
+        // harder to review and would couple "which item am I on" to "which arrangement am I at".
+        //
+        // Single row, pinned by `CHECK (id = 1)`: "the current Bench" is one fact, and a table
+        // that could hold two rows would need a rule elsewhere deciding which one won.
+        //
+        // `bench_id` is NULLABLE with ON DELETE SET NULL rather than a hard FK to a row that must
+        // exist. Deleting the current Bench (#150) then leaves NULL — meaning "the default" —
+        // instead of a dangling id that would resolve to nothing or, worse, to whatever row later
+        // reused the number. A missing pointer has ONE meaning and it is the safe one.
+        [5] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.current_bench (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                bench_id INTEGER REFERENCES benches(id) ON DELETE SET NULL,
+                switched_at TEXT NOT NULL
+            );
             """,
     };
 

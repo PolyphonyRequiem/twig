@@ -116,6 +116,47 @@ public sealed class SqliteBenchRepository : IBenchRepository
         return result;
     }
 
+    /// <summary>
+    /// The Bench the person last switched to, or null when they never have.
+    /// <para>
+    /// A pointer whose Bench no longer exists also comes back as null, because the read is a JOIN
+    /// in effect: the id is looked up and a miss is a miss. So "never switched", "pointer cleared"
+    /// and "Bench since deleted" are ONE answer with one meaning — fall back to the default —
+    /// rather than three states the caller has to tell apart. That holds whether or not SQLite's
+    /// foreign-key enforcement is on, so it does not depend on a connection PRAGMA being set.
+    /// </para>
+    /// </summary>
+    public async Task<Bench?> GetCurrentAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "SELECT bench_id FROM current_bench WHERE id = 1 AND bench_id IS NOT NULL;";
+        var scalar = await cmd.ExecuteScalarAsync(ct);
+        if (scalar is null or DBNull)
+            return null;
+
+        return await LoadAsync("id = @id", Convert.ToInt64(scalar), ct);
+    }
+
+    public async Task SetCurrentAsync(long benchId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+
+        // Upsert on the pinned single row: switching twice leaves one row saying where the person
+        // is, not a history the reader would then need a rule to collapse.
+        cmd.CommandText = """
+            INSERT INTO current_bench (id, bench_id, switched_at)
+            VALUES (1, @benchId, @switchedAt)
+            ON CONFLICT(id) DO UPDATE SET bench_id = @benchId, switched_at = @switchedAt;
+            """;
+        cmd.Parameters.AddWithValue("@benchId", benchId);
+        cmd.Parameters.AddWithValue("@switchedAt", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task AddSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

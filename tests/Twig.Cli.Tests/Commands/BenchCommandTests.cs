@@ -38,11 +38,89 @@ public sealed class BenchCommandTests : IDisposable
         _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
 
-        var workflow = new BenchWorkflow(
-            new SqliteBenchRepository(_benchStore),
-            new DefaultBenchSelectors(_trackingRepo, userDisplayName: null));
+        var repo = new SqliteBenchRepository(_benchStore);
+        var selectors = new DefaultBenchSelectors(_trackingRepo, userDisplayName: null);
+        var workflow = new BenchWorkflow(repo, selectors, new CurrentBenchResolver(repo, selectors));
 
         return new BenchCommand(workflow, _formatterFactory);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ADO #149 — switching, and what a SCRIPT sees when a name is wrong
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Switch_ToAnExistingBench_ReturnsZeroAndTheListingFollows()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+
+        var (result, _) = await StdoutCapture.RunAsync(() => cmd.SwitchAsync("release blockers"));
+        result.ShouldBe(0);
+
+        var (_, stdout) = await StdoutCapture.RunAsync(() => cmd.ListAsync());
+        stdout.ShouldContain("Current: release blockers");
+    }
+
+    /// <summary>
+    /// 🔴 The acceptance sentence for a SCRIPT: a non-zero exit, so its pipeline stops rather than
+    /// proceeding against the wrong list. The exit code is the contract — a message alone is
+    /// invisible to `set -e`.
+    /// </summary>
+    [Fact]
+    public async Task Switch_ToAnUnknownBench_ExitsNonZero()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+
+        var (result, _) = await StdoutCapture.RunAsync(() => cmd.SwitchAsync("relase blockers"));
+
+        result.ShouldNotBe(0);
+    }
+
+    [Fact]
+    public async Task Switch_ToAnUnknownBench_CreatesNothing()
+    {
+        var cmd = CreateCommand();
+
+        await StdoutCapture.RunAsync(() => cmd.SwitchAsync("relase blockers"));
+
+        // Asserted through the LISTING, which is what a script inspects before acting: if the typo
+        // had been adopted as a new Bench, it would show up here looking exactly like a real one.
+        var (_, stdout) = await StdoutCapture.RunAsync(() => cmd.ListAsync());
+        stdout.ShouldNotContain("relase blockers");
+    }
+
+    [Fact]
+    public async Task Switch_ToAnUnknownBench_SaysWhatWasAskedForAndWhatToDo()
+    {
+        var cmd = CreateCommand();
+        await cmd.CreateAsync("release blockers");
+
+        var stderr = new StringWriter();
+        var original = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            await cmd.SwitchAsync("relase blockers");
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        var message = stderr.ToString();
+        message.ShouldContain("relase blockers");     // what was asked for
+        message.ShouldContain("release blockers");    // what exists
+        message.ShouldContain("bench create");        // what to do
+    }
+
+    [Fact]
+    public async Task Switch_ToTheDefault_ReturnsZero_OnAFreshStore()
+    {
+        var cmd = CreateCommand();
+        var (result, _) = await StdoutCapture.RunAsync(() => cmd.SwitchAsync(Bench.DefaultName));
+        result.ShouldBe(0);
     }
 
     [Fact]

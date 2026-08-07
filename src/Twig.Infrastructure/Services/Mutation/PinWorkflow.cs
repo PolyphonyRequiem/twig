@@ -37,7 +37,8 @@ namespace Twig.Infrastructure.Services.Mutation;
 public sealed class PinWorkflow(
     IBenchRepository benchRepository,
     DefaultBenchSelectors defaultSelectors,
-    ITrackingRepository? trackingRepository = null)
+    ITrackingRepository? trackingRepository = null,
+    CurrentBenchResolver? currentBench = null)
 {
     /// <summary>
     /// Adds a pin to the current Bench. Idempotent: pinning twice leaves one selector, so the
@@ -101,15 +102,23 @@ public sealed class PinWorkflow(
     }
 
     /// <summary>
-    /// The Bench a pin acts on. Today that is the default Bench, which is the only one that
-    /// exists; switching between several is #148-150 and lands here, at one call site.
+    /// The Bench a pin acts on: the one the person is standing on (#149), which is the default
+    /// until they switch.
     /// <para>
-    /// Creating it on first use with the same selectors the view would have created it with is
-    /// what stops a pin being the operation that quietly redefines somebody's Bench: whether the
-    /// person's first command after upgrading is a read or a pin, the default Bench comes out the
-    /// same.
+    /// 🔴 Resolution is delegated to <see cref="CurrentBenchResolver"/> rather than re-derived
+    /// here. A second copy of "read the pointer, else the default" is how a pin ends up landing on
+    /// the default while the person is looking at another Bench — the pin simply does not appear,
+    /// with nothing failing to say why.
+    /// </para>
+    /// <para>
+    /// The default is created on first use with the same selectors the view would have created it
+    /// with, so whether the person's first command after upgrading is a read or a pin, the default
+    /// Bench comes out the same.
     /// </para>
     /// </summary>
     private async Task<Bench> CurrentBenchAsync(CancellationToken ct)
-        => await benchRepository.GetOrCreateDefaultAsync(await defaultSelectors.BuildAsync(ct), ct);
+    {
+        var resolver = currentBench ?? new CurrentBenchResolver(benchRepository, defaultSelectors);
+        return await resolver.ResolveAsync(ct);
+    }
 }

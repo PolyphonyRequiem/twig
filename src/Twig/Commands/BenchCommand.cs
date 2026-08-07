@@ -69,6 +69,53 @@ public sealed class BenchCommand(
         }
     }
 
+    /// <summary>
+    /// Put one arrangement down and pick another up.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 An unknown name exits NON-ZERO — a script's pipeline stops rather than proceeding
+    /// against the wrong list — names what was asked for, says what to do, and creates nothing.
+    /// The exit code is what a script sees; the message is what a person sees; both come from the
+    /// one workflow outcome, so the two surfaces cannot disagree about whether a Bench exists.
+    /// </remarks>
+    public async Task<int> SwitchAsync(
+        string name,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var outcome = await benchWorkflow.SwitchAsync(name, ct);
+
+        switch (outcome)
+        {
+            case BenchOutcome.Switched switched:
+                RenderOutcome(
+                    "benchSwitched",
+                    $"Now on Bench '{switched.Bench.Name}' (was '{switched.PreviousBenchName}').",
+                    switched.Bench.Name,
+                    outputFormat,
+                    Severity.Success);
+                return 0;
+
+            case BenchOutcome.UnknownBench unknown:
+                var known = unknown.KnownBenchNames.Count == 0
+                    ? "There are no Benches yet."
+                    : "Benches that exist: " + string.Join(", ", unknown.KnownBenchNames) + ".";
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"There is no Bench named '{unknown.RequestedName}'. {known} " +
+                    $"Create it with: twig bench create \"{unknown.RequestedName}\""));
+                return 1;
+
+            case BenchOutcome.NameRejected rejected:
+                Console.Error.WriteLine(fmt.FormatError(rejected.Reason));
+                return 2;
+
+            default:
+                Console.Error.WriteLine(fmt.FormatError("Unrecognised outcome switching Bench."));
+                return 1;
+        }
+    }
+
     /// <summary>List the Benches that exist, marking the current one.</summary>
     public async Task<int> ListAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,

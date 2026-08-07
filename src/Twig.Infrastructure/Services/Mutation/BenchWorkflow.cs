@@ -31,7 +31,8 @@ namespace Twig.Infrastructure.Services.Mutation;
 /// </remarks>
 public sealed class BenchWorkflow(
     IBenchRepository benchRepository,
-    DefaultBenchSelectors defaultSelectors)
+    DefaultBenchSelectors defaultSelectors,
+    CurrentBenchResolver currentBench)
 {
     /// <summary>
     /// Creates a Bench the person names. Never creates the default — that one is twig's to create
@@ -67,25 +68,69 @@ public sealed class BenchWorkflow(
     }
 
     /// <summary>
+    /// Puts one arrangement down and picks another up. The Bench left behind is not touched: only
+    /// the pointer moves, so switching back finds it exactly as it was — that is what makes this
+    /// a switch rather than a rebuild.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 An unknown name CREATES NOTHING. Not a fallback, not a warning, and above all not a
+    /// silently-created Bench. The lookup happens first and a miss returns
+    /// <see cref="BenchOutcome.UnknownBench"/> before anything is written — including before the
+    /// default Bench would be ensured, so a typo cannot even be the command that brings a Bench
+    /// into existence as a side effect.
+    /// </remarks>
+    public async Task<BenchOutcome> SwitchAsync(string name, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return new BenchOutcome.NameRejected(
+                name ?? string.Empty, "Name the Bench you want to stand on, for example 'release blockers'.");
+        }
+
+        var trimmed = name.Trim();
+
+        // The default cannot go missing (spec §4), so a switch TO it must succeed on a fresh
+        // install where nothing has created it yet. It is ensured only on that branch: ensuring it
+        // unconditionally would make an unknown name write a row, which is the side effect this
+        // whole ticket forbids.
+        if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase))
+        {
+            var previousName = (await currentBench.ResolveAsync(ct)).Name;
+            var defaultBench = await benchRepository.GetOrCreateDefaultAsync(
+                await defaultSelectors.BuildAsync(ct), ct);
+            await benchRepository.SetCurrentAsync(defaultBench.Id, ct);
+            return new BenchOutcome.Switched(defaultBench, previousName);
+        }
+
+        var target = await benchRepository.GetByNameAsync(trimmed, ct);
+        if (target is null)
+        {
+            var known = (await benchRepository.GetAllAsync(ct)).Select(b => b.Name).ToList();
+            return new BenchOutcome.UnknownBench(trimmed, known);
+        }
+
+        var previous = (await currentBench.ResolveAsync(ct)).Name;
+        await benchRepository.SetCurrentAsync(target.Id, ct);
+        return new BenchOutcome.Switched(target, previous);
+    }
+
+    /// <summary>
     /// Every Bench that exists, with the current one named. Creates the default first so the
     /// listing is never empty: the default exists without the person creating it (spec §4), and a
     /// listing that showed nothing until somebody pinned something would say something false.
     /// </summary>
     public async Task<BenchListing> ListAsync(CancellationToken ct = default)
     {
-        var current = await EnsureDefaultAsync(ct);
+        var current = await currentBench.ResolveAsync(ct);
         var all = await benchRepository.GetAllAsync(ct);
         return new BenchListing(all, current.Name);
     }
 
     /// <summary>
-    /// The Bench commands act on. Today that is the default, the only one that can be current;
-    /// switching (#149) replaces this body and nothing above it.
-    /// <para>
-    /// It is created with the same selectors the view would have created it with, so whether the
-    /// person's first command after upgrading is a read, a pin, or a listing, the default Bench
-    /// comes out the same.
-    /// </para>
+    /// The default Bench, created on first use. Only <see cref="CreateAsync"/> calls this now:
+    /// which Bench is CURRENT is <see cref="CurrentBenchResolver"/>'s single answer, shared with
+    /// the view and the pin workflow, so no surface can be left reading the default after a
+    /// switch.
     /// </summary>
     private async Task<Bench> EnsureDefaultAsync(CancellationToken ct)
         => await benchRepository.GetOrCreateDefaultAsync(await defaultSelectors.BuildAsync(ct), ct);

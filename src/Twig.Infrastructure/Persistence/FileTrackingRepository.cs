@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -138,100 +137,16 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
         }
         else
         {
-            _cached = TryMigrateFromSqlite() ?? new TrackingFile();
+            // ADO #151: the one-time SQLite import is gone with the tables it read. Those tables
+            // were dropped by every SchemaVersion bump, so after #144 bumped 12 -> 13 the import
+            // could only ever find nothing. Keeping it left a grep-visible story that pins live
+            // in the cache — the exact false premise the Bench build brief inherited.
+            _cached = new TrackingFile();
         }
 
         return _cached;
     }
 
-    /// <summary>
-    /// Attempts a one-time migration of tracking data from the SQLite database to <c>tracking.json</c>.
-    /// Returns the migrated <see cref="TrackingFile"/> if data was found, or <c>null</c> if no migration occurred.
-    /// SQLite tables are left inert — schema drop-recreate handles cleanup.
-    /// </summary>
-    private TrackingFile? TryMigrateFromSqlite()
-    {
-        var dbPath = paths.DbPath;
-        if (!File.Exists(dbPath))
-            return null;
-
-        try
-        {
-            using var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Pooling=False");
-            connection.Open();
-
-            if (!TableExists(connection, "tracked_items") && !TableExists(connection, "excluded_items"))
-                return null;
-
-            var tracked = ReadTrackedItems(connection);
-            var excluded = ReadExcludedItems(connection);
-
-            if (tracked.Count == 0 && excluded.Count == 0)
-                return null;
-
-            var file = new TrackingFile { Tracked = tracked, Excluded = excluded };
-            Save(file);
-
-            Console.Error.WriteLine($"Migrated tracking data from SQLite → tracking.json ({tracked.Count} tracked, {excluded.Count} excluded)");
-            return file;
-        }
-        catch (SqliteException)
-        {
-            // DB may be corrupt or inaccessible — skip migration silently
-            return null;
-        }
-    }
-
-    private static bool TableExists(SqliteConnection connection, string tableName)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@name;";
-        cmd.Parameters.AddWithValue("@name", tableName);
-        return cmd.ExecuteScalar() is not null;
-    }
-
-    private static List<TrackingFileEntry> ReadTrackedItems(SqliteConnection connection)
-    {
-        if (!TableExists(connection, "tracked_items"))
-            return [];
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT id, mode, created_at FROM tracked_items ORDER BY created_at, id;";
-        using var reader = cmd.ExecuteReader();
-        var entries = new List<TrackingFileEntry>();
-        while (reader.Read())
-        {
-            entries.Add(new TrackingFileEntry
-            {
-                Id = reader.GetInt32(0),
-                Mode = reader.GetString(1).ToLowerInvariant(),
-                AddedAt = reader.GetString(2)
-            });
-        }
-
-        return entries;
-    }
-
-    private static List<ExclusionFileEntry> ReadExcludedItems(SqliteConnection connection)
-    {
-        if (!TableExists(connection, "excluded_items"))
-            return [];
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT id, created_at FROM excluded_items ORDER BY created_at, id;";
-        using var reader = cmd.ExecuteReader();
-        var entries = new List<ExclusionFileEntry>();
-        while (reader.Read())
-        {
-            entries.Add(new ExclusionFileEntry
-            {
-                Id = reader.GetInt32(0),
-                AddedAt = reader.GetString(1)
-            });
-        }
-
-        return entries;
-    }
 
     /// <summary>
     /// Atomically writes the tracking file: serialize → write temp file → rename over original.

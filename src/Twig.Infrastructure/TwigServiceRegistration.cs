@@ -214,7 +214,8 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<IIterationCalendar>(sp => new SqliteIterationCalendar(sp.GetRequiredService<SqliteCacheStore>()));
         services.TryAddSingleton<BenchEvaluator>(sp => new BenchEvaluator(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IIterationCalendar>()));
+            sp.GetRequiredService<IIterationCalendar>(),
+            sp.GetRequiredService<IPendingChangeStore>()));
 
         // ADO #145: the one answer to "what does a fresh default Bench hold", shared by the view
         // and by the pin workflow so the read and write paths cannot disagree.

@@ -32,6 +32,7 @@ public sealed class PinWorkflowTests : IDisposable
     private readonly SqliteCacheStore _store = new("Data Source=:memory:");
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IIterationCalendar _calendar = Substitute.For<IIterationCalendar>();
+    private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
     private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
     private readonly IBenchRepository _benchRepo;
 
@@ -63,7 +64,7 @@ public sealed class PinWorkflowTests : IDisposable
     {
         var bench = await _benchRepo.GetOrCreateDefaultAsync(
             await new DefaultBenchSelectors(_trackingRepo, null).BuildAsync());
-        var membership = await new BenchEvaluator(_workItemRepo, _calendar).EvaluateAsync(bench);
+        var membership = await new BenchEvaluator(_workItemRepo, _calendar, _pendingStore).EvaluateAsync(bench);
         return membership.AllIds;
     }
 
@@ -191,7 +192,7 @@ public sealed class PinWorkflowTests : IDisposable
         await CreateSut().PinAsync(500, includeSubtree: false);
 
         var bench = (await _benchRepo.GetByNameAsync(Bench.DefaultName))!;
-        var membership = await new BenchEvaluator(_workItemRepo, _calendar).EvaluateAsync(bench);
+        var membership = await new BenchEvaluator(_workItemRepo, _calendar, _pendingStore).EvaluateAsync(bench);
 
         // Matched by BOTH selectors — the presentation split keeps it in both categories, and
         // membership is a union, so it is present exactly once.

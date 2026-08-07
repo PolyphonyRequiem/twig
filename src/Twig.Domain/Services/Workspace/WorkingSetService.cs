@@ -23,8 +23,9 @@ namespace Twig.Domain.Services.Workspace;
 /// <para>
 /// The seeds-and-dirty half of the read model is deliberately NOT selector-derived. Those are an
 /// invariant on evaluation rather than rules a person could remove — a display preference must
-/// not be able to conceal work twig owes ADO. Ticket #147 makes that guard explicit; this ticket
-/// preserves today's behaviour, which already surfaces them unconditionally.
+/// not be able to conceal work twig owes ADO. Ticket #147 made that guard structural: it lives in
+/// <see cref="BenchEvaluator"/>, so it is a property of what ANY Bench evaluation returns and
+/// this service simply projects what came back.
 /// </para>
 /// </summary>
 public sealed class WorkingSetService
@@ -89,16 +90,15 @@ public sealed class WorkingSetService
         var iterations = iterationPaths
             ?? [await _iterationService.GetCurrentIterationAsync(ct)];
 
-        var (sprintItemIds, trackedItemIds, resolvedIterations) =
+        var (sprintItemIds, trackedItemIds, resolvedIterations, seedIds, dirtyIds) =
             await EvaluateBenchAsync(iterations, ct);
 
-        // 5. Query seeds. An invariant, not a selector: ADO has never heard of a seed, so no rule
-        //    on any Bench could match one, and hiding one would hide unpublished work.
-        var seeds = await _workItemRepo.GetSeedsAsync(ct);
-
-        // 6. Query dirty IDs via SyncGuard. Same reasoning: what twig OWES ADO is not a display
-        //    preference and must not be concealable by a view setting.
-        var dirtyIds = await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingStore, ct);
+        // 5 & 6. Seeds and unpushed edits come back from the EVALUATION itself (ADO #147).
+        //    They are no longer read here beside the Bench, because a caller that reads them
+        //    separately is a caller that could stop — the guard has to be a property of what an
+        //    evaluation returns, so that every future Bench and every future switch inherits it
+        //    without anyone remembering to. ADO has never heard of a seed, and what twig OWES
+        //    ADO is not a display preference; neither is concealable by editing selectors.
 
         return new WorkingSet
         {
@@ -106,7 +106,7 @@ public sealed class WorkingSetService
             ParentChainIds = parentChain.Select(w => w.Id).ToList(),
             ChildrenIds = children.Select(w => w.Id).ToList(),
             SprintItemIds = sprintItemIds,
-            SeedIds = seeds.Select(w => w.Id).ToList(),
+            SeedIds = seedIds,
             DirtyItemIds = dirtyIds,
             TrackedItemIds = trackedItemIds,
             IterationPaths = resolvedIterations,
@@ -123,7 +123,7 @@ public sealed class WorkingSetService
     /// pin appears in both categories and exactly once in <c>AllIds</c>.
     /// </para>
     /// </summary>
-    private async Task<(IReadOnlyList<int> SprintItemIds, IReadOnlyList<int> TrackedItemIds, IReadOnlyList<IterationPath> Iterations)>
+    private async Task<(IReadOnlyList<int> SprintItemIds, IReadOnlyList<int> TrackedItemIds, IReadOnlyList<IterationPath> Iterations, IReadOnlyList<int> SeedIds, IReadOnlySet<int> DirtyItemIds)>
         EvaluateBenchAsync(IReadOnlyList<IterationPath> iterations, CancellationToken ct)
     {
         if (_benchRepo is null || _benchEvaluator is null)
@@ -139,7 +139,8 @@ public sealed class WorkingSetService
                 Selectors = await DefaultSelectorsAsync(ct),
             };
 
-            var evaluator = _benchEvaluator ?? new BenchEvaluator(_workItemRepo, new NullIterationCalendar());
+            var evaluator = _benchEvaluator
+                ?? new BenchEvaluator(_workItemRepo, new NullIterationCalendar(), _pendingStore);
             var transientMembership = await evaluator.EvaluateAsync(transient, iterations, ct);
             return Project(transientMembership, iterations);
         }
@@ -149,12 +150,14 @@ public sealed class WorkingSetService
         return Project(membership, iterations);
     }
 
-    private (IReadOnlyList<int>, IReadOnlyList<int>, IReadOnlyList<IterationPath>) Project(
+    private (IReadOnlyList<int>, IReadOnlyList<int>, IReadOnlyList<IterationPath>, IReadOnlyList<int>, IReadOnlySet<int>) Project(
         BenchMembership membership, IReadOnlyList<IterationPath> requestedIterations)
         => (
             membership.QueryMatches.Select(w => w.Id).ToList(),
             membership.PinnedIds,
-            membership.IterationPaths.Count > 0 ? membership.IterationPaths : requestedIterations);
+            membership.IterationPaths.Count > 0 ? membership.IterationPaths : requestedIterations,
+            membership.SeedIds,
+            membership.DirtyItemIds);
 
     /// <summary>
     /// The selectors the default Bench is created with, composed by

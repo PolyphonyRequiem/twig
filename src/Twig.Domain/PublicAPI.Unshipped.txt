@@ -798,7 +798,7 @@ Twig.Domain.Interfaces.IIterationCalendar.SaveAsync(System.Collections.Generic.I
 Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshIterationCalendarAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null, Twig.Domain.Interfaces.IIterationCalendar? iterationCalendar = null) -> void
 Twig.Domain.Services.Workspace.BenchEvaluator
-Twig.Domain.Services.Workspace.BenchEvaluator.BenchEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IIterationCalendar! iterationCalendar) -> void
+Twig.Domain.Services.Workspace.BenchEvaluator.BenchEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IIterationCalendar! iterationCalendar, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore) -> void
 Twig.Domain.Services.Workspace.BenchEvaluator.EvaluateAsync(Twig.Domain.Aggregates.Bench! bench, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationOverride = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.BenchMembership!>!
 Twig.Domain.Services.Workspace.BenchMembership
 Twig.Domain.Services.Workspace.BenchMembership.<Clone>$() -> Twig.Domain.Services.Workspace.BenchMembership!
@@ -916,3 +916,8 @@ static Twig.Domain.Services.Mutation.PinOutcome.operator ==(Twig.Domain.Services
 virtual Twig.Domain.Services.Mutation.PinOutcome.EqualityContract.get -> System.Type!
 virtual Twig.Domain.Services.Mutation.PinOutcome.Equals(Twig.Domain.Services.Mutation.PinOutcome? other) -> bool
 virtual Twig.Domain.Services.Mutation.PinOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Workspace.BenchMembership.SeedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
+Twig.Domain.Services.Workspace.BenchMembership.SeedIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+Twig.Domain.Services.Workspace.BenchMembership.DirtyItemIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.SelectedIds.get -> System.Collections.Generic.IReadOnlySet<int>!

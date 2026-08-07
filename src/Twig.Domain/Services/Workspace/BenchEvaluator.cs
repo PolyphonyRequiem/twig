@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Services.Workspace;
@@ -22,16 +23,35 @@ namespace Twig.Domain.Services.Workspace;
 /// two selectors appears once. An implementation that folded selectors in sequence would pass
 /// every other test while making construction order silently observable.
 /// </para>
+/// <para>
+/// 🔴 Seeds and unpushed edits are surfaced by EVERY evaluation, of EVERY Bench, whatever its
+/// selectors are (ADO #147, spec: "the one guard that outranks every selector"). They are read
+/// here, unconditionally, and unioned into <see cref="BenchMembership.AllIds"/> — they are NOT
+/// selectors installed on a Bench at creation. That distinction is the whole point: a selector
+/// can be removed by editing the Bench, and this cannot. The reason they differ in kind is that
+/// a Bench's selectors decide what is INTERESTING, while unpushed work is what twig OWES ADO,
+/// and a display preference must not be able to conceal a debt.
+/// </para>
 /// </summary>
 public sealed class BenchEvaluator
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IIterationCalendar _iterationCalendar;
+    private readonly IPendingChangeStore _pendingStore;
 
-    public BenchEvaluator(IWorkItemRepository workItemRepo, IIterationCalendar iterationCalendar)
+    /// <summary>
+    /// <paramref name="pendingStore"/> is REQUIRED, not optional, and that is deliberate: an
+    /// optional guard source is a guard that can be switched off by constructing the evaluator
+    /// without it, which is the same removability defect as expressing it as a selector.
+    /// </summary>
+    public BenchEvaluator(
+        IWorkItemRepository workItemRepo,
+        IIterationCalendar iterationCalendar,
+        IPendingChangeStore pendingStore)
     {
         _workItemRepo = workItemRepo;
         _iterationCalendar = iterationCalendar;
+        _pendingStore = pendingStore;
     }
 
     /// <summary>
@@ -118,11 +138,19 @@ public sealed class BenchEvaluator
             }
         }
 
+        // 🔴 The guard, ADO #147. Read AFTER the selectors and independent of them: no branch
+        // below asks what the Bench holds, so there is no Bench — default or otherwise, however
+        // its selectors are edited — whose evaluation can omit these.
+        var seeds = await _workItemRepo.GetSeedsAsync(ct);
+        var owedIds = await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingStore, ct);
+
         return new BenchMembership
         {
             QueryMatches = queryMatches,
             PinnedIds = pinnedIds,
             IterationPaths = iterations,
+            SeedIds = seeds.Select(w => w.Id).ToList(),
+            DirtyItemIds = owedIds,
         };
     }
 

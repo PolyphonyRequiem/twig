@@ -455,9 +455,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 sectionIndex++;
                             }
 
-                            // Progress footer
                             RenderTreeProgressFooter(container, loaded.Items);
-                            ctx.Refresh();
+
+                            // Do not refresh here. SeedsLoaded follows immediately and Live paints
+                            // the complete final container once when the stream ends. Refreshing
+                            // this intermediate state duplicates every workspace row in terminals
+                            // that preserve carriage-return redraws.
                             break;
                         }
 
@@ -472,14 +475,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 activeContextId, cacheStaleMinutes, budget);
                             RenderTreeProgressFooter(container, loaded.Items);
 
-                            // If the sprint is empty, keep the currently rendered Loading row on
-                            // screen until SeedsLoaded arrives. Clearing the mutable container does
-                            // not change the terminal until Refresh; refreshing zero rows crashes
-                            // Spectre, and inserting+refreshing "No sprint items" here would redraw
-                            // the unchanged message again on the immediately following empty seed
-                            // chunk. One final-state refresh is enough.
-                            if (container.Rows.Count > 0)
-                                ctx.Refresh();
+                            // Defer painting until SeedsLoaded/finalization for the same reason as
+                            // the sectioned path above: this stream stage is never the final state.
                             break;
                         }
 

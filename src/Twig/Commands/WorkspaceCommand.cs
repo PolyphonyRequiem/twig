@@ -72,6 +72,7 @@ public sealed class WorkspaceCommand(
             // table and assignee column handling is reserved for a future async team-view path.
             Domain.Aggregates.WorkItem? contextItem = null;
             IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems = Array.Empty<Domain.Aggregates.WorkItem>();
+            IReadOnlyList<Domain.Aggregates.WorkItem> manualItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
 
             // Load tracking overlay (tracked items + excluded IDs)
@@ -117,24 +118,27 @@ public sealed class WorkspaceCommand(
                 }
                 yield return new ContextLoaded(contextItem);
 
-                // Stage 2: Sprint items — use configured sprints when available, else fall back to current iteration
+                // Stage 2: evaluate the current Bench against the local cache. Query selectors
+                // supply the Sprint origin; pin selectors supply the Manual origin. Membership is
+                // a union, so remove query matches from Manual before presentation.
                 var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
-                var userDisplayName = ctx.Config.User.DisplayName;
-                if (resolvedIterations.Count > 0)
-                {
-                    sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
-                        resolvedIterations, userDisplayName, allUsers: false, ct);
-                }
-                else
-                {
-                    var iteration = await iterationService.GetCurrentIterationAsync(ct);
-                    if (!string.IsNullOrWhiteSpace(userDisplayName))
-                        sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
-                    else
-                        sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
-                }
+                IReadOnlyList<IterationPath> benchIterations = resolvedIterations;
+                if (benchIterations.Count == 0)
+                    benchIterations = [await iterationService.GetCurrentIterationAsync(ct)];
+
+                var benchView = await workingSetService.ComputeAsync(benchIterations, ct);
+                sprintItems = await LoadQueryMatchesInOrderAsync(
+                    benchView.SprintItemIds, benchIterations, ctx.Config.User.DisplayName, ct);
+                var sprintIds = new HashSet<int>(benchView.SprintItemIds);
+                manualItems = await LoadItemsInOrderAsync(
+                    benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray(), ct);
+
                 var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots));
+                yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(
+                    sprintItems,
+                    manualItems: manualItems,
+                    excludedIds: excludedIds,
+                    treeRoots: treeRoots));
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -151,26 +155,24 @@ public sealed class WorkspaceCommand(
 
                         // Cannot yield inside try/catch in C# iterators — collect results first.
                         IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSprintItems = null;
+                        IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedManualItems = null;
                         IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSeeds = null;
                         bool refreshFailed = false;
 
                         try
                         {
-                            // Re-fetch sprint items using configured sprints or current iteration
+                            // Re-evaluate the current Bench against the refreshed local cache.
                             var freshIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
-                            if (freshIterations.Count > 0)
-                            {
-                                refreshedSprintItems = await GetSprintItemsFromResolvedIterationsAsync(
-                                    freshIterations, userDisplayName, allUsers: false, ct);
-                            }
-                            else
-                            {
-                                var freshIteration = await iterationService.GetCurrentIterationAsync(ct);
-                                if (!string.IsNullOrWhiteSpace(userDisplayName))
-                                    refreshedSprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(freshIteration, userDisplayName, ct);
-                                else
-                                    refreshedSprintItems = await workItemRepo.GetByIterationAsync(freshIteration, ct);
-                            }
+                            IReadOnlyList<IterationPath> freshBenchIterations = freshIterations;
+                            if (freshBenchIterations.Count == 0)
+                                freshBenchIterations = [await iterationService.GetCurrentIterationAsync(ct)];
+
+                            var freshBenchView = await workingSetService.ComputeAsync(freshBenchIterations, ct);
+                            refreshedSprintItems = await LoadQueryMatchesInOrderAsync(
+                                freshBenchView.SprintItemIds, freshBenchIterations, ctx.Config.User.DisplayName, ct);
+                            var refreshedSprintIds = new HashSet<int>(freshBenchView.SprintItemIds);
+                            refreshedManualItems = await LoadItemsInOrderAsync(
+                                freshBenchView.TrackedItemIds.Where(id => !refreshedSprintIds.Contains(id)).ToArray(), ct);
 
                             // Re-fetch seeds
                             refreshedSeeds = await workItemRepo.GetSeedsAsync(ct);
@@ -182,10 +184,11 @@ public sealed class WorkspaceCommand(
                             refreshFailed = true;
                         }
 
-                        if (!refreshFailed && refreshedSprintItems is not null && refreshedSeeds is not null)
+                        if (!refreshFailed && refreshedSprintItems is not null && refreshedManualItems is not null && refreshedSeeds is not null)
                         {
                             // Update closure variables so hint computation uses refreshed data
                             sprintItems = refreshedSprintItems;
+                            manualItems = refreshedManualItems;
                             seeds = refreshedSeeds;
 
                             // Update freshness timestamp (best-effort — persistence failure must not discard fetched data)
@@ -195,7 +198,11 @@ public sealed class WorkspaceCommand(
 
                         // Yield data rows (refreshed on success, original on failure)
                         var refreshTreeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                        yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots));
+                        yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(
+                            sprintItems,
+                            manualItems: manualItems,
+                            excludedIds: excludedIds,
+                            treeRoots: refreshTreeRoots));
                         yield return new SeedsLoaded(seeds);
                         yield return new RefreshCompleted();
                     }
@@ -206,7 +213,10 @@ public sealed class WorkspaceCommand(
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds,
-                sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds),
+                sections: WorkspaceSections.Build(
+                    sprintItems,
+                    manualItems: manualItems,
+                    excludedIds: excludedIds),
                 trackedItems: trackedItems,
                 excludedIds: excludedIds);
 
@@ -302,26 +312,41 @@ public sealed class WorkspaceCommand(
             resolveResult.TryGetWorkItem(out contextItem, out _, out _);
         }
 
-        // Get sprint items — use configured sprints when available, else fall back to current iteration
+        // Normal workspace is a projection of the current Bench. Team/sprint layouts remain
+        // explicit sprint views and therefore retain the direct iteration query.
         var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints);
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
+        IReadOnlyList<Domain.Aggregates.WorkItem> manualItems = Array.Empty<Domain.Aggregates.WorkItem>();
+        WorkingSet? benchView = null;
 
-        var userDisplayName = ctx.Config.User.DisplayName;
-        if (resolvedIterations.Count > 0)
+        if (!all && !sprintLayout)
         {
-            sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
-                resolvedIterations, userDisplayName, allUsers: all);
+            IReadOnlyList<IterationPath> benchIterations = resolvedIterations;
+            if (benchIterations.Count == 0)
+                benchIterations = [await iterationService.GetCurrentIterationAsync()];
+
+            benchView = await workingSetService.ComputeAsync(benchIterations);
+            sprintItems = await LoadQueryMatchesInOrderAsync(
+                benchView.SprintItemIds, benchIterations, ctx.Config.User.DisplayName);
+            var sprintIds = new HashSet<int>(benchView.SprintItemIds);
+            manualItems = await LoadItemsInOrderAsync(
+                benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray());
         }
         else
         {
-            var iteration = await iterationService.GetCurrentIterationAsync();
-            if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
+            var userDisplayName = ctx.Config.User.DisplayName;
+            if (resolvedIterations.Count > 0)
             {
-                sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
+                sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                    resolvedIterations, userDisplayName, allUsers: all);
             }
             else
             {
-                sprintItems = await workItemRepo.GetByIterationAsync(iteration);
+                var iteration = await iterationService.GetCurrentIterationAsync();
+                if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
+                    sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
+                else
+                    sprintItems = await workItemRepo.GetByIterationAsync(iteration);
             }
         }
 
@@ -394,7 +419,11 @@ public sealed class WorkspaceCommand(
         }
 
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots),
+            sections: WorkspaceSections.Build(
+                sprintItems,
+                manualItems: manualItems,
+                excludedIds: excludedIds,
+                treeRoots: treeRoots),
             trackedItems: trackedItems,
             excludedIds: excludedIds);
 
@@ -424,13 +453,13 @@ public sealed class WorkspaceCommand(
                 var fallbackIteration = await iterationService.GetCurrentIterationAsync();
                 orphanIterations = [fallbackIteration];
             }
-            var workingSet = await workingSetService.ComputeAsync(orphanIterations);
-            if (workingSet.DirtyItemIds.Count > 0)
+            var dirtyWorkingSet = benchView ?? await workingSetService.ComputeAsync(orphanIterations);
+            if (dirtyWorkingSet.DirtyItemIds.Count > 0)
             {
                 var sprintItemIds = new HashSet<int>(sprintItems.Select(s => s.Id));
                 var seedIds = new HashSet<int>(seeds.Select(s => s.Id));
                 var orphanIds = new List<int>();
-                foreach (var dirtyId in workingSet.DirtyItemIds)
+                foreach (var dirtyId in dirtyWorkingSet.DirtyItemIds)
                 {
                     if (!sprintItemIds.Contains(dirtyId) && !seedIds.Contains(dirtyId))
                         orphanIds.Add(dirtyId);
@@ -469,6 +498,56 @@ public sealed class WorkspaceCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Materializes query-origin matches from the same local iteration rows the selector evaluated,
+    /// then orders them by the evaluator's deterministic ID list. The Bench remains authoritative:
+    /// rows not selected by its query selectors are filtered out, including every sprint row on a
+    /// pin-only Bench.
+    /// </summary>
+    private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> LoadQueryMatchesInOrderAsync(
+        IReadOnlyList<int> selectedIds,
+        IReadOnlyList<IterationPath> iterations,
+        string? userDisplayName,
+        CancellationToken ct = default)
+    {
+        if (selectedIds.Count == 0)
+            return Array.Empty<Domain.Aggregates.WorkItem>();
+
+        var candidates = await GetSprintItemsFromResolvedIterationsAsync(
+            iterations, userDisplayName, allUsers: false, ct);
+        var byId = candidates.ToDictionary(item => item.Id);
+        var ordered = new List<Domain.Aggregates.WorkItem>(selectedIds.Count);
+        foreach (var id in selectedIds)
+        {
+            if (byId.TryGetValue(id, out var item))
+                ordered.Add(item);
+        }
+        return ordered;
+    }
+
+    /// <summary>
+    /// Loads cached work items in the evaluator's deterministic ID order. Repository batch
+    /// ordering is an implementation detail and must not leak into Bench presentation.
+    /// Missing IDs are stale selectors and are omitted; reads remain cache-only.
+    /// </summary>
+    private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> LoadItemsInOrderAsync(
+        IReadOnlyList<int> ids,
+        CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+            return Array.Empty<Domain.Aggregates.WorkItem>();
+
+        var loaded = await workItemRepo.GetByIdsAsync(ids, ct);
+        var byId = loaded.ToDictionary(item => item.Id);
+        var ordered = new List<Domain.Aggregates.WorkItem>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (byId.TryGetValue(id, out var item))
+                ordered.Add(item);
+        }
+        return ordered;
     }
 
     /// <summary>

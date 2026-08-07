@@ -15,6 +15,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.Cli.Tests.TestSupport;
 using Xunit;
 
 namespace Twig.Cli.Tests.Rendering;
@@ -40,6 +41,7 @@ public class CacheRefreshTests
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _workItemRepo.BridgeBatchIterationReads();
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration
         {
@@ -470,13 +472,14 @@ public class CacheRefreshTests
         _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { CreateWorkItem(10, "Cached Task") });
 
-        // First GetSeedsAsync (Stage 3) returns cached data; second (Stage 4) throws
+        // Bench evaluation reads the guard's cached seeds first, Stage 3 reads the display rows,
+        // and the refresh evaluation is the failing third read.
         var seedCallCount = 0;
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 seedCallCount++;
-                if (seedCallCount > 1)
+                if (seedCallCount > 2)
                     throw new InvalidOperationException("auth failure");
                 return Array.Empty<WorkItem>();
             });

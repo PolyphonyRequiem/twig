@@ -66,7 +66,6 @@ public sealed class WorkingSetFollowsCurrentBenchTests
     private WorkingSetService CreateSut() => new(
         _contextStore, _workItemRepo, _pendingStore, _iterationService,
         userDisplayName: null,
-        _trackingRepo,
         _benchRepo,
         new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
 

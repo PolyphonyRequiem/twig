@@ -58,10 +58,10 @@ public sealed class BenchSwitchWorkflowTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private DefaultBenchSelectors Selectors => new(_trackingRepo, userDisplayName: null);
+    private DefaultBenchSelectors Selectors => new(userDisplayName: null);
     private CurrentBenchResolver Resolver => new(_benchRepo, Selectors);
     private BenchWorkflow CreateSut() => new(_benchRepo, Selectors, Resolver);
-    private PinWorkflow CreatePin() => new(_benchRepo, Selectors, trackingRepository: null, Resolver);
+    private PinWorkflow CreatePin() => new(_benchRepo, Selectors, Resolver);
 
     // ═══════════════════════════════════════════════════════════════
     //  Acceptance 1 — switching changes which items the view shows,

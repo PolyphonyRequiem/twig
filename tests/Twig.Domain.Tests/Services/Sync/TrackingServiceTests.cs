@@ -18,7 +18,22 @@ public sealed class TrackingServiceTests
     private readonly IWorkItemRepository _workItemRepository = Substitute.For<IWorkItemRepository>();
     private readonly IProcessTypeStore _processTypeStore = Substitute.For<IProcessTypeStore>();
 
-    private TrackingService CreateSut() => new(_repository, _workItemRepository, _processTypeStore);
+    /// <summary>
+    /// Pins live on the BENCH since ADO #146 — the tracking file's pin half was deleted rather
+    /// than migrated. These substitutes stand in for that store; <c>_repository</c> survives only
+    /// for exclusions, which are deliberately out of the Bench entirely.
+    /// </summary>
+    private readonly IPinReader _pinReader = Substitute.For<IPinReader>();
+    private readonly IPinWriter _pinWriter = Substitute.For<IPinWriter>();
+
+    public TrackingServiceTests()
+    {
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+    }
+
+    private TrackingService CreateSut()
+        => new(_repository, _workItemRepository, _processTypeStore, _pinReader, _pinWriter);
 
     // ═══════════════════════════════════════════════════════════════
     //  TrackAsync
@@ -33,7 +48,7 @@ public sealed class TrackingServiceTests
 
         await sut.TrackAsync(42, mode);
 
-        await _repository.Received(1).UpsertTrackedAsync(42, mode, Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).AddPinAsync(42, mode, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -45,7 +60,7 @@ public sealed class TrackingServiceTests
 
         await sut.TrackAsync(1, TrackingMode.Single, token);
 
-        await _repository.Received(1).UpsertTrackedAsync(1, TrackingMode.Single, token);
+        await _pinWriter.Received(1).AddPinAsync(1, TrackingMode.Single, token);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -59,7 +74,7 @@ public sealed class TrackingServiceTests
 
         await sut.TrackTreeAsync(99);
 
-        await _repository.Received(1).UpsertTrackedAsync(99, TrackingMode.Tree, Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).AddPinAsync(99, TrackingMode.Tree, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -71,7 +86,7 @@ public sealed class TrackingServiceTests
 
         await sut.TrackTreeAsync(7, token);
 
-        await _repository.Received(1).UpsertTrackedAsync(7, TrackingMode.Tree, token);
+        await _pinWriter.Received(1).AddPinAsync(7, TrackingMode.Tree, token);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -82,26 +97,28 @@ public sealed class TrackingServiceTests
     public async Task UntrackAsync_WhenTracked_RemovesAndReturnsTrue()
     {
         var sut = CreateSut();
-        _repository.GetTrackedByWorkItemIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new TrackedItem(42, TrackingMode.Single, DateTimeOffset.UtcNow));
+        _pinWriter.RemovePinAsync(42, Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await sut.UntrackAsync(42);
 
         result.ShouldBeTrue();
-        await _repository.Received(1).RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task UntrackAsync_WhenNotTracked_ReturnsFalseAndSkipsRemove()
+    public async Task UntrackAsync_WhenNotTracked_ReturnsFalse()
     {
         var sut = CreateSut();
-        _repository.GetTrackedByWorkItemIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns((TrackedItem?)null);
+        _pinWriter.RemovePinAsync(42, Arg.Any<CancellationToken>()).Returns(false);
 
         var result = await sut.UntrackAsync(42);
 
+        // 🔴 Renamed from ...ReturnsFalseAndSkipsRemove. Since ADO #146 there is no separate
+        // "is it there?" read before the removal: the Bench removes the selectors and REPORTS
+        // whether anything was there, in one call. Asserting the removal is skipped would now be
+        // asserting a lookup that no longer exists — and a read-then-write pair is exactly the
+        // shape that lets two stores disagree. What the person observes is unchanged.
         result.ShouldBeFalse();
-        await _repository.DidNotReceive().RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -109,12 +126,11 @@ public sealed class TrackingServiceTests
     {
         var sut = CreateSut();
         using var cts = new CancellationTokenSource();
-        _repository.GetTrackedByWorkItemIdAsync(42, cts.Token)
-            .Returns(new TrackedItem(42, TrackingMode.Single, DateTimeOffset.UtcNow));
+        _pinWriter.RemovePinAsync(42, cts.Token).Returns(true);
 
         await sut.UntrackAsync(42, cts.Token);
 
-        await _repository.Received(1).RemoveTrackedAsync(42, cts.Token);
+        await _pinWriter.Received(1).RemovePinAsync(42, cts.Token);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -155,7 +171,7 @@ public sealed class TrackingServiceTests
             new(1, TrackingMode.Single, DateTimeOffset.UtcNow),
             new(2, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var result = await sut.GetTrackedItemsAsync();
 
@@ -166,7 +182,7 @@ public sealed class TrackingServiceTests
     public async Task GetTrackedItemsAsync_WhenEmpty_ReturnsEmptyList()
     {
         var sut = CreateSut();
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
 
         var result = await sut.GetTrackedItemsAsync();
@@ -342,7 +358,7 @@ public sealed class TrackingServiceTests
     public async Task SyncTrackedTreesAsync_NoTrackedItems_ReturnsZero()
     {
         var sut = CreateSut();
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
 
         var coordinator = CreateSyncCoordinator();
@@ -360,7 +376,7 @@ public sealed class TrackingServiceTests
             new(10, TrackingMode.Single, DateTimeOffset.UtcNow),
             new(20, TrackingMode.Single, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var adoService = Substitute.For<IAdoWorkItemService>();
         var coordinator = CreateSyncCoordinator(adoService: adoService);
@@ -383,7 +399,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -424,7 +440,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -473,7 +489,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -499,7 +515,7 @@ public sealed class TrackingServiceTests
             new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
             new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -540,7 +556,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -554,9 +570,7 @@ public sealed class TrackingServiceTests
         var result = await sut.SyncTrackedTreesAsync(coordinator);
 
         result.ShouldBe(1);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 42),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(42, Arg.Any<CancellationToken>());
         await adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
     }
 
@@ -569,7 +583,7 @@ public sealed class TrackingServiceTests
             new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
             new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -584,9 +598,8 @@ public sealed class TrackingServiceTests
         var result = await sut.SyncTrackedTreesAsync(coordinator);
 
         result.ShouldBe(2);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(10) && ids.Contains(20)),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(10, Arg.Any<CancellationToken>());
+            await _pinWriter.Received(1).RemovePinAsync(20, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -603,7 +616,7 @@ public sealed class TrackingServiceTests
             new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
             new(30, TrackingMode.Single, DateTimeOffset.UtcNow), // ignored
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -624,9 +637,7 @@ public sealed class TrackingServiceTests
         var result = await sut.SyncTrackedTreesAsync(coordinator);
 
         result.ShouldBe(1);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 20),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(20, Arg.Any<CancellationToken>());
         // Item 10 should still get children synced
         await adoService.Received(1).FetchChildrenAsync(10, Arg.Any<CancellationToken>());
         // Item 20 should NOT get children synced
@@ -645,7 +656,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -663,8 +674,7 @@ public sealed class TrackingServiceTests
         var result = await sut.SyncTrackedTreesAsync(coordinator);
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
-            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+        await _pinWriter.DidNotReceive().RemovePinAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -678,12 +688,12 @@ public sealed class TrackingServiceTests
         using var cts = new CancellationTokenSource();
         var token = cts.Token;
 
-        _repository.GetAllTrackedAsync(token).Returns(Array.Empty<TrackedItem>());
+        _pinReader.GetPinsAsync(token).Returns(Array.Empty<TrackedItem>());
 
         var coordinator = CreateSyncCoordinator();
         await sut.SyncTrackedTreesAsync(coordinator, token);
 
-        await _repository.Received(1).GetAllTrackedAsync(token);
+        await _pinReader.Received(1).GetPinsAsync(token);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -698,7 +708,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -737,7 +747,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -772,7 +782,7 @@ public sealed class TrackingServiceTests
             new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
             new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -819,7 +829,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -860,7 +870,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -903,7 +913,7 @@ public sealed class TrackingServiceTests
         {
             new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
         };
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>()).Returns(items);
 
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
@@ -988,7 +998,7 @@ public sealed class TrackingServiceTests
 
     private void SetupTrackedItems(params TrackedItem[] items)
     {
-        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+        _pinReader.GetPinsAsync(Arg.Any<CancellationToken>())
             .Returns(items.ToList().AsReadOnly());
     }
 
@@ -1017,7 +1027,7 @@ public sealed class TrackingServiceTests
         var result = await sut.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.None, TestIteration());
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().GetAllTrackedAsync(Arg.Any<CancellationToken>());
+        await _pinReader.DidNotReceive().GetPinsAsync(Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1033,8 +1043,7 @@ public sealed class TrackingServiceTests
         var result = await sut.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete, TestIteration());
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
-            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+        await _pinWriter.DidNotReceive().RemovePinAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1061,9 +1070,8 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnComplete, TestIteration());
 
         result.ShouldBe(2);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(1) && ids.Contains(3)),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(1, Arg.Any<CancellationToken>());
+            await _pinWriter.Received(1).RemovePinAsync(3, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -1082,8 +1090,7 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnComplete, TestIteration());
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
-            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+        await _pinWriter.DidNotReceive().RemovePinAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1108,9 +1115,7 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
 
         result.ShouldBe(1);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(1, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -1131,8 +1136,7 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
-            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+        await _pinWriter.DidNotReceive().RemovePinAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -1153,8 +1157,7 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
 
         result.ShouldBe(0);
-        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
-            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+        await _pinWriter.DidNotReceive().RemovePinAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1222,9 +1225,7 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnComplete, TestIteration());
 
         result.ShouldBe(1);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(1, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1257,9 +1258,8 @@ public sealed class TrackingServiceTests
 
         // Only items 1 and 4 are completed AND in past iterations
         result.ShouldBe(2);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(1) && ids.Contains(4)),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(1, Arg.Any<CancellationToken>());
+            await _pinWriter.Received(1).RemovePinAsync(4, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1288,9 +1288,7 @@ public sealed class TrackingServiceTests
 
         // Completed item in a future iteration is still removed (!= not <)
         result.ShouldBe(1);
-        await _repository.Received(1).RemoveTrackedBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids.Contains(1)),
-            Arg.Any<CancellationToken>());
+        await _pinWriter.Received(1).RemovePinAsync(1, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1341,6 +1339,6 @@ public sealed class TrackingServiceTests
             TrackingCleanupPolicy.OnComplete, TestIteration(), token);
 
         result.ShouldBe(0);
-        await _repository.Received(1).GetAllTrackedAsync(token);
+        await _pinReader.Received(1).GetPinsAsync(token);
     }
 }

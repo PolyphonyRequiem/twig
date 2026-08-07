@@ -20,26 +20,27 @@ public sealed class TrackingCommandTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
 
-    // ADO #145: pin/unpin now route through the shared mutation-workflow seam. The Bench store is
-    // REAL (in-memory SQLite) because selectors are written and read back within a test, and a
-    // substitute returning an empty Bench would make "was it pinned?" answer no every time while
-    // the assertions still looked plausible. The tracking repository stays substituted: the file
-    // is still written until #146, and this fixture only needs to observe THAT it was.
+    // ADO #145/#146: pin/unpin route through the shared mutation-workflow seam, and the BENCH is
+    // the only pin store — the tracking file's pin half was deleted rather than migrated. The
+    // Bench store is REAL (in-memory SQLite) because selectors are written and read back within a
+    // test, and a substitute returning an empty Bench would answer "was it pinned?" with no every
+    // time while the assertions still looked plausible.
     private readonly SqliteCacheStore _benchStore = new("Data Source=:memory:");
-    private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
+
+    private SqliteBenchRepository BenchRepo => new(_benchStore);
 
     private TrackingCommand CreateCommand()
     {
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<TrackedItem>());
-
-        var pinWorkflow = new PinWorkflow(
-            new SqliteBenchRepository(_benchStore),
-            new DefaultBenchSelectors(_trackingRepo, userDisplayName: null),
-            _trackingRepo);
-
+        var pinWorkflow = new PinWorkflow(BenchRepo, new DefaultBenchSelectors(null));
         return new TrackingCommand(_trackingService, _workItemRepo, _formatterFactory, pinWorkflow);
     }
+
+    /// <summary>
+    /// Asserts against the Bench's actual selectors rather than a substitute's received calls —
+    /// a received-call assertion passes against a write that lands where nothing reads.
+    /// </summary>
+    private async Task<IReadOnlyCollection<BenchSelector>> SelectorsAsync()
+        => (await BenchRepo.GetByNameAsync(Bench.DefaultName))?.Selectors ?? [];
 
     // ── Track ──────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ public sealed class TrackingCommandTests
 
         result.ShouldBe(0);
         stdout.ShouldContain("Tracking #42");
-        await _trackingRepo.Received(1).UpsertTrackedAsync(42, TrackingMode.Single, Arg.Any<CancellationToken>());
+        (await SelectorsAsync()).ShouldContain(BenchSelector.ForItem(42));
     }
 
     [Fact]
@@ -91,7 +92,7 @@ public sealed class TrackingCommandTests
         result.ShouldBe(0);
         stdout.ShouldContain("Tracking #100");
         stdout.ShouldContain("(tree)");
-        await _trackingRepo.Received(1).UpsertTrackedAsync(100, TrackingMode.Tree, Arg.Any<CancellationToken>());
+        (await SelectorsAsync()).ShouldContain(BenchSelector.ForSubtree(100));
     }
 
     [Fact]
@@ -113,14 +114,13 @@ public sealed class TrackingCommandTests
         // "Untracked #42" is a report about state and not the message this command always prints.
         var cmd = CreateCommand();
         await StdoutCapture.RunAsync(() => cmd.TrackAsync(42));
-        _trackingRepo.GetTrackedByWorkItemIdAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new TrackedItem(42, TrackingMode.Single, DateTimeOffset.UtcNow));
+        (await SelectorsAsync()).ShouldContain(BenchSelector.ForItem(42));
 
         var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42));
 
         result.ShouldBe(0);
         stdout.ShouldContain("Untracked #42");
-        await _trackingRepo.Received(1).RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForItem(42));
     }
 
     [Fact]

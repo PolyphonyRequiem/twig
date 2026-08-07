@@ -39,7 +39,7 @@ public sealed class BenchCommandTests : IDisposable
             .Returns(Array.Empty<TrackedItem>());
 
         var repo = new SqliteBenchRepository(_benchStore);
-        var selectors = new DefaultBenchSelectors(_trackingRepo, userDisplayName: null);
+        var selectors = new DefaultBenchSelectors(null);
         var workflow = new BenchWorkflow(repo, selectors, new CurrentBenchResolver(repo, selectors));
 
         return new BenchCommand(workflow, _formatterFactory);

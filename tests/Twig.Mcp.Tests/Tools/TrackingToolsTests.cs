@@ -3,6 +3,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
@@ -22,10 +23,44 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         Display = new DisplayConfig { CacheStaleMinutes = 5 },
     };
 
+    private ConnectionResolver? _resolver;
+
     private TrackingTools CreateTrackingSut()
     {
-        var res = BuildResolver(_config);
-        return new TrackingTools(res);
+        _resolver = BuildResolver(_config);
+        return new TrackingTools(_resolver);
+    }
+
+    /// <summary>
+    /// The pins on the current Bench — the ONLY pin store since ADO #146, which wiped the
+    /// tracking file's pin half rather than migrating it.
+    /// <para>
+    /// 🔴 These assertions read the real Bench the fixture is backed by, rather than checking a
+    /// substitute received a call. That is deliberately stronger: a call-received assertion passes
+    /// against a write that lands somewhere nothing reads, which is exactly the two-store drift
+    /// this ticket removed.
+    /// </para>
+    /// </summary>
+    private async Task<IReadOnlyCollection<BenchSelector>> BenchSelectorsAsync()
+    {
+        var scope = _resolver!.Resolve();
+        var bench = await scope.Get<CurrentBenchResolver>().ResolveAsync();
+        return bench.Selectors;
+    }
+
+    private async Task ShouldBePinnedAsync(int id, TrackingMode mode)
+    {
+        var expected = mode == TrackingMode.Tree
+            ? BenchSelector.ForSubtree(id)
+            : BenchSelector.ForItem(id);
+        (await BenchSelectorsAsync()).ShouldContain(expected);
+    }
+
+    private async Task ShouldNotBePinnedAsync(int id)
+    {
+        var selectors = await BenchSelectorsAsync();
+        selectors.ShouldNotContain(BenchSelector.ForItem(id));
+        selectors.ShouldNotContain(BenchSelector.ForSubtree(id));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -47,7 +82,7 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         trackedIds.GetArrayLength().ShouldBe(1);
         trackedIds[0].GetInt32().ShouldBe(42);
 
-        await _trackingRepo.Received(1).UpsertTrackedAsync(42, TrackingMode.Single, Arg.Any<CancellationToken>());
+        await ShouldBePinnedAsync(42, TrackingMode.Single);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -67,9 +102,9 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         var trackedIds = data.GetProperty("trackedIds");
         trackedIds.GetArrayLength().ShouldBe(3);
 
-        await _trackingRepo.Received(1).UpsertTrackedAsync(10, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(20, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(30, TrackingMode.Single, Arg.Any<CancellationToken>());
+        await ShouldBePinnedAsync(10, TrackingMode.Single);
+        await ShouldBePinnedAsync(20, TrackingMode.Single);
+        await ShouldBePinnedAsync(30, TrackingMode.Single);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -86,9 +121,9 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         var data = ParseResult(result);
         data.GetProperty("trackedCount").GetInt32().ShouldBe(3);
 
-        await _trackingRepo.Received(1).UpsertTrackedAsync(5, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(6, TrackingMode.Single, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).UpsertTrackedAsync(7, TrackingMode.Single, Arg.Any<CancellationToken>());
+        await ShouldBePinnedAsync(5, TrackingMode.Single);
+        await ShouldBePinnedAsync(6, TrackingMode.Single);
+        await ShouldBePinnedAsync(7, TrackingMode.Single);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -135,14 +170,14 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         data.GetProperty("trackedCount").GetInt32().ShouldBe(1); // the root; the subtree is a RULE
 
         // The root carries the subtree pin.
-        await _trackingRepo.Received(1).UpsertTrackedAsync(100, TrackingMode.Tree, Arg.Any<CancellationToken>());
+        await ShouldBePinnedAsync(100, TrackingMode.Tree);
 
         // 🔴 The discriminating assertion: the descendants EXIST in the fixture (so this is not a
         // test that would pass against an empty tree) and are deliberately NOT written as pins.
         (await _workItemRepo.GetChildrenAsync(100)).Count.ShouldBe(2);
-        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(101, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
-        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(102, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
-        await _trackingRepo.DidNotReceive().UpsertTrackedAsync(201, Arg.Any<TrackingMode>(), Arg.Any<CancellationToken>());
+        await ShouldNotBePinnedAsync(101);
+        await ShouldNotBePinnedAsync(102);
+        await ShouldNotBePinnedAsync(201);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -163,7 +198,7 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         data.GetProperty("trackedCount").GetInt32().ShouldBe(1);
         data.GetProperty("recursive").GetBoolean().ShouldBeTrue();
 
-        await _trackingRepo.Received(1).UpsertTrackedAsync(50, TrackingMode.Tree, Arg.Any<CancellationToken>());
+        await ShouldBePinnedAsync(50, TrackingMode.Tree);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -269,7 +304,7 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         untrackedIds.GetArrayLength().ShouldBe(1);
         untrackedIds[0].GetInt32().ShouldBe(42);
 
-        await _trackingRepo.Received(1).RemoveTrackedAsync(42, Arg.Any<CancellationToken>());
+        await ShouldNotBePinnedAsync(42);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -286,8 +321,8 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         var data = ParseResult(result);
         data.GetProperty("untrackedCount").GetInt32().ShouldBe(2);
 
-        await _trackingRepo.Received(1).RemoveTrackedAsync(10, Arg.Any<CancellationToken>());
-        await _trackingRepo.Received(1).RemoveTrackedAsync(20, Arg.Any<CancellationToken>());
+        await ShouldNotBePinnedAsync(10);
+        await ShouldNotBePinnedAsync(20);
     }
 
     // ═══════════════════════════════════════════════════════════════

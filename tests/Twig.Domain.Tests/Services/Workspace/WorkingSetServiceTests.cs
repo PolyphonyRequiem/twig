@@ -16,7 +16,6 @@ public class WorkingSetServiceTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
     private readonly IIterationService _iterationService = Substitute.For<IIterationService>();
-    private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
 
     private static readonly IterationPath TestIteration = IterationPath.Parse(@"Project\Sprint1").Value;
 
@@ -24,9 +23,41 @@ public class WorkingSetServiceTests
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Pins reach the view as selectors on the Bench (ADO #146 wiped the tracking file's pin
+    /// half). <paramref name="withTracking"/> now means "the Bench carries the fixture's pins"
+    /// rather than "a tracking file is wired up" — the observable behaviour it names is the same.
+    /// </summary>
     private WorkingSetService CreateSut(string? userDisplayName = null, bool withTracking = true)
-        => new(_contextStore, _workItemRepo, _pendingStore, _iterationService, userDisplayName,
-            withTracking ? _trackingRepo : null);
+    {
+        var benchRepo = Substitute.For<IBenchRepository>();
+        var selectors = new List<BenchSelector> { BenchSelector.ForCurrentSprint(userDisplayName) };
+
+        if (withTracking)
+        {
+            foreach (var pin in _fixturePins)
+            {
+                selectors.Add(pin.Mode == TrackingMode.Tree
+                    ? BenchSelector.ForSubtree(pin.WorkItemId)
+                    : BenchSelector.ForItem(pin.WorkItemId));
+            }
+        }
+
+        var bench = new Bench
+        {
+            Id = 1, Name = Bench.DefaultName, IsDefault = true, Selectors = selectors,
+        };
+        benchRepo.GetOrCreateDefaultAsync(
+                Arg.Any<IReadOnlyCollection<BenchSelector>>(), Arg.Any<CancellationToken>())
+            .Returns(bench);
+        benchRepo.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
+
+        return new(_contextStore, _workItemRepo, _pendingStore, _iterationService, userDisplayName,
+            benchRepo, new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
+    }
+
+    private readonly List<TrackedItem> _fixturePins = [];
+    private readonly IIterationCalendar _calendar = Substitute.For<IIterationCalendar>();
 
     private void SetupDefaults(int? activeId = null)
     {
@@ -38,7 +69,6 @@ public class WorkingSetServiceTests
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>()).Returns(TestIteration);
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<TrackedItem>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -319,8 +349,7 @@ public class WorkingSetServiceTests
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { dirtyItem });
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { new TrackedItem(200, TrackingMode.Single, DateTimeOffset.UtcNow) });
+        _fixturePins.Add(new TrackedItem(200, TrackingMode.Single, DateTimeOffset.UtcNow));
 
         var sut = CreateSut();
         var ws = await sut.ComputeAsync([TestIteration]);
@@ -336,12 +365,8 @@ public class WorkingSetServiceTests
     public async Task ComputeAsync_TrackedItems_IncludedInTrackedItemIds()
     {
         SetupDefaults(activeId: 10);
-        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
-            .Returns(new[]
-            {
-                new TrackedItem(300, TrackingMode.Single, DateTimeOffset.UtcNow),
-                new TrackedItem(301, TrackingMode.Tree, DateTimeOffset.UtcNow),
-            });
+        _fixturePins.Add(new TrackedItem(300, TrackingMode.Single, DateTimeOffset.UtcNow));
+        _fixturePins.Add(new TrackedItem(301, TrackingMode.Tree, DateTimeOffset.UtcNow));
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync([TestIteration]);

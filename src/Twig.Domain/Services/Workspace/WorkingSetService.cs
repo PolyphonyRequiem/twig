@@ -34,7 +34,6 @@ public sealed class WorkingSetService
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingStore;
     private readonly IIterationService _iterationService;
-    private readonly ITrackingRepository? _trackingRepo;
     private readonly string? _userDisplayName;
     private readonly IBenchRepository? _benchRepo;
     private readonly BenchEvaluator? _benchEvaluator;
@@ -51,7 +50,6 @@ public sealed class WorkingSetService
         IPendingChangeStore pendingStore,
         IIterationService iterationService,
         string? userDisplayName,
-        ITrackingRepository? trackingRepo = null,
         IBenchRepository? benchRepo = null,
         BenchEvaluator? benchEvaluator = null)
     {
@@ -60,7 +58,6 @@ public sealed class WorkingSetService
         _pendingStore = pendingStore;
         _iterationService = iterationService;
         _userDisplayName = userDisplayName;
-        _trackingRepo = trackingRepo;
         _benchRepo = benchRepo;
         _benchEvaluator = benchEvaluator;
     }
@@ -147,7 +144,7 @@ public sealed class WorkingSetService
         }
 
         var bench = await new CurrentBenchResolver(
-                _benchRepo, new DefaultBenchSelectors(_trackingRepo, _userDisplayName))
+                _benchRepo, new DefaultBenchSelectors(_userDisplayName))
             .ResolveAsync(ct);
         var membership = await _benchEvaluator.EvaluateAsync(bench, iterations, ct);
         return Project(membership, iterations);
@@ -168,7 +165,7 @@ public sealed class WorkingSetService
     /// the read path and the write path cannot disagree about what a fresh default Bench holds.
     /// </summary>
     private Task<IReadOnlyCollection<BenchSelector>> DefaultSelectorsAsync(CancellationToken ct)
-        => new DefaultBenchSelectors(_trackingRepo, _userDisplayName).BuildAsync(ct);
+        => new DefaultBenchSelectors(_userDisplayName).BuildAsync(ct);
 
     /// <summary>
     /// Used only when a caller supplies iterations directly and no calendar is wired up, so the

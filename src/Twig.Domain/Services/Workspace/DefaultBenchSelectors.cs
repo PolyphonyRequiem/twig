@@ -14,45 +14,36 @@ namespace Twig.Domain.Services.Workspace;
 /// default Bench holds — and the disagreement would only show up as a missing pin, silently.
 /// </para>
 /// <para>
-/// Pins are still read from the FILE here because migrating them into the durable store is ticket
-/// #146, deliberately not #145. Until that lands the file and the Bench coexist; because both are
-/// already expressed as selectors, #146 is a data move rather than a second rewrite of this logic.
+/// 🔴 A fresh default Bench holds the SPRINT RULE AND NOTHING ELSE (ADO #146). It used to seed
+/// itself from pins in the tracking file, because the file was the pin store and the two had to
+/// coexist. The owner cut the migration on 2026-08-07 — existing pin state is wiped, not carried —
+/// so the file's pin half is gone and seeding from it would resurrect a second source of truth
+/// this ticket exists to remove.
+/// </para>
+/// <para>
+/// Consequence, stated plainly rather than discovered: <b>pins made before this ships do not
+/// survive it.</b> That is the accepted cost of the wipe, not an oversight. Pins made after it
+/// live on the Bench in the durable store, which is never dropped.
 /// </para>
 /// </summary>
 public sealed class DefaultBenchSelectors
 {
-    private readonly ITrackingRepository? _trackingRepo;
     private readonly string? _userDisplayName;
 
-    /// <param name="trackingRepo">
-    /// The tracking file, or null when no tracking is wired up (the Bench then starts with the
-    /// sprint rule alone).
-    /// </param>
     /// <param name="userDisplayName">Who the sprint rule is filtered to, or null for the whole team.</param>
-    public DefaultBenchSelectors(ITrackingRepository? trackingRepo, string? userDisplayName)
+    public DefaultBenchSelectors(string? userDisplayName)
     {
-        _trackingRepo = trackingRepo;
         _userDisplayName = userDisplayName;
     }
 
     /// <summary>Composes the selectors a freshly created default Bench holds.</summary>
     public async Task<IReadOnlyCollection<BenchSelector>> BuildAsync(CancellationToken ct = default)
     {
-        var selectors = new List<BenchSelector>
+        await Task.CompletedTask;
+
+        return new List<BenchSelector>
         {
             BenchSelector.ForCurrentSprint(_userDisplayName),
         };
-
-        if (_trackingRepo is not null)
-        {
-            foreach (var tracked in await _trackingRepo.GetAllTrackedAsync(ct))
-            {
-                selectors.Add(tracked.Mode == Enums.TrackingMode.Tree
-                    ? BenchSelector.ForSubtree(tracked.WorkItemId)
-                    : BenchSelector.ForItem(tracked.WorkItemId));
-            }
-        }
-
-        return selectors;
     }
 }

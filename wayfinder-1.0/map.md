@@ -170,6 +170,18 @@ number disambiguates only when two maps are open at once.
   create/name/switch/list) can follow, because `WorkingSet` keeps working throughout.
   Addressing — how a caller names its Context — is chartered separately as
   `wayfinder/tickets/0023-context-addressing.md`.
+- **BUILD IT: [1007](tickets/1007-build-the-bench.md).** Bench goes FIRST, ahead of 0022's
+  Context stage (owner, 2026-08-06), and the evidence supports the reversal rather than
+  merely permitting it: **`tracked_items` and `excluded_items` are in the DROPPABLE mirror**
+  (`SqliteCacheStore.cs:420`, in `DropAllTables`). Those are the user's hand pins and hand
+  exclusions — the one part of the working set ADO **cannot** rebuild — so a `SchemaVersion`
+  bump destroys them silently. That is #271's class wearing a quieter coat, and by 0005 §3a's
+  own "can ADO rebuild it?" test both tables were always misfiled. Moving them is 0013
+  finishing its own sentence. So the Bench is a **data-loss fix that happens to be the
+  feature**: it needs no Context work to land, and `WorkingSet` behaves identically
+  throughout. Acceptance bar: with one Bench and no user action, twig behaves exactly as it
+  does today. 🔴 Unlike 0013, a clean break is NOT available — pins are silent, so losing them
+  prompts nobody; the migration must be written or the ticket blocks.
 - **Whether twig needs a server, and what a notification would be.** Ticket
   [1005](tickets/1005-does-twig-need-a-server.md), raised off the #359 run: a leftover
   `twig-tui.exe` held the SQLite files open. That symptom is NOT evidence for a server —

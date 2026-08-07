@@ -1409,6 +1409,10 @@ internal static class GroupedHelp
 
         // Group prefixes for compound commands without standalone handlers
         "link",
+        // ADO #148-150. `bench` has no bare handler — every verb is `bench <verb>` — but the
+        // dispatcher only ever inspects args[0], so without this entry the whole group is
+        // unreachable and `twig bench list` answers "Unknown command: 'bench'".
+        "bench",
     ];
 
     /// <summary>

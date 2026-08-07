@@ -127,6 +127,24 @@ public sealed class GroupedHelpTests
         missingFromKnown.ShouldBeEmpty(
             $"Non-hidden commands missing from KnownCommands: {string.Join(", ", missingFromKnown)}");
 
+        // 🔴 And every compound command's GROUP PREFIX must be there too. The dispatcher only
+        // ever inspects args[0] (see IsKnownCommand), so a group whose verbs are all compound —
+        // `bench create`, `bench list` — is UNREACHABLE unless the bare word is listed. Checking
+        // only the full names passes while `twig bench list` answers "Unknown command: 'bench'".
+        //
+        // That is not hypothetical: it shipped. ADO #148-150 added four bench verbs, 3,072 CLI
+        // tests passed, and the feature could not be invoked at all. Found by running the real
+        // binary, which no test did.
+        var missingPrefixes = nonHidden
+            .Where(cmd => cmd.Contains(' '))
+            .Select(cmd => cmd.Split(' ')[0])
+            .Distinct()
+            .Where(prefix => !GroupedHelp.KnownCommands.Contains(prefix))
+            .ToList();
+        missingPrefixes.ShouldBeEmpty(
+            "Compound-command group prefixes missing from KnownCommands — the whole group is " +
+            $"unreachable from the CLI: {string.Join(", ", missingPrefixes)}");
+
         // Every non-hidden command must appear in the help output
         var missingFromOutput = nonHidden
             .Where(cmd => !helpOutput.Contains(cmd))

@@ -26,8 +26,55 @@ public sealed record BenchMembership
     /// <summary>The iterations the sprint rule resolved to, for callers that report scope.</summary>
     public IReadOnlyList<IterationPath> IterationPaths { get; init; } = [];
 
-    /// <summary>The Bench's membership: the union of everything its selectors matched.</summary>
+    /// <summary>
+    /// Locally drafted items that have never been pushed (ADO #147).
+    /// <para>
+    /// 🔴 NOT selector-derived. ADO has never heard of a seed, so no rule on any Bench could
+    /// match one; surfacing them is a property of what an evaluation RETURNS.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<int> SeedIds { get; init; } = [];
+
+    /// <summary>
+    /// Items carrying unpushed edits — what twig OWES ADO (ADO #147).
+    /// <para>
+    /// 🔴 Also not selector-derived, and for a different reason from the seeds: a Bench's
+    /// selectors decide what is INTERESTING, and a display preference must not be able to
+    /// conceal a debt. If switching Bench could hide a staged edit, twig would be using a view
+    /// setting to hide work that is lost when the person forgets it.
+    /// </para>
+    /// </summary>
+    public IReadOnlySet<int> DirtyItemIds { get; init; } = new HashSet<int>();
+
+    /// <summary>
+    /// What a Bench evaluation surfaces: the union of everything its selectors matched, PLUS the
+    /// owed work that no selector can remove.
+    /// <para>
+    /// 🔴 The owed ids are unioned HERE rather than added as selectors at Bench creation. A
+    /// selector can be removed by editing the Bench; this cannot. That difference is the whole
+    /// of ADO #147 — an implementation that seeds every Bench with a "show my unpushed work"
+    /// selector passes the same acceptance sentences while reproducing the defect.
+    /// </para>
+    /// </summary>
     public IReadOnlySet<int> AllIds
+    {
+        get
+        {
+            var set = new HashSet<int>();
+            foreach (var item in QueryMatches) set.Add(item.Id);
+            foreach (var id in PinnedIds) set.Add(id);
+            foreach (var id in SeedIds) set.Add(id);
+            foreach (var id in DirtyItemIds) set.Add(id);
+            return set;
+        }
+    }
+
+    /// <summary>
+    /// Only what the SELECTORS matched. Exists so a test can assert the discriminating
+    /// precondition — "this item really is matched by nothing on this Bench" — rather than
+    /// trusting a fixture comment and degrading into a tautology.
+    /// </summary>
+    public IReadOnlySet<int> SelectedIds
     {
         get
         {

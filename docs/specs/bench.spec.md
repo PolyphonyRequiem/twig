@@ -124,6 +124,12 @@ is *interesting*. Unpushed work is what twig *owes* ADO. A display preference mu
 able to conceal a debt — if switching Bench could hide a staged edit, twig would be using a
 view setting to hide work that is lost if the person forgets it.
 
+**Where it lives (ADO #147).** The guard is implemented inside the evaluator, which reads the
+seeds and the pending set on every evaluation and unions them into what the evaluation returns.
+It is deliberately *not* a selector installed on each Bench at creation: a selector can be
+removed by editing the Bench, and that would reproduce the defect while passing the same
+acceptance sentences. A Bench with **no selectors at all** still surfaces owed work.
+
 ### What a Bench is not
 
 - **Not a sync unit.** Reconciliation scopes to the pending set, per Connection. Switching

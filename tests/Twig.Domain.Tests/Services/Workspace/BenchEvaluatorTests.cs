@@ -21,6 +21,7 @@ public sealed class BenchEvaluatorTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IIterationCalendar _calendar = Substitute.For<IIterationCalendar>();
+    private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
 
     private static readonly IterationPath Sprint = IterationPath.Parse(@"Project\Sprint 7").Value;
 
@@ -34,7 +35,7 @@ public sealed class BenchEvaluatorTests
             .Returns(new[] { Sprint });
     }
 
-    private BenchEvaluator CreateSut() => new(_workItemRepo, _calendar);
+    private BenchEvaluator CreateSut() => new(_workItemRepo, _calendar, _pendingStore);
 
     private static Bench BenchOf(params BenchSelector[] selectors)
         => new() { Name = "test", Selectors = selectors };

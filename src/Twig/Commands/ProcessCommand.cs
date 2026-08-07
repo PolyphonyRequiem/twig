@@ -123,6 +123,7 @@ public sealed class ProcessCommand(
             new RenderColumn("stateCount", "States"),
             new RenderColumn("childTypeCount", "Children"),
             new RenderColumn("color", "Color"),
+            new RenderColumn("iconId", "Icon ID"),
         };
 
         var rows = new List<RenderRow>(types.Count);
@@ -140,6 +141,9 @@ public sealed class ProcessCommand(
                 ["childTypeCount"] = RenderCell.Integer(type.ValidChildTypes.Count),
                 ["color"] = type.ColorHex is not null
                     ? RenderCell.String(type.ColorHex)
+                    : new RenderCell("null", new RenderValue.Null()),
+                ["iconId"] = type.IconId is not null
+                    ? RenderCell.String(type.IconId)
                     : new RenderCell("null", new RenderValue.Null()),
             };
             rows.Add(new RenderRow(null, cells));

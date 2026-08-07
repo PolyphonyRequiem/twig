@@ -716,6 +716,10 @@ internal static class McpResultBuilder
                     writer.WriteString("color", type.ColorHex);
                 else
                     writer.WriteNull("color");
+                if (type.IconId is not null)
+                    writer.WriteString("iconId", type.IconId);
+                else
+                    writer.WriteNull("iconId");
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -732,6 +736,11 @@ internal static class McpResultBuilder
                 writer.WriteString("color", type.ColorHex);
             else
                 writer.WriteNull("color");
+
+            if (type.IconId is not null)
+                writer.WriteString("iconId", type.IconId);
+            else
+                writer.WriteNull("iconId");
 
             // States with category and color
             writer.WriteStartArray("states");

@@ -65,7 +65,65 @@ Both have a real failure mode:
    in a repo is still a caller, and silently changing what it targets is the 0021 defect wearing
    a new hat.
 
-## Output
+## The finding that settles the shape (2026-08-06)
+
+Research landed in two memos:
+[`assets/context-addressing-priorart.md`](../assets/context-addressing-priorart.md) and
+[`assets/context-addressing-scenarios.md`](../assets/context-addressing-scenarios.md).
+
+**Prior art splits cleanly into two families, and the split is about FAILURE, not ergonomics.**
+
+| Family | Reference is | On a stale reference | Examples |
+|---|---|---|---|
+| **Handle** | a resource that must resolve | **fails loud** | `docker context` (`DOCKER_CONTEXT=nonexistent` → hard error [measured]); `ssh-agent` (`SSH_AUTH_SOCK` → `ENOENT` [measured]) |
+| **Name** | a mutable name in a shared file | **acts on the wrong target, silently** | `kubectl current-context`; `terraform workspace`; `gh` active account |
+
+**twig today is the second family, structurally.** The active work item is one row in a shared
+table. **A row always resolves.** There is no state in which twig can notice the reference is
+stale, because staleness is not representable — which is exactly why 0021 had to fix this at
+the MCP surface with a *rule* (every tool names its target) rather than with a *mechanism*.
+
+Two corroborations worth keeping:
+
+- **Regret is measurable as ecosystem mass.** `kubectx` / `kubens` / `kube-ps1` exist only to
+  make kubectl's invisible global visible; `gh` users bolt `direnv` on to fake per-directory
+  accounts; "workspaces are a trap" is HashiCorp's own steer. Nobody writes a prompt plugin to
+  show you your `DOCKER_CONTEXT`.
+- **The defect class reproduced live** [measured]: `TMUX=/tmp/bogus,999,0 tmux new-session -d`
+  exits **0** and creates the session on the bogus socket, invisible to a plain `tmux ls`.
+  tmux trusts the path and never validates the pid/session-id it carries.
+
+### RULING — twig takes the handle family. An unknown or expired Context id is a HARD ERROR.
+
+Not a fallback, not a warning, not a silent fresh Context. Non-zero exit, name the id, say
+what to do.
+
+**Rationale.** This is the ONE choice that separates docker's model from the three regretted
+ones. Everything else in this ticket — transport, defaults, lifetime — is ergonomics layered on
+top, and none of it can rescue a design that cannot represent staleness. Choosing "name" and
+then adding warnings reproduces kubectl and hands the user a prompt-plugin problem.
+
+**Consequence, stated so it is not softened later.** A caller that holds a Context which has
+been reaped gets an error rather than quiet reassignment. That is the point: **being wrong
+loudly is the feature.** The alternative failed for kubectl in production often enough to spawn
+a tool ecosystem.
+
+**Guard.** The hard error must never be reachable in a way that risks pending edits. It cannot
+be, by construction — the pending set belongs to the **Connection**, not the Context (§below),
+so a refused command has nothing to lose.
+
+### Corollary — close never refuses, and never gets a `--force`
+
+The pending set is Connection-owned. Closing a Context therefore **structurally cannot discard
+work**, so refusing on unpushed edits would be ceremony that teaches the user nothing.
+
+**Close exits 0 and reports what remains pending.** Discard stays a separate, explicit verb on
+the pending set.
+
+🔴 **No `--force` on close.** A force flag that is habitually needed is how #271 recurs: the
+habit outlives the reason, and the one time it matters the user types it reflexively.
+
+## Output — DELIVERED
 
 A memo under `wayfinder/assets/` with the scenario × mechanism matrix, the prior art cited, and
 a **ranked recommendation with one named falsifier**. The final pick is the owner's; the memo's

@@ -155,6 +155,21 @@ number disambiguates only when two maps are open at once.
   switchable selection. **Note `CONTEXT.md` §4 is stale**: it still lists the sync-boundary
   question as open when 0004 closed it. Likely a 1.0 blocker, since Bench is user-facing
   vocabulary twig has committed to.
+  **RESOLVED 2026-08-06 — superseded by `wayfinder/tickets/0022-bench-and-context.md`.**
+  Three of the four are answered: `WorkingSet` **is** a Bench (one hard-coded query plus hand
+  pins and exclusions, with nowhere to persist the hand edits — promoted, not replaced);
+  **benches are switchable and Contexts are concurrent**; and the stale `CONTEXT.md` §4 line
+  is corrected. Still open and carried forward: whether the pending set is **stored** per-Bench
+  or per-Connection (only the reconciliation boundary is settled), and **whose job Bench
+  management is** — 1006 is the only place that question is written down. What 1006 could not
+  see: the Bench was never the blocker. The active work item is ONE ROW in a shared store,
+  touched at 47 sites across 28 files, so the real unit of concurrency had no name; 0022
+  introduces **Context** (disposable, per-caller, opened and closed by its caller), which
+  dissolves two of the four rather than answering them on their own terms. 1.0 relevance
+  narrows to 0022 **stage 1** (kill the shared slot — a correctness fix); stage 2 (Bench
+  create/name/switch/list) can follow, because `WorkingSet` keeps working throughout.
+  Addressing — how a caller names its Context — is chartered separately as
+  `wayfinder/tickets/0023-context-addressing.md`.
 - **Whether twig needs a server, and what a notification would be.** Ticket
   [1005](tickets/1005-does-twig-need-a-server.md), raised off the #359 run: a leftover
   `twig-tui.exe` held the SQLite files open. That symptom is NOT evidence for a server —

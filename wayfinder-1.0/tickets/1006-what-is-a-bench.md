@@ -2,7 +2,7 @@
 id: 1006
 title: What is a Bench, concretely enough to build
 type: decision
-status: open
+status: closed
 blocked_by: []
 ---
 
@@ -72,4 +72,49 @@ expensive to guess at beforehand.
 
 ## Answer
 
-<!-- empty until resolved -->
+**Superseded by [wayfinder 0022](../../wayfinder/tickets/0022-bench-and-context.md)
+(2026-08-06).** This ticket asked the right four questions; 0022 answered three of them and
+carried the fourth forward. Do not work this ticket — work 0022 and 0023.
+
+Question-by-question:
+
+1. **Pending set stored per-Bench or per-Connection?** **STILL OPEN**, and this ticket's
+   framing of the trap is the better one and is carried into 0022 verbatim in substance:
+   0004 settled that reconciliation *scopes* per-Connection, which does not by itself decide
+   where the set is *stored*, and per-Bench storage with per-Connection reconciliation is
+   coherent but means reconciliation reads ACROSS benches. 0022 stage 2 forces the answer.
+2. **Does `WorkingSet` survive as a Bench's derived projection?** **ANSWERED — it IS one.**
+   Today's derived working set is a Bench with one hard-coded query plus hand pins and hand
+   exclusions, computed per access with nowhere to persist the hand edits
+   (`WorkingSetService.ComputeAsync` steps 1-8). 0022 stage 2 PROMOTES it rather than
+   replacing it, so there are no call sites to replace.
+3. **Concurrent or merely switchable?** **ANSWERED — benches are switchable; Contexts are
+   concurrent.** This ticket correctly identified it as a blast-radius question and
+   correctly framed the two shapes. 0022 resolves it by introducing the missing noun:
+   concurrency lives at the **Context** level (a disposable place to stand, opened and closed
+   by its caller), not at the Bench level. So a selection is not in scope on every read path,
+   and it is not ambient process state either — it is per-caller state named explicitly.
+4. **Whose job is Bench management?** **STILL OPEN, and this ticket is the only place it is
+   written down.** Carried forward. 0022 narrows it: Bench management is standing-command
+   territory, and the MCP-controls-the-Bench line in `CONTEXT.md` §4 needs squaring against
+   MCP being out of 1.0. Not resolved here.
+
+**The stale line this ticket flagged is fixed.** `CONTEXT.md` §4's "Open:" line no longer
+lists the sync-boundary question 0004 §2 already answered; it now lists only what is
+genuinely open.
+
+**What 0022 added that this ticket could not see.** The four questions above are all about the
+Bench, and the Bench was never the blocker. The blocker is that the active work item is ONE
+ROW in a shared store, read or written at 47 sites across 28 files — so the real unit of
+concurrency had no name. Introducing **Context** as a disposable, per-caller place to stand
+dissolves questions 2 and 3 rather than answering them on their own terms.
+
+**And the definition sharpened.** This ticket carries 0001's "a named set of work items."
+0022 rules that a Bench holds **pins, queries AND exclusions**, and stores the RULE rather
+than the results. Not a contradiction — a superset. Use the 0022 wording.
+
+**Is it a 1.0 blocker?** This ticket asked rather than assumed, correctly. Provisional answer:
+0022 **stage 1** (give each caller its own Context, kill the shared slot) is a correctness fix
+and is the 1.0-relevant half. **Stage 2** (Bench create/name/switch/list) is user-facing
+capability and can follow. `WorkingSet` keeps working throughout, which is what makes the
+staging legal. Confirm rather than inherit this.

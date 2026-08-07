@@ -97,12 +97,25 @@ language, not a subtlety. Until it is resolved, **always qualify the term**.
 > - **Does `WorkingSet` survive as a Bench's derived projection?** **Yes — it IS one.**
 >   Today's working set is a Bench with one hard-coded query plus hand pins and hand
 >   exclusions, computed per access with nowhere to persist the hand edits. 0022 stage 2
->   promotes it rather than replacing it.
+>   promotes it rather than replacing it. **Shipped in ADO #144, 2026-08-06** — the view is
+>   computed from the default Bench, output-identical against a captured baseline.
 > - **Still open:** whether the pending set is *stored* per-Bench or per-Connection. Only
->   the reconciliation boundary is settled.
+>   the reconciliation boundary is settled. (Traced during #144: **no ticket in the 144-151
+>   set forces this**. Keeping unpushed work visible only needs to READ it; deleting a Bench
+>   only needs to leave it alone. A worker that believes this question is blocking it has
+>   left its ticket.)
 >
-> **A Bench holds** pinned items, queries and exclusions. It stores the RULE, never the
-> results. It is a saved backlog — *my sprint*, *the bugs I own*, *release blockers* — named
+> **Surface principle (Daniel, 2026-08-06) — human simple, machine strict.** A person at a
+> terminal who names no Bench gets the default; a script MUST name the Bench every time,
+> including the default. Omitting it is a hard error, never a fallback, and an unknown name
+> exits non-zero creating nothing. The output format is **declared** on the command and never
+> inferred from whether a tty is attached. This is 0023's Context addressing rule one level up
+> — Benches follow the established pattern rather than inventing one.
+>
+> **A Bench holds** pinned items and queries — one mechanism, called **selectors**. It stores
+> the RULE, never the results. Exclusions are **out of the Bench entirely** (decided
+> 2026-08-06): there is no subtracting selector, and the existing exclude commands are
+> untouched. It is a saved backlog — *my sprint*, *the bugs I own*, *release blockers* — named
 > once and returned to. Every Context standing on a Bench sees the same Bench; there are no
 > private pins.
 >
@@ -171,7 +184,10 @@ Related, unambiguous:
 
 | Noun | Definition | Defined at |
 |---|---|---|
-| **WorkingSet** | The set of work items relevant to the current context; `AllIds` is the union of all ID collections, recomputed on every access. | `src/Twig.Domain/Services/Workspace/WorkingSet.cs:9` |
+| **WorkingSet** | The set of work items relevant to the current context; `AllIds` is the union of all ID collections, recomputed on every access. **Since ADO #144 this is the projection of a Bench** — the default one — rather than a separate concept. | `src/Twig.Domain/Services/Workspace/WorkingSet.cs:9` |
+| **Bench** | A named, durable, saved backlog. Holds SELECTORS and nothing else; membership is their order-free union. Lives in the durable store. | `src/Twig.Domain/Aggregates/Bench.cs` |
+| **Selector** | One rule on a Bench answering *is this item on this Bench?* A **pin** matches one item, a **subtree pin** matches an item and its descendants as they are now, a **query** matches a body of work. They are one mechanism differing only in how many items they match. A Bench stores the RULE, never the results. Evaluated against the LOCAL CACHE — a query selector carries an ADO query as a **refresh rule** describing how items reach the cache, never as the thing run when somebody looks at their Bench. | `src/Twig.Domain/ValueObjects/BenchSelector.cs` |
+| **Iteration calendar** | The local mapping from an iteration path to the span of time it covers. A sprint is a NAME (the stable identity) mapped to a date range (a movable attribute), so the Bench stores the rule *"the iteration covering today"* and this answers which one that is — from cached data plus the local clock, never a network call. In the disposable mirror: ADO can rebuild it. | `src/Twig.Domain/Interfaces/IIterationCalendar.cs` |
 | **WorkspaceSection** | A mode-labelled slice of workspace items (Sprint, Area, Recent, Manual). | `src/Twig.Domain/ReadModels/WorkspaceSections.cs:10` |
 | **TrackedItem** | A work item explicitly pinned into a workspace, with a `TrackingMode` (single vs subtree). | `src/Twig.Domain/ValueObjects/TrackedItem.cs:11` |
 | **ExcludedItem** | A work item explicitly removed from a workspace view, with a reason. | `src/Twig.Domain/ValueObjects/ExcludedItem.cs:9` |

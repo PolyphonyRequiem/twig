@@ -1,0 +1,12 @@
+# twig working-set baseline
+# Captured before the Bench existed. Read-only in tests.
+
+ActiveItemId: 500
+ParentChainIds: 100, 200
+ChildrenIds: 601, 602
+SprintItemIds: 501, 504, 505
+SeedIds: -1
+DirtyItemIds: 701, 702
+TrackedItemIds: 505, 800, 801
+IterationPaths: Project\Sprint 7
+AllIds: -1, 100, 200, 500, 501, 504, 505, 601, 602, 701, 702, 800, 801

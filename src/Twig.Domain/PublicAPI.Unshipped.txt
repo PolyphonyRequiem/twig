@@ -739,7 +739,6 @@ Twig.Domain.Services.Reconciliation.MergeBase.For(string! fieldName) -> Twig.Dom
 Twig.Domain.Services.Reconciliation.MergeBase.IsEmpty.get -> bool
 Twig.Domain.Services.Reconciliation.MergeBase.StagedFields.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
 Twig.Domain.Services.Reconciliation.ThreeWayMerge
-
 override Twig.Domain.Services.Sync.NotCached.Equals(object? obj) -> bool
 override Twig.Domain.Services.Sync.NotCached.GetHashCode() -> int
 override Twig.Domain.Services.Sync.NotCached.ToString() -> string!
@@ -771,3 +770,101 @@ Twig.Domain.Services.Sync.SyncResult.SyncResult(Twig.Domain.Services.Sync.Stale!
 Twig.Domain.Services.Sync.RefreshOrchestrator.FetchItemsAsync(string! wiql, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Sync.RefreshFetchResult!>!
 static Twig.Domain.ValueObjects.FieldAssignment.ParseAll(System.Collections.Generic.IReadOnlyList<string!>? pairs, string! flagName) -> Twig.Domain.Common.Result<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>!>
 Twig.Domain.ValueObjects.FieldAssignment
+Twig.Domain.Aggregates.Bench
+Twig.Domain.Aggregates.Bench.<Clone>$() -> Twig.Domain.Aggregates.Bench!
+Twig.Domain.Aggregates.Bench.Bench() -> void
+Twig.Domain.Aggregates.Bench.Equals(Twig.Domain.Aggregates.Bench? other) -> bool
+Twig.Domain.Aggregates.Bench.Id.get -> long
+Twig.Domain.Aggregates.Bench.Id.init -> void
+Twig.Domain.Aggregates.Bench.IsDefault.get -> bool
+Twig.Domain.Aggregates.Bench.IsDefault.init -> void
+Twig.Domain.Aggregates.Bench.Name.get -> string!
+Twig.Domain.Aggregates.Bench.Name.init -> void
+Twig.Domain.Aggregates.Bench.Selectors.get -> System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>!
+Twig.Domain.Aggregates.Bench.Selectors.init -> void
+Twig.Domain.Enums.SelectorKind
+Twig.Domain.Enums.SelectorKind.Item = 0 -> Twig.Domain.Enums.SelectorKind
+Twig.Domain.Enums.SelectorKind.Query = 2 -> Twig.Domain.Enums.SelectorKind
+Twig.Domain.Enums.SelectorKind.Subtree = 1 -> Twig.Domain.Enums.SelectorKind
+Twig.Domain.Interfaces.IBenchRepository
+Twig.Domain.Interfaces.IBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
+Twig.Domain.Interfaces.IBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Interfaces.IBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IIterationCalendar
+Twig.Domain.Interfaces.IIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
+Twig.Domain.Interfaces.IIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshIterationCalendarAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null, Twig.Domain.Interfaces.IIterationCalendar? iterationCalendar = null) -> void
+Twig.Domain.Services.Workspace.BenchEvaluator
+Twig.Domain.Services.Workspace.BenchEvaluator.BenchEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IIterationCalendar! iterationCalendar) -> void
+Twig.Domain.Services.Workspace.BenchEvaluator.EvaluateAsync(Twig.Domain.Aggregates.Bench! bench, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>? iterationOverride = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Workspace.BenchMembership!>!
+Twig.Domain.Services.Workspace.BenchMembership
+Twig.Domain.Services.Workspace.BenchMembership.<Clone>$() -> Twig.Domain.Services.Workspace.BenchMembership!
+Twig.Domain.Services.Workspace.BenchMembership.AllIds.get -> System.Collections.Generic.IReadOnlySet<int>!
+Twig.Domain.Services.Workspace.BenchMembership.BenchMembership() -> void
+Twig.Domain.Services.Workspace.BenchMembership.Equals(Twig.Domain.Services.Workspace.BenchMembership? other) -> bool
+Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!
+Twig.Domain.Services.Workspace.BenchMembership.IterationPaths.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.get -> System.Collections.Generic.IReadOnlyList<int>!
+Twig.Domain.Services.Workspace.BenchMembership.PinnedIds.init -> void
+Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!
+Twig.Domain.Services.Workspace.BenchMembership.QueryMatches.init -> void
+Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void
+Twig.Domain.ValueObjects.BenchSelector
+Twig.Domain.ValueObjects.BenchSelector.<Clone>$() -> Twig.Domain.ValueObjects.BenchSelector!
+Twig.Domain.ValueObjects.BenchSelector.AsWorkItemId() -> int
+Twig.Domain.ValueObjects.BenchSelector.BenchSelector(Twig.Domain.Enums.SelectorKind Kind, string! Payload) -> void
+Twig.Domain.ValueObjects.BenchSelector.Deconstruct(out Twig.Domain.Enums.SelectorKind Kind, out string! Payload) -> void
+Twig.Domain.ValueObjects.BenchSelector.Equals(Twig.Domain.ValueObjects.BenchSelector? other) -> bool
+Twig.Domain.ValueObjects.BenchSelector.Kind.get -> Twig.Domain.Enums.SelectorKind
+Twig.Domain.ValueObjects.BenchSelector.Kind.init -> void
+Twig.Domain.ValueObjects.BenchSelector.Payload.get -> string!
+Twig.Domain.ValueObjects.BenchSelector.Payload.init -> void
+Twig.Domain.ValueObjects.BenchSelector.QueryAssignedTo.get -> string?
+Twig.Domain.ValueObjects.BenchSelector.QueryRule.get -> string!
+Twig.Infrastructure.Persistence.SqliteBenchRepository
+Twig.Infrastructure.Persistence.SqliteBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.SqliteBenchRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+Twig.Infrastructure.Persistence.SqliteIterationCalendar
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.SqliteIterationCalendar(Twig.Infrastructure.Persistence.SqliteCacheStore! store, System.Func<System.DateTimeOffset>? clock = null) -> void
+const Twig.Domain.Aggregates.Bench.DefaultName = "default" -> string!
+const Twig.Domain.ValueObjects.BenchSelector.CurrentSprintRule = "current-sprint" -> string!
+override Twig.Domain.Aggregates.Bench.Equals(object? obj) -> bool
+override Twig.Domain.Aggregates.Bench.GetHashCode() -> int
+override Twig.Domain.Aggregates.Bench.ToString() -> string!
+override Twig.Domain.Services.Workspace.BenchMembership.Equals(object? obj) -> bool
+override Twig.Domain.Services.Workspace.BenchMembership.GetHashCode() -> int
+override Twig.Domain.Services.Workspace.BenchMembership.ToString() -> string!
+override Twig.Domain.ValueObjects.BenchSelector.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.BenchSelector.GetHashCode() -> int
+override Twig.Domain.ValueObjects.BenchSelector.ToString() -> string!
+static Twig.Domain.Aggregates.Bench.operator !=(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
+static Twig.Domain.Aggregates.Bench.operator ==(Twig.Domain.Aggregates.Bench? left, Twig.Domain.Aggregates.Bench? right) -> bool
+static Twig.Domain.Services.Workspace.BenchMembership.operator !=(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
+static Twig.Domain.Services.Workspace.BenchMembership.operator ==(Twig.Domain.Services.Workspace.BenchMembership? left, Twig.Domain.Services.Workspace.BenchMembership? right) -> bool
+static Twig.Domain.ValueObjects.BenchSelector.ForCurrentSprint(string? assignedTo) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.ForItem(int workItemId) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.ForSubtree(int rootWorkItemId) -> Twig.Domain.ValueObjects.BenchSelector!
+static Twig.Domain.ValueObjects.BenchSelector.operator !=(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
+static Twig.Domain.ValueObjects.BenchSelector.operator ==(Twig.Domain.ValueObjects.BenchSelector? left, Twig.Domain.ValueObjects.BenchSelector? right) -> bool
+*REMOVED*Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null) -> void
+*REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null) -> void
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteBenchRepository.SqliteBenchRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar
+*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Infrastructure.Persistence.SqliteIterationCalendar.SqliteIterationCalendar(Twig.Infrastructure.Persistence.SqliteCacheStore! store, System.Func<System.DateTimeOffset>? clock = null) -> void

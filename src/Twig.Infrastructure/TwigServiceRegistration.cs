@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
@@ -201,6 +202,20 @@ public static class TwigServiceRegistration
         // Backward compat — direct SyncCoordinator consumers resolve to pair.ReadWrite
         services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 
+        // ADO #144: the Bench, and the local iteration calendar that answers its sprint rule
+        // without a network call. Registered here, beside WorkingSetService, because that is the
+        // consumer — a registration in the other module resolves for the CLI and leaves the MCP
+        // surface unable to build the same service.
+        //
+        // TryAdd, not Add: this module is composed on top of fixtures that substitute their own
+        // stores. A plain Add is last-wins and would override a substitute with a SQLite-backed
+        // implementation demanding a real cache store the fixture never registered.
+        services.TryAddSingleton<IBenchRepository>(sp => new SqliteBenchRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.TryAddSingleton<IIterationCalendar>(sp => new SqliteIterationCalendar(sp.GetRequiredService<SqliteCacheStore>()));
+        services.TryAddSingleton<BenchEvaluator>(sp => new BenchEvaluator(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IIterationCalendar>()));
+
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),
@@ -208,7 +223,9 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
             sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
-            sp.GetRequiredService<ITrackingRepository>()));
+            sp.GetRequiredService<ITrackingRepository>(),
+            sp.GetRequiredService<IBenchRepository>(),
+            sp.GetRequiredService<BenchEvaluator>()));
 
         // EPIC-003: Seed publish orchestrator
         services.AddSingleton<BacklogOrderer>(sp => new BacklogOrderer(
@@ -286,7 +303,8 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<WorkingSetService>(),
             sp.GetRequiredService<SyncCoordinatorFactory>(),
             sp.GetRequiredService<IIterationService>(),
-            sp.GetService<ITrackingService>()));
+            sp.GetService<ITrackingService>(),
+            sp.GetService<IIterationCalendar>()));
 
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(

@@ -49,6 +49,10 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
+        // ADO #144. Substituted like every other store in this fixture — it asserts that the
+        // command factories RESOLVE, not what a Bench evaluates to.
+        services.AddSingleton(Substitute.For<IBenchRepository>());
+        services.AddSingleton(Substitute.For<IIterationCalendar>());
         services.AddSingleton(Substitute.For<ITrackingService>());
         services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());
         services.AddSingleton<SprintIterationResolver>();

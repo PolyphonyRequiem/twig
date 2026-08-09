@@ -1061,3 +1061,225 @@ virtual Twig.Domain.Services.Mutation.PinOutcome.PrintMembers(System.Text.String
 *REMOVED*Twig.Domain.Services.Sync.RefreshOrchestrator.RefreshOrchestrator(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Services.Workspace.WorkingSetService! workingSetService, Twig.Domain.Services.Sync.SyncCoordinatorFactory! syncCoordinatorFactory, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.ITrackingService? trackingService = null) -> void
 *REMOVED*Twig.Domain.Services.Sync.TrackingService.TrackingService(Twig.Domain.Interfaces.ITrackingRepository! repository, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepository, Twig.Domain.Interfaces.IProcessTypeStore! processTypeStore) -> void
 *REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.ITrackingRepository? trackingRepo = null) -> void
+const Twig.Domain.Projections.WorkItemDetailProjector.ShortFormLength = 80 -> int
+override Twig.Domain.Projections.DetailControl.Equals(object? obj) -> bool
+override Twig.Domain.Projections.DetailControl.GetHashCode() -> int
+override Twig.Domain.Projections.DetailControl.ToString() -> string!
+override Twig.Domain.Projections.DetailFieldValue.Equals(object? obj) -> bool
+override Twig.Domain.Projections.DetailFieldValue.GetHashCode() -> int
+override Twig.Domain.Projections.DetailFieldValue.ToString() -> string!
+override Twig.Domain.Projections.DetailGroup.Equals(object? obj) -> bool
+override Twig.Domain.Projections.DetailGroup.GetHashCode() -> int
+override Twig.Domain.Projections.DetailGroup.ToString() -> string!
+override Twig.Domain.Projections.DetailPage.Equals(object? obj) -> bool
+override Twig.Domain.Projections.DetailPage.GetHashCode() -> int
+override Twig.Domain.Projections.DetailPage.ToString() -> string!
+override Twig.Domain.Projections.DetailSection.Equals(object? obj) -> bool
+override Twig.Domain.Projections.DetailSection.GetHashCode() -> int
+override Twig.Domain.Projections.DetailSection.ToString() -> string!
+override Twig.Domain.Projections.WorkItemDetailDocument.Equals(object? obj) -> bool
+override Twig.Domain.Projections.WorkItemDetailDocument.GetHashCode() -> int
+override Twig.Domain.Projections.WorkItemDetailDocument.ToString() -> string!
+override Twig.Domain.ValueObjects.FormLayout.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.FormLayout.GetHashCode() -> int
+override Twig.Domain.ValueObjects.FormLayout.ToString() -> string!
+override Twig.Domain.ValueObjects.LayoutControl.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.LayoutControl.GetHashCode() -> int
+override Twig.Domain.ValueObjects.LayoutControl.ToString() -> string!
+override Twig.Domain.ValueObjects.LayoutGroup.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.LayoutGroup.GetHashCode() -> int
+override Twig.Domain.ValueObjects.LayoutGroup.ToString() -> string!
+override Twig.Domain.ValueObjects.LayoutPage.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.LayoutPage.GetHashCode() -> int
+override Twig.Domain.ValueObjects.LayoutPage.ToString() -> string!
+override Twig.Domain.ValueObjects.LayoutSection.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.LayoutSection.GetHashCode() -> int
+override Twig.Domain.ValueObjects.LayoutSection.ToString() -> string!
+static Twig.Domain.Projections.DetailControl.operator !=(Twig.Domain.Projections.DetailControl? left, Twig.Domain.Projections.DetailControl? right) -> bool
+static Twig.Domain.Projections.DetailControl.operator ==(Twig.Domain.Projections.DetailControl? left, Twig.Domain.Projections.DetailControl? right) -> bool
+static Twig.Domain.Projections.DetailFieldValue.operator !=(Twig.Domain.Projections.DetailFieldValue? left, Twig.Domain.Projections.DetailFieldValue? right) -> bool
+static Twig.Domain.Projections.DetailFieldValue.operator ==(Twig.Domain.Projections.DetailFieldValue? left, Twig.Domain.Projections.DetailFieldValue? right) -> bool
+static Twig.Domain.Projections.DetailGroup.operator !=(Twig.Domain.Projections.DetailGroup? left, Twig.Domain.Projections.DetailGroup? right) -> bool
+static Twig.Domain.Projections.DetailGroup.operator ==(Twig.Domain.Projections.DetailGroup? left, Twig.Domain.Projections.DetailGroup? right) -> bool
+static Twig.Domain.Projections.DetailPage.operator !=(Twig.Domain.Projections.DetailPage? left, Twig.Domain.Projections.DetailPage? right) -> bool
+static Twig.Domain.Projections.DetailPage.operator ==(Twig.Domain.Projections.DetailPage? left, Twig.Domain.Projections.DetailPage? right) -> bool
+static Twig.Domain.Projections.DetailSection.operator !=(Twig.Domain.Projections.DetailSection? left, Twig.Domain.Projections.DetailSection? right) -> bool
+static Twig.Domain.Projections.DetailSection.operator ==(Twig.Domain.Projections.DetailSection? left, Twig.Domain.Projections.DetailSection? right) -> bool
+static Twig.Domain.Projections.WorkItemDetailDocument.operator !=(Twig.Domain.Projections.WorkItemDetailDocument? left, Twig.Domain.Projections.WorkItemDetailDocument? right) -> bool
+static Twig.Domain.Projections.WorkItemDetailDocument.operator ==(Twig.Domain.Projections.WorkItemDetailDocument? left, Twig.Domain.Projections.WorkItemDetailDocument? right) -> bool
+static Twig.Domain.Projections.WorkItemDetailProjector.Project(Twig.Domain.ValueObjects.FormLayout! layout, Twig.Domain.ValueObjects.WorkItemSnapshot! snapshot, System.Collections.Generic.IReadOnlyDictionary<string!, Twig.Domain.ValueObjects.FieldDefinition!>? fieldDefinitions = null) -> Twig.Domain.Projections.WorkItemDetailDocument!
+static Twig.Domain.Projections.WorkItemDetailProjector.ResolveValue(string! fieldReferenceName, Twig.Domain.ValueObjects.WorkItemSnapshot! snapshot, System.Collections.Generic.IReadOnlyDictionary<string!, Twig.Domain.ValueObjects.FieldDefinition!>? fieldDefinitions = null) -> Twig.Domain.Projections.DetailFieldValue!
+static Twig.Domain.ValueObjects.FormLayout.operator !=(Twig.Domain.ValueObjects.FormLayout? left, Twig.Domain.ValueObjects.FormLayout? right) -> bool
+static Twig.Domain.ValueObjects.FormLayout.operator ==(Twig.Domain.ValueObjects.FormLayout? left, Twig.Domain.ValueObjects.FormLayout? right) -> bool
+static Twig.Domain.ValueObjects.LayoutControl.operator !=(Twig.Domain.ValueObjects.LayoutControl? left, Twig.Domain.ValueObjects.LayoutControl? right) -> bool
+static Twig.Domain.ValueObjects.LayoutControl.operator ==(Twig.Domain.ValueObjects.LayoutControl? left, Twig.Domain.ValueObjects.LayoutControl? right) -> bool
+static Twig.Domain.ValueObjects.LayoutGroup.operator !=(Twig.Domain.ValueObjects.LayoutGroup? left, Twig.Domain.ValueObjects.LayoutGroup? right) -> bool
+static Twig.Domain.ValueObjects.LayoutGroup.operator ==(Twig.Domain.ValueObjects.LayoutGroup? left, Twig.Domain.ValueObjects.LayoutGroup? right) -> bool
+static Twig.Domain.ValueObjects.LayoutPage.operator !=(Twig.Domain.ValueObjects.LayoutPage? left, Twig.Domain.ValueObjects.LayoutPage? right) -> bool
+static Twig.Domain.ValueObjects.LayoutPage.operator ==(Twig.Domain.ValueObjects.LayoutPage? left, Twig.Domain.ValueObjects.LayoutPage? right) -> bool
+static Twig.Domain.ValueObjects.LayoutSection.operator !=(Twig.Domain.ValueObjects.LayoutSection? left, Twig.Domain.ValueObjects.LayoutSection? right) -> bool
+static Twig.Domain.ValueObjects.LayoutSection.operator ==(Twig.Domain.ValueObjects.LayoutSection? left, Twig.Domain.ValueObjects.LayoutSection? right) -> bool
+Twig.Domain.Projections.DetailControl
+Twig.Domain.Projections.DetailControl.<Clone>$() -> Twig.Domain.Projections.DetailControl!
+Twig.Domain.Projections.DetailControl.ControlType.get -> string!
+Twig.Domain.Projections.DetailControl.ControlType.init -> void
+Twig.Domain.Projections.DetailControl.Deconstruct(out string! Id, out string! Label, out string! ControlType, out bool ReadOnly, out bool Visible, out bool IsContribution, out Twig.Domain.Projections.DetailFieldValue? Value) -> void
+Twig.Domain.Projections.DetailControl.DetailControl(string! Id, string! Label, string! ControlType, bool ReadOnly, bool Visible, bool IsContribution, Twig.Domain.Projections.DetailFieldValue? Value) -> void
+Twig.Domain.Projections.DetailControl.Equals(Twig.Domain.Projections.DetailControl? other) -> bool
+Twig.Domain.Projections.DetailControl.Id.get -> string!
+Twig.Domain.Projections.DetailControl.Id.init -> void
+Twig.Domain.Projections.DetailControl.IsContribution.get -> bool
+Twig.Domain.Projections.DetailControl.IsContribution.init -> void
+Twig.Domain.Projections.DetailControl.Label.get -> string!
+Twig.Domain.Projections.DetailControl.Label.init -> void
+Twig.Domain.Projections.DetailControl.ReadOnly.get -> bool
+Twig.Domain.Projections.DetailControl.ReadOnly.init -> void
+Twig.Domain.Projections.DetailControl.Value.get -> Twig.Domain.Projections.DetailFieldValue?
+Twig.Domain.Projections.DetailControl.Value.init -> void
+Twig.Domain.Projections.DetailControl.Visible.get -> bool
+Twig.Domain.Projections.DetailControl.Visible.init -> void
+Twig.Domain.Projections.DetailFieldState
+Twig.Domain.Projections.DetailFieldState.EmptyOnServer = 1 -> Twig.Domain.Projections.DetailFieldState
+Twig.Domain.Projections.DetailFieldState.HasValue = 0 -> Twig.Domain.Projections.DetailFieldState
+Twig.Domain.Projections.DetailFieldState.NotCarriedByTwig = 2 -> Twig.Domain.Projections.DetailFieldState
+Twig.Domain.Projections.DetailFieldValue
+Twig.Domain.Projections.DetailFieldValue.<Clone>$() -> Twig.Domain.Projections.DetailFieldValue!
+Twig.Domain.Projections.DetailFieldValue.Deconstruct(out Twig.Domain.Projections.DetailFieldState State, out string? Full, out string? Short) -> void
+Twig.Domain.Projections.DetailFieldValue.DetailFieldValue(Twig.Domain.Projections.DetailFieldState State, string? Full, string? Short) -> void
+Twig.Domain.Projections.DetailFieldValue.Equals(Twig.Domain.Projections.DetailFieldValue? other) -> bool
+Twig.Domain.Projections.DetailFieldValue.Full.get -> string?
+Twig.Domain.Projections.DetailFieldValue.Full.init -> void
+Twig.Domain.Projections.DetailFieldValue.IsAbbreviated.get -> bool
+Twig.Domain.Projections.DetailFieldValue.Short.get -> string?
+Twig.Domain.Projections.DetailFieldValue.Short.init -> void
+Twig.Domain.Projections.DetailFieldValue.State.get -> Twig.Domain.Projections.DetailFieldState
+Twig.Domain.Projections.DetailFieldValue.State.init -> void
+Twig.Domain.Projections.DetailGroup
+Twig.Domain.Projections.DetailGroup.<Clone>$() -> Twig.Domain.Projections.DetailGroup!
+Twig.Domain.Projections.DetailGroup.Controls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>!
+Twig.Domain.Projections.DetailGroup.Controls.init -> void
+Twig.Domain.Projections.DetailGroup.Deconstruct(out string! Id, out string! Label, out bool Visible, out bool IsContribution, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>! Controls) -> void
+Twig.Domain.Projections.DetailGroup.DetailGroup(string! Id, string! Label, bool Visible, bool IsContribution, System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>! Controls) -> void
+Twig.Domain.Projections.DetailGroup.Equals(Twig.Domain.Projections.DetailGroup? other) -> bool
+Twig.Domain.Projections.DetailGroup.Id.get -> string!
+Twig.Domain.Projections.DetailGroup.Id.init -> void
+Twig.Domain.Projections.DetailGroup.IsContribution.get -> bool
+Twig.Domain.Projections.DetailGroup.IsContribution.init -> void
+Twig.Domain.Projections.DetailGroup.Label.get -> string!
+Twig.Domain.Projections.DetailGroup.Label.init -> void
+Twig.Domain.Projections.DetailGroup.Visible.get -> bool
+Twig.Domain.Projections.DetailGroup.Visible.init -> void
+Twig.Domain.Projections.DetailPage
+Twig.Domain.Projections.DetailPage.AllGroups.get -> System.Collections.Generic.IEnumerable<Twig.Domain.Projections.DetailGroup!>!
+Twig.Domain.Projections.DetailPage.CarriesFieldControls.get -> bool
+Twig.Domain.Projections.DetailPage.<Clone>$() -> Twig.Domain.Projections.DetailPage!
+Twig.Domain.Projections.DetailPage.Deconstruct(out string! Id, out string! Label, out string! PageType, out bool Visible, out bool IsContribution, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailSection!>! Sections) -> void
+Twig.Domain.Projections.DetailPage.DetailPage(string! Id, string! Label, string! PageType, bool Visible, bool IsContribution, System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailSection!>! Sections) -> void
+Twig.Domain.Projections.DetailPage.Equals(Twig.Domain.Projections.DetailPage? other) -> bool
+Twig.Domain.Projections.DetailPage.Id.get -> string!
+Twig.Domain.Projections.DetailPage.Id.init -> void
+Twig.Domain.Projections.DetailPage.IsContribution.get -> bool
+Twig.Domain.Projections.DetailPage.IsContribution.init -> void
+Twig.Domain.Projections.DetailPage.Label.get -> string!
+Twig.Domain.Projections.DetailPage.Label.init -> void
+Twig.Domain.Projections.DetailPage.PageType.get -> string!
+Twig.Domain.Projections.DetailPage.PageType.init -> void
+Twig.Domain.Projections.DetailPage.Sections.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailSection!>!
+Twig.Domain.Projections.DetailPage.Sections.init -> void
+Twig.Domain.Projections.DetailPage.Visible.get -> bool
+Twig.Domain.Projections.DetailPage.Visible.init -> void
+Twig.Domain.Projections.DetailSection
+Twig.Domain.Projections.DetailSection.<Clone>$() -> Twig.Domain.Projections.DetailSection!
+Twig.Domain.Projections.DetailSection.Deconstruct(out string! Id, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailGroup!>! Groups) -> void
+Twig.Domain.Projections.DetailSection.DetailSection(string! Id, System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailGroup!>! Groups) -> void
+Twig.Domain.Projections.DetailSection.Equals(Twig.Domain.Projections.DetailSection? other) -> bool
+Twig.Domain.Projections.DetailSection.Groups.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailGroup!>!
+Twig.Domain.Projections.DetailSection.Groups.init -> void
+Twig.Domain.Projections.DetailSection.Id.get -> string!
+Twig.Domain.Projections.DetailSection.Id.init -> void
+Twig.Domain.Projections.WorkItemDetailDocument
+Twig.Domain.Projections.WorkItemDetailDocument.<Clone>$() -> Twig.Domain.Projections.WorkItemDetailDocument!
+Twig.Domain.Projections.WorkItemDetailDocument.Deconstruct(out int WorkItemId, out int Revision, out string! WorkItemTypeReferenceName, out string! ProcessId, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailPage!>! Pages) -> void
+Twig.Domain.Projections.WorkItemDetailDocument.Equals(Twig.Domain.Projections.WorkItemDetailDocument? other) -> bool
+Twig.Domain.Projections.WorkItemDetailDocument.Pages.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailPage!>!
+Twig.Domain.Projections.WorkItemDetailDocument.Pages.init -> void
+Twig.Domain.Projections.WorkItemDetailDocument.ProcessId.get -> string!
+Twig.Domain.Projections.WorkItemDetailDocument.ProcessId.init -> void
+Twig.Domain.Projections.WorkItemDetailDocument.Revision.get -> int
+Twig.Domain.Projections.WorkItemDetailDocument.Revision.init -> void
+Twig.Domain.Projections.WorkItemDetailDocument.WorkItemDetailDocument(int WorkItemId, int Revision, string! WorkItemTypeReferenceName, string! ProcessId, System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailPage!>! Pages) -> void
+Twig.Domain.Projections.WorkItemDetailDocument.WorkItemId.get -> int
+Twig.Domain.Projections.WorkItemDetailDocument.WorkItemId.init -> void
+Twig.Domain.Projections.WorkItemDetailDocument.WorkItemTypeReferenceName.get -> string!
+Twig.Domain.Projections.WorkItemDetailDocument.WorkItemTypeReferenceName.init -> void
+Twig.Domain.Projections.WorkItemDetailProjector
+Twig.Domain.ValueObjects.FormLayout
+Twig.Domain.ValueObjects.FormLayout.<Clone>$() -> Twig.Domain.ValueObjects.FormLayout!
+Twig.Domain.ValueObjects.FormLayout.Deconstruct(out string! WorkItemTypeReferenceName, out string! ProcessId, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutPage!>! Pages) -> void
+Twig.Domain.ValueObjects.FormLayout.Equals(Twig.Domain.ValueObjects.FormLayout? other) -> bool
+Twig.Domain.ValueObjects.FormLayout.FormLayout(string! WorkItemTypeReferenceName, string! ProcessId, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutPage!>! Pages) -> void
+Twig.Domain.ValueObjects.FormLayout.Pages.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutPage!>!
+Twig.Domain.ValueObjects.FormLayout.Pages.init -> void
+Twig.Domain.ValueObjects.FormLayout.ProcessId.get -> string!
+Twig.Domain.ValueObjects.FormLayout.ProcessId.init -> void
+Twig.Domain.ValueObjects.FormLayout.WorkItemTypeReferenceName.get -> string!
+Twig.Domain.ValueObjects.FormLayout.WorkItemTypeReferenceName.init -> void
+Twig.Domain.ValueObjects.LayoutControl
+Twig.Domain.ValueObjects.LayoutControl.<Clone>$() -> Twig.Domain.ValueObjects.LayoutControl!
+Twig.Domain.ValueObjects.LayoutControl.ControlType.get -> string!
+Twig.Domain.ValueObjects.LayoutControl.ControlType.init -> void
+Twig.Domain.ValueObjects.LayoutControl.Deconstruct(out string! Id, out string! Label, out string! ControlType, out bool ReadOnly, out bool Visible, out bool IsContribution) -> void
+Twig.Domain.ValueObjects.LayoutControl.Equals(Twig.Domain.ValueObjects.LayoutControl? other) -> bool
+Twig.Domain.ValueObjects.LayoutControl.Id.get -> string!
+Twig.Domain.ValueObjects.LayoutControl.Id.init -> void
+Twig.Domain.ValueObjects.LayoutControl.IsContribution.get -> bool
+Twig.Domain.ValueObjects.LayoutControl.IsContribution.init -> void
+Twig.Domain.ValueObjects.LayoutControl.Label.get -> string!
+Twig.Domain.ValueObjects.LayoutControl.Label.init -> void
+Twig.Domain.ValueObjects.LayoutControl.LayoutControl(string! Id, string! Label, string! ControlType, bool ReadOnly, bool Visible, bool IsContribution) -> void
+Twig.Domain.ValueObjects.LayoutControl.ReadOnly.get -> bool
+Twig.Domain.ValueObjects.LayoutControl.ReadOnly.init -> void
+Twig.Domain.ValueObjects.LayoutControl.Visible.get -> bool
+Twig.Domain.ValueObjects.LayoutControl.Visible.init -> void
+Twig.Domain.ValueObjects.LayoutGroup
+Twig.Domain.ValueObjects.LayoutGroup.<Clone>$() -> Twig.Domain.ValueObjects.LayoutGroup!
+Twig.Domain.ValueObjects.LayoutGroup.Controls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutControl!>!
+Twig.Domain.ValueObjects.LayoutGroup.Controls.init -> void
+Twig.Domain.ValueObjects.LayoutGroup.Deconstruct(out string! Id, out string! Label, out bool Visible, out bool IsContribution, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutControl!>! Controls) -> void
+Twig.Domain.ValueObjects.LayoutGroup.Equals(Twig.Domain.ValueObjects.LayoutGroup? other) -> bool
+Twig.Domain.ValueObjects.LayoutGroup.Id.get -> string!
+Twig.Domain.ValueObjects.LayoutGroup.Id.init -> void
+Twig.Domain.ValueObjects.LayoutGroup.IsContribution.get -> bool
+Twig.Domain.ValueObjects.LayoutGroup.IsContribution.init -> void
+Twig.Domain.ValueObjects.LayoutGroup.Label.get -> string!
+Twig.Domain.ValueObjects.LayoutGroup.Label.init -> void
+Twig.Domain.ValueObjects.LayoutGroup.LayoutGroup(string! Id, string! Label, bool Visible, bool IsContribution, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutControl!>! Controls) -> void
+Twig.Domain.ValueObjects.LayoutGroup.Visible.get -> bool
+Twig.Domain.ValueObjects.LayoutGroup.Visible.init -> void
+Twig.Domain.ValueObjects.LayoutPage
+Twig.Domain.ValueObjects.LayoutPage.AllGroups.get -> System.Collections.Generic.IEnumerable<Twig.Domain.ValueObjects.LayoutGroup!>!
+Twig.Domain.ValueObjects.LayoutPage.<Clone>$() -> Twig.Domain.ValueObjects.LayoutPage!
+Twig.Domain.ValueObjects.LayoutPage.Deconstruct(out string! Id, out string! Label, out string! PageType, out bool Visible, out bool IsContribution, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutSection!>! Sections) -> void
+Twig.Domain.ValueObjects.LayoutPage.Equals(Twig.Domain.ValueObjects.LayoutPage? other) -> bool
+Twig.Domain.ValueObjects.LayoutPage.Id.get -> string!
+Twig.Domain.ValueObjects.LayoutPage.Id.init -> void
+Twig.Domain.ValueObjects.LayoutPage.IsContribution.get -> bool
+Twig.Domain.ValueObjects.LayoutPage.IsContribution.init -> void
+Twig.Domain.ValueObjects.LayoutPage.Label.get -> string!
+Twig.Domain.ValueObjects.LayoutPage.Label.init -> void
+Twig.Domain.ValueObjects.LayoutPage.LayoutPage(string! Id, string! Label, string! PageType, bool Visible, bool IsContribution, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutSection!>! Sections) -> void
+Twig.Domain.ValueObjects.LayoutPage.PageType.get -> string!
+Twig.Domain.ValueObjects.LayoutPage.PageType.init -> void
+Twig.Domain.ValueObjects.LayoutPage.Sections.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutSection!>!
+Twig.Domain.ValueObjects.LayoutPage.Sections.init -> void
+Twig.Domain.ValueObjects.LayoutPage.Visible.get -> bool
+Twig.Domain.ValueObjects.LayoutPage.Visible.init -> void
+Twig.Domain.ValueObjects.LayoutSection
+Twig.Domain.ValueObjects.LayoutSection.<Clone>$() -> Twig.Domain.ValueObjects.LayoutSection!
+Twig.Domain.ValueObjects.LayoutSection.Deconstruct(out string! Id, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutGroup!>! Groups) -> void
+Twig.Domain.ValueObjects.LayoutSection.Equals(Twig.Domain.ValueObjects.LayoutSection? other) -> bool
+Twig.Domain.ValueObjects.LayoutSection.Groups.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutGroup!>!
+Twig.Domain.ValueObjects.LayoutSection.Groups.init -> void
+Twig.Domain.ValueObjects.LayoutSection.Id.get -> string!
+Twig.Domain.ValueObjects.LayoutSection.Id.init -> void
+Twig.Domain.ValueObjects.LayoutSection.LayoutSection(string! Id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutGroup!>! Groups) -> void

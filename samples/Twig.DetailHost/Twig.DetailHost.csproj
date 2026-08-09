@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The external-host probe for wayfinder-detail-projection ticket 0003.
+
+    This project stands in for Bonsai's caller-owned pane. Three properties make it a
+    real probe rather than a demo, and each is load-bearing:
+
+      1. Its ONLY reference is Twig.Domain. No Twig.Infrastructure, no Terminal.Gui, no
+         Spectre.Console, no Microsoft.Extensions.*. If any of those becomes necessary to
+         render a work item, this project stops building and the boundary claim is false.
+      2. Its assembly name is NOT in Twig.Domain's InternalsVisibleTo list, so it can only
+         see genuinely public API. A test project would silently pass on internals.
+      3. It targets net10.0 — GA — proving a consumer is not dragged onto the preview SDK.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Twig.DetailHost</RootNamespace>
+    <AssemblyName>Twig.DetailHost</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Twig.Domain/Twig.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

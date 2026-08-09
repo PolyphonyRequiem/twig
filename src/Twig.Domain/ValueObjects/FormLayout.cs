@@ -31,7 +31,7 @@ namespace Twig.Domain.ValueObjects;
 /// gets to choose. Keep the server's structure intact; decide presentation late.
 /// </para>
 /// </remarks>
-internal sealed record FormLayout(
+public sealed record FormLayout(
     string WorkItemTypeReferenceName,
     string ProcessId,
     IReadOnlyList<LayoutPage> Pages);
@@ -42,7 +42,7 @@ internal sealed record FormLayout(
 /// <c>custom</c> pages carry field controls; the other three are server-rendered
 /// surfaces whose content does not come from this layout.
 /// </param>
-internal sealed record LayoutPage(
+public sealed record LayoutPage(
     string Id,
     string Label,
     string PageType,
@@ -66,12 +66,12 @@ internal sealed record LayoutPage(
 /// (<c>Section1</c>, <c>Section2</c>) but no display name, because the only thing a
 /// column expresses is horizontal placement.
 /// </summary>
-internal sealed record LayoutSection(
+public sealed record LayoutSection(
     string Id,
     IReadOnlyList<LayoutGroup> Groups);
 
 /// <summary>A labelled box of fields within a column.</summary>
-internal sealed record LayoutGroup(
+public sealed record LayoutGroup(
     string Id,
     string Label,
     bool Visible,
@@ -82,7 +82,7 @@ internal sealed record LayoutGroup(
 /// One control in a box. For an ordinary field control <paramref name="Id"/> is the
 /// field reference name; for a contribution it is the contribution id and names no field.
 /// </summary>
-internal sealed record LayoutControl(
+public sealed record LayoutControl(
     string Id,
     string Label,
     string ControlType,

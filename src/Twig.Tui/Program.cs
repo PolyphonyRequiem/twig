@@ -8,6 +8,7 @@ using Terminal.Gui.Views;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
+using Twig.Tui;
 using Twig.Tui.Views;
 
 SQLitePCL.Batteries.Init();
@@ -130,10 +131,16 @@ var menuBar = new MenuBar(new MenuBarItem[]
     }),
 });
 
-// Wire tree selection → form display
+// Wire tree selection → form display. The document comes from the shared projection;
+// the form has no field list of its own to consult (wayfinder-detail-projection 0004).
+var documentSource = new DetailDocumentSource(provider.GetService<IFormLayoutProvider>());
+
 treeNavigator.WorkItemSelected += item =>
 {
-    formView.LoadWorkItem(item);
+    // Blocks UI intentionally, matching the existing tree-reload pattern. The layout is
+    // cached per work item type, so this hits the network at most once per type.
+    var document = Task.Run(async () => await documentSource.GetAsync(item)).GetAwaiter().GetResult();
+    formView.LoadDocument(document, item);
 };
 
 mainWindow.Add(menuBar, treeNavigator, formView);

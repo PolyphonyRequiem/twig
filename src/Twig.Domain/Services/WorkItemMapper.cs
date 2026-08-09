@@ -44,6 +44,41 @@ public sealed class WorkItemMapper
         return item;
     }
 
+    /// <summary>
+    /// Projects a <see cref="WorkItem"/> aggregate back to the <see cref="WorkItemSnapshot"/>
+    /// boundary type.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Projections.WorkItemDetailProjector"/> takes a snapshot, not an aggregate
+    /// (wayfinder ticket 0001 §2: read-only construction must not depend on aggregate
+    /// behaviour or a persistence store). A host that already holds an aggregate — Twig's
+    /// own TUI does — needs this direction to reach the projection without re-reading from
+    /// the repository.
+    /// </remarks>
+    public WorkItemSnapshot ToSnapshot(WorkItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        return new WorkItemSnapshot
+        {
+            Id = item.Id,
+            Revision = item.Revision,
+            TypeName = item.Type.ToString(),
+            Title = item.Title,
+            State = item.State,
+            AssignedTo = item.AssignedTo,
+            IterationPath = item.IterationPath.ToString(),
+            AreaPath = item.AreaPath.ToString(),
+            ParentId = item.ParentId,
+            IsSeed = item.IsSeed,
+            SeedCreatedAt = item.SeedCreatedAt,
+            StagedIdentity = item.StagedIdentity?.ToString(),
+            LastSyncedAt = item.LastSyncedAt,
+            IsDirty = item.IsDirty,
+            Fields = item.Fields,
+        };
+    }
+
     private static string? GetCanonicalField(
         WorkItemSnapshot snapshot,
         string referenceName,

@@ -47,6 +47,10 @@
     <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />
     <InternalsVisibleTo Include="Twig.Cli.Tests" />
     <InternalsVisibleTo Include="Twig.Tui" />
+    <!-- Twig.Tui's AssemblyName is 'twig-tui', so the project-named grant above never
+         applied. Same dual-name pattern as twig / Twig.Mcp / twig-mcp below. Needed since
+         wayfinder-detail-projection 0004 so the TUI can resolve IFormLayoutProvider. -->
+    <InternalsVisibleTo Include="twig-tui" />
     <InternalsVisibleTo Include="Twig.Tui.Tests" />
     <InternalsVisibleTo Include="twig" />
     <InternalsVisibleTo Include="Twig.Mcp" />

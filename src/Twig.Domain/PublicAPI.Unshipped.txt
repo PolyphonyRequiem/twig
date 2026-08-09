@@ -1283,3 +1283,11 @@ Twig.Domain.ValueObjects.LayoutSection.Groups.init -> void
 Twig.Domain.ValueObjects.LayoutSection.Id.get -> string!
 Twig.Domain.ValueObjects.LayoutSection.Id.init -> void
 Twig.Domain.ValueObjects.LayoutSection.LayoutSection(string! Id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutGroup!>! Groups) -> void
+Twig.Domain.Projections.FallbackFormLayout
+const Twig.Domain.Projections.FallbackFormLayout.FallbackControlType = "FieldControl" -> string!
+const Twig.Domain.Projections.FallbackFormLayout.FallbackGroupId = "twig.fallback.group" -> string!
+const Twig.Domain.Projections.FallbackFormLayout.FallbackPageId = "twig.fallback.page" -> string!
+const Twig.Domain.Projections.FallbackFormLayout.FallbackProcessId = "twig.fallback" -> string!
+static Twig.Domain.Projections.FallbackFormLayout.For(Twig.Domain.ValueObjects.WorkItemSnapshot! snapshot) -> Twig.Domain.ValueObjects.FormLayout!
+static Twig.Domain.Projections.FallbackFormLayout.IsFallback(Twig.Domain.ValueObjects.FormLayout! layout) -> bool
+Twig.Domain.Services.WorkItemMapper.ToSnapshot(Twig.Domain.Aggregates.WorkItem! item) -> Twig.Domain.ValueObjects.WorkItemSnapshot!

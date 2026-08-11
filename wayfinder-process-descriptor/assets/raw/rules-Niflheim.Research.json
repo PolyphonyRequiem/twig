@@ -1,0 +1,26 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.WayfinderAnswer",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "b8a98453-626a-4f04-bfba-0e23af50f8e9",
+      "isDisabled": false,
+      "name": "Research must record what was found",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research/rules/b8a98453-626a-4f04-bfba-0e23af50f8e9"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "count": 7,
+  "value": [
+    {
+      "id": "db7bfabe-c65f-4e7b-9bcb-13f1f1e827e6",
+      "isSuggested": false,
+      "name": "NiflheimIdeaOutcome",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/db7bfabe-c65f-4e7b-9bcb-13f1f1e827e6"
+    },
+    {
+      "id": "5f48fbe6-d85d-4bf9-a77f-3e1faa223358",
+      "isSuggested": false,
+      "name": "NiflheimVerificationMode",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/5f48fbe6-d85d-4bf9-a77f-3e1faa223358"
+    },
+    {
+      "id": "a67b911d-b8ff-4f8c-940b-514b23a1187e",
+      "isSuggested": false,
+      "name": "NiflheimDecisionStanding",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/a67b911d-b8ff-4f8c-940b-514b23a1187e"
+    },
+    {
+      "id": "e6a8dd71-e2bd-40a2-9458-585826cfafb5",
+      "isSuggested": false,
+      "name": "NiflheimPriorityBand",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/e6a8dd71-e2bd-40a2-9458-585826cfafb5"
+    },
+    {
+      "id": "148786ea-d73c-4889-a8ec-5883cc1e6670",
+      "isSuggested": false,
+      "name": "WayfinderDecisionMaturity",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/148786ea-d73c-4889-a8ec-5883cc1e6670"
+    },
+    {
+      "id": "2057bcc6-ce7c-44b4-ae3d-a78ac3d853c8",
+      "isSuggested": false,
+      "name": "NiflheimMaturity",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/2057bcc6-ce7c-44b4-ae3d-a78ac3d853c8"
+    },
+    {
+      "id": "79ce46b3-6641-4784-bdab-ab832eef922f",
+      "isSuggested": false,
+      "name": "WayfinderExecutionMode",
+      "type": "String",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/79ce46b3-6641-4784-bdab-ab832eef922f"
+    }
+  ]
+}

@@ -1,0 +1,236 @@
+{
+  "count": 6,
+  "value": [
+    {
+      "class": "system",
+      "color": "339947",
+      "description": "Issues track suggested improvements, changes or questions related to the project. Issues can also be used to break down an Epic into smaller chunks of work.",
+      "icon": "icon_clipboard_issue",
+      "id": "Microsoft.VSTS.WorkItemTypes.Issue",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Issue",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "system",
+          "id": "a07f4091-2949-44a3-9613-d84f3733eb1b",
+          "name": "To Do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue/states/a07f4091-2949-44a3-9613-d84f3733eb1b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "059d2738-29ab-4a84-8bae-43b0e4714156",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue/states/059d2738-29ab-4a84-8bae-43b0e4714156"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "0c926c15-68f7-467f-96c9-a26a19e9d718",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue/states/0c926c15-68f7-467f-96c9-a26a19e9d718"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue"
+    },
+    {
+      "class": "system",
+      "color": "E06C00",
+      "description": "Epics can be defined as a large piece of work that has one common objective. Use an Epic to track the progress of complex features.",
+      "icon": "icon_crown",
+      "id": "Microsoft.VSTS.WorkItemTypes.Epic",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Epic",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "system",
+          "id": "a07f4091-2949-44a3-9613-d84f3733eb1b",
+          "name": "To Do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic/states/a07f4091-2949-44a3-9613-d84f3733eb1b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "059d2738-29ab-4a84-8bae-43b0e4714156",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic/states/059d2738-29ab-4a84-8bae-43b0e4714156"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "0c926c15-68f7-467f-96c9-a26a19e9d718",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic/states/0c926c15-68f7-467f-96c9-a26a19e9d718"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic"
+    },
+    {
+      "class": "system",
+      "color": "A4880A",
+      "description": "Tasks track the actual work that needs to be done.",
+      "icon": "icon_check_box",
+      "id": "Microsoft.VSTS.WorkItemTypes.Task",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Task",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "system",
+          "id": "a07f4091-2949-44a3-9613-d84f3733eb1b",
+          "name": "To Do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task/states/a07f4091-2949-44a3-9613-d84f3733eb1b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "059d2738-29ab-4a84-8bae-43b0e4714156",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task/states/059d2738-29ab-4a84-8bae-43b0e4714156"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "0c926c15-68f7-467f-96c9-a26a19e9d718",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task/states/0c926c15-68f7-467f-96c9-a26a19e9d718"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Server-side data for a set of steps to be tested.",
+      "icon": "icon_test_case",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestCase",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Case",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "system",
+          "id": "067742a4-07cb-4a53-b2fa-2ea058f3332b",
+          "name": "Design",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/067742a4-07cb-4a53-b2fa-2ea058f3332b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "17cfeadc-f49b-41b9-897a-43655d35c0c4",
+          "name": "Ready",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/17cfeadc-f49b-41b9-897a-43655d35c0c4"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "9f479b88-4542-4f9d-8048-5d9c953b5082",
+          "name": "Closed",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/9f479b88-4542-4f9d-8048-5d9c953b5082"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activities for a specific milestone or release.",
+      "icon": "icon_test_plan",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestPlan",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Plan",
+      "states": [
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "277237cd-0bc0-4ffb-bdc6-d358b154ba9e",
+          "name": "Active",
+          "order": 1,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan/states/277237cd-0bc0-4ffb-bdc6-d358b154ba9e"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "da8f3a6e-e52d-4d1d-9890-783a1bca5da1",
+          "name": "Inactive",
+          "order": 2,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan/states/da8f3a6e-e52d-4d1d-9890-783a1bca5da1"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activites for a specific feature, requirement, or user story.",
+      "icon": "icon_test_suite",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestSuite",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Suite",
+      "states": [
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "93320ff7-1042-403d-93b8-b8ed5dcf2663",
+          "name": "In Planning",
+          "order": 1,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/93320ff7-1042-403d-93b8-b8ed5dcf2663"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "5fcb8472-3c27-43f5-af7d-f39c9e48f7c6",
+          "name": "In Progress",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/5fcb8472-3c27-43f5-af7d-f39c9e48f7c6"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "d6920af5-ea13-4c20-aab6-f48d807fbda1",
+          "name": "Completed",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/d6920af5-ea13-4c20-aab6-f48d807fbda1"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite"
+    }
+  ]
+}

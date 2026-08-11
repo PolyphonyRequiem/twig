@@ -1,0 +1,2314 @@
+{
+  "count": 6,
+  "value": [
+    {
+      "class": "system",
+      "color": "339947",
+      "description": "Issues track suggested improvements, changes or questions related to the project. Issues can also be used to break down an Epic into smaller chunks of work.",
+      "icon": "icon_clipboard_issue",
+      "id": "Microsoft.VSTS.WorkItemTypes.Issue",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Issue.Issue",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Details",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Issue.Issue.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Common.Priority",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Priority",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Scheduling.Effort",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Effort",
+                        "metadata": "",
+                        "order": 1,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Issue.Issue.Planning",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Planning",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "DeploymentsControl",
+                        "id": "Deployments",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Issue.Issue.Deployment",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Deployment",
+                    "order": 0,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Development",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\" ZeroDataExperience=\"Development\" ShowCallToAction=\"true\"><ListViewOptions GroupLinks=\"false\"></ListViewOptions><LinkFilters><ExternalLinkFilter Type=\"Build\" /><ExternalLinkFilter Type=\"Integrated in build\" /><ExternalLinkFilter Type=\"Pull Request\" /><ExternalLinkFilter Type=\"Branch\" /><ExternalLinkFilter Type=\"Fixed in Commit\" /><ExternalLinkFilter Type=\"Fixed in Changeset\" /><ExternalLinkFilter Type=\"Source Code File\" /><ExternalLinkFilter Type=\"Found in build\" /><ExternalLinkFilter Type=\"GitHub Pull Request\" /><ExternalLinkFilter Type=\"GitHub Commit\" /><ExternalLinkFilter Type=\"GitHub Branch\" /><ExternalLinkFilter Type=\"Security Alert\" /></LinkFilters></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Issue.Issue.Development",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Development",
+                    "order": 1,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Related Work",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\"><LinkFilters><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Reverse\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Dependency\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Related\" /><ExternalLinkFilter Type=\"GitHub Issue\" /></LinkFilters><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Issue.Issue.Related Work",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Related Work",
+                    "order": 2,
+                    "visible": true
+                  }
+                ],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Issue.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 1,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Issue.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Issue.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 2,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Issue.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Issue.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 3,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Issue.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Issue",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue"
+    },
+    {
+      "class": "system",
+      "color": "E06C00",
+      "description": "Epics can be defined as a large piece of work that has one common objective. Use an Epic to track the progress of complex features.",
+      "icon": "icon_crown",
+      "id": "Microsoft.VSTS.WorkItemTypes.Epic",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Epic.Epic",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Details",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Epic.Epic.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Common.Priority",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Priority",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "DateTimeControl",
+                        "id": "Microsoft.VSTS.Scheduling.StartDate",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Start Date",
+                        "metadata": "",
+                        "order": 1,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "DateTimeControl",
+                        "id": "Microsoft.VSTS.Scheduling.TargetDate",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Target Date",
+                        "metadata": "",
+                        "order": 2,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Epic.Epic.Planning",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Planning",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Related Work",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\"><LinkFilters><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Reverse\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Dependency\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Related\" /><ExternalLinkFilter Type=\"GitHub Issue\" /></LinkFilters><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Epic.Epic.Related Work",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Related Work",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Epic.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 1,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Epic.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Epic.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 2,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Epic.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Epic.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 3,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Epic.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Epic",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic"
+    },
+    {
+      "class": "system",
+      "color": "A4880A",
+      "description": "Tasks track the actual work that needs to be done.",
+      "icon": "icon_check_box",
+      "id": "Microsoft.VSTS.WorkItemTypes.Task",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Task.Task",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Details",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Task.Task.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Common.Priority",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Priority",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Common.Activity",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Activity",
+                        "metadata": "",
+                        "order": 1,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Scheduling.RemainingWork",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Remaining Work",
+                        "metadata": "",
+                        "order": 2,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Task.Task.Planning",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Planning",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "DeploymentsControl",
+                        "id": "Deployments",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Task.Task.Deployment",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Deployment",
+                    "order": 0,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Development",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\" ZeroDataExperience=\"Development\" ShowCallToAction=\"true\"><ListViewOptions GroupLinks=\"false\"></ListViewOptions><LinkFilters><ExternalLinkFilter Type=\"Build\" /><ExternalLinkFilter Type=\"Integrated in build\" /><ExternalLinkFilter Type=\"Pull Request\" /><ExternalLinkFilter Type=\"Branch\" /><ExternalLinkFilter Type=\"Fixed in Commit\" /><ExternalLinkFilter Type=\"Fixed in Changeset\" /><ExternalLinkFilter Type=\"Source Code File\" /><ExternalLinkFilter Type=\"Found in build\" /><ExternalLinkFilter Type=\"GitHub Pull Request\" /><ExternalLinkFilter Type=\"GitHub Commit\" /><ExternalLinkFilter Type=\"GitHub Branch\" /><ExternalLinkFilter Type=\"Security Alert\" /></LinkFilters></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Task.Task.Development",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Development",
+                    "order": 1,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Related Work",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\"><LinkFilters><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Reverse\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Dependency\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Related\" /><ExternalLinkFilter Type=\"GitHub Issue\" /></LinkFilters><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Task.Task.Related Work",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Related Work",
+                    "order": 2,
+                    "visible": true
+                  }
+                ],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Task.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 1,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Task.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Task.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 2,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Task.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Task.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 3,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Task.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Task",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Server-side data for a set of steps to be tested.",
+      "icon": "icon_test_case",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestCase",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Test Case.Steps",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Steps",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "TestStepsControl",
+                        "id": "Microsoft.VSTS.TCM.Steps",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Steps",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Steps",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Steps",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "TestRunHistoryControl",
+                        "id": "TestRunHistory",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Recent test results",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Recent test results",
+                    "order": 0,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "DeploymentsControl",
+                        "id": "Deployments",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Deployment",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Deployment",
+                    "order": 1,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Development",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\" ZeroDataExperience=\"Development\" ShowCallToAction=\"true\"><ListViewOptions GroupLinks=\"false\"></ListViewOptions><LinkFilters><ExternalLinkFilter Type=\"Build\" /><ExternalLinkFilter Type=\"Integrated in build\" /><ExternalLinkFilter Type=\"Pull Request\" /><ExternalLinkFilter Type=\"Branch\" /><ExternalLinkFilter Type=\"Fixed in Commit\" /><ExternalLinkFilter Type=\"Fixed in Changeset\" /><ExternalLinkFilter Type=\"Source Code File\" /><ExternalLinkFilter Type=\"Found in build\" /><ExternalLinkFilter Type=\"GitHub Pull Request\" /><ExternalLinkFilter Type=\"GitHub Commit\" /><ExternalLinkFilter Type=\"GitHub Branch\" /><ExternalLinkFilter Type=\"Security Alert\" /></LinkFilters></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Development",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Development",
+                    "order": 2,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "id": "Related Work",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "<LinksControlOptions ViewMode=\"List\"><LinkFilters><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Reverse\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Forward\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.Common.TestedBy-Reverse\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.TestCase.SharedStepReferencedBy\" /><WorkItemLinkFilter Type=\"Microsoft.VSTS.TestCase.SharedParameterReferencedBy\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Hierarchy-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Duplicate-Forward\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Dependency\" /><WorkItemLinkFilter Type=\"System.LinkTypes.Related\" /><ExternalLinkFilter Type=\"GitHub Issue\" /></LinkFilters><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Related Work",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Related Work",
+                    "order": 3,
+                    "visible": true
+                  },
+                  {
+                    "controls": [
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.Common.Priority",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Priority",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.TCM.AutomationStatus",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Automation status",
+                        "metadata": "",
+                        "order": 1,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Steps.Status",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Status",
+                    "order": 4,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Case.Summary",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Summary",
+            "locked": false,
+            "order": 1,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Summary.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Case.Associated Automation",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Associated Automation",
+            "locked": false,
+            "order": 2,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AssociatedAutomationControl",
+                        "id": "AssociatedAutomation",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Case.Associated Automation.Associated Automation.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Associated Automation",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Case.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 3,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Case.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Case.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 4,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Case.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Case.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 5,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Case.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Test Case",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activities for a specific milestone or release.",
+      "icon": "icon_test_plan",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestPlan",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Test Plan.Test Plan",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Details",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Plan.Test Plan.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "DateTimeControl",
+                        "id": "Microsoft.VSTS.Scheduling.StartDate",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Start Date",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      },
+                      {
+                        "controlType": "DateTimeControl",
+                        "id": "Microsoft.VSTS.Scheduling.FinishDate",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Finish Date",
+                        "metadata": "",
+                        "order": 1,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Plan.Test Plan.Timelines",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Timelines",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Plan.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 1,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Plan.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Plan.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 2,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Plan.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Plan.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 3,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Plan.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Test Plan",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activites for a specific feature, requirement, or user story.",
+      "icon": "icon_test_suite",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestSuite",
+      "inherits": null,
+      "isDisabled": false,
+      "layout": {
+        "pages": [
+          {
+            "id": "Basic.Test Suite.Test Suite",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Details",
+            "locked": false,
+            "order": 0,
+            "pageType": "custom",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "HtmlFieldControl",
+                        "id": "System.Description",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Description",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Suite.Test Suite.Description.WideGroup",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Description",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "FieldControl",
+                        "id": "Microsoft.VSTS.TCM.TestSuiteType",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Test Suite Type",
+                        "metadata": "",
+                        "order": 0,
+                        "readOnly": false,
+                        "visible": true,
+                        "watermark": ""
+                      }
+                    ],
+                    "id": "Basic.Test Suite.Test Suite.Classification",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Classification",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Suite.System_History",
+            "inherited": true,
+            "isContribution": false,
+            "label": "History",
+            "locked": true,
+            "order": 1,
+            "pageType": "history",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "WorkItemLogControl",
+                        "id": "System.History",
+                        "inherited": true,
+                        "isContribution": false,
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Suite.System_History.History",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "History",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Suite.System_Links",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Links",
+            "locked": true,
+            "order": 2,
+            "pageType": "links",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "LinksControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "metadata": "<LinksControlOptions ZeroDataExperience=\"CallToAction\"><Columns><Column Name=\"System.State\" /><Column Name=\"System.ChangedDate\" /><Column Name=\"System.Links.Comment\" /></Columns></LinksControlOptions>",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Suite.System_Links.Links",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Links",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          },
+          {
+            "id": "Basic.Test Suite.System_Attachments",
+            "inherited": true,
+            "isContribution": false,
+            "label": "Attachments",
+            "locked": true,
+            "order": 3,
+            "pageType": "attachments",
+            "sections": [
+              {
+                "groups": [
+                  {
+                    "controls": [
+                      {
+                        "controlType": "AttachmentsControl",
+                        "inherited": true,
+                        "isContribution": false,
+                        "label": "Attachments",
+                        "order": 0,
+                        "visible": true
+                      }
+                    ],
+                    "id": "Basic.Test Suite.System_Attachments.Attachments",
+                    "inherited": true,
+                    "isContribution": false,
+                    "label": "Attachments",
+                    "order": 0,
+                    "visible": true
+                  }
+                ],
+                "id": "Section1"
+              },
+              {
+                "groups": [],
+                "id": "Section2"
+              },
+              {
+                "groups": [],
+                "id": "Section3"
+              },
+              {
+                "groups": [],
+                "id": "Section4"
+              }
+            ],
+            "visible": true
+          }
+        ],
+        "systemControls": [
+          {
+            "controlType": "FieldControl",
+            "id": "System.Title",
+            "isContribution": false,
+            "label": "",
+            "readOnly": false,
+            "visible": true,
+            "watermark": "Enter title"
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.AssignedTo",
+            "isContribution": false,
+            "label": "Assi&gned To",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.State",
+            "isContribution": false,
+            "label": "Stat&e",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "FieldControl",
+            "id": "System.Reason",
+            "isContribution": false,
+            "label": "Reason",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.AreaPath",
+            "isContribution": false,
+            "label": "&Area",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemClassificationControl",
+            "id": "System.IterationPath",
+            "isContribution": false,
+            "label": "Ite&ration",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "WorkItemLogControl",
+            "id": "System.History",
+            "isContribution": false,
+            "label": "History",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "LinksControl",
+            "id": "Links",
+            "isContribution": false,
+            "label": "Links",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          },
+          {
+            "controlType": "AttachmentsControl",
+            "id": "Attachments",
+            "isContribution": false,
+            "label": "Attachments",
+            "readOnly": false,
+            "visible": true,
+            "watermark": ""
+          }
+        ]
+      },
+      "name": "Test Suite",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite"
+    }
+  ]
+}

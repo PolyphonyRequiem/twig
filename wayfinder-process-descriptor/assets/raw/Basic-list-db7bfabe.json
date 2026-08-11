@@ -1,0 +1,11 @@
+{
+  "id": "db7bfabe-c65f-4e7b-9bcb-13f1f1e827e6",
+  "isSuggested": false,
+  "items": [
+    "Became work",
+    "Not doing"
+  ],
+  "name": "NiflheimIdeaOutcome",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/db7bfabe-c65f-4e7b-9bcb-13f1f1e827e6"
+}

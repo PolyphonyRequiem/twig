@@ -1,0 +1,11 @@
+{
+  "id": "79ce46b3-6641-4784-bdab-ab832eef922f",
+  "isSuggested": false,
+  "items": [
+    "HITL",
+    "AFK"
+  ],
+  "name": "WayfinderExecutionMode",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/79ce46b3-6641-4784-bdab-ab832eef922f"
+}

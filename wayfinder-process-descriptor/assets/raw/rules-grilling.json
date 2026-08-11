@@ -1,0 +1,26 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.WayfinderAnswer",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "f9bb1aed-7109-414a-a257-3a5bda134fcf",
+      "isDisabled": false,
+      "name": "Grilling must record its answer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling/rules/f9bb1aed-7109-414a-a257-3a5bda134fcf"
+    }
+  ]
+}

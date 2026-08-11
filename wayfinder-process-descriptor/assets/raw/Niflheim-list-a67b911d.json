@@ -1,0 +1,11 @@
+{
+  "id": "a67b911d-b8ff-4f8c-940b-514b23a1187e",
+  "isSuggested": false,
+  "items": [
+    "Still standing",
+    "Replaced"
+  ],
+  "name": "NiflheimDecisionStanding",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/a67b911d-b8ff-4f8c-940b-514b23a1187e"
+}

@@ -1,0 +1,80 @@
+{
+  "count": 6,
+  "value": [
+    {
+      "color": "009CCC",
+      "customization": "custom",
+      "description": null,
+      "inherits": {
+        "behaviorRefName": "System.PortfolioBacklogBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.PortfolioBacklogBehavior"
+      },
+      "name": "Wayfinding",
+      "rank": 40,
+      "referenceName": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+    },
+    {
+      "color": "E06C00",
+      "customization": "system",
+      "description": "Epic level backlog and board",
+      "inherits": {
+        "behaviorRefName": "System.PortfolioBacklogBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.PortfolioBacklogBehavior"
+      },
+      "name": "Epics",
+      "rank": 30,
+      "referenceName": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+    },
+    {
+      "color": "339947",
+      "customization": "inherited",
+      "description": "Requirement level backlog and board",
+      "inherits": {
+        "behaviorRefName": "System.OrderedBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.OrderedBehavior"
+      },
+      "name": "Issues",
+      "rank": 20,
+      "referenceName": "System.RequirementBacklogBehavior",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.RequirementBacklogBehavior"
+    },
+    {
+      "color": null,
+      "customization": "system",
+      "description": "Enables work items to be ordered relative to other work items",
+      "inherits": null,
+      "name": "Ordered",
+      "rank": 0,
+      "referenceName": "System.OrderedBehavior",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.OrderedBehavior"
+    },
+    {
+      "color": "A4880A",
+      "customization": "system",
+      "description": "Task level backlog and board",
+      "inherits": {
+        "behaviorRefName": "System.OrderedBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.OrderedBehavior"
+      },
+      "name": "Tasks",
+      "rank": 10,
+      "referenceName": "System.TaskBacklogBehavior",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.TaskBacklogBehavior"
+    },
+    {
+      "color": null,
+      "customization": "system",
+      "description": "Portfolio level backlog and board",
+      "inherits": {
+        "behaviorRefName": "System.OrderedBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.OrderedBehavior"
+      },
+      "name": "Portfolio",
+      "rank": 0,
+      "referenceName": "System.PortfolioBacklogBehavior",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.PortfolioBacklogBehavior"
+    }
+  ]
+}

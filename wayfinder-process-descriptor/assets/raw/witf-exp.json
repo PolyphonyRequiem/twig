@@ -1,0 +1,9 @@
+{
+  "allowedValues": [],
+  "alwaysRequired": false,
+  "defaultValue": null,
+  "dependentFields": [],
+  "name": "Execution Mode",
+  "referenceName": "Custom.WayfinderExecutionMode",
+  "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Custom.WayfinderExecutionMode"
+}

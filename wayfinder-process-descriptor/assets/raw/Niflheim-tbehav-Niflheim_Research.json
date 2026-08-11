@@ -1,0 +1,14 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "behavior": {
+        "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+      },
+      "isDefault": false,
+      "isLegacyDefault": false,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+    }
+  ]
+}

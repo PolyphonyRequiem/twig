@@ -1,0 +1,71 @@
+{
+  "count": 6,
+  "value": [
+    {
+      "color": "339947",
+      "customization": "system",
+      "description": "Issues track suggested improvements, changes or questions related to the project. Issues can also be used to break down an Epic into smaller chunks of work.",
+      "icon": "icon_clipboard_issue",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Issue",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.Issue",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Issue"
+    },
+    {
+      "color": "E06C00",
+      "customization": "system",
+      "description": "Epics can be defined as a large piece of work that has one common objective. Use an Epic to track the progress of complex features.",
+      "icon": "icon_crown",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Epic",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.Epic",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic"
+    },
+    {
+      "color": "A4880A",
+      "customization": "system",
+      "description": "Tasks track the actual work that needs to be done.",
+      "icon": "icon_check_box",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Task",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.Task",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.Task"
+    },
+    {
+      "color": "004B50",
+      "customization": "system",
+      "description": "Server-side data for a set of steps to be tested.",
+      "icon": "icon_test_case",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Case",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.TestCase",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase"
+    },
+    {
+      "color": "004B50",
+      "customization": "system",
+      "description": "Tracks test activities for a specific milestone or release.",
+      "icon": "icon_test_plan",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Plan",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.TestPlan",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan"
+    },
+    {
+      "color": "004B50",
+      "customization": "system",
+      "description": "Tracks test activites for a specific feature, requirement, or user story.",
+      "icon": "icon_test_suite",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Suite",
+      "referenceName": "Microsoft.VSTS.WorkItemTypes.TestSuite",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite"
+    }
+  ]
+}

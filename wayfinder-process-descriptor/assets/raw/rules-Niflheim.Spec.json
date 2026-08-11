@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.FalsificationCriteria",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "5ea6e143-33c5-4259-8359-45b3d5d25d37",
+      "isDisabled": false,
+      "name": "Spec must say what would prove it wrong",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec/rules/5ea6e143-33c5-4259-8359-45b3d5d25d37"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.VerificationMode",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "dcb01fe3-bc7e-45a6-a47c-0f122aac4d7b",
+      "isDisabled": false,
+      "name": "Spec must say how it will be checked",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec/rules/dcb01fe3-bc7e-45a6-a47c-0f122aac4d7b"
+    }
+  ]
+}

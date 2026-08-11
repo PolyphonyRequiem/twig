@@ -1,0 +1,645 @@
+{
+  "count": 59,
+  "value": [
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [
+        {
+          "name": "Iteration ID",
+          "referenceName": "System.IterationId",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.IterationId"
+        }
+      ],
+      "helpText": "The iteration within which this bug will be fixed",
+      "name": "Iteration Path",
+      "referenceName": "System.IterationPath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationPath"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": true,
+      "defaultValue": null,
+      "dependentFields": [
+        {
+          "name": "Iteration Path",
+          "referenceName": "System.IterationPath",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.IterationPath"
+        }
+      ],
+      "name": "Iteration ID",
+      "referenceName": "System.IterationId",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationId"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "External Link Count",
+      "referenceName": "System.ExternalLinkCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.ExternalLinkCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 7",
+      "referenceName": "System.IterationLevel7",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel7"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 6",
+      "referenceName": "System.IterationLevel6",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel6"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 5",
+      "referenceName": "System.IterationLevel5",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel5"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 4",
+      "referenceName": "System.IterationLevel4",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel4"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 3",
+      "referenceName": "System.IterationLevel3",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel3"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 2",
+      "referenceName": "System.IterationLevel2",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel2"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Iteration Level 1",
+      "referenceName": "System.IterationLevel1",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.IterationLevel1"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 7",
+      "referenceName": "System.AreaLevel7",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel7"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 6",
+      "referenceName": "System.AreaLevel6",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel6"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 5",
+      "referenceName": "System.AreaLevel5",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel5"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 4",
+      "referenceName": "System.AreaLevel4",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel4"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 3",
+      "referenceName": "System.AreaLevel3",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel3"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 2",
+      "referenceName": "System.AreaLevel2",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel2"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Area Level 1",
+      "referenceName": "System.AreaLevel1",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaLevel1"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Team Project",
+      "referenceName": "System.TeamProject",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.TeamProject"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Parent",
+      "referenceName": "System.Parent",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Parent"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Remote Link Count",
+      "referenceName": "System.RemoteLinkCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.RemoteLinkCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Comment Count",
+      "referenceName": "System.CommentCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.CommentCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Hyperlink Count",
+      "referenceName": "System.HyperLinkCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.HyperLinkCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Attached File Count",
+      "referenceName": "System.AttachedFileCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AttachedFileCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Node Name",
+      "referenceName": "System.NodeName",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.NodeName"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [
+        {
+          "name": "Area ID",
+          "referenceName": "System.AreaId",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.AreaId"
+        }
+      ],
+      "helpText": "The area of the product with which this bug is associated",
+      "name": "Area Path",
+      "referenceName": "System.AreaPath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaPath"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Revised Date",
+      "referenceName": "System.RevisedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.RevisedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Changed Date",
+      "referenceName": "System.ChangedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.ChangedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "ID",
+      "referenceName": "System.Id",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Id"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": true,
+      "defaultValue": null,
+      "dependentFields": [
+        {
+          "name": "Area Path",
+          "referenceName": "System.AreaPath",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.AreaPath"
+        },
+        {
+          "name": "Node Name",
+          "referenceName": "System.NodeName",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.NodeName"
+        }
+      ],
+      "name": "Area ID",
+      "referenceName": "System.AreaId",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AreaId"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Authorized As",
+      "referenceName": "System.AuthorizedAs",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AuthorizedAs"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": true,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "Stories affected and how",
+      "name": "Title",
+      "referenceName": "System.Title",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Title"
+    },
+    {
+      "allowedValues": [
+        "Doing",
+        "Done",
+        "To do"
+      ],
+      "alwaysRequired": true,
+      "defaultValue": "To do",
+      "dependentFields": [
+        {
+          "name": "Reason",
+          "referenceName": "System.Reason",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/System.Reason"
+        },
+        {
+          "name": "State Change Date",
+          "referenceName": "Microsoft.VSTS.Common.StateChangeDate",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.StateChangeDate"
+        },
+        {
+          "name": "Activated Date",
+          "referenceName": "Microsoft.VSTS.Common.ActivatedDate",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ActivatedDate"
+        },
+        {
+          "name": "Activated By",
+          "referenceName": "Microsoft.VSTS.Common.ActivatedBy",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ActivatedBy"
+        },
+        {
+          "name": "Resolved Date",
+          "referenceName": "Microsoft.VSTS.Common.ResolvedDate",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ResolvedDate"
+        },
+        {
+          "name": "Resolved By",
+          "referenceName": "Microsoft.VSTS.Common.ResolvedBy",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ResolvedBy"
+        },
+        {
+          "name": "Closed Date",
+          "referenceName": "Microsoft.VSTS.Common.ClosedDate",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ClosedDate"
+        },
+        {
+          "name": "Closed By",
+          "referenceName": "Microsoft.VSTS.Common.ClosedBy",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Microsoft.VSTS.Common.ClosedBy"
+        },
+        {
+          "name": "Answer",
+          "referenceName": "Custom.WayfinderAnswer",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Custom.WayfinderAnswer"
+        }
+      ],
+      "helpText": "New = for triage; Active = not yet fixed; Resolved = fixed not yet verified; Closed = fix verified.",
+      "name": "State",
+      "referenceName": "System.State",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.State"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Authorized Date",
+      "referenceName": "System.AuthorizedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AuthorizedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Watermark",
+      "referenceName": "System.Watermark",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Watermark"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Rev",
+      "referenceName": "System.Rev",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Rev"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Changed By",
+      "referenceName": "System.ChangedBy",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.ChangedBy"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "The reason why the bug is in the current state",
+      "name": "Reason",
+      "referenceName": "System.Reason",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Reason"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "The person currently working on this bug",
+      "name": "Assigned To",
+      "referenceName": "System.AssignedTo",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.AssignedTo"
+    },
+    {
+      "allowedValues": [
+        "Code Review Request",
+        "Code Review Response",
+        "Decision",
+        "Epic",
+        "Feedback Request",
+        "Feedback Response",
+        "Grilling",
+        "Idea",
+        "Issue",
+        "Map",
+        "Prototype",
+        "Research",
+        "Shared Parameter",
+        "Shared Steps",
+        "Spec",
+        "Task",
+        "Test Case",
+        "Test Plan",
+        "Test Suite",
+        "Wayfinder Task"
+      ],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Work Item Type",
+      "referenceName": "System.WorkItemType",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.WorkItemType"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Created Date",
+      "referenceName": "System.CreatedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.CreatedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Created By",
+      "referenceName": "System.CreatedBy",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.CreatedBy"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "Description or acceptance criteria for this epic to be considered complete",
+      "name": "Description",
+      "referenceName": "System.Description",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Description"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "Discussion thread plus automatic record of changes",
+      "name": "History",
+      "referenceName": "System.History",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.History"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Related Link Count",
+      "referenceName": "System.RelatedLinkCount",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.RelatedLinkCount"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Tags",
+      "referenceName": "System.Tags",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.Tags"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Board Column",
+      "referenceName": "System.BoardColumn",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.BoardColumn"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Board Column Done",
+      "referenceName": "System.BoardColumnDone",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.BoardColumnDone"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Board Lane",
+      "referenceName": "System.BoardLane",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/System.BoardLane"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "State Change Date",
+      "referenceName": "Microsoft.VSTS.Common.StateChangeDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.StateChangeDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Activated Date",
+      "referenceName": "Microsoft.VSTS.Common.ActivatedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ActivatedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Activated By",
+      "referenceName": "Microsoft.VSTS.Common.ActivatedBy",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ActivatedBy"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Resolved Date",
+      "referenceName": "Microsoft.VSTS.Common.ResolvedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ResolvedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Resolved By",
+      "referenceName": "Microsoft.VSTS.Common.ResolvedBy",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ResolvedBy"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Closed Date",
+      "referenceName": "Microsoft.VSTS.Common.ClosedDate",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ClosedDate"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Closed By",
+      "referenceName": "Microsoft.VSTS.Common.ClosedBy",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.ClosedBy"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Execution Mode",
+      "referenceName": "Custom.WayfinderExecutionMode",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Custom.WayfinderExecutionMode"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Decision Maturity",
+      "referenceName": "Custom.WayfinderDecisionMaturity",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Custom.WayfinderDecisionMaturity"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "name": "Answer",
+      "referenceName": "Custom.WayfinderAnswer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Custom.WayfinderAnswer"
+    },
+    {
+      "allowedValues": [],
+      "alwaysRequired": false,
+      "defaultValue": null,
+      "dependentFields": [],
+      "helpText": "Work first on items with lower-valued stack rank. Set in triage.",
+      "name": "Stack Rank",
+      "referenceName": "Microsoft.VSTS.Common.StackRank",
+      "url": "https://dev.azure.com/PolyphonyRequiem/eb661658-9bc8-4941-8b44-0acb77b650c9/_apis/wit/fields/Microsoft.VSTS.Common.StackRank"
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "canSortBy": true,
+  "description": null,
+  "isIdentity": false,
+  "isLocked": false,
+  "isPicklist": false,
+  "isPicklistSuggested": false,
+  "isQueryable": true,
+  "name": "Execution Mode",
+  "readOnly": false,
+  "referenceName": "Custom.WayfinderExecutionMode",
+  "supportedOperations": [
+    {
+      "name": "=",
+      "referenceName": "SupportedOperations.Equals"
+    },
+    {
+      "name": "<>",
+      "referenceName": "SupportedOperations.NotEquals"
+    },
+    {
+      "name": ">",
+      "referenceName": "SupportedOperations.GreaterThan"
+    },
+    {
+      "name": "<",
+      "referenceName": "SupportedOperations.LessThan"
+    },
+    {
+      "name": ">=",
+      "referenceName": "SupportedOperations.GreaterThanEquals"
+    },
+    {
+      "name": "<=",
+      "referenceName": "SupportedOperations.LessThanEquals"
+    },
+    {
+      "name": "Contains",
+      "referenceName": "SupportedOperations.Contains"
+    },
+    {
+      "name": "Does Not Contain",
+      "referenceName": "SupportedOperations.NotContains"
+    },
+    {
+      "name": "In",
+      "referenceName": "SupportedOperations.In"
+    },
+    {
+      "name": "Not In"
+    },
+    {
+      "name": "In Group",
+      "referenceName": "SupportedOperations.InGroup"
+    },
+    {
+      "name": "Not In Group",
+      "referenceName": "SupportedOperations.NotInGroup"
+    },
+    {
+      "name": "Was Ever",
+      "referenceName": "SupportedOperations.Ever"
+    },
+    {
+      "name": "= [Field]",
+      "referenceName": "SupportedOperations.EqualsField"
+    },
+    {
+      "name": "<> [Field]",
+      "referenceName": "SupportedOperations.NotEqualsField"
+    },
+    {
+      "name": "> [Field]",
+      "referenceName": "SupportedOperations.GreaterThanField"
+    },
+    {
+      "name": "< [Field]",
+      "referenceName": "SupportedOperations.LessThanField"
+    },
+    {
+      "name": ">= [Field]",
+      "referenceName": "SupportedOperations.GreaterThanEqualsField"
+    },
+    {
+      "name": "<= [Field]",
+      "referenceName": "SupportedOperations.LessThanEqualsField"
+    }
+  ],
+  "type": "string",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/wit/fields/Custom.WayfinderExecutionMode",
+  "usage": "workItem"
+}

@@ -1,0 +1,113 @@
+{
+  "count": 8,
+  "value": [
+    {
+      "customizationType": "system",
+      "description": "This template is flexible for any process and great for teams getting started with Azure DevOps.",
+      "isDefault": true,
+      "isEnabled": true,
+      "name": "Basic",
+      "parentProcessTypeId": "00000000-0000-0000-0000-000000000000",
+      "referenceName": null,
+      "typeId": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2"
+    },
+    {
+      "customizationType": "system",
+      "description": "This template is for more formal projects requiring a framework for process improvement and an auditable record of decisions.",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "CMMI",
+      "parentProcessTypeId": "00000000-0000-0000-0000-000000000000",
+      "referenceName": null,
+      "typeId": "27450541-8e31-4150-9947-dc59f998fc01"
+    },
+    {
+      "customizationType": "system",
+      "description": "This template is flexible and will work great for most teams using Agile planning methods, including those practicing Scrum.",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Agile",
+      "parentProcessTypeId": "00000000-0000-0000-0000-000000000000",
+      "referenceName": null,
+      "typeId": "adcc42ab-9882-485e-a3ed-7678f01f66bc"
+    },
+    {
+      "customizationType": "system",
+      "description": "This template is for teams who follow the Scrum framework.",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Scrum",
+      "parentProcessTypeId": "00000000-0000-0000-0000-000000000000",
+      "referenceName": null,
+      "typeId": "6b724908-ef14-45cf-84f8-768b5384da45"
+    },
+    {
+      "customizationType": "inherited",
+      "description": "",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Godsblood",
+      "parentProcessTypeId": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2",
+      "projects": [
+        {
+          "description": "Genomic profiles system: heritable profile genomes, stamping, and genome-upgrade reconciliation. Source of Starglimmer baselines.",
+          "id": "351f7173-7670-4e54-9dec-6874a3a43b97",
+          "name": "Godsblood",
+          "url": "vstfs:///Classification/TeamProject/351f7173-7670-4e54-9dec-6874a3a43b97"
+        }
+      ],
+      "referenceName": "Inherited.9d34c5487e4b4bec92eff421b8499bdc",
+      "typeId": "9d34c548-7e4b-4bec-92ef-f421b8499bdc"
+    },
+    {
+      "customizationType": "inherited",
+      "description": "Inherited from Basic. Adds Wayfinder types (Map, Research, Prototype, Grilling, Wayfinder Task) for decision-tracking; delivery types added later.",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Niflheim",
+      "parentProcessTypeId": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2",
+      "projects": [
+        {
+          "description": "A calming VR space for ADHD-ergonomic navigation of agent work. Meta Quest Pro. Private.",
+          "id": "3422fea8-71cc-4599-89ee-824ad8598a8c",
+          "name": "Hyperbright",
+          "url": "vstfs:///Classification/TeamProject/3422fea8-71cc-4599-89ee-824ad8598a8c"
+        },
+        {
+          "description": "Twig CLI development",
+          "id": "eb661658-9bc8-4941-8b44-0acb77b650c9",
+          "name": "Twig",
+          "url": "vstfs:///Classification/TeamProject/eb661658-9bc8-4941-8b44-0acb77b650c9"
+        },
+        {
+          "description": null,
+          "id": "3be9ae36-ca65-4c1c-ac1a-e49941d4e767",
+          "name": "Niflheim",
+          "url": "vstfs:///Classification/TeamProject/3be9ae36-ca65-4c1c-ac1a-e49941d4e767"
+        }
+      ],
+      "referenceName": "Inherited.7f984e4ce8564fc38457fd4e8acf2e57",
+      "typeId": "7f984e4c-e856-4fc3-8457-fd4e8acf2e57"
+    },
+    {
+      "customizationType": "inherited",
+      "description": "Wayfinder process for Twig development (replica of Niflheim)",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Twig",
+      "parentProcessTypeId": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2",
+      "referenceName": "Inherited.643e4750396d4235a9bf875b4ac8f904",
+      "typeId": "643e4750-396d-4235-a9bf-875b4ac8f904"
+    },
+    {
+      "customizationType": "inherited",
+      "description": "Wayfinder + delivery process for Hyperbright. Replica of the Twig Wayfinder types.",
+      "isDefault": false,
+      "isEnabled": true,
+      "name": "Hyperbright",
+      "parentProcessTypeId": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2",
+      "referenceName": "Inherited.4c8faeed4acd42a6b19df8522621632e",
+      "typeId": "4c8faeed-4acd-42a6-b19d-f8522621632e"
+    }
+  ]
+}

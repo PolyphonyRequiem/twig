@@ -1,0 +1,26 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.WayfinderAnswer",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "4a6def1a-408a-4dd8-af8f-ccdf2f6a8526",
+      "isDisabled": false,
+      "name": "Prototype must record what it proved",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype/rules/4a6def1a-408a-4dd8-af8f-ccdf2f6a8526"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "e6a8dd71-e2bd-40a2-9458-585826cfafb5",
+  "isSuggested": false,
+  "items": [
+    "P1 build now",
+    "P2 next",
+    "P3 later",
+    "P4 shelve"
+  ],
+  "name": "NiflheimPriorityBand",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/e6a8dd71-e2bd-40a2-9458-585826cfafb5"
+}

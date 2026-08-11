@@ -1,0 +1,60 @@
+
+=== Niflheim (7f984e4c-e856-4fc3-8457-fd4e8acf2e57) ===
+  FAIL Niflheim-procfields-7.1: ERROR: Not Found({"count":1,"value":{"Message":"No HTTP resource was found that matches the request URI 'https://dev.azu
+  process /fields @7.1-preview.1: count=93 custom=13
+  workItemTypes: 14
+    Niflheim.Grilling                             class=custom    customization=custom    inherits=None
+    Niflheim.Prototype                            class=custom    customization=custom    inherits=None
+    Niflheim.Task                                 class=derived   customization=inherited inherits=Microsoft.VSTS.WorkItemTypes.Task
+    Niflheim.Spec                                 class=custom    customization=custom    inherits=None
+    Niflheim.Issue                                class=derived   customization=inherited inherits=Microsoft.VSTS.WorkItemTypes.Issue
+    Niflheim.Research                             class=custom    customization=custom    inherits=None
+    Niflheim.Decision                             class=custom    customization=custom    inherits=None
+    Niflheim.Map                                  class=custom    customization=custom    inherits=None
+    Niflheim.Idea                                 class=custom    customization=custom    inherits=None
+    Niflheim.WayfinderTask                        class=custom    customization=custom    inherits=None
+    Niflheim.Epic                                 class=derived   customization=inherited inherits=Microsoft.VSTS.WorkItemTypes.Epic
+    Microsoft.VSTS.WorkItemTypes.TestCase         class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.TestPlan         class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.TestSuite        class=system    customization=system    inherits=None
+  $expand=states: ok (17620 chars)
+  $expand=behaviors: ok (10889 chars)
+  $expand=layout: ok (110030 chars)
+  process /behaviors: 6 -> ['Wayfinding', 'Epics', 'Issues', 'Ordered', 'Tasks', 'Portfolio']
+  per-type /fields attribute keys: ['customization', 'defaultValue', 'isLocked', 'name', 'referenceName', 'required', 'type', 'url']
+    total per-type field rows: 628; required=True: 59; with defaultValue: 19; with allowedValues: 0; with pickList: 0
+  /processes/lists (list-all): count=7 items-present=[False, False, False, False, False, False, False]
+    per-list NiflheimIdeaOutcome: items=2
+    per-list NiflheimVerificationMode: items=5
+    per-list NiflheimDecisionStanding: items=2
+    per-list NiflheimPriorityBand: items=4
+    per-list WayfinderDecisionMaturity: items=2
+    per-list NiflheimMaturity: items=5
+    per-list WayfinderExecutionMode: items=2
+  COST: 43 calls, 493702 bytes (482.1 KiB)
+
+=== Basic (b8a3a935-7e91-48b8-a94c-606d37c3e9f2) ===
+  FAIL Basic-procfields-7.1: ERROR: Not Found({"count":1,"value":{"Message":"No HTTP resource was found that matches the request URI 'https://dev.azu
+  process /fields @7.1-preview.1: count=80 custom=0
+  workItemTypes: 6
+    Microsoft.VSTS.WorkItemTypes.Issue            class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.Epic             class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.Task             class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.TestCase         class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.TestPlan         class=system    customization=system    inherits=None
+    Microsoft.VSTS.WorkItemTypes.TestSuite        class=system    customization=system    inherits=None
+  $expand=states: ok (8801 chars)
+  $expand=behaviors: ok (3928 chars)
+  $expand=layout: ok (42546 chars)
+  process /behaviors: 5 -> ['Epics', 'Issues', 'Ordered', 'Tasks', 'Portfolio']
+  per-type /fields attribute keys: ['customization', 'isLocked', 'name', 'referenceName', 'type', 'url']
+    total per-type field rows: 260; required=True: 27; with defaultValue: 11; with allowedValues: 0; with pickList: 0
+  /processes/lists (list-all): count=7 items-present=[False, False, False, False, False, False, False]
+    per-list NiflheimIdeaOutcome: items=2
+    per-list NiflheimVerificationMode: items=5
+    per-list NiflheimDecisionStanding: items=2
+    per-list NiflheimPriorityBand: items=4
+    per-list WayfinderDecisionMaturity: items=2
+    per-list NiflheimMaturity: items=5
+    per-list WayfinderExecutionMode: items=2
+  COST: 27 calls, 222990 bytes (217.8 KiB)

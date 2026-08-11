@@ -1,0 +1,381 @@
+{
+  "count": 45,
+  "value": [
+    {
+      "customization": "inherited",
+      "defaultValue": "To do",
+      "isLocked": false,
+      "name": "State",
+      "referenceName": "System.State",
+      "required": true,
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "isLocked": false,
+      "name": "Reason",
+      "referenceName": "System.Reason",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "State Change Date",
+      "referenceName": "Microsoft.VSTS.Common.StateChangeDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Activated Date",
+      "referenceName": "Microsoft.VSTS.Common.ActivatedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Activated By",
+      "referenceName": "Microsoft.VSTS.Common.ActivatedBy",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Resolved Date",
+      "referenceName": "Microsoft.VSTS.Common.ResolvedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Resolved By",
+      "referenceName": "Microsoft.VSTS.Common.ResolvedBy",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Closed Date",
+      "referenceName": "Microsoft.VSTS.Common.ClosedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "inherited",
+      "description": "",
+      "isLocked": false,
+      "name": "Closed By",
+      "referenceName": "Microsoft.VSTS.Common.ClosedBy",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "custom",
+      "description": "",
+      "isLocked": false,
+      "name": "Destination",
+      "referenceName": "Custom.WayfinderDestination",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "custom",
+      "description": "",
+      "isLocked": false,
+      "name": "Decisions So Far",
+      "referenceName": "Custom.WayfinderDecisionsSoFar",
+      "type": "html",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "custom",
+      "description": "",
+      "isLocked": false,
+      "name": "Closing Statement",
+      "referenceName": "Custom.ClosingStatement",
+      "type": "html",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Iteration Path",
+      "referenceName": "System.IterationPath",
+      "type": "treePath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "External Link Count",
+      "referenceName": "System.ExternalLinkCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Team Project",
+      "referenceName": "System.TeamProject",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Hyperlink Count",
+      "referenceName": "System.HyperLinkCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Attached File Count",
+      "referenceName": "System.AttachedFileCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Area Path",
+      "referenceName": "System.AreaPath",
+      "type": "treePath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Changed Date",
+      "referenceName": "System.ChangedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "ID",
+      "referenceName": "System.Id",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Authorized As",
+      "referenceName": "System.AuthorizedAs",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Title",
+      "referenceName": "System.Title",
+      "required": true,
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Authorized Date",
+      "referenceName": "System.AuthorizedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Rev",
+      "referenceName": "System.Rev",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Changed By",
+      "referenceName": "System.ChangedBy",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Assigned To",
+      "referenceName": "System.AssignedTo",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Work Item Type",
+      "referenceName": "System.WorkItemType",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Created Date",
+      "referenceName": "System.CreatedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Created By",
+      "referenceName": "System.CreatedBy",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Description",
+      "referenceName": "System.Description",
+      "type": "html",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "History",
+      "referenceName": "System.History",
+      "type": "history",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Related Link Count",
+      "referenceName": "System.RelatedLinkCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Tags",
+      "referenceName": "System.Tags",
+      "type": "plainText",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Board Column",
+      "referenceName": "System.BoardColumn",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Board Column Done",
+      "referenceName": "System.BoardColumnDone",
+      "type": "boolean",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Board Lane",
+      "referenceName": "System.BoardLane",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "description": "",
+      "isLocked": false,
+      "name": "Stack Rank",
+      "referenceName": "Microsoft.VSTS.Common.StackRank",
+      "type": "double",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Iteration ID",
+      "referenceName": "System.IterationId",
+      "required": true,
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Parent",
+      "referenceName": "System.Parent",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Remote Link Count",
+      "referenceName": "System.RemoteLinkCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Comment Count",
+      "referenceName": "System.CommentCount",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Node Name",
+      "referenceName": "System.NodeName",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Revised Date",
+      "referenceName": "System.RevisedDate",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Area ID",
+      "referenceName": "System.AreaId",
+      "required": true,
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    },
+    {
+      "customization": "system",
+      "isLocked": false,
+      "name": "Watermark",
+      "referenceName": "System.Watermark",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors"
+    }
+  ]
+}

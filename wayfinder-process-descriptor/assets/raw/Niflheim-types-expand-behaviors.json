@@ -1,0 +1,273 @@
+{
+  "count": 14,
+  "value": [
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "B85C00",
+      "description": "HITL ticket. One question at a time via the grilling and decision-mapping skills. The default ticket type.",
+      "icon": "icon_chat_bubble",
+      "id": "Niflheim.Grilling",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Grilling",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "D83B01",
+      "description": "HITL ticket. Build a cheap, rough, concrete artifact for the human to react to. Raises the fidelity of the discussion.",
+      "icon": "icon_test_step",
+      "id": "Niflheim.Prototype",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Prototype",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "System.TaskBacklogBehavior",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.TaskBacklogBehavior"
+          },
+          "isDefault": true,
+          "isLegacyDefault": true,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.TaskBacklogBehavior"
+        }
+      ],
+      "class": "derived",
+      "color": "F2CB1D",
+      "description": "A step inside an Issue, not an outcome. Tasks carry no verification answers - they inherit from the Issue above. A Task with no parent Issue escapes the check entirely; that is a smell worth seeing, not a gap to paper over.",
+      "icon": "icon_clipboard",
+      "id": "Niflheim.Task",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Task",
+      "isDisabled": false,
+      "name": "Task",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+        }
+      ],
+      "class": "custom",
+      "color": "1F8A70",
+      "description": "The buildable description of a thing - the last stop before code. A Spec cannot close until it says how the result will be checked and what observation would prove it does NOT work. After this point that answer costs a rebuild.",
+      "icon": "icon_clipboard",
+      "id": "Niflheim.Spec",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Spec",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "System.RequirementBacklogBehavior",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.RequirementBacklogBehavior"
+          },
+          "isDefault": true,
+          "isLegacyDefault": true,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/System.RequirementBacklogBehavior"
+        }
+      ],
+      "class": "derived",
+      "color": "B4009E",
+      "description": "A real piece of player-facing change. On close an Issue must say how the result was checked and what observation would prove it does not work. Nothing to check in the game is a legitimate answer - choose None. Tasks beneath an Issue inherit these answers.",
+      "icon": "icon_clipboard_issue",
+      "id": "Niflheim.Issue",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Issue",
+      "isDisabled": false,
+      "name": "Issue",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Issue"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "0078D4",
+      "description": "AFK ticket. Read docs, APIs, or local corpora and produce a linked markdown summary. No human in the loop.",
+      "icon": "icon_book",
+      "id": "Niflheim.Research",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Research",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research"
+    },
+    {
+      "behaviors": [],
+      "class": "custom",
+      "color": "8E44AD",
+      "description": "A call that was made.",
+      "icon": "icon_gavel",
+      "id": "Niflheim.Decision",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Decision",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": true,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "5C2D91",
+      "description": "A set of related decisions driven toward a destination. A Map may close with decisions still open, provided it says WHY IT STOPPED.",
+      "icon": "icon_code_review",
+      "id": "Niflheim.Map",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Map",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "FFB900",
+      "description": "Cheap intake. No promise, no structure. An Idea closes one of two ways: it became real work (say what, and link it), or we decided against it (say why).",
+      "icon": "icon_broken_lightbulb",
+      "id": "Niflheim.Idea",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Idea",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+          },
+          "isDefault": false,
+          "isLegacyDefault": false,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f"
+        }
+      ],
+      "class": "custom",
+      "color": "00A2AD",
+      "description": "A step inside a Map, not an outcome. Carries no verification answers - inherits from the Map above, exactly as Task inherits from Issue.",
+      "icon": "icon_test_case",
+      "id": "Niflheim.WayfinderTask",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Wayfinder Task",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.WayfinderTask"
+    },
+    {
+      "behaviors": [
+        {
+          "behavior": {
+            "id": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
+            "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+          },
+          "isDefault": true,
+          "isLegacyDefault": true,
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+        }
+      ],
+      "class": "derived",
+      "color": "FF7B00",
+      "description": "A group of issues delivering one outcome. It does not carry verification answers; those live on its issues, where a single check is meaningful. On close it states what it delivered in player terms, in a sentence.",
+      "icon": "icon_crown",
+      "id": "Niflheim.Epic",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Epic",
+      "isDisabled": false,
+      "name": "Epic",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Epic"
+    },
+    {
+      "behaviors": [],
+      "class": "system",
+      "color": "004B50",
+      "description": "Server-side data for a set of steps to be tested.",
+      "icon": "icon_test_case",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestCase",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Case",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase"
+    },
+    {
+      "behaviors": [],
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activities for a specific milestone or release.",
+      "icon": "icon_test_plan",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestPlan",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Plan",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan"
+    },
+    {
+      "behaviors": [],
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activites for a specific feature, requirement, or user story.",
+      "icon": "icon_test_suite",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestSuite",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Suite",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite"
+    }
+  ]
+}

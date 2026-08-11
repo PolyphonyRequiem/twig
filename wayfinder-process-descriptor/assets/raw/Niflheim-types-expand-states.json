@@ -1,0 +1,472 @@
+{
+  "count": 14,
+  "value": [
+    {
+      "class": "custom",
+      "color": "B85C00",
+      "description": "HITL ticket. One question at a time via the grilling and decision-mapping skills. The default ticket type.",
+      "icon": "icon_chat_bubble",
+      "id": "Niflheim.Grilling",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Grilling",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "31457a1d-1ea8-4f3d-a9ae-1466c5d93324",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling/states/31457a1d-1ea8-4f3d-a9ae-1466c5d93324"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "c0de2500-d192-4f28-ab3c-fd3db591b726",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling/states/c0de2500-d192-4f28-ab3c-fd3db591b726"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "5fa85a22-c7ba-4142-b2e0-b9e544748c9a",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling/states/5fa85a22-c7ba-4142-b2e0-b9e544748c9a"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Grilling"
+    },
+    {
+      "class": "custom",
+      "color": "D83B01",
+      "description": "HITL ticket. Build a cheap, rough, concrete artifact for the human to react to. Raises the fidelity of the discussion.",
+      "icon": "icon_test_step",
+      "id": "Niflheim.Prototype",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Prototype",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "ac904ff2-2ff2-4deb-9b6e-9e7dc3eca5b7",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype/states/ac904ff2-2ff2-4deb-9b6e-9e7dc3eca5b7"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "4a95ddbd-0c43-40de-9805-f3741aafdc0f",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype/states/4a95ddbd-0c43-40de-9805-f3741aafdc0f"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "d74cdf05-c5c2-4201-b4c2-2ad4e6fcf3e6",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype/states/d74cdf05-c5c2-4201-b4c2-2ad4e6fcf3e6"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Prototype"
+    },
+    {
+      "class": "derived",
+      "color": "F2CB1D",
+      "description": "A step inside an Issue, not an outcome. Tasks carry no verification answers - they inherit from the Issue above. A Task with no parent Issue escapes the check entirely; that is a smell worth seeing, not a gap to paper over.",
+      "icon": "icon_clipboard",
+      "id": "Niflheim.Task",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Task",
+      "isDisabled": false,
+      "name": "Task",
+      "states": [],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task"
+    },
+    {
+      "class": "custom",
+      "color": "1F8A70",
+      "description": "The buildable description of a thing - the last stop before code. A Spec cannot close until it says how the result will be checked and what observation would prove it does NOT work. After this point that answer costs a rebuild.",
+      "icon": "icon_clipboard",
+      "id": "Niflheim.Spec",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Spec",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "7f3eaf48-1471-4c23-be6a-f670779a688d",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec/states/7f3eaf48-1471-4c23-be6a-f670779a688d"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "f53f79a4-352c-4f2c-af9f-51d2f0757752",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec/states/f53f79a4-352c-4f2c-af9f-51d2f0757752"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "fa39bda1-4541-4280-8c5a-3ae7574aab08",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec/states/fa39bda1-4541-4280-8c5a-3ae7574aab08"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Spec"
+    },
+    {
+      "class": "derived",
+      "color": "B4009E",
+      "description": "A real piece of player-facing change. On close an Issue must say how the result was checked and what observation would prove it does not work. Nothing to check in the game is a legitimate answer - choose None. Tasks beneath an Issue inherit these answers.",
+      "icon": "icon_clipboard_issue",
+      "id": "Niflheim.Issue",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Issue",
+      "isDisabled": false,
+      "name": "Issue",
+      "states": [],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Issue"
+    },
+    {
+      "class": "custom",
+      "color": "0078D4",
+      "description": "AFK ticket. Read docs, APIs, or local corpora and produce a linked markdown summary. No human in the loop.",
+      "icon": "icon_book",
+      "id": "Niflheim.Research",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Research",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "baf7c98f-f363-41b1-8c84-42ee7783326f",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research/states/baf7c98f-f363-41b1-8c84-42ee7783326f"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "a49fbcc2-d0eb-4823-aa07-ae39b67ad537",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research/states/a49fbcc2-d0eb-4823-aa07-ae39b67ad537"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "d76de367-7739-4f7f-ad22-50dac3233088",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research/states/d76de367-7739-4f7f-ad22-50dac3233088"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Research"
+    },
+    {
+      "class": "custom",
+      "color": "8E44AD",
+      "description": "A call that was made.",
+      "icon": "icon_gavel",
+      "id": "Niflheim.Decision",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Decision",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "e235e3ca-0c77-4fbb-85eb-191a7336e594",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/states/e235e3ca-0c77-4fbb-85eb-191a7336e594"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "9af6905b-3342-43c5-bb2a-cf511b90c682",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/states/9af6905b-3342-43c5-bb2a-cf511b90c682"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "aa6a699a-203f-4fd9-8c2f-3c485961fb77",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/states/aa6a699a-203f-4fd9-8c2f-3c485961fb77"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision"
+    },
+    {
+      "class": "custom",
+      "color": "5C2D91",
+      "description": "A set of related decisions driven toward a destination. A Map may close with decisions still open, provided it says WHY IT STOPPED.",
+      "icon": "icon_code_review",
+      "id": "Niflheim.Map",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Map",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "3c25ea31-5782-468f-966e-90d46f8711dd",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map/states/3c25ea31-5782-468f-966e-90d46f8711dd"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "78cc5999-30b3-4f78-b7aa-7fd5ddf378d0",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map/states/78cc5999-30b3-4f78-b7aa-7fd5ddf378d0"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "37f4f7be-7f5a-4bbd-b8d3-89d3fa1d7d60",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map/states/37f4f7be-7f5a-4bbd-b8d3-89d3fa1d7d60"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map"
+    },
+    {
+      "class": "custom",
+      "color": "FFB900",
+      "description": "Cheap intake. No promise, no structure. An Idea closes one of two ways: it became real work (say what, and link it), or we decided against it (say why).",
+      "icon": "icon_broken_lightbulb",
+      "id": "Niflheim.Idea",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Idea",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "e098e10b-8f6f-4a0f-84c1-518657faac2b",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea/states/e098e10b-8f6f-4a0f-84c1-518657faac2b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "f6a722c2-4ae5-4acd-8094-7cdeddf2ce00",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea/states/f6a722c2-4ae5-4acd-8094-7cdeddf2ce00"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "28ffc78f-28d5-41f5-a93e-a002b65faf2f",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea/states/28ffc78f-28d5-41f5-a93e-a002b65faf2f"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea"
+    },
+    {
+      "class": "custom",
+      "color": "00A2AD",
+      "description": "A step inside a Map, not an outcome. Carries no verification answers - inherits from the Map above, exactly as Task inherits from Issue.",
+      "icon": "icon_test_case",
+      "id": "Niflheim.WayfinderTask",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Wayfinder Task",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "custom",
+          "id": "8d877fc7-27e7-4ec7-b66c-dbdb5e52c12d",
+          "name": "To do",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.WayfinderTask/states/8d877fc7-27e7-4ec7-b66c-dbdb5e52c12d"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "custom",
+          "id": "587d3b3e-808e-4638-be3b-d02b2f27f45b",
+          "name": "Doing",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.WayfinderTask/states/587d3b3e-808e-4638-be3b-d02b2f27f45b"
+        },
+        {
+          "color": "339933",
+          "customizationType": "custom",
+          "id": "0b24c036-b79b-464e-9e19-e678c50c178e",
+          "name": "Done",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.WayfinderTask/states/0b24c036-b79b-464e-9e19-e678c50c178e"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.WayfinderTask"
+    },
+    {
+      "class": "derived",
+      "color": "FF7B00",
+      "description": "A group of issues delivering one outcome. It does not carry verification answers; those live on its issues, where a single check is meaningful. On close it states what it delivered in player terms, in a sentence.",
+      "icon": "icon_crown",
+      "id": "Niflheim.Epic",
+      "inherits": "Microsoft.VSTS.WorkItemTypes.Epic",
+      "isDisabled": false,
+      "name": "Epic",
+      "states": [],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Epic"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Server-side data for a set of steps to be tested.",
+      "icon": "icon_test_case",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestCase",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Case",
+      "states": [
+        {
+          "color": "b2b2b2",
+          "customizationType": "system",
+          "id": "067742a4-07cb-4a53-b2fa-2ea058f3332b",
+          "name": "Design",
+          "order": 1,
+          "stateCategory": "Proposed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/067742a4-07cb-4a53-b2fa-2ea058f3332b"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "17cfeadc-f49b-41b9-897a-43655d35c0c4",
+          "name": "Ready",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/17cfeadc-f49b-41b9-897a-43655d35c0c4"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "9f479b88-4542-4f9d-8048-5d9c953b5082",
+          "name": "Closed",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase/states/9f479b88-4542-4f9d-8048-5d9c953b5082"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestCase"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activities for a specific milestone or release.",
+      "icon": "icon_test_plan",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestPlan",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Plan",
+      "states": [
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "277237cd-0bc0-4ffb-bdc6-d358b154ba9e",
+          "name": "Active",
+          "order": 1,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan/states/277237cd-0bc0-4ffb-bdc6-d358b154ba9e"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "da8f3a6e-e52d-4d1d-9890-783a1bca5da1",
+          "name": "Inactive",
+          "order": 2,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan/states/da8f3a6e-e52d-4d1d-9890-783a1bca5da1"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestPlan"
+    },
+    {
+      "class": "system",
+      "color": "004B50",
+      "description": "Tracks test activites for a specific feature, requirement, or user story.",
+      "icon": "icon_test_suite",
+      "id": "Microsoft.VSTS.WorkItemTypes.TestSuite",
+      "inherits": null,
+      "isDisabled": false,
+      "name": "Test Suite",
+      "states": [
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "93320ff7-1042-403d-93b8-b8ed5dcf2663",
+          "name": "In Planning",
+          "order": 1,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/93320ff7-1042-403d-93b8-b8ed5dcf2663"
+        },
+        {
+          "color": "007acc",
+          "customizationType": "system",
+          "id": "5fcb8472-3c27-43f5-af7d-f39c9e48f7c6",
+          "name": "In Progress",
+          "order": 2,
+          "stateCategory": "InProgress",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/5fcb8472-3c27-43f5-af7d-f39c9e48f7c6"
+        },
+        {
+          "color": "339933",
+          "customizationType": "system",
+          "id": "d6920af5-ea13-4c20-aab6-f48d807fbda1",
+          "name": "Completed",
+          "order": 3,
+          "stateCategory": "Completed",
+          "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite/states/d6920af5-ea13-4c20-aab6-f48d807fbda1"
+        }
+      ],
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Microsoft.VSTS.WorkItemTypes.TestSuite"
+    }
+  ]
+}

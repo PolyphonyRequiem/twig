@@ -1,0 +1,11 @@
+{
+  "id": "148786ea-d73c-4889-a8ec-5883cc1e6670",
+  "isSuggested": false,
+  "items": [
+    "Provisional",
+    "Ratified"
+  ],
+  "name": "WayfinderDecisionMaturity",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/148786ea-d73c-4889-a8ec-5883cc1e6670"
+}

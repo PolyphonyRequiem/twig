@@ -1,0 +1,73 @@
+{
+  "count": 3,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.SupersededBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "Custom.DecisionStanding",
+          "value": "Replaced"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "0a04ba79-5f19-4e99-9eac-909b49f7c1c5",
+      "isDisabled": false,
+      "name": "Replaced decision must name its successor",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/rules/0a04ba79-5f19-4e99-9eac-909b49f7c1c5"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.ClosingStatement",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "a17ff320-eca6-48a1-8933-b50e8e8ebf07",
+      "isDisabled": false,
+      "name": "Decision must record its reasoning",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/rules/a17ff320-eca6-48a1-8933-b50e8e8ebf07"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.DecisionStanding",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "772b9335-6a97-4c88-ad2b-813231ab4f0b",
+      "isDisabled": false,
+      "name": "Decision must declare standing",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Decision/rules/772b9335-6a97-4c88-ad2b-813231ab4f0b"
+    }
+  ]
+}

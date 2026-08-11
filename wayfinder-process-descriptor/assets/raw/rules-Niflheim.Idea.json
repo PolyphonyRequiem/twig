@@ -1,0 +1,47 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.ClosingStatement",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "b5bc8f6c-cdbd-4660-b3a7-64547274189c",
+      "isDisabled": false,
+      "name": "Idea must say what it became or why not",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea/rules/b5bc8f6c-cdbd-4660-b3a7-64547274189c"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.IdeaOutcome",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "82930f17-3dba-4d37-a0aa-38bb87877723",
+      "isDisabled": false,
+      "name": "Idea must state its outcome",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Idea/rules/82930f17-3dba-4d37-a0aa-38bb87877723"
+    }
+  ]
+}

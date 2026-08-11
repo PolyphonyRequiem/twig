@@ -1,0 +1,410 @@
+{
+  "count": 45,
+  "value": [
+    {
+      "description": null,
+      "id": "System.State",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "State",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.State"
+    },
+    {
+      "description": null,
+      "id": "System.Reason",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Reason",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Reason"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.StateChangeDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "State Change Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.StateChangeDate"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ActivatedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Activated Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ActivatedDate"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ActivatedBy",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Activated By",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ActivatedBy"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ResolvedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Resolved Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ResolvedDate"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ResolvedBy",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Resolved By",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ResolvedBy"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ClosedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Closed Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ClosedDate"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.ClosedBy",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Closed By",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.ClosedBy"
+    },
+    {
+      "description": "",
+      "id": "Custom.WayfinderExecutionMode",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Execution Mode",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Custom.WayfinderExecutionMode"
+    },
+    {
+      "description": "",
+      "id": "Custom.WayfinderDecisionMaturity",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Decision Maturity",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Custom.WayfinderDecisionMaturity"
+    },
+    {
+      "description": "",
+      "id": "Custom.WayfinderAnswer",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Answer",
+      "type": "html",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Custom.WayfinderAnswer"
+    },
+    {
+      "description": null,
+      "id": "System.IterationPath",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Iteration Path",
+      "type": "treePath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.IterationPath"
+    },
+    {
+      "description": null,
+      "id": "System.ExternalLinkCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "External Link Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.ExternalLinkCount"
+    },
+    {
+      "description": null,
+      "id": "System.TeamProject",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Team Project",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.TeamProject"
+    },
+    {
+      "description": null,
+      "id": "System.HyperLinkCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Hyperlink Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.HyperLinkCount"
+    },
+    {
+      "description": null,
+      "id": "System.AttachedFileCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Attached File Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AttachedFileCount"
+    },
+    {
+      "description": null,
+      "id": "System.AreaPath",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Area Path",
+      "type": "treePath",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AreaPath"
+    },
+    {
+      "description": null,
+      "id": "System.ChangedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Changed Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.ChangedDate"
+    },
+    {
+      "description": null,
+      "id": "System.Id",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "ID",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Id"
+    },
+    {
+      "description": null,
+      "id": "System.AuthorizedAs",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Authorized As",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AuthorizedAs"
+    },
+    {
+      "description": null,
+      "id": "System.Title",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Title",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Title"
+    },
+    {
+      "description": null,
+      "id": "System.AuthorizedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Authorized Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AuthorizedDate"
+    },
+    {
+      "description": null,
+      "id": "System.Rev",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Rev",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Rev"
+    },
+    {
+      "description": null,
+      "id": "System.ChangedBy",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Changed By",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.ChangedBy"
+    },
+    {
+      "description": null,
+      "id": "System.AssignedTo",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Assigned To",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AssignedTo"
+    },
+    {
+      "description": null,
+      "id": "System.WorkItemType",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Work Item Type",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.WorkItemType"
+    },
+    {
+      "description": null,
+      "id": "System.CreatedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Created Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.CreatedDate"
+    },
+    {
+      "description": null,
+      "id": "System.CreatedBy",
+      "isIdentity": true,
+      "isLocked": false,
+      "name": "Created By",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.CreatedBy"
+    },
+    {
+      "description": null,
+      "id": "System.Description",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Description",
+      "type": "html",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Description"
+    },
+    {
+      "description": null,
+      "id": "System.History",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "History",
+      "type": "history",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.History"
+    },
+    {
+      "description": null,
+      "id": "System.RelatedLinkCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Related Link Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.RelatedLinkCount"
+    },
+    {
+      "description": null,
+      "id": "System.Tags",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Tags",
+      "type": "plainText",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Tags"
+    },
+    {
+      "description": null,
+      "id": "System.BoardColumn",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Board Column",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.BoardColumn"
+    },
+    {
+      "description": null,
+      "id": "System.BoardColumnDone",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Board Column Done",
+      "type": "boolean",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.BoardColumnDone"
+    },
+    {
+      "description": null,
+      "id": "System.BoardLane",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Board Lane",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.BoardLane"
+    },
+    {
+      "description": "",
+      "id": "Microsoft.VSTS.Common.StackRank",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Stack Rank",
+      "type": "double",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/Microsoft.VSTS.Common.StackRank"
+    },
+    {
+      "description": null,
+      "id": "System.IterationId",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Iteration ID",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.IterationId"
+    },
+    {
+      "description": null,
+      "id": "System.Parent",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Parent",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Parent"
+    },
+    {
+      "description": null,
+      "id": "System.RemoteLinkCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Remote Link Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.RemoteLinkCount"
+    },
+    {
+      "description": null,
+      "id": "System.CommentCount",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Comment Count",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.CommentCount"
+    },
+    {
+      "description": null,
+      "id": "System.NodeName",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Node Name",
+      "type": "string",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.NodeName"
+    },
+    {
+      "description": null,
+      "id": "System.RevisedDate",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Revised Date",
+      "type": "dateTime",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.RevisedDate"
+    },
+    {
+      "description": null,
+      "id": "System.AreaId",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Area ID",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.AreaId"
+    },
+    {
+      "description": null,
+      "id": "System.Watermark",
+      "isIdentity": false,
+      "isLocked": false,
+      "name": "Watermark",
+      "type": "integer",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/fields/System.Watermark"
+    }
+  ]
+}

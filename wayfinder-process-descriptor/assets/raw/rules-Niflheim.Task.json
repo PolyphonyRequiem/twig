@@ -1,0 +1,1231 @@
+{
+  "count": 54,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "cc94902e-d046-4189-ad08-b09270095925",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/cc94902e-d046-4189-ad08-b09270095925"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Completed"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "c170dd16-7145-4562-b482-97f3e8bf6b9f",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/c170dd16-7145-4562-b482-97f3e8bf6b9f"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "422a4846-a959-4cc7-b2d5-286262be8ff6",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/422a4846-a959-4cc7-b2d5-286262be8ff6"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Moved to backlog"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "5b45ef29-8b54-4f1f-893d-bb483410aac1",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/5b45ef29-8b54-4f1f-893d-bb483410aac1"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "5c03a014-dd0b-40da-8820-a1a81a4e1041",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/5c03a014-dd0b-40da-8820-a1a81a4e1041"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Completed"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "b6442071-dd04-4737-943c-d17aae4c39d6",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/b6442071-dd04-4737-943c-d17aae4c39d6"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "ae091bad-1d32-4c27-9ce8-e2670a73a626",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/ae091bad-1d32-4c27-9ce8-e2670a73a626"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Started"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "6579166a-412c-46e8-bad8-7a20420c60ba",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/6579166a-412c-46e8-bad8-7a20420c60ba"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "81531ec4-6873-4355-af51-87f4b020df6e",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/81531ec4-6873-4355-af51-87f4b020df6e"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Reactivated"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "746bc5ca-f5ae-4dae-9736-df89cb85d5f5",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/746bc5ca-f5ae-4dae-9736-df89cb85d5f5"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "3baa402a-2807-46c2-bfb4-02f619a6c5df",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/3baa402a-2807-46c2-bfb4-02f619a6c5df"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Reactivated"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "44ed53d7-ed4e-4f34-ae6f-5a464e152e7c",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/44ed53d7-ed4e-4f34-ae6f-5a464e152e7c"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "8f658c57-28f6-4a74-88b2-f5733decf6a2",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/8f658c57-28f6-4a74-88b2-f5733decf6a2"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyValue",
+          "targetField": "System.Reason",
+          "value": "Added to backlog"
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": ""
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "2990f7b2-703f-4fad-a895-bd36c887b457",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/2990f7b2-703f-4fad-a895-bd36c887b457"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Reason",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": ""
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "6a353ac1-09d3-4f51-bb12-305c24f2bdcc",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/6a353ac1-09d3-4f51-bb12-305c24f2bdcc"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setDefaultFromCurrentUser",
+          "targetField": "System.CreatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.CreatedBy",
+          "value": ""
+        }
+      ],
+      "customizationType": "system",
+      "id": "084fb812-8c52-4019-823f-6008908c33be",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/084fb812-8c52-4019-823f-6008908c33be"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "System.CreatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "f9fdcfe5-2230-49bf-a0ff-9c4ac51024c8",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/f9fdcfe5-2230-49bf-a0ff-9c4ac51024c8"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setDefaultFromCurrentUser",
+          "targetField": "System.ChangedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.ChangedBy",
+          "value": ""
+        }
+      ],
+      "customizationType": "system",
+      "id": "9bc02857-7390-4e1d-bfc8-2011f85a6168",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/9bc02857-7390-4e1d-bfc8-2011f85a6168"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.WorkItemType",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "df2ea1da-c45c-41fe-a918-12295b682f53",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/df2ea1da-c45c-41fe-a918-12295b682f53"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setDefaultValue",
+          "targetField": "Microsoft.VSTS.Common.Priority",
+          "value": "2"
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "5d050e7a-8a99-4d6c-b715-9284720fe12a",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/5d050e7a-8a99-4d6c-b715-9284720fe12a"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.Title",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "c022b475-ffaa-4e45-933f-9598145206df",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/c022b475-ffaa-4e45-933f-9598145206df"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.State",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "41628eb3-173f-4664-84c2-b0864521ef86",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/41628eb3-173f-4664-84c2-b0864521ef86"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setDefaultValue",
+          "targetField": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "491d7e6d-d9eb-4c78-8c59-f31544440ed5",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/491d7e6d-d9eb-4c78-8c59-f31544440ed5"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "492567d0-81f8-4783-b35e-462c9c46ce33",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/492567d0-81f8-4783-b35e-462c9c46ce33"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromCurrentUser",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "438e54e3-e1c0-427c-9cf9-6c500d1f334d",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/438e54e3-e1c0-427c-9cf9-6c500d1f334d"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "dd3a9ee9-6452-460f-b0a0-cabfca760a60",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/dd3a9ee9-6452-460f-b0a0-cabfca760a60"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromCurrentUser",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "e0d2bded-4819-4fe5-a245-a69a643660c4",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/e0d2bded-4819-4fe5-a245-a69a643660c4"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "451e51e0-7021-4910-9253-9c10ae092f9f",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/451e51e0-7021-4910-9253-9c10ae092f9f"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "f725e90e-c14a-4a26-9185-0724fc2168c0",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/f725e90e-c14a-4a26-9185-0724fc2168c0"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ClosedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "766568da-55b9-47b2-ab8e-b19da2514e3e",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/766568da-55b9-47b2-ab8e-b19da2514e3e"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ClosedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "2958820e-1784-46fa-9309-e8d5e4b6d13a",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/2958820e-1784-46fa-9309-e8d5e4b6d13a"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromServerClock",
+          "targetField": "Microsoft.VSTS.Common.ClosedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "e289a07a-2150-4068-880c-3643a2f831ff",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/e289a07a-2150-4068-880c-3643a2f831ff"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Microsoft.VSTS.Common.ClosedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "a8de6ca9-036c-4ef3-a6bc-8234767afa4a",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/a8de6ca9-036c-4ef3-a6bc-8234767afa4a"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ClosedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "c39e756a-7d5e-42ce-bac3-e2f61f741366",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/c39e756a-7d5e-42ce-bac3-e2f61f741366"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ClosedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "db82697f-605a-4944-b431-3fb4284ff5f8",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/db82697f-605a-4944-b431-3fb4284ff5f8"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "200a8efa-4309-4ae2-8f74-ebf0e3a62738",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/200a8efa-4309-4ae2-8f74-ebf0e3a62738"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "b5d623ed-9575-48df-8c97-58758284219d",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/b5d623ed-9575-48df-8c97-58758284219d"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "8b879b55-d56a-4d03-b519-e06142c171ca",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/8b879b55-d56a-4d03-b519-e06142c171ca"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromCurrentUser",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "64e75ad7-9ec5-47b6-939a-eff2650c0d4e",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/64e75ad7-9ec5-47b6-939a-eff2650c0d4e"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "8681de68-fb53-49fb-a64a-1dc9fa7a061b",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/8681de68-fb53-49fb-a64a-1dc9fa7a061b"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromCurrentUser",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "bfc83c21-cb24-417a-bf65-c5a538ba5241",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/bfc83c21-cb24-417a-bf65-c5a538ba5241"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "6a9ee2d4-08a8-472b-94d8-541878acd2ce",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/6a9ee2d4-08a8-472b-94d8-541878acd2ce"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ActivatedBy",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "5800d35a-0efb-4967-b123-0a1e67c67237",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/5800d35a-0efb-4967-b123-0a1e67c67237"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "4cf1140b-326c-4edd-b529-697c775b1793",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/4cf1140b-326c-4edd-b529-697c775b1793"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Doing"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "5b7a8c3b-ffa4-49f0-8fd9-aa5251bba462",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/5b7a8c3b-ffa4-49f0-8fd9-aa5251bba462"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "93f94ef4-31a7-468f-86b4-831122ca6168",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/93f94ef4-31a7-468f-86b4-831122ca6168"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromServerClock",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "To Do"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "15b7af6e-6f59-46e4-a0e9-d8ace091129e",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/15b7af6e-6f59-46e4-a0e9-d8ace091129e"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromServerClock",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenWas",
+          "field": "System.State",
+          "value": "Done"
+        },
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Doing"
+        }
+      ],
+      "customizationType": "system",
+      "id": "1caae9cc-99e3-4733-839f-c9e6b13a3dd6",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/1caae9cc-99e3-4733-839f-c9e6b13a3dd6"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Common.ActivatedDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "To Do"
+        }
+      ],
+      "customizationType": "system",
+      "id": "8778cbc9-ec03-4ae0-a3e1-9da4d46f43a6",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/8778cbc9-ec03-4ae0-a3e1-9da4d46f43a6"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeReadOnly",
+          "targetField": "Microsoft.VSTS.Common.StateChangeDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenNotChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "36f6cb99-45f5-4e5b-9c22-4c709686fa07",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/36f6cb99-45f5-4e5b-9c22-4c709686fa07"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "copyFromServerClock",
+          "targetField": "Microsoft.VSTS.Common.StateChangeDate",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "whenChanged",
+          "field": "System.State",
+          "value": null
+        }
+      ],
+      "customizationType": "system",
+      "id": "17a78ad3-216c-471c-95a5-cee54d5fd14a",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/17a78ad3-216c-471c-95a5-cee54d5fd14a"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "setValueToEmpty",
+          "targetField": "Microsoft.VSTS.Scheduling.RemainingWork",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "system",
+      "id": "f7f6a3cd-e72f-4440-8480-a26df620e477",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/f7f6a3cd-e72f-4440-8480-a26df620e477"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.AreaId",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "7ed26582-7834-47ac-98c3-d95fd36863e0",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/7ed26582-7834-47ac-98c3-d95fd36863e0"
+    },
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "System.IterationId",
+          "value": null
+        }
+      ],
+      "conditions": [],
+      "customizationType": "system",
+      "id": "36fc5663-cda0-4dda-b8c3-68cda6575d2c",
+      "isDisabled": false,
+      "name": null,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Task/rules/36fc5663-cda0-4dda-b8c3-68cda6575d2c"
+    }
+  ]
+}

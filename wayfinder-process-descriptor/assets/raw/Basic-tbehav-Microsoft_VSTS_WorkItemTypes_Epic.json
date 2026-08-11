@@ -1,0 +1,14 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "behavior": {
+        "id": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
+        "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+      },
+      "isDefault": true,
+      "isLegacyDefault": true,
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/b8a3a935-7e91-48b8-a94c-606d37c3e9f2/behaviors/Microsoft.VSTS.Basic.EpicBacklogBehavior"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "5f48fbe6-d85d-4bf9-a77f-3e1faa223358",
+  "isSuggested": false,
+  "items": [
+    "Playtest (feel)",
+    "In-world verification",
+    "Automated harness",
+    "Mixed",
+    "None"
+  ],
+  "name": "NiflheimVerificationMode",
+  "type": "String",
+  "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/lists/5f48fbe6-d85d-4bf9-a77f-3e1faa223358"
+}

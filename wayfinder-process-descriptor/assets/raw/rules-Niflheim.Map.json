@@ -1,0 +1,26 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "actions": [
+        {
+          "actionType": "makeRequired",
+          "targetField": "Custom.ClosingStatement",
+          "value": null
+        }
+      ],
+      "conditions": [
+        {
+          "conditionType": "when",
+          "field": "System.State",
+          "value": "Done"
+        }
+      ],
+      "customizationType": "custom",
+      "id": "02bd4cd5-c3eb-473a-8cdf-32bbb9348ac5",
+      "isDisabled": false,
+      "name": "Map must say how it ended",
+      "url": "https://dev.azure.com/PolyphonyRequiem/_apis/work/processes/7f984e4c-e856-4fc3-8457-fd4e8acf2e57/workItemTypes/Niflheim.Map/rules/02bd4cd5-c3eb-473a-8cdf-32bbb9348ac5"
+    }
+  ]
+}

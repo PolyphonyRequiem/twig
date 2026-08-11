@@ -9,13 +9,15 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.Ado;
 
 /// <summary>
-/// Implements <see cref="IAdoGitService"/> via ADO Git REST API (api-version=7.1).
+/// Implements <see cref="IAdoGitService"/> via ADO Git REST API.
 /// Scoped to the git project (which may differ from the backlog project).
 /// </summary>
+/// <remarks>
+/// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
+/// records what that version buys. Never inline a version literal here.
+/// </remarks>
 internal sealed class AdoGitClient : IAdoGitService
 {
-    private const string ApiVersion = "7.1";
-
     private readonly HttpClient _http;
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
@@ -53,7 +55,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
         var encodedRepo = Uri.EscapeDataString(_repository);
         var encodedBranch = Uri.EscapeDataString($"refs/heads/{branchName}");
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?searchCriteria.sourceRefName={encodedBranch}&searchCriteria.status=active&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?searchCriteria.sourceRefName={encodedBranch}&searchCriteria.status=active&api-version={AdoApiVersions.GitPullRequests}";
 
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -77,7 +79,7 @@ internal sealed class AdoGitClient : IAdoGitService
             throw new InvalidOperationException("Git repository is not configured. Cannot create pull requests without a repository.");
 
         var encodedRepo = Uri.EscapeDataString(_repository);
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?api-version={AdoApiVersions.GitPullRequests}";
 
         var body = new AdoCreatePullRequestRequest
         {
@@ -118,7 +120,7 @@ internal sealed class AdoGitClient : IAdoGitService
     public async Task<string?> GetRepositoryIdByNameAsync(string repoName, CancellationToken ct = default)
     {
         var encodedRepo = Uri.EscapeDataString(repoName);
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}?api-version={AdoApiVersions.GitRepositories}";
 
         try
         {
@@ -135,7 +137,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<string?> GetProjectIdAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?api-version={AdoApiVersions.Projects}";
 
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -145,7 +147,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, string? name = null, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_backlogProject)}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_backlogProject)}/_apis/wit/workitems/{workItemId}?api-version={AdoApiVersions.WorkItems}";
         var relationValue = JsonSerializer.SerializeToNode(
             new AdoArtifactLinkRelation
             {

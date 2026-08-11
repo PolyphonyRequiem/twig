@@ -27,6 +27,8 @@ internal sealed class HostPane
 
     private int _scrollOffset;
     private int _selectedIndex;
+    private EditCapability? _capability;
+    private readonly HashSet<string> _editableControlIds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Host policy: which control types this pane knows how to draw.</summary>
     private static readonly HashSet<string> SupportedControlTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -42,9 +44,25 @@ internal sealed class HostPane
     /// Walks the document and appends host-owned rows. The walk is the whole point: the
     /// host reads structure and flags and decides, control by control, what to draw.
     /// </summary>
-    internal void Load(WorkItemDetailDocument document, WorkItemTypeAppearance appearance)
+    /// <param name="capability">
+    /// Optional. When supplied, the pane marks the controls that accept input, joining
+    /// capability to document by field reference name — the join 0005 §2 accepted as the
+    /// honest cost of not stamping an <c>Editable</c> flag onto each control.
+    /// </param>
+    /// <remarks>
+    /// 🔴 The join reads <see cref="EditCapability.CanEdit"/>, NOT
+    /// <see cref="DetailControl.ReadOnly"/>. The server's read-only flag stays
+    /// reported-never-enforced; wiring editability to it is the silent-discard failure
+    /// <see cref="IChangeSink"/>'s own remarks exist to rule out.
+    /// </remarks>
+    internal void Load(
+        WorkItemDetailDocument document,
+        WorkItemTypeAppearance appearance,
+        EditCapability? capability = null)
     {
         _rows.Clear();
+        _editableControlIds.Clear();
+        _capability = capability;
 
         // Appearance arrived SEPARATELY. The host asked for it; a host that did not want
         // Twig's styling opinion simply would not have.
@@ -112,7 +130,14 @@ internal sealed class HostPane
                         _ => "?",
                     };
 
-                    Add(2, $"{control.Label}{readOnlyMark}: {rendered}", true,
+                    // Editability is a CONSEQUENCE of what the host's sink declared. With no
+                    // capability the pane never asks, and this whole branch costs nothing —
+                    // a read-only host needs no store and no sink.
+                    var editable = _capability?.CanEdit(control.Id) == true;
+                    if (editable) _editableControlIds.Add(control.Id);
+                    var editMark = editable ? " [edit]" : string.Empty;
+
+                    Add(2, $"{control.Label}{readOnlyMark}{editMark}: {rendered}", true,
                         value.State == DetailFieldState.HasValue && value.IsAbbreviated ? value.Full : null);
                 }
             }
@@ -129,6 +154,20 @@ internal sealed class HostPane
         _rows.Add(new Row(indent, text, selectable, full));
 
     internal int RowCount => _rows.Count;
+
+    /// <summary>
+    /// The control ids this pane actually made typable on the last <see cref="Load"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is the OBSERVABLE consequence M4 asserts against: not the sink's declaration
+    /// read back, but the set of controls the host really rendered as editable after walking
+    /// the document. A check against the declaration alone would pass even if the join were
+    /// broken.
+    /// </remarks>
+    internal IReadOnlySet<string> EditableControlIds => _editableControlIds;
+
+    /// <summary>Whether the last <see cref="Load"/> drew <paramref name="controlId"/> as typable.</summary>
+    internal bool IsEditable(string controlId) => _editableControlIds.Contains(controlId);
 
     /// <summary>Caller-owned selection movement.</summary>
     internal void MoveSelection(int delta)

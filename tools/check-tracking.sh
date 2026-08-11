@@ -52,7 +52,11 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TICKET_DIRS=("$REPO_ROOT/wayfinder/tickets" "$REPO_ROOT/wayfinder-1.0/tickets")
+# Specs declare tracked_in too. docs/specs was added 2026-08-11: the process
+# descriptor spec carries the link to its ten build items, and without this
+# directory the declaration would sit in the file doing nothing — the silently
+# inert guard this script's own selftest exists to prevent.
+TICKET_DIRS=("$REPO_ROOT/wayfinder/tickets" "$REPO_ROOT/wayfinder-1.0/tickets" "$REPO_ROOT/docs/specs")
 
 fail_count=0
 check_count=0

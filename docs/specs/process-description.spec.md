@@ -1,6 +1,14 @@
+---
+id: 218
+title: Process descriptor — implementation spec
+type: spec
+status: accepted
+tracked_in: [233, 234, 235, 236, 237, 238, 239, 240, 241, 242]
+---
+
 # Process Description — Functional Specification
 
-> **Status:** Draft, ready for build chartering. Not authorization to implement.
+> **Status:** Accepted 2026-08-11. Build chartered as #233-#242 under umbrella #217.
 > **Domain:** Process structure export — what an ADO process is made of, written to a file.
 > **Command:** `twig process description [<type>]`, beside the shipped `twig process layout <type>`.
 > **Agent surface:** the existing `twig_process` MCP tool gains a named-type description.

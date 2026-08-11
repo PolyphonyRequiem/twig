@@ -125,7 +125,7 @@ public class WorkItemFormViewDocumentWalkTests
             .ToList();
 
         refNameLiterals.ShouldBeEmpty();
-        WorkItemFormView.EditableFieldRefs.Count.ShouldBe(3);
+        NewForm().EditableFieldRefs.Count.ShouldBe(3);
     }
 
     // ── Behavioural: the rows ARE the document's ────────────────────

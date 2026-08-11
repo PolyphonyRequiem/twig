@@ -31,29 +31,21 @@ namespace Twig.Tui.Views;
 /// hard-coded row breaks it.
 /// </para>
 /// <para>
-/// <b>What is still this view's own decision, deliberately:</b> which of the document's
-/// rows accept typing. That is <i>editability</i>, not field selection — the rows exist
-/// because the document has them either way. <see cref="DetailControl.ReadOnly"/> is
-/// reported by the projection and never enforced by it (0002 §6), so the authority here is
-/// <see cref="EditableFieldRefs"/>: the three fields <see cref="IPendingChangeStore"/>
-/// knows how to persist. Widening that is ticket 0005's problem, not this view's.
+/// <b>Which rows accept typing is not this view's decision either.</b> That is
+/// <i>editability</i>, not field selection — the rows exist because the document has them
+/// either way — and its authority is the <see cref="IChangeSink"/> the view was handed
+/// (wayfinder 0005 §1). <see cref="DetailControl.ReadOnly"/> stays reported and never
+/// enforced (0002 §6) and is deliberately NOT consulted: ADO marks almost nothing read-only,
+/// so flag-as-authority would make nearly the whole form typable while the sink can persist
+/// three fields, and the surplus edits would be silently eaten at save.
 /// </para>
 /// </remarks>
 internal sealed class WorkItemFormView : View
 {
-    /// <summary>
-    /// The fields this view lets the user type into. Not a field list — the document
-    /// decides which rows exist; this decides which of them are typable, and it is bounded
-    /// by what <see cref="IPendingChangeStore"/> can actually persist today.
-    /// </summary>
-    internal static readonly IReadOnlyList<string> EditableFieldRefs =
-    [
-        "System.Title", "System.State", "System.AssignedTo",
-    ];
-
     private const int LabelWidth = 16;
 
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IChangeSink _editSink;
 
     private WorkItem? _currentItem;
     internal bool _isDirty;
@@ -81,8 +73,24 @@ internal sealed class WorkItemFormView : View
         string OriginalText);
 
     public WorkItemFormView(IPendingChangeStore pendingChangeStore)
+        : this(pendingChangeStore, new PendingChangeStoreSink(pendingChangeStore))
     {
+    }
+
+    /// <summary>
+    /// Builds the form over an explicit <paramref name="editSink"/>.
+    /// </summary>
+    /// <param name="pendingChangeStore">Where the save button stages its batch.</param>
+    /// <param name="editSink">
+    /// The authority on which rows accept typing. Twig's own TUI passes
+    /// <see cref="PendingChangeStoreSink"/>; the seam exists so a host does not have to.
+    /// </param>
+    public WorkItemFormView(IPendingChangeStore pendingChangeStore, IChangeSink editSink)
+    {
+        ArgumentNullException.ThrowIfNull(editSink);
+
         _pendingChangeStore = pendingChangeStore;
+        _editSink = editSink;
         CanFocus = true;
 
         _fieldArea = new View
@@ -191,7 +199,7 @@ internal sealed class WorkItemFormView : View
     {
         _fieldArea.Add(new Label { Text = $"{control.Label}:", X = 1, Y = row });
 
-        var editable = EditableFieldRefs.Contains(control.Id, StringComparer.OrdinalIgnoreCase);
+        var editable = EditableFieldRefs.Contains(control.Id);
 
         // The caller only routes field controls here; contributions were handled above.
         var value = control.Value!;
@@ -238,6 +246,24 @@ internal sealed class WorkItemFormView : View
     }
 
     // ── Inspection surface for tests and hosts ──────────────────────
+
+    /// <summary>
+    /// The field reference names whose rows accept typing — exactly what the sink declared.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>A consequence, never a constant.</b> This used to be a hard-coded three-element
+    /// list justified by what <see cref="IPendingChangeStore"/> happened to persist, which is
+    /// a second answer to a question the sink already answers. Change what the sink declares
+    /// and this must follow; if it stops following, the view has grown a parallel list and the
+    /// silent-loss failure of wayfinder 0005 §1 is back.
+    /// <para>
+    /// It is read straight off the sink rather than through an <see cref="EditCapability"/>
+    /// because a capability is per-item (it selects transition rules by work item type) while
+    /// editability is not, and this view must answer before any item is loaded. State
+    /// transitions are milestone M5's problem.
+    /// </para>
+    /// </remarks>
+    internal IReadOnlySet<string> EditableFieldRefs => _editSink.PersistableFieldRefs;
 
     /// <summary>The field reference names painted, in document order.</summary>
     internal IReadOnlyList<string> FieldOrder =>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
@@ -596,8 +597,16 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     }
 
     /// <summary>
-    /// The known gaps reach every rendering too — for the same reason.
+    /// The known gaps reach every rendering too — for the same reason. And a gap that has been
+    /// CLOSED is absent from every rendering.
     /// </summary>
+    /// <remarks>
+    /// AB#236 merged the rules source, so <c>conditionalRequiredness</c> is no longer a
+    /// reservation. Leaving it in the artifact would warn a reader off an answer the document
+    /// now gives — a lie in the opposite direction from the one the reservation existed to
+    /// prevent. The negative half is asserted in both renderings because the defect this test
+    /// family already caught was one format carrying header content and the other not.
+    /// </remarks>
     [Theory]
     [InlineData("json")]
     [InlineData("human")]
@@ -608,10 +617,10 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         await BuildCommand().ExecuteAsync(null, path, format);
 
         var content = await File.ReadAllTextAsync(path);
-        content.ShouldContain("conditionalRequiredness");
-        content.ShouldContain("AB#236");
         content.ShouldContain("picklistValues");
         content.ShouldContain("AB#237");
+        content.ShouldNotContain("conditionalRequiredness");
+        content.ShouldNotContain("AB#236");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -672,10 +681,9 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     /// 🔴 The document declares that it is KNOWN INCOMPLETE, on its face, in the file itself.
     /// </summary>
     /// <remarks>
-    /// The ticket's acceptance criterion says the document must not be released as complete
-    /// while conditional requiredness (AB#236) and picklist values (AB#237) are outstanding.
-    /// Putting the reservation in the artifact is how that survives the session that shipped
-    /// it — a note in a PR description does not travel with the file.
+    /// The reservation must survive the session that shipped it — a note in a PR description
+    /// does not travel with the file. At 0.1 the surviving reservation is picklist values
+    /// (AB#237); conditional requiredness was one until AB#236 merged the rules source.
     /// </remarks>
     [Fact]
     public async Task Execute_WrittenDocumentDeclaresItsKnownIncompleteness()
@@ -687,10 +695,13 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         var content = await File.ReadAllTextAsync(path);
 
         content.ShouldContain("knownGaps");
-        content.ShouldContain("conditionalRequiredness");
-        content.ShouldContain("AB#236");
         content.ShouldContain("picklistValues");
         content.ShouldContain("AB#237");
+
+        // 🔴 The closed reservation is gone. Declaring a gap the document no longer has warns
+        // a reader off an answer it does give.
+        content.ShouldNotContain("conditionalRequiredness");
+        content.ShouldNotContain("AB#236");
     }
 
     /// <summary>
@@ -723,5 +734,214 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         (await File.ReadAllTextAsync(path))
             .ShouldContain("7f984e4c-e856-4fc3-8457-fd4e8acf2e57");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Requiredness in the RENDERED document (AB#236)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 The rendered document says a rule-required field is required-under-that-condition —
+    /// asserted against the real renderer's output, not a test-local projection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The assembler suite proves the merge; this proves it SURVIVES rendering. A previous
+    /// ticket in this family shipped a test that asserted against a test-local flattening
+    /// helper which did not emit the surface under test, so the assertion could never have
+    /// failed. This one reads the file the command actually wrote.
+    /// </para>
+    /// <para>
+    /// 🔴 The negative assertion is the load-bearing one: <c>false</c> must not appear as this
+    /// field's requiredness. That is the exact defect — the fields route reports
+    /// <c>required: null</c> for it — and it fails silently in production.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Execute_RenderedDocument_ReportsARuleRequiredFieldAsConditionallyRequired()
+    {
+        var types = new[] { "Niflheim.Grilling" };
+        var source = new ScriptedDescriptionSource(types, new Dictionary<string, ProcessTypeDetail>
+        {
+            ["Niflheim.Grilling"] = new(
+                Fields:
+                [
+                    new ProcessTypeField(
+                        "Custom.WayfinderAnswer", "Answer", "html", null, false, "custom", false, ""),
+                    new ProcessTypeField(
+                        "System.Title", "Title", "string", null, true, "system", false, ""),
+                ],
+                States: [new ProcessTypeState("Done", "Completed", 3, "339947", "custom", false)],
+                Transitions: [new ProcessTypeTransition("", "Done")],
+                Unfetched: null,
+                Rules:
+                [
+                    new ProcessRule(
+                        Conditions: [new RuleCondition("when", "System.State", "Done")],
+                        Actions: [new RuleAction("makeRequired", "Custom.WayfinderAnswer", null)],
+                        IsDisabled: false),
+                ]),
+        });
+
+        // 🔴 THE PRECONDITION. The two sources must genuinely disagree about this field, or
+        // the merge never runs and this test passes against unfixed code.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .RequiredUnconditionally.ShouldBeFalse();
+        detail.Rules!.ShouldContain(r => r.Actions.Any(
+            a => a.ActionType == "makeRequired" && a.TargetField == "Custom.WayfinderAnswer"));
+
+        var path = TempFile(".json");
+        await BuildCommand(source).ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        // Precondition: the field reached the rendered document at all.
+        content.ShouldContain("Custom.WayfinderAnswer");
+
+        // The document states the case, and CARRIES the condition — a bare "conditional" the
+        // reader cannot act on would be a different flavour of the same dishonesty.
+        //
+        // 🔴 Asserted as the full key/value pair, not the bare token. "conditional" and
+        // "always" are short enough to appear in unrelated text, which would let this pass
+        // for the wrong reason.
+        content.ShouldContain("\"requiredness\": \"conditional\"");
+        content.ShouldContain("\"requiredWhen\": \"when System.State = Done\"");
+
+        // The unconditional field is still reported as required, so the merge did not simply
+        // relabel everything.
+        content.ShouldContain("\"requiredness\": \"always\"");
+
+        // 🔴 THE LOAD-BEARING NEGATIVE, asserted against the field's OWN row rather than the
+        // whole file — the fixture's other field is legitimately not conditional, so a
+        // whole-file "never must not appear" would be false for the wrong reason. This is the
+        // exact defect: reading requiredness from the fields source alone yields `never` here,
+        // and it fails silently in production.
+        var answerRow = JsonDocument.Parse(content).RootElement
+            .EnumerateObject()
+            .Select(p => p.Value)
+            .SelectMany(FindFieldRows)
+            .Single(row => row.GetProperty("referenceName").GetString() == "Custom.WayfinderAnswer");
+
+        answerRow.GetProperty("requiredness").GetString().ShouldBe("conditional");
+        answerRow.GetProperty("requiredness").GetString().ShouldNotBe("never");
+    }
+
+    /// <summary>
+    /// Every object in the rendered document that describes a field, wherever the renderer
+    /// nested it.
+    /// </summary>
+    /// <remarks>
+    /// Walks the real emitted JSON rather than assuming a path, so a renderer that moves the
+    /// field rows still finds them — and a renderer that stops emitting them makes the
+    /// <c>Single(...)</c> above throw rather than letting a negative assertion pass vacuously.
+    /// </remarks>
+    private static IEnumerable<JsonElement> FindFieldRows(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (element.TryGetProperty("referenceName", out _) &&
+                    element.TryGetProperty("requiredness", out _))
+                {
+                    yield return element;
+                }
+
+                foreach (var property in element.EnumerateObject())
+                {
+                    foreach (var found in FindFieldRows(property.Value))
+                        yield return found;
+                }
+
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    foreach (var found in FindFieldRows(item))
+                        yield return found;
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 🔴 The rendered document does NOT carry a bare requiredness boolean.
+    /// </summary>
+    /// <remarks>
+    /// The structural half of the ticket. A boolean cannot express the conditional case, so a
+    /// document still emitting <c>requiredUnconditionally</c> would let a consumer read
+    /// requiredness from the fields source alone through the document itself — reinstating the
+    /// defect at the consumer rather than in Twig. Pinned as a key assertion so a future
+    /// contributor cannot re-add it "for compatibility".
+    /// </remarks>
+    [Fact]
+    public async Task Execute_RenderedDocument_CarriesNoBareRequirednessBoolean()
+    {
+        var path = TempFile(".json");
+
+        await BuildCommand().ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        // Precondition: fields really are rendered, so the absence below is meaningful.
+        content.ShouldContain("Custom.GrillingOnly");
+        content.ShouldContain("requiredness");
+
+        // A bare boolean cannot express the conditional case, so a document still emitting
+        // `requiredUnconditionally` would let a consumer read requiredness from the fields
+        // source alone THROUGH the document — reinstating the defect at the consumer.
+        content.ShouldNotContain("requiredUnconditionally");
+    }
+
+    /// <summary>
+    /// A condition verb that takes NO value renders without a dangling <c>=</c>.
+    /// </summary>
+    /// <remarks>
+    /// The rules route carries value-less verbs — <c>whenChanged</c>,
+    /// <c>whenValueIsDefined</c>, <c>whenNotChanged</c> — and they reach this renderer through
+    /// the same path as <c>when X = Y</c>. Rendering one as <c>whenChanged System.State = </c>
+    /// would print a condition that reads as a comparison against the empty string, which is
+    /// a different claim from "when this changed at all".
+    /// </remarks>
+    [Fact]
+    public async Task Execute_RenderedDocument_RendersAValuelessConditionWithoutADanglingEquals()
+    {
+        var types = new[] { "Niflheim.Grilling" };
+        var source = new ScriptedDescriptionSource(types, new Dictionary<string, ProcessTypeDetail>
+        {
+            ["Niflheim.Grilling"] = new(
+                Fields:
+                [
+                    new ProcessTypeField(
+                        "Custom.WayfinderAnswer", "Answer", "html", null, false, "custom", false, ""),
+                ],
+                States: [],
+                Transitions: [],
+                Unfetched: null,
+                Rules:
+                [
+                    new ProcessRule(
+                        // 🔴 A value-less condition verb, as the server sends it.
+                        Conditions: [new RuleCondition("whenChanged", "System.State", null)],
+                        Actions: [new RuleAction("makeRequired", "Custom.WayfinderAnswer", null)],
+                        IsDisabled: false),
+                ]),
+        });
+
+        // Precondition: the fixture's condition really does carry a null value, and the fields
+        // source really does say not-required — so the merge runs and the branch is reached.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Rules!.Single().Conditions.Single().Value.ShouldBeNull();
+        detail.Fields.Single().RequiredUnconditionally.ShouldBeFalse();
+
+        var path = TempFile(".json");
+        await BuildCommand(source).ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        content.ShouldContain("\"requiredWhen\": \"whenChanged System.State\"");
+        content.ShouldNotContain("whenChanged System.State =");
     }
 }

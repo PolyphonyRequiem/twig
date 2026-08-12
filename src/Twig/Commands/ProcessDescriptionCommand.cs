@@ -26,9 +26,11 @@ namespace Twig.Commands;
 /// </para>
 /// <para>
 /// 🔴 <b>KNOWN INCOMPLETE at descriptor version 0.1.</b> The document is not yet trustworthy
-/// about conditional requiredness (AB#236) or picklist values (AB#237). It says so on its
-/// face, in its own header, rather than presenting a partial truth as a whole one — see
-/// <see cref="ProcessDescriptionAssembler.KnownGaps"/>.
+/// about picklist values (AB#237). It says so on its face, in its own header, rather than
+/// presenting a partial truth as a whole one — see
+/// <see cref="ProcessDescriptionAssembler.KnownGaps"/>. Conditional requiredness was on that
+/// list until AB#236 merged the rules source; requiredness is now reported in a form that
+/// carries the conditional case.
 /// </para>
 /// <para>
 /// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation Decisions
@@ -340,10 +342,18 @@ internal sealed class ProcessDescriptionCommand(
                             ["referenceName"] = RenderCell.String(field.ReferenceName),
                             ["name"] = RenderCell.String(field.Name),
                             ["type"] = RenderCell.String(field.Type),
-                            // 🔴 Named for what it actually reports. This route carries
-                            // UNCONDITIONAL requiredness only; a field made mandatory by a
-                            // rule reads false here. The document's knownGaps declares it.
-                            ["requiredUnconditionally"] = RenderCell.Boolean(field.RequiredUnconditionally),
+                            // 🔴 MERGED requiredness, not the fields route's boolean (AB#236).
+                            // A field made mandatory only by a rule reads as not-required on
+                            // the fields route, so a bare boolean here would be wrong about
+                            // exactly the fields a caller most needs — and wrong silently.
+                            // `requiredness` names the case; `requiredWhen` carries the
+                            // conditions, which is what makes "conditional" actionable rather
+                            // than a warning the reader cannot use.
+                            ["requiredness"] = RenderCell.String(
+                                RequirednessToken(field.Requiredness.Kind)),
+                            ["requiredWhen"] = field.Requiredness.Conditions.Count == 0
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.String(DescribeConditions(field.Requiredness)),
                             ["defaultValue"] = field.DefaultValue is null
                                 ? RenderCell.DisplayOnly(string.Empty)
                                 : RenderCell.String(field.DefaultValue),
@@ -417,6 +427,45 @@ internal sealed class ProcessDescriptionCommand(
             }),
             typeBranches);
     }
+
+    /// <summary>
+    /// The document's word for one requiredness case.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Three distinct tokens, and <c>conditional</c> is deliberately NOT a synonym for
+    /// either neighbour. Rendering it as <c>false</c> is the AB#236 defect; rendering it as
+    /// <c>true</c> would be wrong in the other direction — a caller would supply the field
+    /// unconditionally when the process does not ask for it. Written out rather than
+    /// switch-expression-defaulted so a new enum member cannot silently render as one of
+    /// these.
+    /// </remarks>
+    private static string RequirednessToken(FieldRequirednessKind kind) => kind switch
+    {
+        FieldRequirednessKind.Always => "always",
+        FieldRequirednessKind.Conditional => "conditional",
+        FieldRequirednessKind.Never => "never",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled requiredness kind."),
+    };
+
+    /// <summary>
+    /// The conditions under which a field becomes required, in one stable line.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Walks the collections in the order the assembler sorted them and imposes no order
+    /// of its own. Re-sorting here would put a second ordering authority in the system and
+    /// byte-stability would depend on both agreeing forever.
+    /// <para>
+    /// Alternatives are joined with <c>OR</c> and clauses within one alternative with
+    /// <c>AND</c>, matching the server's semantics: a rule's conditions are conjunctive, and
+    /// two rules targeting one field are alternatives.
+    /// </para>
+    /// </remarks>
+    private static string DescribeConditions(FieldRequiredness requiredness)
+        => string.Join(" OR ", requiredness.Conditions.Select(static condition =>
+            string.Join(" AND ", condition.Clauses.Select(static clause =>
+                clause.Value is null
+                    ? $"{clause.ConditionType} {clause.Field}"
+                    : $"{clause.ConditionType} {clause.Field} = {clause.Value}"))));
 
     /// <remarks>
     /// The abridged shape is deliberately unspecified by the ruling — it is a rendering

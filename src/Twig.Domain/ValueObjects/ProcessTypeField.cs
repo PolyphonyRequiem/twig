@@ -20,8 +20,14 @@ namespace Twig.Domain.ValueObjects;
 /// while the conditionally-required ones were invisible to this route entirely.
 /// Conditional requiredness lives on the rules route
 /// (<see cref="Twig.Domain.Interfaces.IProcessRuleProvider"/>) and a caller reporting
-/// requiredness from this property alone is wrong in the silent direction. The merge is
-/// a later ticket's work; the property name is the guard against doing it accidentally.
+/// requiredness from this property alone is wrong in the silent direction.
+/// </para>
+/// <para>
+/// 🔴 <b>The merge landed in AB#236, and this property is still not the answer.</b> The
+/// process description merges this with the rules source and carries the result as
+/// <see cref="ProcessDescriptionField.Requiredness"/>, which can express the conditional
+/// case. This record remains the honest report of ONE source; the property name is the
+/// guard against a future caller reaching for it as though it were the whole truth.
 /// </para>
 /// <para>
 /// This route carries <b>no</b> <c>allowedValues</c> and no picklist reference at any

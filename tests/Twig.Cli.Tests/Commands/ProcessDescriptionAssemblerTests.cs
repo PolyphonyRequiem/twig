@@ -238,7 +238,11 @@ public sealed class ProcessDescriptionAssemblerTests
             foreach (var field in type.Fields)
                 writer.WriteLine(
                     $"  field={field.ReferenceName}|{field.Name}|{field.Type}|"
-                    + $"{field.RequiredUnconditionally}|{field.DefaultValue}|"
+                    // 🔴 The MERGED requiredness, including every condition in its sorted
+                    // position. Flattening only the KIND would let the condition list's order
+                    // wobble between two runs while this projection still compared equal —
+                    // which is the byte-stability defect this projection exists to catch.
+                    + $"{FlattenRequiredness(field.Requiredness)}|{field.DefaultValue}|"
                     + $"{field.Customization}|{field.Description}");
             foreach (var state in type.States)
                 writer.WriteLine($"  state={state.Name}|{state.StateCategory}|{state.Order}");
@@ -250,6 +254,24 @@ public sealed class ProcessDescriptionAssemblerTests
 
         return writer.ToString();
     }
+
+    /// <summary>
+    /// A total string form of a field's merged requiredness, including every condition in the
+    /// order the assembler put it in.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The ORDER of the conditions is included deliberately. Rules arrive in server order
+    /// and the byte-stability tests are the only thing standing between that and a document
+    /// that diffs dirty against itself; a projection that emitted only the kind, or that
+    /// sorted here, would hide exactly that defect.
+    /// </remarks>
+    private static string FlattenRequiredness(FieldRequiredness requiredness)
+        => requiredness.Kind
+            + "["
+            + string.Join(";", requiredness.Conditions.Select(static c =>
+                string.Join("+", c.Clauses.Select(static cl =>
+                    $"{cl.ConditionType}:{cl.Field}:{cl.Value}"))))
+            + "]";
 
     // ═══════════════════════════════════════════════════════════════
     //  Test 1 — byte-stability
@@ -502,13 +524,18 @@ public sealed class ProcessDescriptionAssemblerTests
     }
 
     /// <summary>
-    /// 🔴 The document declares what it is NOT yet trustworthy about. At 0.1 that is
-    /// conditional requiredness (AB#236) and picklist values (AB#237).
+    /// 🔴 The document declares what it is NOT yet trustworthy about — and does NOT declare a
+    /// gap it has since closed.
     /// </summary>
     /// <remarks>
-    /// This is the ticket's "KNOWN INCOMPLETE" acceptance criterion made enforceable. Without
-    /// it, a later contributor could delete the reservations and convert an honestly
-    /// incomplete document into a silently wrong one with nothing failing.
+    /// At 0.1 the one remaining reservation is picklist values (AB#237). Conditional
+    /// requiredness (AB#236) was on this list and is not any more: the rules source is merged
+    /// now, so leaving the reservation in place would make the document lie in the OTHER
+    /// direction — warning a reader off an answer it does in fact give.
+    /// <para>
+    /// Both halves are asserted. A test that only checked the surviving gap would pass
+    /// against an implementation that still declared the closed one.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task Assemble_HeaderDeclaresTheKnownGapsWithTheirTickets()
@@ -518,8 +545,14 @@ public sealed class ProcessDescriptionAssemblerTests
         description.ShouldNotBeNull();
 
         var gaps = description.Header.KnownGaps;
-        gaps.ShouldContain(g => g.Subject == "conditionalRequiredness" && g.TrackedIn == "AB#236");
         gaps.ShouldContain(g => g.Subject == "picklistValues" && g.TrackedIn == "AB#237");
+
+        // 🔴 AB#236 landed: the merge is done, so the reservation must be gone.
+        gaps.ShouldNotContain(
+            g => g.Subject == "conditionalRequiredness",
+            "requiredness is merged from the rules source now — declaring it a gap would warn "
+            + "a reader off an answer this document does give");
+        gaps.ShouldNotContain(g => g.TrackedIn == "AB#236");
 
         // Sorted, like everything else, so the reservations do not swap between two documents.
         gaps.Select(g => g.Subject)
@@ -585,7 +618,10 @@ public sealed class ProcessDescriptionAssemblerTests
         var field = description.Types[0].Fields.ShouldHaveSingleItem();
         field.ReferenceName.ShouldBe("System.Title");
         field.DefaultValue.ShouldBe("a default");
-        field.RequiredUnconditionally.ShouldBeTrue();
+        // The MERGED answer, not the fields route's boolean. This field is required with no
+        // condition attached and no rule touches it, so it stays unconditional.
+        field.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Always);
+        field.Requiredness.Conditions.ShouldBeEmpty();
         field.Customization.ShouldBe("system");
         field.Description.ShouldBe("the field's own description");
     }
@@ -696,7 +732,9 @@ public sealed class ProcessDescriptionAssemblerTests
         couldNotRead.Fields.ShouldBeEmpty();
 
         genuinelyEmpty.Unfetched.ShouldBeEmpty();
-        couldNotRead.Unfetched.ShouldBe(["fields", "states", "transitions"]);
+        // 🔴 'rules' is in the list: requiredness is merged from the rules route (AB#236), so
+        // a whole-detail failure leaves the requiredness answer unreadable too.
+        couldNotRead.Unfetched.ShouldBe(["fields", "rules", "states", "transitions"]);
     }
 
     /// <summary>
@@ -786,6 +824,106 @@ public sealed class ProcessDescriptionAssemblerTests
             t, "Niflheim.CustomAlpha", StringComparison.OrdinalIgnoreCase)).ShouldBe(1);
     }
 
+    /// <summary>
+    /// 🔴 A rule whose <c>targetField</c> differs only in CASING still makes the field required.
+    /// </summary>
+    /// <remarks>
+    /// The join is across two routes — the rules route's <c>targetField</c> against the fields
+    /// route's <c>referenceName</c> — and this route family is already known to be inconsistent
+    /// about spelling (the <c>$</c> sigil is the same class of problem). An ordinal-exact join
+    /// would drop the rule and report the field as not-required, which is byte-identical to a
+    /// field nobody makes required and carries no <c>unfetched</c> label to catch it: the exact
+    /// silent lie AB#236 removes, reintroduced as a failed JOIN rather than a failed fetch.
+    /// <para>
+    /// Every other reference-name comparison in this layer is ordinal-case-insensitive for the
+    /// same reason, including <c>SelectTypes</c> in this very class.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RuleTargetingTheFieldInDifferentCasing_StillMakesItRequired()
+    {
+        var source = BuildMergeSource(
+        [
+            // Lower-cased target against the fields route's "Custom.WayfinderAnswer".
+            MakeRequiredWhen("custom.wayfinderanswer", "Done"),
+        ]);
+
+        // Precondition: read through the seam — the two spellings must genuinely differ, or
+        // this test proves nothing about the comparer.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        var target = detail!.Rules!.Single().Actions.Single().TargetField;
+        var onTheFieldsRoute = detail.Fields
+            .Single(f => string.Equals(f.ReferenceName, target, StringComparison.OrdinalIgnoreCase))
+            .ReferenceName;
+
+        // Ordinal-exact inequality: the two spellings differ ONLY in casing, which is the
+        // whole point — an ordinal-exact join would miss the rule.
+        string.Equals(target, onTheFieldsRoute, StringComparison.Ordinal).ShouldBeFalse();
+        string.Equals(target, onTheFieldsRoute, StringComparison.OrdinalIgnoreCase).ShouldBeTrue();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .Requiredness.Kind.ShouldBe(
+                FieldRequirednessKind.Conditional,
+                "a casing difference between the two routes must not silently drop the rule");
+    }
+
+    /// <summary>
+    /// 🔴 Two fields identical on reference name, display name and type but differing in
+    /// requiredness are ordered deterministically.
+    /// </summary>
+    /// <remarks>
+    /// The field sort's own remarks say the tiebreak chain must be total: if the server ever
+    /// returns two rows agreeing on the identifying members, ordering would otherwise fall
+    /// through <c>OrderBy</c>'s stability to WIRE order — reintroducing the non-determinism
+    /// this class exists to remove, silently. Adding <c>Requiredness</c> to the document
+    /// without extending the chain would have left exactly that hole, so it is pinned here.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldsDifferingOnlyInRequiredness_AreOrderedDeterministically()
+    {
+        // Two rows agreeing on (ReferenceName, Name, Type) — the identifying members — and
+        // differing only in members further down the chain.
+        ProcessTypeField Duplicate(bool required, string description) => new(
+            "Custom.Duplicated", "Duplicated", "string", null, required, "custom", false, description);
+
+        ProcessTypeDetail Detail(bool firstRequired) => new(
+            Fields:
+            [
+                Duplicate(firstRequired, firstRequired ? "required one" : "loose one"),
+                Duplicate(!firstRequired, !firstRequired ? "required one" : "loose one"),
+            ],
+            States: [],
+            Transitions: [],
+            Unfetched: null,
+            Rules: []);
+
+        var forwardSource = new ScriptedDescriptionSource(
+            ["Niflheim.Grilling"],
+            new Dictionary<string, ProcessTypeDetail> { ["Niflheim.Grilling"] = Detail(true) });
+        var reversedSource = new ScriptedDescriptionSource(
+            ["Niflheim.Grilling"],
+            new Dictionary<string, ProcessTypeDetail> { ["Niflheim.Grilling"] = Detail(false) });
+
+        // Precondition: the two fixtures really do present the rows in opposite WIRE order, and
+        // the rows really are identical on the three identifying members — otherwise an earlier
+        // tiebreak resolves it and the new ones are never exercised.
+        var forwardWire = (await forwardSource.GetTypeDetailAsync("Niflheim.Grilling"))!.Fields;
+        var reversedWire = (await reversedSource.GetTypeDetailAsync("Niflheim.Grilling"))!.Fields;
+
+        forwardWire.Select(f => f.RequiredUnconditionally)
+            .ShouldBe(reversedWire.Select(f => f.RequiredUnconditionally).Reverse());
+        forwardWire.Select(f => (f.ReferenceName, f.Name, f.Type)).Distinct().Count().ShouldBe(1);
+
+        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
+        var reversed = await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture);
+
+        Flatten(forward!).ShouldBe(
+            Flatten(reversed!),
+            "two rows differing only below the identifying members must not order by wire order");
+    }
+
     /// <summary>An unresolvable process yields no document rather than an empty one.</summary>
     [Fact]
     public async Task Assemble_WhenProcessCannotBeResolved_ReturnsNull()
@@ -793,5 +931,442 @@ public sealed class ProcessDescriptionAssemblerTests
         var source = new ScriptedDescriptionSource([], []) { Identity = null };
 
         (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Test 3 — requiredness that does not lie (AB#236)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>The live shape: <c>when State = Done → makeRequired Custom.WayfinderAnswer</c>.</summary>
+    private static ProcessRule MakeRequiredWhen(string targetField, string state) => new(
+        Conditions: [new RuleCondition("when", "System.State", state)],
+        Actions: [new RuleAction("makeRequired", targetField, null)],
+        IsDisabled: false);
+
+    /// <summary>
+    /// The AB#236 fixture: one field the FIELDS source calls not-required and the RULES source
+    /// makes required, and one the fields source calls required outright.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The two-source disagreement is the whole point, and it is asserted as a precondition
+    /// in every test that uses this — never merely commented. If the conditional field were
+    /// unconditionally required in the fixture, the merge would never run and the tests would
+    /// pass against unfixed code.
+    /// </remarks>
+    private static ScriptedDescriptionSource BuildMergeSource(
+        IReadOnlyList<ProcessRule>? rules = null)
+    {
+        var types = new[] { "Niflheim.Grilling" };
+
+        return new ScriptedDescriptionSource(types, new Dictionary<string, ProcessTypeDetail>
+        {
+            ["Niflheim.Grilling"] = new(
+                Fields:
+                [
+                    // 🔴 required: false on the fields route — verified live, this is exactly
+                    // what Custom.WayfinderAnswer reports there while /rules makes it
+                    // mandatory at Done.
+                    new ProcessTypeField(
+                        "Custom.WayfinderAnswer", "Answer", "html", null, false, "custom", false, ""),
+                    new ProcessTypeField(
+                        "System.Title", "Title", "string", null, true, "system", false, ""),
+                    new ProcessTypeField(
+                        "Custom.Untouched", "Untouched", "string", null, false, "custom", false, ""),
+                ],
+                States: [new ProcessTypeState("Done", "Completed", 3, "339947", "custom", false)],
+                Transitions: [new ProcessTypeTransition("", "Done")],
+                Unfetched: null,
+                Rules: rules ?? [MakeRequiredWhen("Custom.WayfinderAnswer", "Done")]),
+        });
+    }
+
+    /// <summary>
+    /// 🔴 THE ticket. A field whose ONLY requiredness comes from a rule renders as
+    /// required-under-that-condition — never as simply not-required.
+    /// </summary>
+    /// <remarks>
+    /// Fails against the obvious implementation that reads requiredness from the fields source
+    /// alone, which is what shipped before AB#236. It fails SILENTLY in production, which is
+    /// why it is asserted here: the fields route reports <c>required: null</c> for
+    /// <c>Custom.WayfinderAnswer</c> while the rules route carries a <c>makeRequired</c>
+    /// action for it, so a document built from one source is wrong about exactly the fields a
+    /// caller most needs.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldRequiredOnlyByARule_IsNotReportedAsNotRequired()
+    {
+        var source = BuildMergeSource();
+
+        // 🔴 THE PRECONDITION, asserted rather than assumed. The two sources must genuinely
+        // disagree about this field, or the merge never runs and this test passes against
+        // unfixed code — the fixture hazard the spec names for exactly this test.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail.ShouldNotBeNull();
+
+        var fromFields = detail.Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
+        fromFields.RequiredUnconditionally.ShouldBeFalse(
+            "the FIELDS source must say not-required, or the merge is not exercised");
+
+        detail.Rules.ShouldNotBeNull();
+        detail.Rules.ShouldContain(
+            r => r.Actions.Any(a => a.ActionType == "makeRequired"
+                && a.TargetField == "Custom.WayfinderAnswer"),
+            "the RULES source must say required, or the two sources do not disagree");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var merged = description.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
+
+        merged.Requiredness.Kind.ShouldBe(
+            FieldRequirednessKind.Conditional,
+            "a field made mandatory by a rule must not render as simply not-required");
+
+        // …and the condition is CARRIED, not merely flagged. "Conditional" with no condition
+        // is a warning the reader cannot act on: it names no state, no field, no value.
+        var condition = merged.Requiredness.Conditions.ShouldHaveSingleItem();
+        var clause = condition.Clauses.ShouldHaveSingleItem();
+        clause.ConditionType.ShouldBe("when");
+        clause.Field.ShouldBe("System.State");
+        clause.Value.ShouldBe("Done");
+    }
+
+    /// <summary>
+    /// An unconditionally-required field still renders as required, and NOT as conditional.
+    /// </summary>
+    /// <remarks>
+    /// The other half of the pair. Without it, an implementation that reported every field as
+    /// conditional — or that lost the unconditional case in the merge — would pass the test
+    /// above. Both directions of the lie are defended: reporting the conditional case as
+    /// not-required is the AB#236 defect; reporting the unconditional case as conditional
+    /// would tell a caller it may omit a field the server will reject.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_UnconditionallyRequiredField_StillRendersAsRequired()
+    {
+        var source = BuildMergeSource();
+
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        // Precondition: the fixture really carries an unconditionally-required field, and no
+        // rule touches it — so the assertion is about the merge preserving it, not about a
+        // rule reinstating it.
+        detail!.Fields.Single(f => f.ReferenceName == "System.Title")
+            .RequiredUnconditionally.ShouldBeTrue();
+        detail.Rules!.SelectMany(r => r.Actions)
+            .ShouldNotContain(a => a.TargetField == "System.Title");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        var title = description!.Types[0].Fields.Single(f => f.ReferenceName == "System.Title");
+        title.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Always);
+        title.Requiredness.Conditions.ShouldBeEmpty();
+
+        // A field neither source makes mandatory is reported as such — proving the merge is
+        // not simply marking everything required.
+        var untouched = description.Types[0].Fields.Single(f => f.ReferenceName == "Custom.Untouched");
+        untouched.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+    }
+
+    /// <summary>
+    /// 🔴 A field required BOTH unconditionally and by a rule stays unconditional.
+    /// </summary>
+    /// <remarks>
+    /// Downgrading it to conditional would be a lie in the DANGEROUS direction: a caller would
+    /// read "required only at Done" and omit the field, and the server would reject the create.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldRequiredByBothSources_ReportsUnconditionalNotConditional()
+    {
+        var source = BuildMergeSource(
+        [
+            MakeRequiredWhen("Custom.WayfinderAnswer", "Done"),
+            // A rule ALSO targeting the unconditionally-required field.
+            MakeRequiredWhen("System.Title", "Done"),
+        ]);
+
+        // Precondition: both a rule and the fields source claim System.Title.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Fields.Single(f => f.ReferenceName == "System.Title")
+            .RequiredUnconditionally.ShouldBeTrue();
+        detail.Rules!.SelectMany(r => r.Actions)
+            .ShouldContain(a => a.TargetField == "System.Title");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "System.Title")
+            .Requiredness.Kind.ShouldBe(
+                FieldRequirednessKind.Always,
+                "an unconditionally-required field must not be downgraded to conditional — a "
+                + "caller would omit it and the server would reject the create");
+    }
+
+    /// <summary>A DISABLED rule does not make a field required.</summary>
+    /// <remarks>
+    /// A disabled rule does not fire on the server, so reporting requiredness from one is a
+    /// false positive — the mirror-image failure of the defect this ticket fixes.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_DisabledMakeRequiredRule_DoesNotMakeTheFieldRequired()
+    {
+        var source = BuildMergeSource(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("when", "System.State", "Done")],
+                Actions: [new RuleAction("makeRequired", "Custom.WayfinderAnswer", null)],
+                IsDisabled: true),
+        ]);
+
+        // Precondition: the rule really is disabled AND really does target the field — so the
+        // test is about the disabled flag and not about a fixture that forgot the rule.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        var rule = detail!.Rules.ShouldHaveSingleItem();
+        rule.IsDisabled.ShouldBeTrue();
+        rule.Actions.ShouldContain(a => a.TargetField == "Custom.WayfinderAnswer");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+    }
+
+    /// <summary>
+    /// An UNCONDITIONED <c>makeRequired</c> rule yields unconditional requiredness, not a
+    /// condition with nothing in it.
+    /// </summary>
+    /// <remarks>
+    /// "Conditional" with an empty condition would print a reservation naming no state, no
+    /// field and no value — a warning a reader cannot act on, which is a different flavour of
+    /// the same dishonesty this ticket removes.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_UnconditionedMakeRequiredRule_YieldsUnconditionalRequiredness()
+    {
+        var source = BuildMergeSource(
+        [
+            new ProcessRule(
+                Conditions: [],
+                Actions: [new RuleAction("makeRequired", "Custom.WayfinderAnswer", null)],
+                IsDisabled: false),
+        ]);
+
+        // Precondition: the fields source says not-required and the rule carries no condition.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .RequiredUnconditionally.ShouldBeFalse();
+        detail.Rules.ShouldHaveSingleItem().Conditions.ShouldBeEmpty();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        var merged = description!.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
+        merged.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Always);
+        merged.Requiredness.Conditions.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A non-<c>makeRequired</c> action does not make a field required.
+    /// </summary>
+    /// <remarks>
+    /// The rules route carries <c>copyValue</c>, <c>makeReadOnly</c>, <c>disallowValue</c> and
+    /// more — ~54 of them on a derived type. An implementation that treated any rule targeting
+    /// a field as making it required would report almost every field on a derived type as
+    /// conditionally required, which is noise dressed as a truth claim.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RuleWithADifferentAction_DoesNotMakeTheFieldRequired()
+    {
+        var source = BuildMergeSource(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("when", "System.State", "Done")],
+                Actions: [new RuleAction("makeReadOnly", "Custom.WayfinderAnswer", null)],
+                IsDisabled: false),
+        ]);
+
+        // Precondition: a rule DOES target the field — just not with makeRequired.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Rules.ShouldHaveSingleItem().Actions
+            .ShouldContain(a => a.TargetField == "Custom.WayfinderAnswer"
+                && a.ActionType != "makeRequired");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+    }
+
+    /// <summary>
+    /// The <c>$</c> sigil some routes prefix onto an action verb does not hide a
+    /// <c>makeRequired</c>.
+    /// </summary>
+    /// <remarks>
+    /// The rules payload is not consistent about the sigil across api-versions and
+    /// customization types, and this repo's own <c>DependentFieldReconciler</c> already trims
+    /// it for exactly that reason. Missing a <c>$makeRequired</c> would silently reinstate the
+    /// defect AB#236 fixes for whichever rules carry it.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_MakeRequiredWithADollarSigil_IsStillRecognised()
+    {
+        var source = BuildMergeSource(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "Custom.WayfinderAnswer", null)],
+                IsDisabled: false),
+        ]);
+
+        // Precondition: the fixture really does use the sigil form.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Grilling");
+        detail!.Rules.ShouldHaveSingleItem().Actions
+            .ShouldContain(a => a.ActionType.StartsWith('$'));
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        var merged = description!.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
+        merged.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Conditional);
+        // The condition verb is carried with the sigil trimmed too, so the same rule cannot
+        // diff dirty between two documents merely because one route spelled it with the sigil.
+        merged.Requiredness.Conditions[0].Clauses[0].ConditionType.ShouldBe("when");
+    }
+
+    /// <summary>
+    /// 🔴 Conditions are ORDERED DETERMINISTICALLY, not carried in server order.
+    /// </summary>
+    /// <remarks>
+    /// Byte-stability is the single most important property of this feature, and a rule list
+    /// arrives in SERVER order — which is not promised stable. This drives the same rules
+    /// through in two different orders and asserts the merged document is identical, which is
+    /// what the whole-document byte-stability test cannot see because it feeds one fixture.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RulesArrivingInADifferentOrder_ProduceTheIdenticalDocument()
+    {
+        ProcessRule[] rules =
+        [
+            MakeRequiredWhen("Custom.WayfinderAnswer", "Done"),
+            MakeRequiredWhen("Custom.WayfinderAnswer", "Aborted"),
+            MakeRequiredWhen("Custom.Untouched", "Doing"),
+        ];
+        var reversed = rules.Reverse().ToArray();
+
+        var forwardSource = BuildMergeSource(rules);
+        var backwardSource = BuildMergeSource(reversed);
+
+        // Precondition: read back through the SEAM, so a fixture-builder regression that
+        // dropped or reordered the rules is caught. Checking the literals above cannot fail.
+        // Both orders must genuinely reach the assembler differently, and more than one rule
+        // must target the same field — a single-rule fixture cannot detect an ordering defect.
+        var forwardOnTheWire = (await forwardSource.GetTypeDetailAsync("Niflheim.Grilling"))!.Rules!;
+        var backwardOnTheWire = (await backwardSource.GetTypeDetailAsync("Niflheim.Grilling"))!.Rules!;
+
+        static string Key(ProcessRule r) =>
+            $"{r.Actions[0].TargetField}:{r.Conditions[0].Value}";
+
+        forwardOnTheWire.Select(Key).ShouldNotBe(backwardOnTheWire.Select(Key));
+        forwardOnTheWire.Count(r => r.Actions.Any(a => a.TargetField == "Custom.WayfinderAnswer"))
+            .ShouldBeGreaterThan(1);
+
+        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
+        var backward = await BuildAssembler(backwardSource).AssembleAsync(null, FixedCapture);
+
+        forward.ShouldNotBeNull();
+        backward.ShouldNotBeNull();
+        Flatten(forward).ShouldBe(Flatten(backward));
+
+        // And the order is the SORTED one, not either input order — two runs of an unsorted
+        // assembler fed the same fixture would also agree.
+        var conditions = forward.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .Requiredness.Conditions;
+
+        conditions.Count.ShouldBe(2);
+        conditions.Select(c => c.Clauses[0].Value).ShouldBe(["Aborted", "Done"]);
+    }
+
+    /// <summary>
+    /// Two rules imposing the SAME condition on one field are reported once.
+    /// </summary>
+    /// <remarks>
+    /// A derived type carries ~54 rules, so duplicate conditions are reachable. Printing the
+    /// same requirement twice would read like two distinct requirements on the field.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_TwoRulesWithTheSameCondition_ReportItOnce()
+    {
+        ProcessRule[] rules =
+        [
+            MakeRequiredWhen("Custom.WayfinderAnswer", "Done"),
+            MakeRequiredWhen("Custom.WayfinderAnswer", "Done"),
+        ];
+
+        var source = BuildMergeSource(rules);
+
+        // Precondition: read back through the SEAM under test, not off the literal above — a
+        // check against the literal cannot fail and would only inflate the apparent rigour.
+        // Two rules must reach the assembler, both targeting the same field with the same
+        // condition, or the de-duplication path never runs.
+        var conditionsOnTheWire = (await source.GetTypeDetailAsync("Niflheim.Grilling"))!
+            .Rules!
+            .Where(r => r.Actions.Any(a => a.TargetField == "Custom.WayfinderAnswer"))
+            .ToList();
+
+        conditionsOnTheWire.Count.ShouldBe(2);
+        conditionsOnTheWire.Select(r => r.Conditions.Single().Value).Distinct().Count().ShouldBe(1);
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
+            .Requiredness.Conditions.ShouldHaveSingleItem();
+    }
+
+    /// <summary>
+    /// 🔴 An UNREADABLE rules call is labelled, not laundered into "nothing is conditionally
+    /// required".
+    /// </summary>
+    /// <remarks>
+    /// The same count-shaped-404 hazard that produced the <c>Unfetched</c> mechanism in
+    /// AB#235: on this route family a failure looks exactly like a thin success. If a failed
+    /// rules call rendered identically to a type with no rules, the document would make a
+    /// confident claim about requiredness on the strength of a call that never came back —
+    /// which is the very defect this ticket removes, reintroduced through the back door.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WhenTheRulesCallFailed_TheTypeIsLabelledRatherThanClaimingNoRules()
+    {
+        var types = new[] { "Niflheim.Grilling", "Niflheim.Decision" };
+        var source = new ScriptedDescriptionSource(types, new Dictionary<string, ProcessTypeDetail>
+        {
+            // The rules call FAILED: Rules is null and the failure is named.
+            ["Niflheim.Grilling"] = new(
+                Fields: [new ProcessTypeField("Custom.WayfinderAnswer", "Answer", "html", null, false, "custom", false, "")],
+                States: [],
+                Transitions: [],
+                Unfetched: ["rules"],
+                Rules: null),
+            // The rules call SUCCEEDED and the type genuinely has none.
+            ["Niflheim.Decision"] = new(
+                Fields: [new ProcessTypeField("Custom.WayfinderAnswer", "Answer", "html", null, false, "custom", false, "")],
+                States: [],
+                Transitions: [],
+                Unfetched: null,
+                Rules: []),
+        });
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var couldNotRead = description.Types.Single(t => t.ReferenceName == "Niflheim.Grilling");
+        var genuinelyNone = description.Types.Single(t => t.ReferenceName == "Niflheim.Decision");
+
+        // Precondition: both report the field the same way, so the ONLY thing that can tell
+        // them apart is the explicit label — which is what makes the label load-bearing.
+        couldNotRead.Fields.Single().Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+        genuinelyNone.Fields.Single().Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+
+        couldNotRead.Unfetched.ShouldBe(["rules"]);
+        genuinelyNone.Unfetched.ShouldBeEmpty();
     }
 }

@@ -178,7 +178,53 @@ internal sealed record ProcessDescriptionType(
     string Customization,
     string? Inherits,
     bool IsDisabled,
-    IReadOnlyList<ProcessTypeField> Fields,
+    IReadOnlyList<ProcessDescriptionField> Fields,
     IReadOnlyList<ProcessTypeState> States,
     IReadOnlyList<ProcessTypeTransition> Transitions,
     IReadOnlyList<string> Unfetched);
+
+/// <summary>
+/// One field as the DOCUMENT carries it: the per-type fields route's structural facts, plus
+/// requiredness merged from the rules route.
+/// </summary>
+/// <remarks>
+/// <para>
+/// 🔴 <b>This type exists so the merge cannot be skipped by accident.</b>
+/// <see cref="ProcessTypeField"/> is the fetch layer's honest report of ONE source, and its
+/// <see cref="ProcessTypeField.RequiredUnconditionally"/> is named for exactly what that
+/// source knows. The document must not carry that property directly: the per-type fields
+/// route reports unconditional requiredness only, so a field made mandatory by a rule —
+/// <i>when State = Done → makeRequired</i> — reads there as not-required, which is wrong
+/// about exactly the fields a caller most needs and wrong in the silent direction.
+/// </para>
+/// <para>
+/// So the document carries <see cref="Requiredness"/>, which can express the conditional
+/// case, and there is no boolean on this type for a renderer to reach for instead.
+/// </para>
+/// <para>
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch
+/// docs/process-descriptor-map)</c> Implementation Decision 5(a).
+/// </para>
+/// </remarks>
+/// <param name="ReferenceName">The field's stable identity. Display names lie.</param>
+/// <param name="Name">The display name the web editor shows.</param>
+/// <param name="Type">The data type (<c>string</c>, <c>integer</c>, <c>html</c>, …).</param>
+/// <param name="DefaultValue">The value the server pre-fills, or <c>null</c>.</param>
+/// <param name="Requiredness">
+/// 🔴 The MERGED answer: unconditional, conditional-with-its-conditions, or never. Not a
+/// boolean, because a boolean cannot carry the conditional case without lying.
+/// </param>
+/// <param name="Customization">
+/// <c>custom</c> | <c>inherited</c> | <c>system</c>, carried verbatim from the server.
+/// </param>
+/// <param name="IsLocked">Whether the field is locked against edits by the process.</param>
+/// <param name="Description">The field's description, or empty when the server sends none.</param>
+internal sealed record ProcessDescriptionField(
+    string ReferenceName,
+    string Name,
+    string Type,
+    string? DefaultValue,
+    FieldRequiredness Requiredness,
+    string Customization,
+    bool IsLocked,
+    string Description);

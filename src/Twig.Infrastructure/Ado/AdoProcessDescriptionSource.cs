@@ -87,6 +87,15 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
             "work/processes/{processId}/workItemTypes/{ref}/fields", AdoApiVersions.ProcessWorkItemTypeFields),
         new ProcessDescriptionRouteVersion(
             "work/processes/{processId}/workItemTypes/{ref}/states", AdoApiVersions.ProcessWorkItemTypeStates),
+        // 🔴 The SECOND source of requiredness (AB#236). Pinned 7.1, deliberately NOT
+        // preview.2. preview.2 additionally carries `customizationType` per rule — the only
+        // available filter for the ~54 inherited system rules on a derived type — but this
+        // ticket does not report rules, it reads `makeRequired` actions off them, and those
+        // are identical at both versions. Moving the constant would be a behaviour change to
+        // the shipped `twig process rules` output bought for nothing here; it belongs to the
+        // ticket that carries rules into the document (AB#238).
+        new ProcessDescriptionRouteVersion(
+            "work/processes/{processId}/workItemTypes/{ref}/rules", AdoApiVersions.ProcessRules),
         new ProcessDescriptionRouteVersion(
             "wit/workitemtypes?$expand=all", AdoApiVersions.ProjectWorkItemTypesExpanded),
     ];
@@ -188,35 +197,102 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         if (identity is null)
             return null;
 
-        // The three fetches for one type are independent GETs and run concurrently. This is
+        // The fetches for one type are independent GETs and run concurrently. This is
         // the ruled latency mitigation; ordering is not taken from completion order here or
         // anywhere downstream — the assembler sorts.
         var fieldsTask = FetchFieldsAsync(identity.ProcessId, typeReferenceName, ct);
         var statesTask = FetchStatesAsync(identity.ProcessId, typeReferenceName, ct);
+        // 🔴 The second requiredness source (AB#236). Keyed by the type's own PROCESS
+        // reference name — this is a process route, so unlike the transitions fetch it needs
+        // no parent-name fallback.
+        var rulesTask = FetchRulesAsync(identity.ProcessId, typeReferenceName, ct);
 
-        // States are awaited before transitions because the transitions fallback needs them:
+        // 🔴 Gathered with WhenAll before any individual await. Awaiting them one at a time
+        // means the FIRST fault propagates while the later tasks are never awaited, and their
+        // exceptions become unobserved. FetchRulesAsync swallows only AdoNotFoundException and
+        // JsonException; offline, throttle and unexpected-response faults do propagate, so
+        // this is reachable rather than theoretical.
+        await Task.WhenAll(fieldsTask, statesTask, rulesTask).ConfigureAwait(false);
+
+        // States are read before transitions because the transitions fallback needs them:
         // a parent's transitions are only trustworthy for a derived type whose own states the
         // parent's workflow actually covers.
         var fields = await fieldsTask;
         var states = await statesTask;
+        var rules = await rulesTask;
 
         var transitions = await FetchTransitionsAsync(
             typeReferenceName, inheritsFrom, states, ct);
 
         // If every part failed, the type could not be described at all — report that rather
         // than a document row claiming an empty type.
-        if (fields is null && states is null && transitions is null)
+        if (fields is null && states is null && transitions is null && rules is null)
             return null;
 
         // 🔴 A PARTIAL failure is named, not swallowed. Otherwise "the fields call 404'd" and
         // "this type has no fields" render identically, and the second is a confident wrong
         // answer — the exact failure this route family's count-shaped 404 invites.
-        var unfetched = new List<string>(3);
+        var unfetched = new List<string>(4);
         if (fields is null) unfetched.Add("fields");
+        // 🔴 A failed RULES call is named too. Requiredness is merged from it, so without the
+        // label a reader would take "nothing is conditionally required" from a call that
+        // never came back.
+        if (rules is null) unfetched.Add("rules");
         if (states is null) unfetched.Add("states");
         if (transitions is null) unfetched.Add("transitions");
 
-        return new ProcessTypeDetail(fields ?? [], states ?? [], transitions ?? [], unfetched);
+        return new ProcessTypeDetail(fields ?? [], states ?? [], transitions ?? [], unfetched, rules);
+    }
+
+    /// <remarks>
+    /// 🔴 The second source of requiredness (AB#236). The per-type fields route reports
+    /// UNCONDITIONAL requiredness only; a field made mandatory by a <c>makeRequired</c> rule
+    /// reads there as not-required. Verified live: <c>Custom.WayfinderAnswer</c> is
+    /// <c>required: null</c> on the fields route while this route carries a
+    /// <c>makeRequired</c> action for it.
+    /// <para>
+    /// Returns <c>null</c> on failure and never an empty list, so "the rules call failed"
+    /// cannot be laundered into "this type has no conditional requiredness" — which would
+    /// reinstate the exact silent lie this ticket removes.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<ProcessRule>?> FetchRulesAsync(
+        string processId,
+        string typeReferenceName,
+        CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
+            $"/workItemTypes/{Uri.EscapeDataString(typeReferenceName)}" +
+            $"/rules?api-version={AdoApiVersions.ProcessRules}";
+
+        AdoProcessRuleListResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoProcessRuleListResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        catch (JsonException) { return null; }
+
+        if (result?.Value is null)
+            return null;
+
+        return
+        [
+            .. result.Value.Select(rule => new ProcessRule(
+                rule.Conditions?.Select(condition => new RuleCondition(
+                    condition.ConditionType ?? string.Empty,
+                    condition.Field ?? string.Empty,
+                    condition.Value)).ToList() ?? [],
+                rule.Actions?.Select(action => new RuleAction(
+                    action.ActionType ?? string.Empty,
+                    action.TargetField ?? string.Empty,
+                    action.Value)).ToList() ?? [],
+                rule.IsDisabled)),
+        ];
     }
 
     private async Task<IReadOnlyList<ProcessTypeField>?> FetchFieldsAsync(

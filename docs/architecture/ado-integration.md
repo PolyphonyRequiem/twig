@@ -215,7 +215,26 @@ constant in `AdoApiVersions`; never inline a literal.
 | `_apis/work/processes/{id}/workItemTypes` | `7.1-preview.2` | `referenceName` + `customization`; preview.1 returns `id` + `class` instead |
 | `.../workItemTypes/{ref}/fields` | `7.1-preview.2` | `required`, `defaultValue`, `customization` — absent at preview.1 |
 | `.../workItemTypes/{ref}/states` | `7.1` | `customizationType`, `order`, `stateCategory`. **preview.2 is rejected on this route** |
+| `.../workItemTypes/{ref}/rules` | `7.1` | `makeRequired` actions and their conditions — the **second source of requiredness** |
 | `{project}/_apis/wit/workitemtypes?$expand=all` | `7.1` | The **only** source of state transitions (see below) |
+
+🔴 **Requiredness is merged from two routes, and reading either alone lies (AB#236).**
+The per-type `fields` route reports **unconditional** requiredness only. A field made
+mandatory by a rule — *when State = Done → makeRequired* — reads as not-required
+there. Verified live: `Custom.WayfinderAnswer` is `required: null` on `fields` while
+`/rules` carries a `makeRequired` action for it. A whole-process survey found 59
+unconditionally-required fields while every conditionally-required one was invisible
+to `fields`. So the document carries `requiredness` (`always` | `conditional` |
+`never`) with the conditions attached, never a bare boolean — a boolean cannot
+express the conditional case, and gets it wrong in the silent direction.
+
+The rules route stays pinned at **`7.1`, not preview.2**, deliberately.
+`7.1-preview.2` additionally carries `customizationType` per rule, which is the only
+available filter for the ~54 inherited system rules on a derived type — but this
+layer reads `makeRequired` actions off rules rather than reporting them, and those
+are identical at both versions. Moving the constant would change the shipped
+`twig process rules` output for no gain here; it belongs to the ticket that carries
+rules into the document (AB#238).
 
 Three findings that constrain this layer, all probed live:
 

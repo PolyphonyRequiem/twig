@@ -143,7 +143,7 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
 /// and that is the ONLY permitted variance. If ordering wobbles, the diff a reader runs fills
 /// with noise and the whole feature is worthless.
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> Solution S2, tests 1 and 2
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Solution S2, tests 1 and 2
 /// of its table.
 /// </para>
 /// </remarks>
@@ -236,7 +236,10 @@ public sealed class ProcessDescriptionAssemblerTests
         {
             writer.WriteLine($"type={type.ReferenceName}|{type.Name}|{type.Customization}|{type.Inherits}");
             foreach (var field in type.Fields)
-                writer.WriteLine($"  field={field.ReferenceName}|{field.Type}|{field.RequiredUnconditionally}");
+                writer.WriteLine(
+                    $"  field={field.ReferenceName}|{field.Name}|{field.Type}|"
+                    + $"{field.RequiredUnconditionally}|{field.DefaultValue}|"
+                    + $"{field.Customization}|{field.Description}");
             foreach (var state in type.States)
                 writer.WriteLine($"  state={state.Name}|{state.StateCategory}|{state.Order}");
             foreach (var transition in type.Transitions)
@@ -546,21 +549,20 @@ public sealed class ProcessDescriptionAssemblerTests
     }
 
     /// <summary>
-    /// 🔴 The document contains no work item values.
+    /// The assembler carries structural field metadata through without inventing or dropping
+    /// any of it.
     /// </summary>
     /// <remarks>
-    /// A negative assertion, so the precondition is real rather than nominal: the marker is
-    /// genuinely PLANTED in the fixture, in the field DESCRIPTION — a place an implementation
-    /// that copied field metadata verbatim would plausibly leak it from — and the test first
-    /// proves the assembler carried that field through at all. Asserting only that a
-    /// compile-time constant is non-empty would leave this a tautology that a fixture change
-    /// could never break.
+    /// 🔴 The "no work item values" guard lives at the COMMAND level
+    /// (<c>Execute_RenderedDocumentContainsNoWorkItemValues</c>), asserted against the real
+    /// rendered document. It used to live here, searching this class's <c>Flatten()</c>
+    /// helper — which did not emit field descriptions, so a value planted in one would have
+    /// reached the actual document while the test passed. A negative assertion is only worth
+    /// anything when it is pointed at the surface the value would actually reach.
     /// </remarks>
     [Fact]
-    public async Task Assemble_ContainsNoWorkItemValues()
+    public async Task Assemble_CarriesStructuralFieldMetadataVerbatim()
     {
-        const string Marker = "SECRET-WORK-ITEM-CONTENT-9f2a";
-
         var types = new[] { "Niflheim.CustomAlpha" };
         var source = new ScriptedDescriptionSource(
             types,
@@ -569,12 +571,9 @@ public sealed class ProcessDescriptionAssemblerTests
                 ["Niflheim.CustomAlpha"] = new(
                     Fields:
                     [
-                        // The marker is PLANTED here, standing in for work item content that
-                        // reached the fetch layer. Structure (reference name, type, default)
-                        // is legitimately carried; the marker must not be.
                         new ProcessTypeField(
                             "System.Title", "Title", "string", "a default", true, "system", false,
-                            Description: Marker),
+                            Description: "the field's own description"),
                     ],
                     States: [new ProcessTypeState("To do", "Proposed", 1, "b2b2b2", "custom", false)],
                     Transitions: [new ProcessTypeTransition("", "To do")]),
@@ -583,21 +582,12 @@ public sealed class ProcessDescriptionAssemblerTests
         var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
         description.ShouldNotBeNull();
 
-        // Precondition 1: the field really did survive into the document, so the negative
-        // assertion below is examining a document that actually describes something.
         var field = description.Types[0].Fields.ShouldHaveSingleItem();
         field.ReferenceName.ShouldBe("System.Title");
-
-        // Precondition 2: the marker really is present on the fixture the assembler consumed.
-        // If a future edit removes it, this fails rather than silently hollowing the test.
-        field.Description.ShouldBe(Marker);
-
-        // The actual assertion: the document's own projection does not carry it.
-        Flatten(description).ShouldNotContain(Marker);
-
-        // And the structural default value IS carried — proving the assertion above is not
-        // passing merely because the projection is empty.
         field.DefaultValue.ShouldBe("a default");
+        field.RequiredUnconditionally.ShouldBeTrue();
+        field.Customization.ShouldBe("system");
+        field.Description.ShouldBe("the field's own description");
     }
 
     /// <summary>

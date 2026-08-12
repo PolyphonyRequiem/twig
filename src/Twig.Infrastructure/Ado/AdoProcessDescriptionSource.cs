@@ -40,7 +40,7 @@ namespace Twig.Infrastructure.Ado;
 /// that produced the original bug report about this endpoint family.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> Implementation Decisions
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation Decisions
 /// 6, 7 and 11, and the caching ruling under Solution.
 /// </para>
 /// </remarks>

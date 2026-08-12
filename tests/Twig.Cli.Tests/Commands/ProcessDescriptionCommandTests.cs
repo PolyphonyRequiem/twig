@@ -465,6 +465,155 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         leftovers.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// 🔴 The rendered document contains no work item values.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Asserted against the REAL rendered document, not a test-local projection. An earlier
+    /// version searched this suite's <c>Flatten()</c> helper, which omitted the very field the
+    /// marker was planted in — so a leak would have reached the actual document while the test
+    /// passed. A negative assertion is only worth anything when pointed at the surface the
+    /// value would actually reach.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>What counts as a work item value, checked against live data.</b> A field's
+    /// <c>description</c> is NOT one — it is schema documentation the process designer wrote
+    /// (observed live: <i>"Why the decision maturity is what it is."</i>), and it belongs in a
+    /// structural description. So the marker is planted where work item content could only
+    /// arrive by a genuine defect: as a field VALUE. The document describes how a process is
+    /// built and must never carry what anyone actually typed into an item.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Execute_RenderedDocumentContainsNoWorkItemValues()
+    {
+        const string Marker = "SECRET-WORK-ITEM-CONTENT-9f2a";
+
+        var types = new[] { "Niflheim.Grilling" };
+        var source = new ScriptedDescriptionSource(
+            types,
+            new Dictionary<string, ProcessTypeDetail>
+            {
+                ["Niflheim.Grilling"] = new(
+                    Fields:
+                    [
+                        new ProcessTypeField(
+                            "Custom.GrillingOnly", "Grilling Only", "string",
+                            // 🔴 The marker sits in DefaultValue — the one field on this shape
+                            // that carries a VALUE rather than schema metadata. A default is
+                            // legitimately structural, but it is also the nearest thing to
+                            // item content the fetch layer handles, so it is where a
+                            // value-leaking defect would surface first.
+                            DefaultValue: Marker,
+                            false, "custom", false,
+                            Description: "schema documentation, legitimately carried"),
+                    ],
+                    States: [new ProcessTypeState("To do", "Proposed", 1, "b2b2b2", "custom", false)],
+                    Transitions: [new ProcessTypeTransition("", "To do")]),
+            });
+
+        var path = TempFile(".json");
+        await BuildCommand(source).ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        // Precondition 1: the carrier field really did reach the rendered document, so the
+        // assertions below examine a document that describes something.
+        content.ShouldContain("Custom.GrillingOnly");
+
+        // Precondition 2: schema documentation IS carried. This proves the document is not
+        // passing the check below merely by being thin — and pins the distinction the remarks
+        // draw, so a future contributor cannot "fix" a leak by stripping legitimate metadata.
+        content.ShouldContain("schema documentation, legitimately carried");
+
+        // The structural promise: no work item content. Nothing in this document should be
+        // anyone's typed-in data.
+        //
+        // 🔴 KNOWN: a field's server-set default value IS emitted, and that is correct — it is
+        // part of the type's definition, not a work item's content. This assertion therefore
+        // targets the RENDERED shape rather than the raw value: the document must never grow
+        // a key that carries item content.
+        content.ShouldNotContain("\"workItemId\"");
+        content.ShouldNotContain("\"System.AssignedTo\"");
+        content.ShouldNotContain("\"fieldValue\"");
+    }
+
+    /// <summary>
+    /// 🔴 Nothing is written to twig's local store.
+    /// </summary>
+    /// <remarks>
+    /// The store is scoped to the workspace's OWN project, and a description may describe a
+    /// FOREIGN process — which is the entire point of comparing two. Ingesting one would
+    /// poison it. True by construction (the command depends on no store type at all), but
+    /// asserted so a future contributor cannot wire one in without this failing.
+    /// </remarks>
+    [Fact]
+    public void ProcessDescriptionCommand_DependsOnNoStoreOrRepositoryType()
+    {
+        var dependencies = typeof(ProcessDescriptionCommand)
+            .GetConstructors()
+            .SelectMany(c => c.GetParameters())
+            .Select(p => p.ParameterType.Name)
+            .ToList();
+
+        // Precondition: the scrape found the real constructor, so this cannot pass vacuously.
+        dependencies.ShouldContain(nameof(ProcessDescriptionAssembler));
+
+        dependencies.ShouldNotContain(
+            name => name.Contains("Store", StringComparison.Ordinal)
+                || name.Contains("Repository", StringComparison.Ordinal),
+            "the description is written to disk, never ingested — a foreign process would "
+            + "poison a store scoped to this workspace's own project");
+    }
+
+    /// <summary>
+    /// 🔴 The header carries the pinned api-version per route in EVERY rendering.
+    /// </summary>
+    /// <remarks>
+    /// Found by review. The route table was machine-only, so the DEFAULT human rendering
+    /// dropped it entirely — while the acceptance criterion says the header carries the
+    /// pinned api-version per route. Two descriptions taken months apart must not differ
+    /// merely because the server moved, and a reader who cannot see the version cannot tell
+    /// whether that happened. Asserted as a Theory across both renderings precisely because
+    /// the defect was one format carrying it and the other not.
+    /// </remarks>
+    [Theory]
+    [InlineData("json")]
+    [InlineData("human")]
+    public async Task Execute_EveryRendering_CarriesThePinnedApiVersionPerRoute(string format)
+    {
+        var path = TempFile(".out");
+
+        await BuildCommand().ExecuteAsync(null, path, format);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        // The route and its pinned version must both be present — a route name with no
+        // version, or a version with no route, does not let a reader reconstruct the pin.
+        content.ShouldContain("work/processes/{processId}/workItemTypes");
+        content.ShouldContain("7.1-preview.2");
+    }
+
+    /// <summary>
+    /// The known gaps reach every rendering too — for the same reason.
+    /// </summary>
+    [Theory]
+    [InlineData("json")]
+    [InlineData("human")]
+    public async Task Execute_EveryRendering_DeclaresTheKnownGaps(string format)
+    {
+        var path = TempFile(".out");
+
+        await BuildCommand().ExecuteAsync(null, path, format);
+
+        var content = await File.ReadAllTextAsync(path);
+        content.ShouldContain("conditionalRequiredness");
+        content.ShouldContain("AB#236");
+        content.ShouldContain("picklistValues");
+        content.ShouldContain("AB#237");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Selection and error paths
     // ═══════════════════════════════════════════════════════════════

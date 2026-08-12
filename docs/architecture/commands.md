@@ -177,6 +177,27 @@ rendering. When `null`, it falls back to synchronous `IOutputFormatter` string o
 | `edit [field]` | Bulk field editor via external editor |
 | `discard [id]` | Clear pending changes |
 
+### Process (structure, not work item content)
+
+These read how the project's ADO process is *built* — types, fields, states,
+transitions, form layout. They never read or write work item values, which is
+what makes their output safe to share outside the team.
+
+| Command | Description |
+|---------|-------------|
+| `process [<type>]` | List work item types with state counts, or show one type's states/fields/transitions |
+| `process layout <type>` | Show the server-defined form layout (tabs, boxes, ordered fields) |
+| `process description [<type>]` | Write a byte-stable structural description of the process, for diffing two of them |
+
+`process description` is the only one of the three whose output carries a
+**stability guarantee**: two runs against an unchanged process produce
+byte-identical documents, the header's capture timestamp excepted. It also
+declares its own descriptor version and the pinned api-version per route, so a
+document taken months later cannot differ merely because the server moved.
+`-o json` is the complete rendering; the others are abridged summaries that say
+so on their face. See `docs/specs/process-description.spec.md` on branch
+`docs/process-descriptor-map`.
+
 ### Seeds (Draft Work Items)
 
 | Command | Description |

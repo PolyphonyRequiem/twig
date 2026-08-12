@@ -31,7 +31,7 @@ namespace Twig.Commands;
 /// <see cref="ProcessDescriptionAssembler.KnownGaps"/>.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> Implementation Decisions
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation Decisions
 /// 1, 2, 3, 4, 8, 9, 11.
 /// </para>
 /// </remarks>
@@ -285,14 +285,26 @@ internal sealed class ProcessDescriptionCommand(
                     "O", System.Globalization.CultureInfo.InvariantCulture)))),
             new DocumentField("descriptorVersion", new RenderNode.KeyValue(
                 "descriptorVersion", RenderCell.String(header.DescriptorVersion))),
-            // Machine-only: the human rendering draws these as empty box skeletons because
-            // the tables carry no column metadata, and the readable form of the same facts is
-            // the prose block below. Both audiences receive the content; only the shape
-            // differs.
+            // Machine-only SHAPE: the human rendering draws these tables as empty box
+            // skeletons because they carry no column metadata. The same facts reach a human
+            // through the prose blocks below — the acceptance criteria require the header to
+            // CARRY the pinned api-version per route and the known gaps, and "carry" is not
+            // satisfied by a rendering that drops them.
             new DocumentField("routeApiVersions", new RenderNode.Table(null, [], routeRows),
                 Audience: RenderAudience.MachineOnly),
             new DocumentField("knownGaps", new RenderNode.Table(null, [], gapRows),
                 Audience: RenderAudience.MachineOnly),
+            // 🔴 The human form of the pinned versions. Two descriptions taken months apart
+            // must not differ merely because the server moved, and a reader of the DEFAULT
+            // rendering needs to be able to see which version each route was read at.
+            new DocumentField(
+                "routeApiVersionsHuman",
+                new RenderNode.Section("Pinned api-version per route:",
+                [
+                    .. header.RouteApiVersions.Select(route => (RenderNode)new RenderNode.Text(
+                        $"  {route.Route,-52} {route.ApiVersion}")),
+                ]),
+                Audience: RenderAudience.HumanOnly),
             // 🔴 The human reader is told the same reservation, in prose. An incomplete
             // document that only admits its incompleteness in the machine format would let
             // the person most likely to over-trust it never see the warning.

@@ -195,6 +195,51 @@ state definitions, including state category (`Proposed`, `InProgress`,
 
 State ordering uses a stable sort: `OrderBy(CategoryRank).ThenBy(OriginalIndex)`.
 
+### Process description routes
+
+`AdoProcessDescriptionSource` serves `twig process description`. It is a
+**separate class from `AdoIterationService`, deliberately**: that service memoizes
+every route it calls, and the description must not cache anything — a stale
+description is a wrong description, and the artifact is a truth claim about a
+process at a moment in time.
+
+🔴 **On this route family the api-version selects the response *schema*, not just
+the route version.** The same URL at two neighbouring preview versions returns
+disjoint attributes with identical row counts, so a version slip is invisible in
+the count and shows up only as silently blank data. Every version is named from a
+constant in `AdoApiVersions`; never inline a literal.
+
+| Route | Pinned version | What that version buys |
+|-------|----------------|------------------------|
+| `_apis/projects/{project}?includeCapabilities=true` | `7.1` | `processTemplate.templateTypeId` — the id every process route is keyed by |
+| `_apis/work/processes/{id}/workItemTypes` | `7.1-preview.2` | `referenceName` + `customization`; preview.1 returns `id` + `class` instead |
+| `.../workItemTypes/{ref}/fields` | `7.1-preview.2` | `required`, `defaultValue`, `customization` — absent at preview.1 |
+| `.../workItemTypes/{ref}/states` | `7.1` | `customizationType`, `order`, `stateCategory`. **preview.2 is rejected on this route** |
+| `{project}/_apis/wit/workitemtypes?$expand=all` | `7.1` | The **only** source of state transitions (see below) |
+
+Three findings that constrain this layer, all probed live:
+
+- **The modern process API serves no transitions route.** `.../transitions` and
+  `.../stateTransitions` return an HTML 404 at every version, and no `$expand` on
+  the process type list carries them. Transitions come from the classic
+  project-scoped `wit` route, which narrows the description to the process the
+  *configured project* runs on. Deriving them from the state list is not safe —
+  4 of 20 types probed are not fully connected.
+- **The two routes disagree on a derived type's name.** A derived type is
+  `Niflheim.Epic` on the process routes and `Microsoft.VSTS.WorkItemTypes.Epic` on
+  the transitions route. Matching on the process name alone reports zero
+  transitions while exiting 0. The parent reference name is threaded through as a
+  fallback, guarded so a type that genuinely customised its workflow reports its
+  transitions as unfetched rather than borrowing the parent's.
+- **`$expand=all` is a trap** on the process type list: it returns *fewer* keys
+  than `$expand=states`, silently dropping states and behaviors. Use named expands.
+
+🔴 A 404 from these routes arrives with a **count-shaped body**
+(`{"count":1,"value":{"Message":…}}`) — exactly the shape of a thin success. Every
+fetch returns `null` on failure rather than an empty collection, and partial
+failures are named in the document's `unfetched` list, so "could not ask" is never
+laundered into "this has nothing".
+
 ### Template detection
 
 Two-phase approach:

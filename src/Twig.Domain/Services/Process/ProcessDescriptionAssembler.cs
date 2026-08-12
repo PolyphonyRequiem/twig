@@ -37,7 +37,7 @@ namespace Twig.Domain.Services.Process;
 /// than presenting a partial truth as a whole one.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> — the seam section,
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> — the seam section,
 /// Solution S2 and S4, Implementation Decisions 3, 4, 9, 11.
 /// </para>
 /// </remarks>

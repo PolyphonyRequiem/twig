@@ -36,7 +36,7 @@ namespace Twig.Domain.Interfaces;
 /// have for time saved on a command run rarely and deliberately.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> — the seam section,
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> — the seam section,
 /// Solution S2, Implementation Decisions 3 and 11.
 /// </para>
 /// </remarks>

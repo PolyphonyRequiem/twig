@@ -27,7 +27,7 @@ namespace Twig.Domain.ValueObjects;
 /// That is precisely what makes the file safe to hand to someone outside the team.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> Solution S2 and S4,
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Solution S2 and S4,
 /// Implementation Decisions 4 and 9. This type is <c>internal</c> deliberately (Decision
 /// 9): the FILE is the only public promise, and it carries its own version number.
 /// </para>

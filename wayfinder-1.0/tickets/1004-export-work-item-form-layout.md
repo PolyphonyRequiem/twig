@@ -74,6 +74,11 @@ twig process layout <display-name> --out lay.json -o json # once per type, 14 ti
 Both outputs were then compared structurally: every layout control was reduced to its
 `(page, section, group, controlId)` tuple in both documents and the sets and sequences compared.
 
+🔴 **The whole measurement was re-run from scratch after this branch was rebased onto `9bbd5bdd`**
+(PR #377, the Spectre.Console 0.54.0 → 0.57.2 bump, which touches `RendererFactory` — shared by
+both verbs' output path). Every structural and code figure below reproduced exactly; only the
+timings moved, and they were re-taken with a larger sample. See §4.
+
 ### 1. The data overlap is TOTAL, and it is a strict superset
 
 | | `process layout` (14 runs) | `process description` (1 run) |
@@ -153,11 +158,18 @@ code for the 1.0 server-driven editor and ships regardless; this ticket says so 
 
 ### 4. Cost of the overlap, measured
 
-| Invocation | Wall time (3 runs) | Bytes |
+Eight runs of each, on the rebased head (`main` @ `9bbd5bdd`, after the Spectre.Console 0.57.2
+bump touched the shared renderer factory):
+
+| Invocation | min / median / max | Bytes |
 |---|---|---|
-| `process layout Task` | 1.29 / 1.35 / 1.53 s | 8,360 |
-| `process description Niflheim.Task` | 1.92 / 1.81 / 1.75 s | 50,133 |
-| `process description` (whole, 14 types) | 2.94 / 2.86 / 2.99 s | 508,793 |
+| `process layout Task` | 1.22 / **1.31** / 1.40 s | 8,360 |
+| `process description Niflheim.Task` | 1.65 / **1.71** / 1.89 s | 50,133 |
+| `process description` (whole, 14 types) | 2.75 / **2.84** / 2.90 s | 508,793 |
+
+🔴 **Eight samples rather than three, deliberately.** A first pass took three each and produced a
+0.4 s gap that a second pass did not reproduce; run-to-run spread on three samples is wide enough
+to swamp the difference being claimed. On eight, the one-type gap is **~0.40 s** and stable.
 
 Reading one type's form via the description costs **~0.4 s more and 6× the bytes**, and the human
 rendering of it carries **no layout detail whatsoever**.

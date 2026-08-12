@@ -4,7 +4,7 @@ title: Read the ADO work item form layout, and export it to disk
 type: execute
 status: open
 blocked_by: []
-tracked_in: [242]
+tracked_in: [242, 247]
 ---
 
 ## Why
@@ -217,4 +217,30 @@ mostly reappears elsewhere.
 The honest tidy-up is not a merge — it is the **three measured differences** in §2, which are
 worth their own ticket regardless of which shape is chosen.
 
-**Ruled by:** _pending — Daniel._
+---
+
+## 🔴 RULED — Shape A. `twig process layout` survives as its own command.
+
+**Ruled by Daniel, 2026-08-12, on the measurement above.** The open question in
+`docs/specs/process-description.spec.md` is now CLOSED and must not be reopened in review.
+
+**The decision:** both verbs stay. The overlap is accepted, exactly as the separate-verb ruling
+priced it — and the measurement shows the cost is smaller than the overlap's appearance
+suggested, because what the two verbs share is the wire contract rather than the implementation.
+
+**What follows from it:**
+
+- Nothing is deleted and nothing is merged. `ProcessLayoutCommand`, `FormLayout`, and the
+  layout fetch path all stay where they are.
+- `FormLayout` stays `internal`, per Implementation Decision 9. Keeping the command does not
+  freeze it.
+- The three measured inconsistencies in §2 are scheduled as **AB#247** — display-name vs
+  reference-name addressing, the hard failure on locked types, and the layout command's missing
+  system controls. They are defects in the layout command in their own right, not overlap
+  tidy-up, which is why they survive this ruling rather than being closed by it.
+
+**What this ruling does NOT license.** It is not a statement that duplication here is free. If
+the two renderers drift — if a future change lands in the description's layout rows and not the
+layout command's, or the reverse — that drift is the cost this ruling accepted, and the answer is
+to fix the drift, not to reopen the merge question. The measurement is preserved above so a later
+reader can re-run it rather than re-argue it.

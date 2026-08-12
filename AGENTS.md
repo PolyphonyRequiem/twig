@@ -193,11 +193,11 @@ scrolled off by the time the run finishes. Only the non-zero exit code catches i
 command whose job is to be wider than the script silently becomes narrower than it, and looks
 green while doing it.
 
-**Cost, measured warm on this tree (both after a completed build, one run each):**
-`dotnet test --no-build --settings test.runsettings` took **74 s**; `tools/run-tests.sh` took
-**92 s**. The wide command is the *cheaper* of the two despite running two more assemblies,
-because it runs the six in **parallel** in one invocation while the script runs four
-**serially** in four. Both are dominated by the Cli suite (~71 s of either).
+**Cost, measured warm on this tree (both after a completed build, two runs each):**
+`dotnet test --no-build --settings test.runsettings` took **74-76 s**; `tools/run-tests.sh`
+took **92-99 s**. The wide command is the *cheaper* of the two despite running two more
+assemblies, because it runs the six in **parallel** in one invocation while the script runs
+four **serially** in four. Both are dominated by the Cli suite (~71 s of either).
 
 🔴 **That parallelism is not a licence to run the two commands at the same time.** One
 `dotnet test` parallelising across assemblies it owns is fine; two separate `dotnet test`

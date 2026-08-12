@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
@@ -274,15 +275,85 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     /// <summary>
+    /// 🔴 Reads back the format token the banner ACTUALLY printed, as its own exact word.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 This exists because <c>ShouldContain($"-o {CompleteFormat}")</c> is a HOLLOW GUARD
+    /// over exactly what it advertises, and was demonstrated so by mutation (AB#240): changing
+    /// the banner to name <c>-o json5</c> — a format that is not on the accept-list and
+    /// produces nothing — left the whole 115-test file green, because <c>"-o json5"</c>
+    /// contains <c>"-o json"</c>. The assertion could not fail against the precise lie TEST 7
+    /// was written to catch.
+    /// </para>
+    /// <para>
+    /// Asserting the constant against itself does not close it either: both sides of
+    /// <c>IsCompleteFormat(CompleteFormat)</c> are the same literal, so it is a tautology that
+    /// says nothing about the RENDERED text. The only assertion with teeth extracts the token
+    /// from the emitted document and validates THAT — which is what "asserted against that
+    /// value rather than a hardcoded string" in TEST 7 actually requires.
+    /// </para>
+    /// <para>
+    /// 🔴 The token runs to the END of the word and the sentence-terminating period is
+    /// REQUIRED by the pattern rather than excluded from the token. Excluding <c>.</c> from
+    /// the character class instead — <c>[^\s.]+</c> — reopens a narrower version of the same
+    /// hole one character away: a banner mutated to <c>-o json.5</c> would extract <c>json</c>
+    /// and pass every assertion below. Both independent reviewers caught that; it is recorded
+    /// here because it is the identical mistake at a smaller scale.
+    /// </para>
+    /// <para>
+    /// 🔴 Anchored on <c>-o </c> alone, NOT on the banner's surrounding prose. Implementation
+    /// Decision 8 leaves the abridged SHAPE deliberately unspecified — only the
+    /// self-declaration and the naming of the complete format are fixed — so pinning the
+    /// literal sentence would turn a legal reword into a false failure. Nothing else emits
+    /// <c>-o </c> into the rendered artifact: the <c>-o ids</c> refusal goes to stderr, not
+    /// the document.
+    /// </para>
+    /// </remarks>
+    private static string ExtractBannerFormatToken(string content)
+    {
+        var match = Regex.Match(content, @"-o (?<format>\S+?)\.(?=\s|$)");
+
+        match.Success.ShouldBeTrue(
+            "the abridged banner must name the format that produces the complete document");
+
+        return match.Groups["format"].Value;
+    }
+
+    /// <summary>
+    /// 🔴 The format token this document's banner names is a real, accepted format that
+    /// genuinely produces the complete document.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the Fact and the Theory below so the assertion with teeth exists once. Note
+    /// what is deliberately NOT asserted here: the token is not compared to
+    /// <c>CompleteFormat</c>. Doing so would make the two predicate calls below a tautology —
+    /// once the token is provably the constant, putting the constant through
+    /// <c>IsCompleteFormat</c> says nothing about the RENDERED text. Leaving them applied to
+    /// the raw extracted token is what keeps them live: a banner naming any format that is
+    /// unaccepted, refused, or merely abridged fails here.
+    /// </remarks>
+    private static void ShouldNameAFormatThatIsGenuinelyComplete(string content)
+    {
+        var named = ExtractBannerFormatToken(content);
+
+        OutputFormats.IsAccepted(named).ShouldBeTrue(
+            $"the banner names '-o {named}', which is not on the accept-list");
+        ProcessDescriptionCommand.IsCompleteFormat(named).ShouldBeTrue(
+            $"the banner names '-o {named}', which does not produce the complete document");
+    }
+
+    /// <summary>
     /// 🔴 The text rendering states it is abridged AND names the format that carries the whole
     /// thing — asserted against the ACTUAL <c>-o</c> value that produces the complete
     /// document, not a hardcoded string.
     /// </summary>
     /// <remarks>
-    /// The distinction is the point. A bare string-presence check would pass against a banner
-    /// naming a format that does not exist; reading the name from the same constant the
-    /// renderer selection uses means the banner cannot drift into pointing at nothing. This
-    /// self-declaration is the CONDITION on which an abridged rendering was accepted at all.
+    /// The distinction is the point. A bare string-presence check passes against a banner
+    /// naming a format that does not exist — proven by mutation, see
+    /// <see cref="ExtractBannerFormatToken"/>. This self-declaration is the CONDITION on which
+    /// an abridged rendering was accepted at all, so the token it names is read back out of
+    /// the document and put through the same two predicates the CLI uses.
     /// </remarks>
     [Fact]
     public async Task Execute_AbridgedRendering_DeclaresItselfAndNamesTheRealCompleteFormat()
@@ -294,17 +365,62 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         var content = await File.ReadAllTextAsync(path);
 
         content.ShouldContain("ABRIDGED");
-        // 🔴 The FULL rendered phrase, not the bare token. Asserting on "json" alone would be
-        // satisfied by the word appearing incidentally anywhere in the document; this pins
-        // that the banner actually instructs the reader how to get the complete version.
-        content.ShouldContain($"-o {ProcessDescriptionCommand.CompleteFormat}");
 
-        // And that named format is genuinely on the accept-list AND genuinely produces the
-        // complete document — a banner naming a rejected or abridged value would be a live
-        // lie that the string check alone cannot catch.
-        OutputFormats.IsAccepted(ProcessDescriptionCommand.CompleteFormat).ShouldBeTrue();
-        ProcessDescriptionCommand.IsCompleteFormat(ProcessDescriptionCommand.CompleteFormat)
-            .ShouldBeTrue();
+        // 🔴 The token the banner really printed, validated as a live format — not a prefix
+        // match, and not the constant compared against itself.
+        ShouldNameAFormatThatIsGenuinelyComplete(content);
+    }
+
+    /// <summary>
+    /// 🔴 The format the banner names, when actually passed to <c>-o</c>, really does produce
+    /// the complete document.
+    /// </summary>
+    /// <remarks>
+    /// The end-to-end closure of TEST 7, and the strongest form of it available: rather than
+    /// trusting a predicate's opinion of the extracted token, this RUNS the command with it
+    /// and checks the resulting document carries the detail the abridged one omitted and does
+    /// not carry the abridged banner. A banner naming a nonexistent, refused, or merely
+    /// abridged format fails at the point of use rather than passing a string check.
+    /// <para>
+    /// A Theory over EVERY abridged format, not just the human one. Independent review noted
+    /// that <c>minimal</c> otherwise got the extraction and the predicates but never the
+    /// follow-the-instruction round trip — and the machine reader is the one least able to
+    /// notice a banner pointing nowhere. Verified against the live process first that
+    /// <c>minimal</c> genuinely omits the detail asserted below, so the precondition is not
+    /// weakened to make the Theory fit.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    public async Task Execute_FormatNamedByTheBanner_ActuallyProducesTheCompleteDocument(string format)
+    {
+        var abridgedPath = TempFile(".txt");
+        await BuildCommand().ExecuteAsync(null, abridgedPath, format);
+
+        // Read ONCE: the precondition below must be about the very bytes the token came from,
+        // and a second read leaves a reader unable to see at a glance that it is.
+        var abridged = await File.ReadAllTextAsync(abridgedPath);
+
+        // Precondition: the abridged rendering really is missing the detail we are about to
+        // demand of the complete one, so this is not a tautology against an already-complete
+        // summary.
+        abridged.ShouldNotContain("Custom.GrillingOnly");
+
+        var named = ExtractBannerFormatToken(abridged);
+
+        var completePath = TempFile(".json");
+        var exitCode = await BuildCommand().ExecuteAsync(null, completePath, named);
+
+        // Following the banner's own instruction must succeed, not be refused (as `-o ids` is).
+        exitCode.ShouldBe(0);
+        File.Exists(completePath).ShouldBeTrue();
+
+        var complete = await File.ReadAllTextAsync(completePath);
+        complete.ShouldContain("Custom.GrillingOnly");
+        // Deliberate overlap with Execute_CompleteRendering_DoesNotClaimToBeAbridged: here it
+        // is the payoff of the follow-the-banner story, not an independent check.
+        complete.ShouldNotContain("ABRIDGED");
     }
 
     /// <summary>
@@ -465,7 +581,10 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         var content = await File.ReadAllTextAsync(path);
         content.ShouldContain("ABRIDGED");
-        content.ShouldContain($"-o {ProcessDescriptionCommand.CompleteFormat}");
+
+        // 🔴 The same assertion with teeth as the Fact above (AB#240), via the shared helper
+        // so the `-o json5` / `-o json.5` fixes land in one place rather than two.
+        ShouldNameAFormatThatIsGenuinelyComplete(content);
     }
 
     /// <summary>

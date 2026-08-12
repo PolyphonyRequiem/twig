@@ -9,6 +9,7 @@ using Twig.Domain.Services.Mutation;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Config;
 using System.ComponentModel;
+using System.Diagnostics;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Mcp.Services;
@@ -127,31 +128,19 @@ public sealed class ProcessTools(ConnectionResolver resolver)
                 ctx, ct);
         }
 
-        string document;
-        try
+        // 🔴 Each failure arm gets its OWN message and its own error code (AB#244). The two
+        // that used to arrive as one empty string — an unresolved process and an unfetchable
+        // type list — have different remedies, and an agent handed a single "could not
+        // describe" cannot tell whether to fix its workspace or to retry.
+        var outcome = await RenderDocumentAsync(ctx, types, ct);
+
+        if (outcome is not RenderedProcessDescription rendered)
         {
-            document = await RenderDocumentAsync(ctx, types, ct);
-        }
-        catch (ProcessDescriptionTypeNotFoundException ex)
-        {
-            // 🔴 A hard error, matching the CLI. Describing the types that DO exist and staying
-            // silent about the one that does not would hand an agent a document that looks
-            // complete and answers a question it did not ask.
-            return await EnvelopeBuilder.ErrorAsync(
-                McpErrorCode.ItemNotFound,
-                $"Work item type '{ex.TypeReferenceName}' does not exist in this process. "
-                    + "Use twig_process to list types.",
-                ctx, ct);
+            var (code, message) = DescribeFailure(outcome);
+            return await EnvelopeBuilder.ErrorAsync(code, message, ctx, ct);
         }
 
-        if (document.Length == 0)
-        {
-            return await EnvelopeBuilder.ErrorAsync(
-                McpErrorCode.AdoUnreachable,
-                "Could not describe this project's process. The process may not be reachable, "
-                    + "or this project does not resolve to one.",
-                ctx, ct);
-        }
+        var document = rendered.Document;
 
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
@@ -176,15 +165,78 @@ public sealed class ProcessTools(ConnectionResolver resolver)
     }
 
     /// <summary>
+    /// Maps a non-success <see cref="ProcessDescriptionRenderResult"/> arm to the error code and
+    /// message the agent surface reports for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 Extracted from <see cref="ProcessDescription"/> so the machine-readable half of the
+    /// contract is REACHABLE FROM A TEST (AB#244). Inline in the tool it was not: driving the
+    /// tool method needs a fully populated <c>ConnectionScope</c>, and the consequence was
+    /// measured rather than assumed — a mutation swapping one arm's error code left all 1297
+    /// Mcp tests green. A distinction that exists only in unexecuted code is a distinction that
+    /// can regress silently, which is the failure class this whole ticket is about.
+    /// </para>
+    /// <para>
+    /// 🔴 THREE DISTINCT CODES, and that is the point. The code — not the message — is what an
+    /// agent branches on, so sharing one between two arms would re-collapse at the
+    /// machine-readable layer exactly what the message layer separates:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// <c>InvalidInput</c> for a type that does not exist: the fault is in the caller's
+    /// <c>types</c> ARGUMENT, and the empty-array rejection — the other way to get that same
+    /// parameter wrong — already answers with this code.
+    /// </description></item>
+    /// <item><description>
+    /// <c>ItemNotFound</c> for an unresolved process: a CONFIGURATION fault. Not
+    /// <c>AdoUnreachable</c>, which told a retrying agent to retry something that can never
+    /// succeed.
+    /// </description></item>
+    /// <item><description>
+    /// <c>AdoUnreachable</c> for an unfetchable type list: TRANSIENT or auth, and the one arm
+    /// of the three where retrying is the correct response.
+    /// </description></item>
+    /// </list>
+    /// </remarks>
+    internal static (string Code, string Message) DescribeFailure(
+        ProcessDescriptionRenderResult outcome) => outcome switch
+        {
+            // 🔴 A hard error, matching the CLI. Describing the types that DO exist and staying
+            // silent about the one that does not would hand an agent a document that looks
+            // complete and answers a question it did not ask.
+            ProcessDescriptionTypeNotFound notFound => (
+                McpErrorCode.InvalidInput,
+                $"Work item type '{notFound.TypeReferenceName}' does not exist in this "
+                    + "process. Use twig_process to list types."),
+
+            ProcessIdentityUnresolved => (
+                McpErrorCode.ItemNotFound,
+                "This project does not resolve to an ADO process, so there is nothing to "
+                    + "describe. Check the workspace points at the right project."),
+
+            ProcessTypesUnfetchable => (
+                McpErrorCode.AdoUnreachable,
+                "Could not fetch the work item type list for this project's process. The "
+                    + "process is known but the route did not answer — usually transient "
+                    + "or an authentication problem. Try again."),
+
+            // The success arm is handled by the caller and must never reach here.
+            _ => throw new UnreachableException(
+                $"Unhandled ProcessDescriptionRenderResult: {outcome.Value?.GetType().Name}"),
+        };
+
+    /// <summary>
     /// Assembles and renders the description document, returning the exact bytes the CLI's
-    /// <c>-o json</c> writes. Empty when the process could not be resolved.
+    /// <c>-o json</c> writes on the success arm, and passing the assembler's failure arms
+    /// through unchanged.
     /// </summary>
     /// <remarks>
     /// 🔴 Separated from the envelope so a test can assert THIS string against the CLI's output.
     /// Asserting against the enveloped result would compare the transport too and could pass on
     /// a document that differed, or fail on an envelope change that did not touch the document.
     /// </remarks>
-    internal static Task<string> RenderDocumentAsync(
+    internal static Task<ProcessDescriptionRenderResult> RenderDocumentAsync(
         ConnectionScope ctx, IReadOnlyList<string>? typeReferenceNames, CancellationToken ct)
         => RenderDocumentAsync(
             ctx.Get<ProcessDescriptionAssembler>(),
@@ -204,32 +256,43 @@ public sealed class ProcessTools(ConnectionResolver resolver)
     /// through any change to the real one. The scope overload above is a two-line resolve, so
     /// nothing meaningful sits outside what the test covers.
     /// </remarks>
-    internal static async Task<string> RenderDocumentAsync(
+    internal static async Task<ProcessDescriptionRenderResult> RenderDocumentAsync(
         ProcessDescriptionAssembler assembler,
         TimeProvider time,
         IReadOnlyList<string>? typeReferenceNames,
         CancellationToken ct)
     {
-        var description = await assembler.AssembleAsync(
+        var outcome = await assembler.AssembleAsync(
             typeReferenceNames,
             // The one permitted variance, injected the same way the CLI injects it so the
             // clock is the only thing that can differ between the two surfaces' documents.
             time.GetUtcNow(),
             ct);
 
-        if (description is null)
-            return string.Empty;
-
-        // 🔴 The SHARED render, settings included. Not `new JsonRenderer(buffer, indented: true)`
-        // here: independent review caught that as the last place byte-identity still rested on
-        // two literals agreeing rather than on shared code. Sharing the assembler and the
-        // projection makes both surfaces build the same render tree, but a tree is not bytes —
-        // the writer's options decide those too.
-        //
-        // 🔴 The complete rendering is not a choice this surface makes. An agent has no `-o`,
-        // and the abridged rendering exists for a human reading a terminal; handing an agent the
-        // summary would give it a document that omits detail. The point of this surface is fewer
-        // TYPES, never fewer parts of a type.
-        return ProcessDescriptionDocument.Render(description);
+        // 🔴 The failure arms are PASSED THROUGH rather than collapsed (AB#244). This method
+        // used to return an empty string for every failure, which is the same sentinel-encoding
+        // the assembler's `null` was — it left the tool unable to say which of three things went
+        // wrong, and made "empty document" and "could not ask" the same value.
+        return outcome switch
+        {
+            // 🔴 The SHARED render, settings included. Not `new JsonRenderer(buffer, indented: true)`
+            // here: independent review caught that as the last place byte-identity still rested on
+            // two literals agreeing. Sharing the assembler and the projection makes both surfaces
+            // build the same render tree, but a tree is not bytes — the writer's options decide
+            // those too.
+            //
+            // 🔴 The complete rendering is not a choice this surface makes. An agent has no `-o`,
+            // and the abridged rendering exists for a human reading a terminal; handing an agent the
+            // summary would give it a document that omits detail. The point of this surface is fewer
+            // TYPES, never fewer parts of a type.
+            ProcessDescriptionAssembled assembled =>
+                new RenderedProcessDescription(
+                    ProcessDescriptionDocument.Render(assembled.Description)),
+            ProcessIdentityUnresolved u => u,
+            ProcessTypesUnfetchable u => u,
+            ProcessDescriptionTypeNotFound nf => nf,
+            _ => throw new UnreachableException(
+                $"Unhandled ProcessDescriptionResult: {outcome.Value?.GetType().Name}"),
+        };
     }
 }

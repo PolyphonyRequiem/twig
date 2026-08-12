@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
 using Twig.Domain.ValueObjects;
@@ -123,33 +124,56 @@ internal sealed class ProcessDescriptionCommand(
             return 1;
         }
 
-        ProcessDescription? description;
-        try
-        {
-            description = await assembler.AssembleAsync(
-                typeName is null ? null : [typeName],
-                // Injected rather than read inside the assembler so a test can hold it fixed
-                // and assert everything else is byte-identical.
-                _time.GetUtcNow(),
-                ct);
-        }
-        catch (ProcessDescriptionTypeNotFoundException ex)
-        {
-            // 🔴 A hard error, and NO partial file. A script that banked a document saying
-            // "this process has nothing" when the truth is "you asked for something that is
-            // not here" would be worse than a failure.
-            _stderr.WriteLine(fmt.FormatError(
-                $"Work item type '{ex.TypeReferenceName}' does not exist in this process. " +
-                "Run 'twig process' to list types."));
-            return 1;
-        }
+        // 🔴 Exhaustively matched, and each arm gets its OWN message (AB#244). Before this the
+        // assembler returned `null` for both "this project does not resolve to a process" and
+        // "the type list route did not answer", so this command could only emit one message
+        // covering both — and the two have different remedies. A caller told "the process may
+        // not be reachable, or this project does not resolve to one" cannot tell whether to fix
+        // their workspace configuration or to retry; neither can a script.
+        var outcome = await assembler.AssembleAsync(
+            typeName is null ? null : [typeName],
+            // Injected rather than read inside the assembler so a test can hold it fixed
+            // and assert everything else is byte-identical.
+            _time.GetUtcNow(),
+            ct);
 
-        if (description is null)
+        ProcessDescription description;
+        switch (outcome)
         {
-            _stderr.WriteLine(fmt.FormatError(
-                "Could not describe this project's process. The process may not be reachable, " +
-                "or this project does not resolve to one."));
-            return 1;
+            case ProcessDescriptionAssembled assembled:
+                description = assembled.Description;
+                break;
+
+            case ProcessDescriptionTypeNotFound notFound:
+                // 🔴 A hard error, and NO partial file. A script that banked a document saying
+                // "this process has nothing" when the truth is "you asked for something that is
+                // not here" would be worse than a failure.
+                _stderr.WriteLine(fmt.FormatError(
+                    $"Work item type '{notFound.TypeReferenceName}' does not exist in this "
+                    + "process. Run 'twig process' to list types."));
+                return 1;
+
+            case ProcessIdentityUnresolved:
+                // A CONFIGURATION problem: the workspace points at a project with no process.
+                // Retrying will not help, so the message must not suggest it.
+                _stderr.WriteLine(fmt.FormatError(
+                    "This project does not resolve to an ADO process, so there is nothing to "
+                    + "describe. Check the workspace points at the right project."));
+                return 1;
+
+            case ProcessTypesUnfetchable:
+                // A TRANSIENT or AUTH problem: the process IS known, the route did not answer.
+                // Retrying may help, so the message says so — the opposite advice to the arm
+                // above, which is the whole reason these are two messages and not one.
+                _stderr.WriteLine(fmt.FormatError(
+                    "Could not fetch the work item type list for this project's process. The "
+                    + "process is known but the route did not answer — this is usually "
+                    + "transient or an authentication problem. Try again, or check 'twig auth'."));
+                return 1;
+
+            default:
+                throw new UnreachableException(
+                    $"Unhandled ProcessDescriptionResult: {outcome.Value?.GetType().Name}");
         }
 
         var tree = BuildTree(description, outputFormat);

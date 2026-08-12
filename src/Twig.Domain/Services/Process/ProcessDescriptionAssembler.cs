@@ -185,29 +185,32 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// test byte-stability without asserting against a moving target.
     /// </param>
     /// <returns>
-    /// The assembled description, or <c>null</c> when the process could not be resolved or
-    /// its type list could not be fetched. Never a partial document standing in for a failed
-    /// fetch.
+    /// A <see cref="ProcessDescriptionResult"/> naming the outcome. Never a partial document
+    /// standing in for a failed fetch.
+    /// <para>
+    /// 🔴 Four arms and not a nullable document (AB#244). The two failure arms —
+    /// <see cref="ProcessIdentityUnresolved"/> and <see cref="ProcessTypesUnfetchable"/> — were
+    /// both <c>null</c> before, which made them indistinguishable at the return position and so
+    /// forced every caller to collapse them into one message despite their remedies differing.
+    /// <see cref="ProcessDescriptionTypeNotFound"/> travelled as a thrown exception, invisible
+    /// in this signature; a caller that omitted the <c>catch</c> found out at run time.
+    /// </para>
     /// </returns>
-    /// <exception cref="ProcessDescriptionTypeNotFoundException">
-    /// A named type does not exist in the process. A hard error and not an empty document:
-    /// silently describing nothing when the caller named a type is how a script banks a
-    /// wrong answer.
-    /// </exception>
-    public async Task<ProcessDescription?> AssembleAsync(
+    public async Task<ProcessDescriptionResult> AssembleAsync(
         IReadOnlyList<string>? typeReferenceNames,
         DateTimeOffset capturedAtUtc,
         CancellationToken ct = default)
     {
         var identity = await source.GetProcessIdentityAsync(ct);
         if (identity is null)
-            return null;
+            return new ProcessIdentityUnresolved();
 
         var available = await source.GetTypesAsync(ct);
         if (available is null)
-            return null;
+            return new ProcessTypesUnfetchable();
 
-        var selected = SelectTypes(available, typeReferenceNames);
+        if (!SelectTypes(available, typeReferenceNames, out var selected, out var unknown))
+            return new ProcessDescriptionTypeNotFound(unknown);
 
         // 🔴 Fetched ONCE per run, not per type (AB#237). The picklist association is only
         // readable off the ORG-scoped field route, so it is the same answer for every type;
@@ -366,7 +369,7 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
             [.. RouteVersions.OrderBy(static r => r.Route, StringComparer.Ordinal)],
             [.. KnownGaps.OrderBy(static g => g.Subject, StringComparer.Ordinal)]);
 
-        return new ProcessDescription(header, described);
+        return new ProcessDescriptionAssembled(new ProcessDescription(header, described));
     }
 
     /// <remarks>
@@ -381,15 +384,29 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// twice. The sort by reference name puts the copies adjacent, which makes it look like
     /// a real duplicate in the process rather than a caller artefact.
     /// </para>
+    /// <para>
+    /// 🔴 Reports an unknown type by RETURNING false rather than by throwing (AB#244), so the
+    /// not-found outcome reaches <see cref="AssembleAsync"/>'s union arm through the ordinary
+    /// return path. The <c>try</c> pattern rather than a nullable list because the caller needs
+    /// the offending NAME, not merely the fact that something was missing — the message it
+    /// renders names the type the caller asked for.
+    /// </para>
     /// </remarks>
-    private static List<ProcessTypeSummary> SelectTypes(
+    private static bool SelectTypes(
         IReadOnlyList<ProcessTypeSummary> available,
-        IReadOnlyList<string>? requested)
+        IReadOnlyList<string>? requested,
+        out List<ProcessTypeSummary> selected,
+        out string unknownTypeReferenceName)
     {
-        if (requested is null || requested.Count == 0)
-            return [.. available];
+        unknownTypeReferenceName = string.Empty;
 
-        var selected = new List<ProcessTypeSummary>(requested.Count);
+        if (requested is null || requested.Count == 0)
+        {
+            selected = [.. available];
+            return true;
+        }
+
+        selected = new List<ProcessTypeSummary>(requested.Count);
         var alreadySelected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var wanted in requested)
@@ -398,7 +415,16 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 type.ReferenceName, wanted, StringComparison.OrdinalIgnoreCase));
 
             if (match is null)
-                throw new ProcessDescriptionTypeNotFoundException(wanted);
+            {
+                // 🔴 Emptied on the failure path. No caller reads `selected` when this returns
+                // false — both branch on the bool first — but leaving it holding the types
+                // matched BEFORE the unknown one is a trap for the next editor, and a partial
+                // selection silently rendered would be exactly the "document that looks
+                // complete" this method's hard error exists to prevent.
+                selected = [];
+                unknownTypeReferenceName = wanted;
+                return false;
+            }
 
             // Keyed on the RESOLVED reference name, not the caller's spelling, so casing
             // variants of the same type collapse to one entry.
@@ -406,7 +432,7 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 selected.Add(match);
         }
 
-        return selected;
+        return true;
     }
 
     // ── Ordering ──────────────────────────────────────────────────────────────
@@ -1328,19 +1354,4 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
             : [.. transitions
                 .OrderBy(static t => t.FromState, StringComparer.Ordinal)
                 .ThenBy(static t => t.ToState, StringComparer.Ordinal)];
-}
-
-/// <summary>
-/// Thrown when a caller names a type the process does not have.
-/// </summary>
-/// <remarks>
-/// A hard error deliberately. Rendering an empty document for a type that does not exist
-/// would let a script bank a file that says "this process has nothing" when the truth is
-/// "you asked for something that is not here".
-/// </remarks>
-internal sealed class ProcessDescriptionTypeNotFoundException(string typeReferenceName)
-    : Exception($"Work item type '{typeReferenceName}' does not exist in this process.")
-{
-    /// <summary>The type reference name that was asked for, so the caller can be told.</summary>
-    public string TypeReferenceName { get; } = typeReferenceName;
 }

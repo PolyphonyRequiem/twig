@@ -40,6 +40,20 @@ tools/run-tests.sh Cli Domain   # a subset
 It exits non-zero unless every suite is a genuine, unaborted pass. Grep its
 output for `TWIG-VERDICT` — never for `Passed!` (see "Reading test results").
 
+🔴 **A green `TWIG-VERDICT OVERALL` is necessary but NOT sufficient before you push.** This
+script runs four suites; CI runs six and compiles the whole solution. Run CI's own commands
+too, then read the exit code:
+
+```bash
+dotnet restore \
+  && dotnet build --no-restore \
+  && dotnet test --no-build --settings test.runsettings
+echo "EXIT=$?"
+```
+
+Why, what it catches, and the incident that forced it: see "Before you push: the script's
+verdict is not CI's verdict" below.
+
 The underlying commands, if you need to run one by hand. `dotnet test` accepts
 only **one** project per invocation, and two concurrent runs collide over shared
 build output (producing a bogus `SQLitePCL DllNotFoundException`). Run them
@@ -54,7 +68,9 @@ dotnet test tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj --nologo
 
 `BinaryLauncherTests` is excluded because it spawns a child binary that cannot
 resolve the SQLite native lib under a user-local SDK, killing the test host
-mid-run. It is environmental, not a repo defect, and passes in CI.
+mid-run. It is environmental, not a repo defect, and passes in CI — note that
+these by-hand commands inherit that exclusion too, so they are no closer to CI's
+verdict than the script is.
 
 Building the whole solution works as of #342. `tests/Twig.Benchmarks` used to fail
 with a `CS0433 ILoggingBuilder` ambiguity — BenchmarkDotNet pulls
@@ -87,6 +103,10 @@ tools/run-tests.sh Cli | grep TWIG-VERDICT
 # TWIG-VERDICT OVERALL: PASSED
 ```
 
+(Counts in this file are snapshots from whenever the surrounding note was written —
+2941 here, 3018 in the #311 sections, 3191 in the next section — and the suite grows.
+Treat the *shape* of each line as the guidance, never the number.)
+
 If you must invoke `dotnet test` directly, capture the exit code and include
 `Aborted` in the grep — `grep -E "Passed!|Failed!"` alone matches the false-green
 summary line an aborted run prints:
@@ -99,6 +119,117 @@ grep -E "Passed!|Failed!|Aborted|\[FAIL\]" log
 Reporting "suite green" from a summary grep while the process exits non-zero has
 already cost one bogus issue report (#257, closed as invalid), and the underlying
 hang that produced those aborted runs was #311.
+
+### Before you push: the script's verdict is not CI's verdict
+
+🔴 **A green `TWIG-VERDICT OVERALL` is necessary but not sufficient.** `tools/run-tests.sh`
+is the right instrument for "did the tests I care about pass" — it reconciles an abort into
+an honest verdict, which a raw `dotnet test` will not do for you. It is **not** a prediction
+of CI, because it runs a deliberately narrower set:
+
+| | `tools/run-tests.sh` | CI (`.github/workflows/ci.yml`) |
+|---|---|---|
+| Assemblies | **four** — Cli, Infrastructure, Mcp, Domain | **six** — those four plus `Twig.RenderTree.Tests` and `Twig.Tui.Tests` |
+| Cli filter | `FullyQualifiedName!~BinaryLauncher` | none — `BinaryLauncherTests` runs |
+| Compiles | only the four suites and what they reference | the **whole solution**, including `tests/Twig.Benchmarks` |
+
+`test.runsettings` is **not** a difference: `Directory.Build.props` sets
+`RunSettingsFilePath`, so both paths pick it up. CI's `--settings` is CI being explicit.
+
+That third row is a compile-time gap, not a test gap, and it has bitten before: the
+`Twig.Benchmarks` `CS0433 ILoggingBuilder` break under "Build & test" above was invisible
+locally for exactly this reason. `Twig.Benchmarks` is `IsTestProject=false` — CI **builds**
+it and never tests it, and the script does neither.
+
+Measured on this tree (`origin/main` @ `33e0f368`, clean, one run each):
+
+```
+tools/run-tests.sh          →  7913 tests  (Cli 3191, Infrastructure 1487, Mcp 1297, Domain 1938)
+dotnet test --settings ...  →  8063 tests  (the same four with Cli 3193, + RenderTree 81, + Tui 67)
+```
+
+Note the Cli number **moves**, 3191 → 3193. `BinaryLauncherTests` is one `[Theory]` with two
+`[InlineData]` rows, and those two tests live in a suite the script *does* run. That is the
+cleanest available proof that the script's verdict and CI's verdict are different verdicts,
+not the same one measured twice. (Re-measure rather than quoting these figures — they drift
+with every card.)
+
+**So run CI's own commands before pushing, in addition to the script.** These are exactly
+the three steps from `.github/workflows/ci.yml`, in order:
+
+```bash
+dotnet restore \
+  && dotnet build --no-restore \
+  && dotnet test --no-build --settings test.runsettings
+echo "EXIT=$?"
+```
+
+🔴 **Chain them with `&&`, and read that `EXIT`.** Both halves of that are load-bearing:
+
+- **If the build fails and you run `dotnet test --no-build` anyway**, you get the trap in the
+  next paragraph — a green-looking run of whatever assemblies happen to still be on disk.
+- **This command has no `TWIG-VERDICT`.** It is the one place this file asks you to judge a
+  run by its exit code, which is precisely the judgement call `tools/run-tests.sh` exists to
+  abolish. The 300 s `TestSessionTimeout` in `test.runsettings` applies here too, so an
+  aborted six-assembly run prints the same false-green `Passed!` described above. Reconcile
+  it by hand with the recipe from "Reading test results":
+  `grep -E "Passed!|Failed!|Aborted|\[FAIL\]"`. Wrapping this command in the script is not
+  done yet — until it is, this is a known soft spot, not a solved problem.
+
+(Add `-m:1` to the build if a parallel MSBuild is contending with another worktree. That is a
+local convenience; CI builds without it.)
+
+🔴 **The solution-wide build is not optional, and skipping it fails in a way that survives
+every check except the exit code.** Verified here by moving one assembly's output aside and
+re-running: the run reports `Passed!` for the other five, the **tail of the log is five clean
+green lines**, and the only sign anything is wrong is a single line near the *top* —
+
+```
+The argument .../Twig.Tui.Tests.dll is invalid. Please use the /help option ...
+```
+
+— which contains neither `error` nor `fail`, so it survives the grep recipe above, and is
+scrolled off by the time the run finishes. Only the non-zero exit code catches it. The one
+command whose job is to be wider than the script silently becomes narrower than it, and looks
+green while doing it.
+
+**Cost, measured warm on this tree (both after a completed build, two runs each):**
+`dotnet test --no-build --settings test.runsettings` took **74-76 s**; `tools/run-tests.sh`
+took **92-99 s**. The wide command is the *cheaper* of the two despite running two more
+assemblies, because it runs the six in **parallel** in one invocation while the script runs
+four **serially** in four. Both are dominated by the Cli suite (~71 s of either).
+
+🔴 **That parallelism is not a licence to run the two commands at the same time.** One
+`dotnet test` parallelising across assemblies it owns is fine; two separate `dotnet test`
+processes collide over shared build output and produce a bogus
+`SQLitePCL DllNotFoundException` (see "Canonical test command"). Run the script and the wide
+command one after the other.
+
+### How the AB#241 gap bit
+
+AB#241 added a `ProjectReference` from `Twig.Cli.Tests` to `Twig.Mcp` so one test could
+drive both surfaces. That reads as ordinary. But `Twig.Mcp` is an **executable**, so the
+reference copied `twig-mcp` into the Cli suite's output directory — and `BinaryLauncherTests`
+clears `PATH` precisely to assert that binary is **not** discoverable. It found it, launched
+the real MCP host in-process, and killed the Cli test host 48 tests in.
+
+Locally: `TWIG-VERDICT OVERALL: PASSED`, because the script filters `BinaryLauncher` out.
+On CI: red, on a change that touched no test the script runs. The fix — splitting the
+guarantees by project so the Cli suite stops referencing an executable — is `c903ca95`.
+
+The excluded test was not a gap in coverage. It is excluded for a real environmental reason
+(under a user-local SDK it cannot resolve the SQLite native lib), and it passes in CI
+whenever the Cli suite's output directory is clean — which is exactly the property it is
+there to assert. The gap was in the **guidance**, which said where verdicts come from
+without saying what that verdict does not speak for. Same class as #257: a green-looking
+answer to a question you did not actually ask.
+
+**If the script is green and the wide command is red**, the difference is one of the three
+table rows above. Re-run the offending suite unfiltered to see it directly:
+
+```bash
+dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --nologo   # no BinaryLauncher filter
+```
 
 ### Diagnosing an aborted run (#311)
 

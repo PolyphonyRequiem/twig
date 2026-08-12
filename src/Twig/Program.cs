@@ -513,7 +513,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Write a byte-stable structural description of this project's process, for diffing against another.</summary>
     /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
     /// <param name="out">Write the rendered description to this file instead of stdout.</param>
-    /// <param name="output">-o, Output format: human, json, minimal. Only json is complete.</param>
+    /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
     [Command("process description")]
     public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct);

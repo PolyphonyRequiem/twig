@@ -549,9 +549,12 @@ public sealed class ProcessDescriptionAssemblerTests
     /// 🔴 The document contains no work item values.
     /// </summary>
     /// <remarks>
-    /// A negative assertion, so the precondition is stated explicitly: the fixture genuinely
-    /// carries a distinctive marker string in a place a careless implementation might leak it
-    /// from. Without that check a fixture change would silently turn this into a tautology.
+    /// A negative assertion, so the precondition is real rather than nominal: the marker is
+    /// genuinely PLANTED in the fixture, in the field DESCRIPTION — a place an implementation
+    /// that copied field metadata verbatim would plausibly leak it from — and the test first
+    /// proves the assembler carried that field through at all. Asserting only that a
+    /// compile-time constant is non-empty would leave this a tautology that a fixture change
+    /// could never break.
     /// </remarks>
     [Fact]
     public async Task Assemble_ContainsNoWorkItemValues()
@@ -566,9 +569,12 @@ public sealed class ProcessDescriptionAssemblerTests
                 ["Niflheim.CustomAlpha"] = new(
                     Fields:
                     [
-                        // The DEFAULT VALUE is structure and legitimately appears. The marker
-                        // below stands in for a work item's actual content, which must not.
-                        new ProcessTypeField("System.Title", "Title", "string", "a default", true, "system", false, ""),
+                        // The marker is PLANTED here, standing in for work item content that
+                        // reached the fetch layer. Structure (reference name, type, default)
+                        // is legitimately carried; the marker must not be.
+                        new ProcessTypeField(
+                            "System.Title", "Title", "string", "a default", true, "system", false,
+                            Description: Marker),
                     ],
                     States: [new ProcessTypeState("To do", "Proposed", 1, "b2b2b2", "custom", false)],
                     Transitions: [new ProcessTypeTransition("", "To do")]),
@@ -577,12 +583,21 @@ public sealed class ProcessDescriptionAssemblerTests
         var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
         description.ShouldNotBeNull();
 
-        // Precondition: the marker is a real string that WOULD be detectable if it leaked.
-        Marker.ShouldNotBeEmpty();
+        // Precondition 1: the field really did survive into the document, so the negative
+        // assertion below is examining a document that actually describes something.
+        var field = description.Types[0].Fields.ShouldHaveSingleItem();
+        field.ReferenceName.ShouldBe("System.Title");
+
+        // Precondition 2: the marker really is present on the fixture the assembler consumed.
+        // If a future edit removes it, this fails rather than silently hollowing the test.
+        field.Description.ShouldBe(Marker);
+
+        // The actual assertion: the document's own projection does not carry it.
         Flatten(description).ShouldNotContain(Marker);
+
         // And the structural default value IS carried — proving the assertion above is not
-        // passing merely because the document is empty.
-        description.Types[0].Fields[0].DefaultValue.ShouldBe("a default");
+        // passing merely because the projection is empty.
+        field.DefaultValue.ShouldBe("a default");
     }
 
     /// <summary>
@@ -751,6 +766,34 @@ public sealed class ProcessDescriptionAssemblerTests
 
         description.ShouldNotBeNull();
         description.Types[0].Unfetched.ShouldBe(["fields", "states", "transitions"]);
+    }
+
+    /// <summary>
+    /// 🔴 The same type named twice is described ONCE.
+    /// </summary>
+    /// <remarks>
+    /// Found by independent review. Matching is case-INSENSITIVE, so two spellings of one
+    /// reference name resolved to the same type, fetched it twice, and emitted it twice — and
+    /// because the document is sorted by reference name the copies landed adjacent, reading
+    /// like a genuine duplicate in the process rather than a caller artefact.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_SameTypeNamedTwiceInDifferentCasing_IsDescribedOnce()
+    {
+        var source = BuildSource();
+
+        var description = await BuildAssembler(source).AssembleAsync(
+            ["Niflheim.CustomAlpha", "niflheim.customalpha", "Niflheim.CustomAlpha"],
+            FixedCapture);
+
+        description.ShouldNotBeNull();
+        description.Types.Count.ShouldBe(1);
+        description.Types[0].ReferenceName.ShouldBe("Niflheim.CustomAlpha");
+
+        // And it was fetched once, not three times — the duplicate was collapsed before the
+        // fan-out, not merely de-duplicated in the output.
+        source.RequestedTypes.Count(t => string.Equals(
+            t, "Niflheim.CustomAlpha", StringComparison.OrdinalIgnoreCase)).ShouldBe(1);
     }
 
     /// <summary>An unresolvable process yields no document rather than an empty one.</summary>

@@ -93,6 +93,20 @@ internal sealed class ProcessDescriptionCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
+        // 🔴 `-o ids` is REFUSED, not served badly. That renderer emits only cells keyed "id"
+        // whose value is an integer, and a process description has no numeric ids at all — so
+        // it would produce an EMPTY file, silently, with a zero exit code. Worse, it is the
+        // one format that structurally cannot carry the abridged self-declaration, so the
+        // reader would get nothing and no notice that anything was dropped. An explicit error
+        // naming the format that works is the honest outcome.
+        if (string.Equals(OutputFormats.Normalize(outputFormat), "ids", StringComparison.Ordinal))
+        {
+            _stderr.WriteLine(fmt.FormatError(
+                "'-o ids' cannot render a process description: the document contains no "
+                + $"numeric ids. Use '-o {CompleteFormat}' for the complete document."));
+            return 1;
+        }
+
         ProcessDescription? description;
         try
         {
@@ -130,19 +144,38 @@ internal sealed class ProcessDescriptionCommand(
             return 0;
         }
 
+        // 🔴 Rendered to a TEMPORARY file and moved into place. Writing straight to outPath
+        // means a renderer that throws mid-render leaves a TRUNCATED document on disk — which
+        // is worse than no file at all, because a truncated document is silently missing
+        // types and a reader diffing it sees differences that are not real. The unknown-type
+        // path already promises "no partial file"; this makes the promise hold for write
+        // failures too.
+        var tempPath = outPath + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+
         try
         {
             var directory = Path.GetDirectoryName(Path.GetFullPath(outPath));
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
-            await using var writer = new StreamWriter(outPath, append: false);
-            rendererFactory.GetRenderer(outputFormat, writer).Render(tree);
+            await using (var writer = new StreamWriter(tempPath, append: false))
+            {
+                rendererFactory.GetRenderer(outputFormat, writer).Render(tree);
+            }
+
+            File.Move(tempPath, outPath, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            TryDelete(tempPath);
             _stderr.WriteLine(fmt.FormatError($"Could not write '{outPath}': {ex.Message}"));
             return 1;
+        }
+        catch
+        {
+            // Any other failure mid-render must not leave the scratch file behind either.
+            TryDelete(tempPath);
+            throw;
         }
 
         // Confirmation on the error stream so `--out` stays silent on stdout and composes in
@@ -151,6 +184,17 @@ internal sealed class ProcessDescriptionCommand(
             $"Wrote process description ({description.Types.Count} type(s), descriptor " +
             $"{description.Header.DescriptorVersion}) to {outPath}");
         return 0;
+    }
+
+    /// <remarks>
+    /// Best-effort scratch cleanup. A failure to delete the temp file must never mask the
+    /// real error the caller is being told about.
+    /// </remarks>
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        catch (IOException) { /* best effort */ }
+        catch (UnauthorizedAccessException) { /* best effort */ }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -179,14 +223,17 @@ internal sealed class ProcessDescriptionCommand(
             // real difference sits in the omitted part, and a summary that does not admit it
             // is a summary is exactly the cheap lie this feature exists to prevent.
             //
+            // 🔴 NOT HumanOnly. `minimal` and `ids` are machine formats that also render
+            // abridged, and tagging this human-only would hand a machine consumer a truncated
+            // document carrying no notice that anything was dropped — the worst reader to
+            // leave uninformed, because it cannot notice the omission the way a person might.
             // The complete format is NAMED from the constant that selects it, so the banner
             // cannot come to point at a format that does not exist.
             fields.Add(new DocumentField(
                 Key: "abridged",
                 Node: new RenderNode.Text(
                     $"ABRIDGED RENDERING — this is a summary and omits detail. "
-                    + $"The complete document is produced by -o {CompleteFormat}."),
-                Audience: RenderAudience.HumanOnly));
+                    + $"The complete document is produced by -o {CompleteFormat}.")));
         }
 
         fields.Add(new DocumentField(
@@ -240,8 +287,8 @@ internal sealed class ProcessDescriptionCommand(
                 "descriptorVersion", RenderCell.String(header.DescriptorVersion))),
             // Machine-only: the human rendering draws these as empty box skeletons because
             // the tables carry no column metadata, and the readable form of the same facts is
-            // the lines below. The MACHINE document still carries both in full — nothing is
-            // withheld from the artifact that holds the promise.
+            // the prose block below. Both audiences receive the content; only the shape
+            // differs.
             new DocumentField("routeApiVersions", new RenderNode.Table(null, [], routeRows),
                 Audience: RenderAudience.MachineOnly),
             new DocumentField("knownGaps", new RenderNode.Table(null, [], gapRows),

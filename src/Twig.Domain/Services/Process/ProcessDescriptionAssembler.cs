@@ -175,8 +175,17 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
         }
 
         // The one ordering that decides whether two whole-process documents line up.
+        // 🔴 List<T>.Sort is UNSTABLE, so a tie would order by an unspecified rule rather than
+        // falling back to input order. Reference names are unique within a process, so the
+        // name comparison alone is total in practice — the display-name tiebreak makes that
+        // independent of the assumption rather than load-bearing on it.
         described.Sort(static (left, right) =>
-            string.CompareOrdinal(left.ReferenceName, right.ReferenceName));
+        {
+            var byReference = string.CompareOrdinal(left.ReferenceName, right.ReferenceName);
+            return byReference != 0
+                ? byReference
+                : string.CompareOrdinal(left.Name, right.Name);
+        });
 
         var header = new ProcessDescriptionHeader(
             identity.Organization,
@@ -196,6 +205,13 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// typing a reference name with different casing is served rather than told it does not
     /// exist. Matching is never on display name — that is the collision this design exists
     /// to avoid.
+    /// <para>
+    /// 🔴 De-duplicated. Because matching is case-INSENSITIVE, <c>["Niflheim.Task",
+    /// "niflheim.task"]</c> would otherwise resolve to the same type twice, fetch it twice,
+    /// and emit it twice — producing a document that claims the process contains the type
+    /// twice. The sort by reference name puts the copies adjacent, which makes it look like
+    /// a real duplicate in the process rather than a caller artefact.
+    /// </para>
     /// </remarks>
     private static List<ProcessTypeSummary> SelectTypes(
         IReadOnlyList<ProcessTypeSummary> available,
@@ -205,6 +221,8 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
             return [.. available];
 
         var selected = new List<ProcessTypeSummary>(requested.Count);
+        var alreadySelected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var wanted in requested)
         {
             var match = available.FirstOrDefault(type => string.Equals(
@@ -213,7 +231,10 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
             if (match is null)
                 throw new ProcessDescriptionTypeNotFoundException(wanted);
 
-            selected.Add(match);
+            // Keyed on the RESOLVED reference name, not the caller's spelling, so casing
+            // variants of the same type collapse to one entry.
+            if (alreadySelected.Add(match.ReferenceName))
+                selected.Add(match);
         }
 
         return selected;
@@ -239,28 +260,40 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
             ? []
             : [.. unfetched.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal)];
 
-    /// <remarks>Reference name: the field's stable identity, and unique within a type.</remarks>
+    /// <remarks>
+    /// Reference name is the field's stable identity and is unique within a type in practice.
+    /// The extra tiebreaks are not redundant: if the server ever returns two rows sharing a
+    /// reference name, ordering would otherwise fall through <c>OrderBy</c>'s stability to
+    /// WIRE order — reintroducing exactly the non-determinism this class exists to remove,
+    /// and doing so silently.
+    /// </remarks>
     private static IReadOnlyList<ProcessTypeField> SortFields(IReadOnlyList<ProcessTypeField>? fields)
         => fields is null
             ? []
-            : [.. fields.OrderBy(static f => f.ReferenceName, StringComparer.Ordinal)];
+            : [.. fields
+                .OrderBy(static f => f.ReferenceName, StringComparer.Ordinal)
+                .ThenBy(static f => f.Name, StringComparer.Ordinal)
+                .ThenBy(static f => f.Type, StringComparer.Ordinal)];
 
     /// <remarks>
     /// Server order first — it is the order the web editor lays states out and is meaningful
-    /// to a reader — then name, so two states sharing an order value cannot swap between
-    /// runs.
+    /// to a reader — then name, then the remaining discriminators so a tie on BOTH order and
+    /// name cannot fall through to wire order.
     /// </remarks>
     private static IReadOnlyList<ProcessTypeState> SortStates(IReadOnlyList<ProcessTypeState>? states)
         => states is null
             ? []
             : [.. states
                 .OrderBy(static s => s.Order)
-                .ThenBy(static s => s.Name, StringComparer.Ordinal)];
+                .ThenBy(static s => s.Name, StringComparer.Ordinal)
+                .ThenBy(static s => s.StateCategory, StringComparer.Ordinal)
+                .ThenBy(static s => s.Customization, StringComparer.Ordinal)];
 
     /// <remarks>
-    /// From-state then to-state. The initial transition carries an EMPTY from-state, which
-    /// sorts first under ordinal comparison — a happy accident, but the reader benefits from
-    /// "what state does a new item start in" appearing before the rest.
+    /// From-state then to-state, both ordinal. The initial transition carries an EMPTY
+    /// from-state and therefore sorts first — that is a guaranteed property of ordinal
+    /// comparison on a prefix, not a coincidence, so a reader can rely on "what state does a
+    /// new item start in" appearing before the rest.
     /// </remarks>
     private static IReadOnlyList<ProcessTypeTransition> SortTransitions(
         IReadOnlyList<ProcessTypeTransition>? transitions)

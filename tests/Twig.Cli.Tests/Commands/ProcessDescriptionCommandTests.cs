@@ -232,34 +232,59 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         var content = await File.ReadAllTextAsync(path);
 
         content.ShouldContain("ABRIDGED");
-        // 🔴 Read from the constant, so the assertion tracks the real complete format.
-        content.ShouldContain(ProcessDescriptionCommand.CompleteFormat);
+        // 🔴 The FULL rendered phrase, not the bare token. Asserting on "json" alone would be
+        // satisfied by the word appearing incidentally anywhere in the document; this pins
+        // that the banner actually instructs the reader how to get the complete version.
+        content.ShouldContain($"-o {ProcessDescriptionCommand.CompleteFormat}");
 
-        // And that named format is genuinely on the accept-list — a banner naming a rejected
-        // value would be a live lie the check above alone would not catch.
+        // And that named format is genuinely on the accept-list AND genuinely produces the
+        // complete document — a banner naming a rejected or abridged value would be a live
+        // lie that the string check alone cannot catch.
         OutputFormats.IsAccepted(ProcessDescriptionCommand.CompleteFormat).ShouldBeTrue();
+        ProcessDescriptionCommand.IsCompleteFormat(ProcessDescriptionCommand.CompleteFormat)
+            .ShouldBeTrue();
     }
 
     /// <summary>
-    /// The complete rendering does NOT carry the abridged banner — otherwise the banner is
-    /// decoration rather than a claim about the document in hand.
+    /// The complete rendering does NOT carry the abridged banner.
     /// </summary>
+    /// <remarks>
+    /// 🔴 This test was previously a TAUTOLOGY and is preserved as a lesson: while the banner
+    /// node was tagged human-only, the JSON renderer could never emit it regardless of whether
+    /// the abridged/complete decision was computed correctly — the test would have passed
+    /// against an implementation with that decision inverted or deleted outright. The banner
+    /// now reaches every audience, so the assertion below is load-bearing: it fails if
+    /// `IsCompleteFormat` ever stops recognising the complete format.
+    /// </remarks>
     [Fact]
     public async Task Execute_CompleteRendering_DoesNotClaimToBeAbridged()
     {
-        var path = TempFile(".json");
+        var completePath = TempFile(".json");
+        var abridgedPath = TempFile(".min");
 
-        await BuildCommand().ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+        await BuildCommand().ExecuteAsync(null, completePath, ProcessDescriptionCommand.CompleteFormat);
+        await BuildCommand().ExecuteAsync(null, abridgedPath, "minimal");
 
-        (await File.ReadAllTextAsync(path)).ShouldNotContain("ABRIDGED");
+        // Precondition: the banner is reachable in THIS renderer family at all. Without this
+        // the assertion below could pass simply because no format ever emits the banner —
+        // which is exactly how this test was hollow before.
+        (await File.ReadAllTextAsync(abridgedPath)).ShouldContain("ABRIDGED");
+
+        (await File.ReadAllTextAsync(completePath)).ShouldNotContain("ABRIDGED");
     }
 
     /// <summary>
-    /// The abridged rendering really is shorter than the complete one — proving the banner is
-    /// telling the truth rather than being attached to an identical document.
+    /// The abridged rendering genuinely omits detail that the complete one carries.
     /// </summary>
+    /// <remarks>
+    /// 🔴 Asserted by CONTENT, not by length. Comparing a human rendering's byte count against
+    /// a JSON one measures the format (prose lines vs indented JSON), not abridgement — that
+    /// comparison would pass even if the human rendering carried every field. Naming a
+    /// specific detail token that must be present in one and absent from the other is the
+    /// assertion that actually distinguishes the two.
+    /// </remarks>
     [Fact]
-    public async Task Execute_AbridgedRendering_IsActuallyShorterThanTheCompleteOne()
+    public async Task Execute_AbridgedRendering_OmitsDetailTheCompleteRenderingCarries()
     {
         var abridged = TempFile(".txt");
         var complete = TempFile(".json");
@@ -267,10 +292,16 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         await BuildCommand().ExecuteAsync(null, abridged, "human");
         await BuildCommand().ExecuteAsync(null, complete, ProcessDescriptionCommand.CompleteFormat);
 
-        var abridgedLength = (await File.ReadAllTextAsync(abridged)).Length;
-        var completeLength = (await File.ReadAllTextAsync(complete)).Length;
+        var abridgedText = await File.ReadAllTextAsync(abridged);
+        var completeText = await File.ReadAllTextAsync(complete);
 
-        abridgedLength.ShouldBeLessThan(completeLength);
+        // A field reference name is per-type detail: the complete document carries it, the
+        // summary does not.
+        completeText.ShouldContain("Custom.GrillingOnly");
+        abridgedText.ShouldNotContain("Custom.GrillingOnly");
+
+        // But the summary still identifies the TYPE — it is a summary, not an empty file.
+        abridgedText.ShouldContain("Niflheim.Grilling");
     }
 
     /// <summary>
@@ -344,6 +375,94 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         var content = await File.ReadAllTextAsync(path);
         content.ShouldContain("unfetched");
         content.ShouldContain("fields,transitions");
+    }
+
+    /// <summary>
+    /// 🔴 EVERY abridged format declares itself — not just the human one.
+    /// </summary>
+    /// <remarks>
+    /// Found by independent review. The banner was originally tagged human-only, so
+    /// <c>-o minimal</c> and <c>-o ids</c> emitted truncated documents carrying no notice that
+    /// anything had been dropped. A machine consumer is the worst reader to leave uninformed:
+    /// it cannot notice the omission the way a person scanning the output might. The test
+    /// suite only exercised <c>human</c>, so it passed against that wrong implementation —
+    /// which is why this is a Theory over every abridged format rather than one more Fact.
+    /// </remarks>
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    public async Task Execute_EveryAbridgedFormat_DeclaresItselfAndNamesTheCompleteFormat(string format)
+    {
+        // Precondition: the format is accepted and really is abridged, so this is not
+        // asserting about a value the CLI rejects or one that carries everything.
+        OutputFormats.IsAccepted(format).ShouldBeTrue();
+        ProcessDescriptionCommand.IsCompleteFormat(format).ShouldBeFalse();
+
+        var path = TempFile(".out");
+        await BuildCommand().ExecuteAsync(null, path, format);
+
+        var content = await File.ReadAllTextAsync(path);
+        content.ShouldContain("ABRIDGED");
+        content.ShouldContain($"-o {ProcessDescriptionCommand.CompleteFormat}");
+    }
+
+    /// <summary>
+    /// 🔴 <c>-o ids</c> is refused rather than silently producing an empty file.
+    /// </summary>
+    /// <remarks>
+    /// Surfaced by the Theory above while fixing the human-only banner. The ids renderer emits
+    /// only cells keyed "id" holding an integer, and this document has no numeric ids — so it
+    /// would write an EMPTY file and exit 0. It is also the one format that structurally
+    /// cannot carry the abridged declaration, so the reader would receive nothing AND no
+    /// notice. Refusing names the format that actually works.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_IdsFormat_IsRefusedRatherThanWritingAnEmptyFile()
+    {
+        var path = TempFile(".ids");
+
+        var exitCode = await BuildCommand().ExecuteAsync(null, path, "ids");
+
+        exitCode.ShouldBe(1);
+        File.Exists(path).ShouldBeFalse();
+
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("ids");
+        // It must point the reader at a format that genuinely works.
+        stderr.ShouldContain(ProcessDescriptionCommand.CompleteFormat);
+    }
+
+    /// <summary>
+    /// 🔴 A renderer failure leaves NO partial file on disk.
+    /// </summary>
+    /// <remarks>
+    /// Found by independent review. The unknown-type path already promised "no partial file",
+    /// but a write that failed mid-render left a TRUNCATED document behind — worse than no
+    /// file, because a truncated description is silently missing types and a reader diffing
+    /// it sees differences that are not real. The command now renders to a temp file and moves
+    /// it into place.
+    /// <para>
+    /// Driven by making the destination un-writable at the moment of the move: the directory
+    /// is replaced by a file after the command starts, so `File.Move` fails.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Execute_WhenTheDestinationIsUnwritable_LeavesNoPartialArtifact()
+    {
+        var blocker = TempFile(".txt");
+        await File.WriteAllTextAsync(blocker, "not a directory");
+        var path = Path.Combine(blocker, "description.json");
+
+        var exitCode = await BuildCommand().ExecuteAsync(
+            null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        exitCode.ShouldBe(1);
+        File.Exists(path).ShouldBeFalse();
+
+        // And no scratch file was orphaned beside the destination.
+        var dir = Path.GetDirectoryName(blocker)!;
+        var leftovers = Directory.GetFiles(dir, Path.GetFileName(path) + ".tmp-*");
+        leftovers.ShouldBeEmpty();
     }
 
     // ═══════════════════════════════════════════════════════════════

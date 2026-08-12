@@ -193,13 +193,15 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         // anywhere downstream — the assembler sorts.
         var fieldsTask = FetchFieldsAsync(identity.ProcessId, typeReferenceName, ct);
         var statesTask = FetchStatesAsync(identity.ProcessId, typeReferenceName, ct);
-        var transitionsTask = FetchTransitionsAsync(typeReferenceName, inheritsFrom, ct);
 
-        await Task.WhenAll(fieldsTask, statesTask, transitionsTask);
-
+        // States are awaited before transitions because the transitions fallback needs them:
+        // a parent's transitions are only trustworthy for a derived type whose own states the
+        // parent's workflow actually covers.
         var fields = await fieldsTask;
         var states = await statesTask;
-        var transitions = await transitionsTask;
+
+        var transitions = await FetchTransitionsAsync(
+            typeReferenceName, inheritsFrom, states, ct);
 
         // If every part failed, the type could not be described at all — report that rather
         // than a document row claiming an empty type.
@@ -337,6 +339,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     private async Task<IReadOnlyList<ProcessTypeTransition>?> FetchTransitionsAsync(
         string typeReferenceName,
         string? inheritsFrom,
+        IReadOnlyList<ProcessTypeState>? ownStates,
         CancellationToken ct)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes" +
@@ -363,10 +366,21 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         // 🔴 Fallback for DERIVED types, which this route names by their PARENT reference
         // name. Only consulted when the direct match failed, so it can never shadow a type
         // this route does report under its own name.
+        //
+        // 🔴 KNOWN LIMITATION, stated rather than hidden: if a derived type has CUSTOMISED its
+        // workflow (added or removed a state, or changed which transitions are allowed), this
+        // reports the PARENT's transitions for it. There is no better source — the modern
+        // process API serves no transitions route at any version — so the choice is between
+        // the parent's answer and none at all. The guard below narrows it: a parent answer is
+        // only accepted when the derived type's own states are a subset of the states the
+        // parent's transitions mention, so a type that genuinely diverged reports its
+        // transitions as unfetched instead of borrowing a wrong set.
+        var borrowedFromParent = false;
         if (type is null && !string.IsNullOrWhiteSpace(inheritsFrom))
         {
             type = result.Value.FirstOrDefault(t => string.Equals(
                 t.ReferenceName, inheritsFrom, StringComparison.OrdinalIgnoreCase));
+            borrowedFromParent = type is not null;
         }
 
         // The type exists in the process but this project-scoped route does not report it.
@@ -389,6 +403,25 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
                 // item enters. Carried, not dropped: it is a real and useful fact.
                 transitions.Add(new ProcessTypeTransition(fromState ?? string.Empty, destination.To));
             }
+        }
+
+        // 🔴 The borrowed-from-parent guard. A derived type that customised its workflow must
+        // not be handed its parent's transitions as though they were its own — that would be
+        // a confident wrong answer about the thing the reader is comparing. If the type
+        // declares a state the parent's transitions never mention, the workflows have
+        // genuinely diverged and "we could not read this" is the honest report.
+        if (borrowedFromParent && ownStates is { Count: > 0 })
+        {
+            var covered = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var transition in transitions)
+            {
+                if (transition.FromState.Length > 0)
+                    covered.Add(transition.FromState);
+                covered.Add(transition.ToState);
+            }
+
+            if (ownStates.Any(state => !covered.Contains(state.Name)))
+                return null;
         }
 
         return transitions;

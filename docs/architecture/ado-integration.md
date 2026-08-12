@@ -410,6 +410,48 @@ fetch returns `null` on failure rather than an empty collection, and partial
 failures are named in the document's `unfetched` list, so "could not ask" is never
 laundered into "this has nothing".
 
+🔴 **The whole-process path fans out CONCURRENTLY and the fan-out is BOUNDED
+(AB#238, guarded by AB#239).** No type argument means every type, one document —
+Implementation Decision 3, whose decisive argument is not convenience: *a per-type
+document cannot express a type's ABSENCE*, and a type present in one process and
+missing from another is exactly the difference the comparison case exists to find.
+
+Parallelising the independent per-type fetches is the **ruled** latency mitigation,
+not an optimisation, so it cannot be removed. But "parallelise harder" is the obvious
+wrong reading. Each type's detail call issues **five** concurrent GETs (fields,
+states, rules, behaviours, layout), so an ungated projection over this process's
+14 types is ~70 in-flight requests plus the picklist fan-out alongside — a 429
+generator. Throttling degrades exactly the answers the document exists to make
+trustworthy: a throttled call comes back as an `unfetched` label, which is honest
+*but* is a worse document. The bound is
+`ProcessDescriptionAssembler.MaxConcurrentTypeFetches` (currently 4), declared once
+and referenced by the test rather than copied into it — a test carrying its own
+literal passes happily while the two drift apart, which is how a gate quietly stops
+being the gate. 🔴 The picklist gate in this class is declared **independently** and
+chosen to match; the two can drift, so change them together.
+
+**Measured, not estimated.** The ruling *accepted* ~20 s as a serial ceiling — a limit
+the build must not exceed, never a target. Measured live on 2026-08-12,
+`twig process description -o json --out <file>` against the Niflheim process:
+**14 types, 508,793 bytes, ~2.6-3.4 s wall** including process startup. So the ceiling
+is no longer a live constraint and there is no latency argument left for raising the
+bound. 🔴 That byte count supersedes the spec's "~1 MB across the 14 types" estimate
+in Decision 8 — that figure predates the build and was an estimate; this is the
+emitted file. The spec's *reason* for wanting a short human rendering stands
+regardless, since half a megabyte is no more readable than one.
+
+🔴 **Concurrency must not reach the ORDERING, and that is a property of where the sort
+sits.** `Task.WhenAll` preserves *input* order in its result array regardless of which
+task finished first, and the assembler re-sorts after the gather rather than appending
+results as they arrive. That is what makes the reverse-completion assertion meaningful
+rather than accidental — and it is why `IProcessDescriptionSource` exposes per-type
+detail as one awaitable call per type: a test can drive **completion order** explicitly
+through gates and assert byte-identity, instead of asserting on wall-clock timing,
+which the spec forbids as flaky theatre. 🔴 That assertion is made on a roster **larger
+than the bound** as well as a small one: under a roster that fits inside the gate the
+semaphore never makes a scheduling decision, so the small-roster test proves
+byte-identity for an *ungated* fan-out only.
+
 ### Template detection
 
 Two-phase approach:

@@ -37,6 +37,38 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
     /// <summary>Every reference name whose detail was requested, in call order.</summary>
     public List<string> RequestedTypes { get; } = [];
 
+    private int _inFlight;
+    private int _maxConcurrentDetailFetches;
+
+    /// <summary>
+    /// The greatest number of per-type detail fetches that were ever in flight at once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 Records the HIGH-WATER MARK rather than a snapshot, because the property under test
+    /// is two-sided and both sides are real (AB#239). Concurrency is a RULED mitigation, so a
+    /// serialised implementation must red; but the fan-out is also deliberately BOUNDED,
+    /// because each type's detail call issues five concurrent GETs and fourteen types ungated
+    /// is a 429 generator — and throttling degrades exactly the answers this document exists
+    /// to make trustworthy.
+    /// </para>
+    /// <para>
+    /// A test asserting only "more than one was in flight" is blind to the bound being
+    /// removed, and one asserting only the bound is blind to the fetches being serialised.
+    /// This counter lets a single observation carry both.
+    /// </para>
+    /// <para>
+    /// 🔴 READ under the same lock it is written under. It is mutated by N worker threads and
+    /// read from the test thread; an unsynchronised read of a plain field has no
+    /// acquire/release pairing, so the reader may observe a stale value and spin out its
+    /// deadline against a CORRECT implementation. Green on x86 is not the same as correct.
+    /// </para>
+    /// </remarks>
+    public int MaxConcurrentDetailFetches
+    {
+        get { lock (RequestedTypes) return _maxConcurrentDetailFetches; }
+    }
+
     /// <summary>
     /// The <c>inheritsFrom</c> argument each detail fetch was given, keyed by type.
     /// </summary>
@@ -120,16 +152,34 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
         {
             RequestedTypes.Add(typeReferenceName);
             RequestedInherits[typeReferenceName] = inheritsFrom;
+
+            // 🔴 Incremented INSIDE the lock, after the ASSEMBLER's semaphore has admitted
+            // this call and before the fixture's own completion gate is awaited. So the
+            // high-water mark counts calls that are past the gate under test and still in
+            // flight — which is the quantity the bound is a bound on. (Two different gates
+            // are in play; conflating them would make the counter measure arrivals rather
+            // than concurrency, and the test meaningless.)
+            _inFlight++;
+            if (_inFlight > _maxConcurrentDetailFetches)
+                _maxConcurrentDetailFetches = _inFlight;
         }
 
-        if (CompletionOrder is not null)
+        try
         {
-            // Release this fetch only when the script says it is this type's turn. Every
-            // earlier gate must already be signalled, so completion order is exact.
-            await _gates[typeReferenceName].Task;
-        }
+            if (CompletionOrder is not null)
+            {
+                // Release this fetch only when the script says it is this type's turn. Every
+                // earlier gate must already be signalled, so completion order is exact.
+                await _gates[typeReferenceName].Task;
+            }
 
-        return _details.TryGetValue(typeReferenceName, out var detail) ? detail : null;
+            return _details.TryGetValue(typeReferenceName, out var detail) ? detail : null;
+        }
+        finally
+        {
+            lock (RequestedTypes)
+                _inFlight--;
+        }
     }
 
     public Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
@@ -417,7 +467,17 @@ public sealed class ProcessDescriptionAssemblerTests
     {
         var writer = new StringWriter();
 
-        writer.WriteLine($"type={type.ReferenceName}|{type.Name}|{type.Customization}|{type.Inherits}");
+        // 🔴 EVERY scalar the document carries for a type, including `description` and
+        // `isDisabled`. Both reach the rendered file (verified against a live `-o json` run),
+        // and both were missing from this projection until AB#239 — so a change that made a
+        // type's description or disabled flag vary between two runs, or between two processes
+        // sharing that type, compared EQUAL here while the emitted documents differed. Found
+        // by patching the assembler to make a shared type's description depend on the roster
+        // size: every byte-stability test stayed green. A projection blind to a member is a
+        // hollow guard over exactly the property it advertises.
+        writer.WriteLine(
+            $"type={type.ReferenceName}|{type.Name}|{type.Description}|"
+            + $"{type.Customization}|{type.Inherits}|{type.IsDisabled}");
         foreach (var field in type.Fields)
             writer.WriteLine(
                 $"  field={field.ReferenceName}|{field.Name}|{field.Type}|"
@@ -669,6 +729,81 @@ public sealed class ProcessDescriptionAssemblerTests
     }
 
     /// <summary>
+    /// 🔴 The same reversed-completion byte-identity, on a roster LARGER than the concurrency
+    /// gate — so the semaphore itself is part of what decides completion order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>The sibling test above cannot exercise the gate, and that is a real hole rather
+    /// than a tidiness point (AB#239).</b> It uses three types against a bound of four, so
+    /// every fetch is admitted immediately and the semaphore never makes a scheduling
+    /// decision. It therefore proves byte-identity for an UNGATED fan-out only.
+    /// </para>
+    /// <para>
+    /// Once the roster exceeds the bound the gate becomes a new ordering input: which types
+    /// get in, and in which waves, is decided by release order rather than by the caller. The
+    /// spec names parallelism as "what most plausibly breaks test 1", so the ordering guard
+    /// has to be asserted under the conditions parallelism actually runs in — a whole process
+    /// is fourteen types against a bound of four, never three.
+    /// </para>
+    /// <para>
+    /// Completion order is driven explicitly through the gates, never by wall-clock timing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WithReversedCompletionOrderAcrossTheGate_ProducesTheIdenticalDocument()
+    {
+        var types = Enumerable
+            .Range(0, ProcessDescriptionAssembler.MaxConcurrentTypeFetches * 3)
+            .Select(i => $"Niflheim.CustomType{i:D2}")
+            .ToArray();
+        var reversed = types.Reverse().ToArray();
+
+        // Preconditions: the roster genuinely exceeds the gate — otherwise this is the
+        // sibling test again — and the two scripts really are different orders.
+        types.Length.ShouldBeGreaterThan(ProcessDescriptionAssembler.MaxConcurrentTypeFetches);
+        reversed.ShouldNotBe(types);
+
+        var inOrderSource = new ScriptedDescriptionSource(
+            types, types.ToDictionary(t => t, HostileDetail))
+        {
+            CompletionOrder = types,
+            BehaviourCatalogue = Catalogue,
+        };
+        var inOrderTask = BuildAssembler(inOrderSource).AssembleAsync(null, FixedCapture);
+        await inOrderSource.ReleaseInScriptedOrderAsync();
+        var inOrder = await inOrderTask;
+
+        var reversedSource = new ScriptedDescriptionSource(
+            types, types.ToDictionary(t => t, HostileDetail))
+        {
+            CompletionOrder = reversed,
+            BehaviourCatalogue = Catalogue,
+        };
+        var reversedTask = BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture);
+        await reversedSource.ReleaseInScriptedOrderAsync();
+        var reversedResult = await reversedTask;
+
+        inOrder.ShouldNotBeNull();
+        reversedResult.ShouldNotBeNull();
+
+        // Precondition: the gate really was contended, or this ran ungated after all.
+        inOrderSource.MaxConcurrentDetailFetches.ShouldBe(
+            ProcessDescriptionAssembler.MaxConcurrentTypeFetches);
+
+        inOrder.Types.Count.ShouldBe(types.Length);
+        Flatten(inOrder).ShouldBe(
+            Flatten(reversedResult),
+            "the gate decides which fetches run in which wave, so it is an ordering input — "
+            + "the document must still be byte-identical whichever order they complete in");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  The concurrency mitigation itself — that it happens, and that
+    //  it stays inside its bound
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
     /// The whole-process path issues its per-type fetches CONCURRENTLY, not one after the
     /// other.
     /// </summary>
@@ -698,6 +833,197 @@ public sealed class ProcessDescriptionAssemblerTests
 
         await source.ReleaseInScriptedOrderAsync();
         (await assembleTask).ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// 🔴 The concurrent fan-out is BOUNDED, and the bound is the one the assembler declares.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Two-sided, and both sides are real defects (AB#239).</b> Serialising the fetches
+    /// undoes the ruled latency mitigation; removing the bound is the obvious wrong reading of
+    /// "parallelise them" and produces ~70 in-flight requests over this process's fourteen
+    /// types, because each type's detail call issues five concurrent GETs. Throttling degrades
+    /// exactly the answers the document exists to make trustworthy, so a 429 generator is not
+    /// a faster document — it is a worse one.
+    /// </para>
+    /// <para>
+    /// The sibling test above proves concurrency happens at all; this one proves it stays
+    /// inside the gate. It asserts against
+    /// <see cref="ProcessDescriptionAssembler.MaxConcurrentTypeFetches"/> rather than a
+    /// literal, so raising the bound is a deliberate edit at the declaration rather than
+    /// something that drifts silently past a test carrying its own copy of the number.
+    /// </para>
+    /// <para>
+    /// 🔴 The roster is deliberately LARGER than the bound. With as many types as the gate
+    /// permits, an ungated implementation and a gated one are indistinguishable, and the test
+    /// would be a hollow guard.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>No wall-clock assertion, and no fixed sleep.</b> The spec forbids timing
+    /// assertions as flaky theatre, and a fixed <c>Task.Delay</c> is one wearing a disguise:
+    /// it hopes the defect shows up inside the window, so on a loaded machine it passes
+    /// against exactly what it exists to catch. Instead every gate is held SHUT and the wait
+    /// exits the INSTANT the bound is exceeded — so a violation reds immediately and
+    /// deterministically, and the bounded deadline is paid only on the green path where the
+    /// thing being waited for correctly never happens.
+    /// </para>
+    /// <para>
+    /// 🔴 The high-water mark is read AFTER the run completes, so the assertion covers the
+    /// whole run rather than a sampled window. With the gates shut a gated implementation can
+    /// admit exactly as many calls as the semaphore permits and then stops; an ungated one
+    /// issues the entire roster, and that overshoot is recorded permanently.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WholeProcess_BoundsHowManyTypeFetchesRunAtOnce()
+    {
+        var bound = ProcessDescriptionAssembler.MaxConcurrentTypeFetches;
+        var types = Enumerable
+            .Range(0, bound * 3)
+            .Select(i => $"Niflheim.CustomType{i:D2}")
+            .ToArray();
+
+        // Precondition: the roster genuinely exceeds the bound, or a gated and an ungated
+        // implementation would behave identically here and this would be a hollow guard.
+        types.Length.ShouldBeGreaterThan(bound);
+
+        var source = new ScriptedDescriptionSource(
+            types,
+            types.ToDictionary(t => t, HostileDetail))
+        {
+            BehaviourCatalogue = Catalogue,
+            // Every gate SHUT: no detail fetch may complete until the test releases it, so
+            // the semaphore is the only thing deciding how many get in.
+            CompletionOrder = types,
+        };
+
+        var assembleTask = BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        // Wait for the fan-out to fill the gate, then keep watching for an OVERSHOOT, exiting
+        // the moment one appears. Stopwatch rather than DateTime.UtcNow so a clock adjustment
+        // cannot move the deadline under us.
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        while (timer.Elapsed < TimeSpan.FromSeconds(2)
+            && source.MaxConcurrentDetailFetches <= bound)
+        {
+            await Task.Delay(5);
+        }
+
+        await source.ReleaseInScriptedOrderAsync();
+        var description = await assembleTask;
+
+        description.ShouldNotBeNull();
+        description.Types.Count.ShouldBe(
+            types.Length,
+            "the gate throttles the fan-out; it must never drop a type from the document");
+
+        source.MaxConcurrentDetailFetches.ShouldBe(
+            bound,
+            "the fan-out must fill the gate and never exceed it. Below the bound means the "
+            + "fetches were serialised, undoing the ruled latency mitigation; above it means "
+            + "the gate was removed — each type's detail call issues five concurrent GETs, so "
+            + "an ungated projection over a whole process is a 429 generator, and throttling "
+            + "degrades exactly the answers this document exists to make trustworthy");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Test 12 — no type argument describes every type, and a type's
+    //  ABSENCE is visible between two documents
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 No type argument describes EVERY type in the process — not a subset, not a page.
+    /// </summary>
+    /// <remarks>
+    /// Spec test 12 and Implementation Decision 3. Asserted against the source's own roster
+    /// rather than a hardcoded count, so a fixture gaining a type cannot leave this test
+    /// asserting a stale number and silently passing an assembler that dropped one.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WithNoTypeArgument_DescribesEveryTypeInTheProcess()
+    {
+        var source = BuildSource();
+        var roster = (await source.GetTypesAsync())!.Select(t => t.ReferenceName).ToList();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description.ShouldNotBeNull();
+        description.Types.Select(t => t.ReferenceName).ShouldBe(
+            [.. roster.OrderBy(x => x, StringComparer.Ordinal)],
+            "the whole-process path describes every type the process reports, in the "
+            + "assembler's ordinal order");
+    }
+
+    /// <summary>
+    /// 🔴 A type present in one process and absent from another is VISIBLE as a difference
+    /// between the two documents — the reason the whole-process default exists at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Spec test 12's absence half, and it is the load-bearing half.</b> Implementation
+    /// Decision 3's decisive argument is not convenience: <b>a per-type document cannot
+    /// express a type's ABSENCE.</b> A type in one process and not the other is exactly the
+    /// difference the comparison case exists to find, and only a whole-process document can
+    /// show it.
+    /// </para>
+    /// <para>
+    /// 🔴 Asserted as a real DIFF rather than as "the second document lacks the type". The
+    /// latter passes against an assembler whose two documents differ everywhere for unrelated
+    /// reasons. This removes the absent type's own block from the richer document and asserts
+    /// what remains is SEQUENCE-EQUAL to the thinner one — which is exactly what a reader with
+    /// an ordinary diff tool sees, and is what makes ruling S2's promise real.
+    /// </para>
+    /// <para>
+    /// 🔴 Sequence equality, deliberately, and not a set difference. <c>Except</c> dedupes and
+    /// is blind to both order and multiplicity, so it would pass against a document that
+    /// emitted the shared types in a different ORDER, or emitted one of them twice — the
+    /// byte-stability defects this very comparison is invoked to rule out. It is also
+    /// self-defeating on this fixture, whose types emit byte-identical lines
+    /// (<c>state=Done|Completed|3</c>), so the absent type's block would be largely absorbed
+    /// by the shared types' identical lines and the assertion would check far less than it
+    /// appeared to.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_TypeAbsentFromOneProcess_IsTheOnlyDifferenceBetweenTheDocuments()
+    {
+        var shared = new[] { "Niflheim.CustomZulu", "Microsoft.VSTS.WorkItemTypes.Task" };
+        var withExtra = new[] { "Niflheim.CustomZulu", TypeWithRules, "Microsoft.VSTS.WorkItemTypes.Task" };
+
+        // Precondition: the two rosters genuinely differ by exactly one type, or this test is
+        // comparing a document with itself.
+        withExtra.Except(shared, StringComparer.Ordinal).ShouldBe([TypeWithRules]);
+        shared.Except(withExtra, StringComparer.Ordinal).ShouldBeEmpty();
+
+        var richer = await BuildAssembler(BuildSource(typeOrder: withExtra))
+            .AssembleAsync(null, FixedCapture);
+        var thinner = await BuildAssembler(BuildSource(typeOrder: shared))
+            .AssembleAsync(null, FixedCapture);
+
+        richer.ShouldNotBeNull();
+        thinner.ShouldNotBeNull();
+
+        // The absent type shows up as a difference in the type roster.
+        richer.Types.Select(t => t.ReferenceName).ShouldContain(TypeWithRules);
+        thinner.Types.Select(t => t.ReferenceName).ShouldNotContain(TypeWithRules);
+
+        // 🔴 …and it is the ONLY difference, asserted as a diff. The absent type's block is
+        // removed from the richer document and the remainder must be sequence-equal to the
+        // thinner one — same lines, same order, same number of them.
+        var absentBlock = FlattenType(richer.Types.Single(t => t.ReferenceName == TypeWithRules));
+        var richerText = Flatten(richer);
+
+        // Precondition: the block is genuinely present and contributes content, or the
+        // removal below is a no-op and the assertion is vacuous.
+        absentBlock.ShouldNotBeNullOrEmpty();
+        richerText.ShouldContain(absentBlock);
+
+        richerText.Replace(absentBlock, string.Empty, StringComparison.Ordinal).ShouldBe(
+            Flatten(thinner),
+            "a type present in one process and absent from another must be the ONLY difference "
+            + "between the two documents — everything else has to diff clean, or the absence "
+            + "is buried in noise and the comparison case this document exists for fails");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -698,4 +698,131 @@ public sealed class AdoProcessDescriptionSourceBehaviourTests
         detail.Unfetched!.ShouldNotContain("behaviours");
         detail.Unfetched!.ShouldNotContain("fields");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  The ROSTER — which types the whole-process document covers (AB#239)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Every type the process reports reaches the roster, off the wire.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>The roster is what "every type" and "this type is absent" both mean, and until
+    /// AB#239 it had no wire-level test at all.</b> The assembler seam tests script this call's
+    /// RESULT, so they are structurally blind to how it is produced — the same blind spot that
+    /// shipped six defects in AB#237 and a description-killing 400 in AB#238, both behind a
+    /// green suite.
+    /// </para>
+    /// <para>
+    /// It matters more here than for the per-type fetches because a roster defect is
+    /// SILENT AND INDISTINGUISHABLE FROM THE ANSWER: a type dropped from the roster carries no
+    /// <c>unfetched</c> label — it simply is not in the document — and against a second process
+    /// that reports it, the drop reads as a genuine structural difference. That is a lie in
+    /// exactly the direction ruling S3 exists to prevent, arriving through the one criterion
+    /// this ticket owns.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task GetTypes_CarriesEveryTypeTheProcessReports()
+    {
+        var handler = new RoutingHandler().Route(
+            "/workItemTypes?",
+            "{\"count\":3,\"value\":["
+            + "{\"referenceName\":\"Niflheim.Epic\",\"name\":\"Epic\",\"customization\":\"inherited\","
+            + "\"inherits\":\"Microsoft.VSTS.WorkItemTypes.Epic\",\"isDisabled\":false},"
+            + "{\"referenceName\":\"Niflheim.Grilling\",\"name\":\"Grilling\",\"customization\":\"custom\","
+            + "\"isDisabled\":false},"
+            + "{\"referenceName\":\"Niflheim.Retired\",\"name\":\"Retired\",\"customization\":\"custom\","
+            + "\"isDisabled\":true}"
+            + "]}");
+
+        var types = await CreateSource(handler).GetTypesAsync();
+
+        types.ShouldNotBeNull();
+        types.Select(t => t.ReferenceName).ShouldBe(
+            ["Niflheim.Epic", "Niflheim.Grilling", "Niflheim.Retired"],
+            "every type the process reports must reach the roster — a dropped one is invisible "
+            + "in the document and reads as a real difference against another process");
+
+        // 🔴 A DISABLED type is still in the process and still in the roster, carrying its
+        // flag. Dropping it would let "this process disabled the type" and "this process does
+        // not have the type" render identically — two very different facts about a process.
+        types.Single(t => t.ReferenceName == "Niflheim.Retired").IsDisabled.ShouldBeTrue();
+        types.Single(t => t.ReferenceName == "Niflheim.Epic").Inherits
+            .ShouldBe("Microsoft.VSTS.WorkItemTypes.Epic");
+        types.Single(t => t.ReferenceName == "Niflheim.Grilling").Inherits.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// 🔴 A count-shaped 404 on the type-list route is a FAILURE, never a process with no
+    /// types.
+    /// </summary>
+    /// <remarks>
+    /// The count-shaped body is the shape of a thin success, so the natural reading yields an
+    /// empty roster — and an empty roster is a document asserting the process contains
+    /// nothing. Diffed against a real process, every one of its types then reads as an
+    /// addition. <c>null</c> is the honest answer and the caller renders a hard failure rather
+    /// than an empty document.
+    /// </remarks>
+    [Fact]
+    public async Task GetTypes_CountShaped404_IsAFailureNotAnEmptyProcess()
+    {
+        // The type-list route is unregistered, so the handler answers count-shaped 404.
+        var types = await CreateSource(new RoutingHandler()).GetTypesAsync();
+
+        types.ShouldBeNull(
+            "a count-shaped 404 is the shape of a thin success — laundering it into an empty "
+            + "roster would claim the process has no types, and every type of the process it "
+            + "is compared against would then read as an addition");
+    }
+
+    /// <summary>
+    /// 🔴 A row with no <c>referenceName</c> is DROPPED, and this test pins that as a
+    /// deliberate choice rather than leaving it as an untested default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The reference name is the identity every other fetch is keyed by and the only attribute
+    /// two processes can be matched on, so a row without one cannot be described or compared —
+    /// there is nothing to fetch its fields with and nothing to line it up against. Keeping it
+    /// would put an unaddressable entry in the document.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Named as a known limitation rather than presented as obviously right.</b> The drop
+    /// is silent: it carries no <c>unfetched</c> label, so a roster short by one row is
+    /// indistinguishable from a process that genuinely lacks the type — the failure class S3
+    /// exists to prevent. It is tolerated because no such row has ever been observed on this
+    /// route (reference name is the route's own key), and because the alternative — failing
+    /// the entire description over one malformed row — loses thirteen good types to one bad
+    /// one, which is the AB#238 blast radius exactly. Recorded here so the trade is visible
+    /// and testable rather than an accident of a <c>continue</c> statement. The sibling rows
+    /// must survive it, which is the half that would break silently.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task GetTypes_RowWithNoReferenceName_IsDroppedWithoutLosingItsSiblings()
+    {
+        var handler = new RoutingHandler().Route(
+            "/workItemTypes?",
+            "{\"count\":3,\"value\":["
+            + "{\"referenceName\":\"Niflheim.Epic\",\"name\":\"Epic\",\"customization\":\"inherited\"},"
+            + "{\"referenceName\":\"\",\"name\":\"Nameless\",\"customization\":\"custom\"},"
+            + "{\"referenceName\":\"Niflheim.Grilling\",\"name\":\"Grilling\",\"customization\":\"custom\"}"
+            + "]}");
+
+        var types = await CreateSource(handler).GetTypesAsync();
+
+        types.ShouldNotBeNull();
+
+        // Precondition: the payload genuinely carried three rows, so the drop below is a real
+        // drop rather than a fixture that never had the row.
+        types.Count.ShouldBe(2);
+        types.Select(t => t.ReferenceName).ShouldBe(["Niflheim.Epic", "Niflheim.Grilling"]);
+
+        // 🔴 The half that would break silently: one unusable row must not take the usable
+        // ones with it. Losing the siblings is the AB#238 blast radius — many types lost to
+        // one type's answer.
+        types.ShouldAllBe(t => !string.IsNullOrWhiteSpace(t.ReferenceName));
+    }
 }

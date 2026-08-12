@@ -116,6 +116,46 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     ];
 
     /// <summary>
+    /// How many per-type detail fetches may be in flight at once on the whole-process path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>A ceiling, and removing it is the obvious wrong reading of the parallelism
+    /// ruling.</b> Parallelising the independent fetches is the ruled latency mitigation, but
+    /// "parallelise harder" is not what it asks for. Each type's detail call issues FIVE
+    /// concurrent GETs (fields, states, rules, behaviours, layout), so an ungated projection
+    /// over this process's fourteen types is ~70 in-flight requests plus the picklist fan-out
+    /// alongside — a 429 generator. Throttling degrades exactly the answers this document
+    /// exists to make trustworthy: a throttled call comes back as an <c>Unfetched</c> label,
+    /// which is honest but is a worse document.
+    /// </para>
+    /// <para>
+    /// Four matches the bound already applied to the picklist fetch in the fetch layer, and
+    /// it is measured rather than assumed to be enough: the live whole-process run takes
+    /// ~2.6-3.4 s against the ~20 s serial ceiling the ruling ACCEPTED. The ceiling is a limit
+    /// the build must not exceed, not a target — there is no latency argument left for
+    /// raising this.
+    /// </para>
+    /// <para>
+    /// 🔴 Named rather than inlined so the concurrency test asserts against the REAL bound
+    /// instead of a copy of the number. A test carrying its own literal passes happily while
+    /// the two drift apart, which is how a gate quietly stops being the gate.
+    /// <c>static readonly</c> and not <c>const</c> for the same reason: the C# compiler
+    /// INLINES a const into the referencing assembly, so a test referring to a const would
+    /// still be holding a compile-time copy and the claim above would be false in the one
+    /// place it is load-bearing.
+    /// </para>
+    /// <para>
+    /// 🔴 The sibling gate on the picklist fan-out in <c>AdoProcessDescriptionSource</c> is
+    /// declared INDEPENDENTLY and is chosen to match this one rather than shared: it bounds a
+    /// different fan-out in a different layer, and the domain must not reach into
+    /// infrastructure for a constant. They can therefore drift — if you change one, look at
+    /// the other.
+    /// </para>
+    /// </remarks>
+    internal static readonly int MaxConcurrentTypeFetches = 4;
+
+    /// <summary>
     /// The routes this assembler's document is built from, and the api-version pinned for
     /// each. Recorded in the header so two documents taken months apart cannot differ merely
     /// because the server moved.
@@ -196,7 +236,12 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
         //
         // The gate is disposed only AFTER the gather completes; disposing it while a
         // continuation could still call WaitAsync is the trap the sibling site avoids too.
-        using var typeGate = new SemaphoreSlim(4);
+        // 🔴 BOTH arguments. `new SemaphoreSlim(n)` leaves maxCount unbounded, so a stray
+        // Release() can push the count ABOVE the initial one and the declared ceiling
+        // silently stops being a ceiling. The two-argument form makes an over-release throw
+        // instead — and the sibling gate in AdoConcurrencyThrottle already spells it this way.
+        using var typeGate = new SemaphoreSlim(
+            MaxConcurrentTypeFetches, MaxConcurrentTypeFetches);
         var detailsTask = Task.WhenAll(
             selected.Select(async type =>
             {

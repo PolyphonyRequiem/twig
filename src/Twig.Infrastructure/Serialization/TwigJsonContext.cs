@@ -53,6 +53,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoProcessRuleResponse))]
 [JsonSerializable(typeof(AdoRuleConditionResponse))]
 [JsonSerializable(typeof(AdoRuleActionResponse))]
+[JsonSerializable(typeof(AdoProcessTypeFieldListResponse))]
+[JsonSerializable(typeof(AdoProcessTypeFieldResponse))]
 [JsonSerializable(typeof(AdoFormLayoutResponse))]
 [JsonSerializable(typeof(AdoLayoutPageResponse))]
 [JsonSerializable(typeof(AdoLayoutSectionResponse))]

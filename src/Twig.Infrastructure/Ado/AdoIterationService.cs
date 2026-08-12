@@ -15,7 +15,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider, IFormLayoutProvider
+internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider, IFormLayoutProvider, IProcessTypeFieldProvider
 {
     private readonly HttpClient _http;
     private readonly IAuthenticationProvider _authProvider;
@@ -32,6 +32,8 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     private readonly Dictionary<string, Task<IReadOnlyList<ProcessRule>>> _processRulesCache =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Task<FormLayout?>> _formLayoutCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task<IReadOnlyList<ProcessTypeField>?>> _processTypeFieldsCache =
         new(StringComparer.OrdinalIgnoreCase);
 
     public AdoIterationService(
@@ -217,6 +219,19 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         }
 
         return layoutTask;
+    }
+
+    public Task<IReadOnlyList<ProcessTypeField>?> GetTypeFieldsAsync(
+        string workItemTypeName,
+        CancellationToken ct = default)
+    {
+        if (!_processTypeFieldsCache.TryGetValue(workItemTypeName, out var fieldsTask))
+        {
+            fieldsTask = FetchProcessTypeFieldsAsync(workItemTypeName, ct);
+            _processTypeFieldsCache[workItemTypeName] = fieldsTask;
+        }
+
+        return fieldsTask;
     }
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
@@ -415,6 +430,116 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
             workItemType.ReferenceName,
             processTemplate.TemplateTypeId,
             result.Pages.Select(MapLayoutPage).ToList());
+    }
+
+    /// <summary>
+    /// Fetches the fields belonging to ONE work item type from the process-scoped per-type
+    /// fields route.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>This is the route the per-type field list must come from.</b>
+    /// <see cref="FetchFieldDefinitionsAsync"/> reads <c>_apis/wit/fields</c>, which is
+    /// PROJECT-wide and identical for every type — handing it to a per-type view reports
+    /// fields a type does not carry. That defect is what this method exists to fix at the
+    /// source (AB#234).
+    /// </para>
+    /// <para>
+    /// Reuses the same process-template + work-item-type resolution as
+    /// <see cref="FetchProcessRulesAsync"/> and <see cref="FetchFormLayoutAsync"/>: the
+    /// route is process-scoped and keyed by the type's REFERENCE name, not its display
+    /// name. Sending the display name 404s against a real server.
+    /// </para>
+    /// <para>
+    /// 🔴 The api-version is load-bearing and is named from
+    /// <see cref="AdoApiVersions.ProcessWorkItemTypeFields"/>. At the neighbouring preview
+    /// version this URL returns the same COUNT of rows with a disjoint attribute set that
+    /// carries neither <c>required</c> nor <c>defaultValue</c> — so a version slip is
+    /// invisible in the row count and shows up only as silently blank data.
+    /// </para>
+    /// <para>
+    /// Returns <c>null</c> rather than an empty list when the process or type cannot be
+    /// resolved, or when the route does not answer. 🔴 That distinction is load-bearing on
+    /// this family of routes specifically: a 404 from them arrives with a COUNT-SHAPED
+    /// body (<c>{"count":1,"value":{"Message":…}}</c>), which is exactly the shape of a
+    /// successful thin response. Collapsing "could not ask" into "this type has no fields"
+    /// would launder a failed call into a confident wrong answer — the failure mode that
+    /// produced the original bug report about this endpoint family.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<ProcessTypeField>?> FetchProcessTypeFieldsAsync(
+        string workItemTypeName,
+        CancellationToken ct)
+    {
+        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
+        var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
+            !type.IsDisabled &&
+            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId) ||
+            string.IsNullOrWhiteSpace(workItemType?.ReferenceName))
+        {
+            return null;
+        }
+
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
+            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}" +
+            $"/fields?api-version={AdoApiVersions.ProcessWorkItemTypeFields}";
+
+        AdoProcessTypeFieldListResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream,
+                TwigJsonContext.Default.AdoProcessTypeFieldListResponse,
+                ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException)
+        {
+            // The route does not answer for this process/type. Not "no fields".
+            return null;
+        }
+        catch (JsonException)
+        {
+            // A count-shaped error envelope carries an OBJECT where the field array
+            // belongs. Deserializing it fails here rather than yielding an empty list,
+            // and that is the correct outcome: it is a failure, not thin data.
+            return null;
+        }
+
+        if (result?.Value is null)
+            return null;
+
+        var fields = new List<ProcessTypeField>(result.Value.Count);
+        foreach (var f in result.Value)
+        {
+            // referenceName is the field's identity and the only attribute a caller can
+            // match on across processes. A row without one is unusable, not a default.
+            if (string.IsNullOrWhiteSpace(f.ReferenceName))
+                continue;
+
+            fields.Add(new ProcessTypeField(
+                f.ReferenceName,
+                f.Name ?? f.ReferenceName,
+                f.Type ?? "string",
+                // Absent and empty are both "no default" on this route; the server omits
+                // the attribute entirely on the ~97% of rows that have none.
+                string.IsNullOrEmpty(f.DefaultValue) ? null : f.DefaultValue,
+                // Absent `required` means not-required-unconditionally. It does NOT mean
+                // not-required: see ProcessTypeField's remarks and the rules route.
+                f.Required ?? false,
+                // Carried verbatim: 'custom' | 'inherited' | 'system'. Twig does not
+                // reinterpret the server's vocabulary here.
+                f.Customization ?? string.Empty,
+                f.IsLocked,
+                f.Description ?? string.Empty));
+        }
+
+        return fields;
     }
 
     private static LayoutPage MapLayoutPage(AdoLayoutPageResponse page) => new(

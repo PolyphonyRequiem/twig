@@ -154,8 +154,23 @@ internal sealed record ProcessTypeSummary(
 /// fields" are indistinguishable downstream unless the failure is named. Collapsing them
 /// launders a failed call into a confident wrong answer.
 /// </param>
+/// <param name="Rules">
+/// 🔴 The type's rules, the SECOND source of requiredness. The per-type fields route reports
+/// unconditional requiredness only; a field made mandatory by a <c>makeRequired</c> rule
+/// reads there as not-required. The assembler merges the two — a document built from
+/// <paramref name="Fields"/> alone is wrong about exactly the fields a caller most needs,
+/// and wrong in the silent direction.
+/// <para>
+/// <c>null</c> means the rules call FAILED and <c>rules</c> appears in
+/// <paramref name="Unfetched"/>. Distinguished from an empty list — which means the type
+/// genuinely has no rules — because collapsing them would let "we could not read the rules"
+/// render as "nothing here is conditionally required", reintroducing the exact silent lie
+/// this ticket removes.
+/// </para>
+/// </param>
 internal sealed record ProcessTypeDetail(
     IReadOnlyList<ProcessTypeField> Fields,
     IReadOnlyList<ProcessTypeState> States,
     IReadOnlyList<ProcessTypeTransition> Transitions,
-    IReadOnlyList<string>? Unfetched = null);
+    IReadOnlyList<string>? Unfetched = null,
+    IReadOnlyList<ProcessRule>? Rules = null);

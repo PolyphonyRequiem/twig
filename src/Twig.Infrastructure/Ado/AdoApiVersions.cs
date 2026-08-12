@@ -27,7 +27,7 @@ namespace Twig.Infrastructure.Ado;
 /// </list>
 /// Evidence: branch <c>docs/process-descriptor-map</c>,
 /// <c>wayfinder-process-descriptor/assets/0001-endpoint-findings.md</c> (probed live
-/// 2026-08-11). Governing ruling: <c>docs/specs/process-description.spec.md</c>
+/// 2026-08-11). Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c>
 /// Implementation Decision 7.
 /// <para>
 /// Every constant below states <b>what that version buys</b>. A version that is merely
@@ -238,6 +238,54 @@ internal static class AdoApiVersions
     /// </para>
     /// </summary>
     internal const string ProcessWorkItemTypeFields = "7.1-preview.2";
+
+    /// <summary>
+    /// <c>_apis/work/processes/{processId}/workItemTypes/{ref}/states</c> — the
+    /// <b>type-scoped</b> state list.
+    /// <para>
+    /// GA <c>7.1</c>, and unusually for this family that is the RIGHT choice rather than a
+    /// drift: probed live 2026-08-11, <c>7.1</c> and <c>7.1-preview.1</c> return the same
+    /// body (<c>name</c>, <c>stateCategory</c>, <c>order</c>, <c>color</c>,
+    /// <c>customizationType</c>, <c>hidden</c>), while <c>7.1-preview.2</c> is rejected
+    /// outright with <c>VssVersionOutOfRangeException</c> — "outside the valid version
+    /// range for this route". So preview.2, the richer version everywhere else in this
+    /// family, is NOT valid here. Do not "align" this constant with its neighbours.
+    /// </para>
+    /// <para>
+    /// <c>customizationType</c> is what this buys over the project-scoped state list: it
+    /// distinguishes a state authored on this process from one inherited from the parent.
+    /// </para>
+    /// </summary>
+    internal const string ProcessWorkItemTypeStates = "7.1";
+
+    /// <summary>
+    /// <c>{project}/_apis/wit/workitemtypes?$expand=all</c> — the ONLY source of state
+    /// TRANSITIONS. GA <c>7.1</c>.
+    /// <para>
+    /// 🔴 <b>This is a deliberate reach outside the modern process API, and it is forced.</b>
+    /// Probed live 2026-08-11: the process-scoped
+    /// <c>…/workItemTypes/{ref}/transitions</c> and <c>…/stateTransitions</c> routes return
+    /// an <b>HTML 404 (no such controller)</b> at <c>7.1</c>, <c>7.1-preview.1</c> and
+    /// <c>7.1-preview.2</c> alike, and the process type list carries no transitions under
+    /// any <c>$expand</c> value. The modern API simply does not serve them.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Do not "simplify" this by deriving transitions from the state list.</b> The
+    /// obvious shortcut — assume every state reaches every other — is WRONG on live data:
+    /// of 20 types probed in this org, 4 are not fully connected, and one declares a state
+    /// no transition reaches. Deriving would report transitions that do not exist.
+    /// </para>
+    /// <para>
+    /// This route is project-scoped rather than process-scoped, which is a real narrowing:
+    /// it can only describe the process the CONFIGURED project runs on. It does return
+    /// <c>referenceName</c>, so type identity stays reference-name-keyed and the
+    /// display-names-lie hazard is not reintroduced. It also returns MORE types than the
+    /// process reports (it includes system helper types such as Code Review Request), so
+    /// callers must intersect against the process's own type list rather than trusting it
+    /// as the roster.
+    /// </para>
+    /// </summary>
+    internal const string ProjectWorkItemTypesExpanded = "7.1";
 
     /// <summary>
     /// <c>_apis/work/processes/lists</c> and <c>_apis/work/processes/lists/{listId}</c> —

@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
@@ -83,6 +84,28 @@ public static class NetworkServiceModule
         services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IFormLayoutProvider>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IProcessTypeFieldProvider>(sp => sp.GetRequiredService<AdoIterationService>());
+
+        // 🔴 A SEPARATE instance, not another face of AdoIterationService. That service
+        // memoizes every route it calls; the description must not cache anything, because a
+        // stale description is a wrong description and the artifact is a truth claim about a
+        // process at a moment in time. Registering it as a face of the cached service would
+        // silently break the no-caching ruling.
+        services.AddSingleton<IProcessDescriptionSource>(sp =>
+        {
+            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            return new AdoProcessDescriptionSource(
+                sp.GetRequiredService<HttpClient>(),
+                sp.GetRequiredService<IAuthenticationProvider>(),
+                cfg.Organization,
+                cfg.Project);
+        });
+
+        // The assembler that consumes this source is registered in
+        // AddConnectionDomainServices, not here: it is surface-neutral (both the CLI and the
+        // agent surface assemble through it), while this registration is network-layer
+        // because it needs the HTTP client and the auth provider. Registering it in both
+        // places is last-wins and harmless at runtime, but it hides the boundary — the same
+        // trap wayfinder 0016 already recorded for the mutation providers.
 
         return services;
     }

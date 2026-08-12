@@ -70,6 +70,14 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<IFormLayoutProvider>());
+        // The process description's fetch seam. Substituted like IFormLayoutProvider and
+        // IIterationService above: production registers it in the NETWORK module (it needs
+        // the HTTP client and auth provider), while the assembler that consumes it is
+        // surface-neutral and registered in AddConnectionDomainServices. This fixture
+        // composes the latter but not the former, so the seam has to be stood in for here —
+        // omitting it would make the assembler unresolvable and this guard would report a
+        // wiring defect that does not exist in production.
+        services.AddSingleton(Substitute.For<IProcessDescriptionSource>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
         // ADO #144. Substituted like the other stores here — this fixture asserts that every
         // registered command's widest constructor RESOLVES, not what a Bench evaluates to.

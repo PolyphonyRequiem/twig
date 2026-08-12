@@ -8,6 +8,7 @@ using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
+using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
@@ -167,6 +168,24 @@ public static class TwigServiceRegistration
     /// <param name="services">The service collection.</param>
     public static IServiceCollection AddConnectionDomainServices(this IServiceCollection services)
     {
+        // The clock, as a service. Registered here rather than defaulted inside each
+        // consumer so a test can freeze it — which is what makes the process description's
+        // byte-stability assertable at all: with a live clock the capture timestamp moves and
+        // there is no way to tell a real ordering defect from the one permitted variance.
+        services.AddSingleton(TimeProvider.System);
+
+        // The process description assembler — the ONE seam both the CLI and the agent
+        // surface assemble through, so exactly one document format exists rather than two
+        // that drift. Surface-neutral, so it lives here rather than in either surface's
+        // module.
+        services.AddSingleton(sp => new ProcessDescriptionAssembler(
+            sp.GetRequiredService<IProcessDescriptionSource>())
+        {
+            // Read from the fetch layer so a version recorded in a document header cannot
+            // drift from the version the fetch actually used.
+            RouteVersions = AdoProcessDescriptionSource.RouteVersions,
+        });
+
         // Mutation providers. Previously registered in BOTH this module and the CLI's
         // CommandServiceModule — harmless last-wins on the same concrete type, but the tell
         // that the boundary sat where nobody could see both sides at once (wayfinder 0016).

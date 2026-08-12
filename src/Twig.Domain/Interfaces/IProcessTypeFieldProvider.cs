@@ -13,7 +13,7 @@ namespace Twig.Domain.Interfaces;
 /// disagreeing is the point. Fetch layer only — nothing renders this yet.
 /// </para>
 /// <para>
-/// Governing ruling: <c>docs/specs/process-description.spec.md</c> Implementation
+/// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation
 /// Decision 6 (the modern <c>processes</c> API, explicitly pinned).
 /// </para>
 /// </remarks>

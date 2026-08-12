@@ -510,6 +510,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessLayoutCommand>().ExecuteAsync(type, @out, output, ct);
 
+    /// <summary>Write a byte-stable structural description of this project's process, for diffing against another.</summary>
+    /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
+    /// <param name="out">Write the rendered description to this file instead of stdout.</param>
+    /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
+    [Command("process description")]
+    public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct);
+
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Hidden]
@@ -1339,6 +1347,7 @@ internal static class GroupedHelp
         // Work Items
         "process",
         "process layout",
+        "process description",
         "state",
         "states",
         "batch",
@@ -1491,6 +1500,7 @@ Work Items:
   process              List all work item types with state counts.
   process <type>       Show states, fields, transitions for a type.
   process layout <type>  Show the form layout (tabs, boxes, fields) for a type.
+  process description  Write a byte-stable description of the process, for diffing.
   state <name>         Change the state (e.g. Active, Closed).
   batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.

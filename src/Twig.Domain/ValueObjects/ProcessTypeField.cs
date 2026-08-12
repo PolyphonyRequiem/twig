@@ -31,7 +31,7 @@ namespace Twig.Domain.ValueObjects;
 /// <para>
 /// Evidence: branch <c>docs/process-descriptor-map</c>,
 /// <c>wayfinder-process-descriptor/assets/0001-endpoint-findings.md</c>. Governing
-/// ruling: <c>docs/specs/process-description.spec.md</c> Problem Statement,
+/// ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Problem Statement,
 /// Implementation Decisions 5 and 6.
 /// </para>
 /// </remarks>

@@ -32,11 +32,12 @@ namespace Twig.Domain.Services.Process;
 /// </para>
 /// <para>
 /// 🔴 <b>The assembler declares what the document is not yet trustworthy about.</b> See
-/// <see cref="KnownGaps"/>. At descriptor version 0.1 the document is KNOWN INCOMPLETE
-/// about picklist values, and it says so on its face rather than presenting a partial
-/// truth as a whole one. Conditional requiredness WAS such a gap and is no longer: AB#236
-/// merged the rules source, so the document now answers requiredness in a form that can
-/// carry the conditional case.
+/// <see cref="KnownGaps"/>. At descriptor version 0.1 that list is EMPTY: every reservation
+/// 0.1 opened with has been closed. Conditional requiredness went with AB#236's rules
+/// merge, and picklist values with AB#237's constraint merge. The list stays in the shape
+/// and in the header — an empty reservation list is itself a claim ("this document makes no
+/// reservations"), and it is the claim a reader needs in order to read a future non-empty
+/// one as meaningful.
 /// </para>
 /// <para>
 /// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> — the seam section,
@@ -50,26 +51,47 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Both are real, verified, and deliberately out of scope at 0.1 — they are separate
-    /// tickets. Declaring them is not an apology, it is the honest form of shipping an
-    /// incomplete document: a reader diffing two descriptions sees the same reservation in
-    /// both and knows not to trust those two properties yet.
+    /// 🔴 <b>An entry goes here for every Decision 4 content item the document does not yet
+    /// carry — not merely for the ones a ticket happened to name.</b> AB#237 emptied this list
+    /// by closing the last of 0.1's two original reservations, and that was a mistake caught in
+    /// review: it converted three EXISTING silent omissions (rules, behaviour membership, form
+    /// layout — all required by Decision 4, all still unshipped and tracked in AB#238) into an
+    /// affirmative claim that the document omits nothing. A missing reservation is as much a
+    /// lie as a false one, and the affirmative version is worse than the silence it replaced.
     /// </para>
     /// <para>
-    /// 🔴 <b>Remove an entry only when the corresponding ticket actually lands.</b> Deleting
-    /// one early converts a document that is honestly incomplete into one that is silently
-    /// wrong, which is strictly worse and is the exact failure class this feature exists to
-    /// prevent.
+    /// So the two CLOSED reservations are gone — conditional requiredness with AB#236's rules
+    /// merge, picklist values with AB#237's constraint merge, and declaring either now would
+    /// warn a reader off an answer this document does give — while the three genuinely-absent
+    /// content items are declared. That is the honest state: this document is trustworthy about
+    /// what it carries and says plainly what it does not carry yet.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Remove an entry only when the corresponding ticket actually lands, and add one for
+    /// any content item that ships incomplete.</b> Deleting one early converts a document that
+    /// is honestly incomplete into one that is silently wrong — the exact failure class this
+    /// feature exists to prevent.
     /// </para>
     /// </remarks>
     internal static readonly IReadOnlyList<ProcessDescriptionGap> KnownGaps =
     [
         new ProcessDescriptionGap(
-            "picklistValues",
-            "Fields are not yet reported as list-constrained or unconstrained, and no accepted "
-                + "values are resolved. A field that looks like a choice list may or may not be "
-                + "one. Do not trust this document about accepted values yet.",
-            "AB#237"),
+            "behaviourMembership",
+            "Which backlog levels a type belongs to is not reported. A reader cannot tell from "
+                + "this document whether a type appears on a portfolio, requirement or task "
+                + "backlog.",
+            "AB#238"),
+        new ProcessDescriptionGap(
+            "formLayout",
+            "The work item form's layout — pages, sections, groups and controls — is not "
+                + "reported. Two processes whose forms differ can produce identical documents.",
+            "AB#238"),
+        new ProcessDescriptionGap(
+            "rules",
+            "Rules are read for their makeRequired actions but are not themselves reported, so "
+                + "a rule that sets a value, copies a field or hides one is invisible here. "
+                + "Requiredness IS answered; the rest of a rule's effect is not.",
+            "AB#238"),
     ];
 
     /// <summary>
@@ -126,12 +148,18 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
 
         var selected = SelectTypes(available, typeReferenceNames);
 
+        // 🔴 Fetched ONCE per run, not per type (AB#237). The picklist association is only
+        // readable off the ORG-scoped field route, so it is the same answer for every type;
+        // asking per type would multiply round-trips for an identical result. Started before
+        // the per-type gather so it overlaps with it rather than adding to the critical path.
+        var constraintsTask = source.GetFieldValueConstraintsAsync(ct);
+
         // 🔴 Fetched concurrently — the ruled latency mitigation. Ordering is NOT taken from
         // completion: results are indexed back onto `selected` positionally, then sorted
         // below. Task.WhenAll preserves input order in its result array regardless of which
         // task finished first, which is what makes the reverse-completion test meaningful
         // rather than accidental.
-        var details = await Task.WhenAll(
+        var detailsTask = Task.WhenAll(
             selected.Select(type => source.GetTypeDetailAsync(
                 type.ReferenceName,
                 // 🔴 Passed through, not dropped. A DERIVED type is keyed by its own
@@ -141,11 +169,22 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 type.Inherits,
                 ct)));
 
+        // Gathered before either is awaited individually, so a fault in one cannot leave the
+        // other's exception unobserved.
+        await Task.WhenAll(detailsTask, constraintsTask).ConfigureAwait(false);
+
+        var details = await detailsTask;
+        var constraints = await constraintsTask;
+
         var described = new List<ProcessDescriptionType>(selected.Count);
         for (var i = 0; i < selected.Count; i++)
         {
             var summary = selected[i];
             var detail = details[i];
+
+            // Hoisted so the unfetched label below can be derived from the RESOLVED answers
+            // rather than from the constraint map's nullness — see PicklistUnfetched.
+            var mergedFields = MergeFields(detail?.Fields, detail?.Rules, constraints);
 
             described.Add(new ProcessDescriptionType(
                 summary.ReferenceName,
@@ -164,16 +203,21 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 // requiredness only, so a field made mandatory by a rule reads there as
                 // not-required — wrong about exactly the fields a caller most needs, and
                 // wrong in the silent direction.
-                MergeFields(detail?.Fields, detail?.Rules),
+                mergedFields,
                 SortStates(detail?.States),
                 SortTransitions(detail?.Transitions),
                 // 🔴 …but the emptiness is LABELLED. Without this, a type whose fetch failed
                 // is byte-identical to one that genuinely has nothing, and a reader diffing
                 // two documents sees a clean diff where one side simply failed to ask. When
                 // the whole detail call failed, every part is unfetched.
-                detail is null
-                    ? WholeTypeUnfetched
-                    : SortUnfetched(detail.Unfetched)));
+                //
+                // 🔴 `picklists` is labelled at the TYPE level even though the fetch is
+                // org-wide (AB#237): an unresolved value constraint is indistinguishable from
+                // a process whose fields are genuinely unconstrained — this ticket's own lie,
+                // arriving through a failed fetch instead of a bad guess.
+                SortUnfetched(detail is null
+                    ? [.. WholeTypeUnfetched, .. PicklistUnfetched(constraints, mergedFields)]
+                    : [.. detail.Unfetched ?? [], .. PicklistUnfetched(constraints, mergedFields)])));
         }
 
         // The one ordering that decides whether two whole-process documents line up.
@@ -254,6 +298,12 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// so a failed rules call means the document's requiredness answer is incomplete — and
     /// unlabelled that reads as a positive claim that nothing is conditionally required.
     /// </para>
+    /// <para>
+    /// 🔴 <c>picklists</c> is deliberately NOT in this list. It is appended separately (see
+    /// <see cref="PicklistUnfetched"/>) because the picklist fetch is ORG-scoped and
+    /// independent of the per-type detail call: a type whose detail failed may still have a
+    /// perfectly good constraint answer, and claiming otherwise would be a false reservation.
+    /// </para>
     /// </remarks>
     private static readonly IReadOnlyList<string> WholeTypeUnfetched =
         ["fields", "rules", "states", "transitions"];
@@ -293,7 +343,8 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// </remarks>
     private static IReadOnlyList<ProcessDescriptionField> MergeFields(
         IReadOnlyList<ProcessTypeField>? fields,
-        IReadOnlyList<ProcessRule>? rules)
+        IReadOnlyList<ProcessRule>? rules,
+        IReadOnlyDictionary<string, FieldValueConstraint>? constraints)
     {
         if (fields is null)
             return [];
@@ -309,6 +360,7 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                     f.Type,
                     f.DefaultValue,
                     ResolveRequiredness(f, conditionsByField),
+                    ResolveValueConstraint(f, constraints),
                     f.Customization,
                     f.IsLocked,
                     f.Description))
@@ -323,12 +375,140 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 // ProcessDescriptionField without extending this chain is how that regresses.
                 .ThenBy(static f => f.Requiredness.Kind)
                 .ThenBy(static f => CanonicalRequirednessKey(f.Requiredness), StringComparer.Ordinal)
+                // 🔴 …which is why the value constraint is here too (AB#237). Both its KIND
+                // and its resolved values participate: two rows alike in every other member
+                // but constrained to different lists must order deterministically, and
+                // ordering on the kind alone would leave that tie falling through to wire
+                // order.
+                .ThenBy(static f => f.ValueConstraint.Kind)
+                .ThenBy(static f => CanonicalValueConstraintKey(f.ValueConstraint), StringComparer.Ordinal)
                 .ThenBy(static f => f.Customization, StringComparer.Ordinal)
                 .ThenBy(static f => f.DefaultValue, StringComparer.Ordinal)
                 .ThenBy(static f => f.IsLocked)
                 .ThenBy(static f => f.Description, StringComparer.Ordinal),
         ];
     }
+
+    /// <summary>
+    /// The value constraint a field carries once the org-scoped picklist source has been
+    /// consulted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Three outcomes and no fourth, and none of them is a guess.</b> A field the org
+    /// route reports as not list-backed is <see cref="FieldValueConstraintKind.Unconstrained"/>
+    /// as a stated server FACT. There is deliberately no branch here that reads the field's
+    /// name or type — the API's explicit negative makes name-matching unnecessary as well as
+    /// banned, and a heuristic would be wrong in both directions on this org's own data.
+    /// </para>
+    /// <para>
+    /// 🔴 <b><paramref name="constraints"/> being <c>null</c> is NOT the same as it being
+    /// empty.</b> <c>null</c> means the picklist call failed — <c>picklists</c> is then in the
+    /// type's unfetched list — and every field is <see cref="FieldValueConstraint.Unknown"/>
+    /// rather than unconstrained. Collapsing the two would let "we could not read the lists"
+    /// render as "the server accepts anything here", which is this ticket's own lie.
+    /// </para>
+    /// <para>
+    /// 🔴 A field MISSING from a non-null map is <see cref="FieldValueConstraint.Unknown"/>
+    /// too, not unconstrained. The map is org-scoped and the field list is type-scoped, so a
+    /// row present on one and absent from the other is a source disagreement — and inventing
+    /// an answer for it would be a confident claim nothing supports.
+    /// </para>
+    /// <para>
+    /// 🔴 The lookup is case-INSENSITIVE because the index is. These are two different routes,
+    /// and an ordinal-exact join would silently drop a real constraint over a casing
+    /// difference, reporting a list-backed field as unconstrained — byte-identical to a field
+    /// that genuinely is, and with no unfetched label to catch it. Every other reference-name
+    /// comparison in this layer is <c>OrdinalIgnoreCase</c> for the same reason.
+    /// </para>
+    /// </remarks>
+    private static FieldValueConstraint ResolveValueConstraint(
+        ProcessTypeField field,
+        IReadOnlyDictionary<string, FieldValueConstraint>? constraints)
+    {
+        if (constraints is null)
+            return FieldValueConstraint.Unknown;
+
+        if (!constraints.TryGetValue(field.ReferenceName, out var constraint))
+            return FieldValueConstraint.Unknown;
+
+        // Only the list-bearing cases carry values to sort; the rest are already canonical.
+        if (constraint.Kind is not (FieldValueConstraintKind.ListConstrained
+            or FieldValueConstraintKind.ListSuggested))
+        {
+            return constraint;
+        }
+
+        // 🔴 The values are sorted HERE and nowhere else. Picklist items arrive in the order
+        // whoever authored the list happened to type them — an order Twig cannot defend and
+        // the server does not promise stable. Sorting in the fetch layer instead would put a
+        // second ordering authority in the system; sorting in neither would break
+        // byte-stability in a way a single-run unit test cannot see.
+        return constraint with
+        {
+            Values =
+            [
+                .. constraint.Values
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(static v => v, StringComparer.Ordinal),
+            ],
+        };
+    }
+
+    /// <summary>A total, stable string form of a field's whole value-constraint answer.</summary>
+    /// <remarks>
+    /// Used only as an ordering tiebreak. Includes the list name AND the values, so two
+    /// otherwise-identical rows constrained to different lists cannot tie and fall through to
+    /// wire order.
+    /// <para>
+    /// 🔴 LENGTH-PREFIXED rather than separator-joined, unlike its requiredness sibling.
+    /// Picklist values are arbitrary user-authored strings, so — unlike an ADO condition verb
+    /// or field reference name — no character can be assumed absent from them. A separator
+    /// convention would be a guarantee this system does not actually have, and two different
+    /// value sets colliding onto one key would order ambiguously. A null list name is encoded
+    /// distinctly from an empty one for the same totality reason.
+    /// </para>
+    /// </remarks>
+    private static string CanonicalValueConstraintKey(FieldValueConstraint constraint)
+    {
+        var key = new System.Text.StringBuilder();
+
+        key.Append(constraint.ListName is null ? "~" : $"{constraint.ListName.Length}:{constraint.ListName}");
+
+        foreach (var value in constraint.Values)
+            key.Append('|').Append(value.Length).Append(':').Append(value);
+
+        return key.ToString();
+    }
+
+    /// <summary>
+    /// The <c>picklists</c> unfetched label, when any field's value constraint went unresolved.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 A per-TYPE label for an ORG-wide source, deliberately. The document's unfetched list
+    /// is where a reader looks to find out what a type's silence means, and an unresolved
+    /// constraint makes that type's fields silent about accepted values. A header-only notice
+    /// would be read past by exactly the reader diffing two types.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Derived from the RESOLVED fields, not from the map's nullness, and that
+    /// distinction is the whole point.</b> A total failure is not the only way to get an
+    /// unresolved answer: one picklist's fetch can fail while the field list succeeds, a field
+    /// can be absent from the org-scoped map entirely, and the org route can report a field as
+    /// list-backed while omitting the pointer. Labelling only the total failure would let the
+    /// document say <c>valueConstraint: unknown</c> on a field while its type's unfetched list
+    /// is EMPTY — simultaneously claiming "I could not read this" and "everything was read".
+    /// That is the ticket's own failure mode arriving one layer down.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> PicklistUnfetched(
+        IReadOnlyDictionary<string, FieldValueConstraint>? constraints,
+        IReadOnlyList<ProcessDescriptionField> fields)
+        => constraints is null
+            || fields.Any(static f => f.ValueConstraint.Kind == FieldValueConstraintKind.Unknown)
+                ? ["picklists"]
+                : [];
 
     /// <summary>A total, stable string form of a field's whole requiredness answer.</summary>
     /// <remarks>

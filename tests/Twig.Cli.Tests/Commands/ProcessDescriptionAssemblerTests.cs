@@ -52,6 +52,22 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
     public int IdentityCallCount { get; private set; }
     public int TypeListCallCount { get; private set; }
 
+    /// <summary>How many times the org-scoped picklist source was hit.</summary>
+    public int ConstraintCallCount { get; private set; }
+
+    /// <summary>
+    /// The value constraints the picklist source reports, keyed by field reference name.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Defaults to an EMPTY MAP, not to <c>null</c>. An empty map means "the source was
+    /// read and reported nothing about these fields", which resolves every field to
+    /// <c>Unknown</c>; <c>null</c> means the call FAILED and additionally puts
+    /// <c>picklists</c> in each type's unfetched list. Two different facts, and a fixture that
+    /// conflated them would make the unfetched-label test meaningless.
+    /// </remarks>
+    public IReadOnlyDictionary<string, FieldValueConstraint>? ValueConstraints { get; init; }
+        = new Dictionary<string, FieldValueConstraint>(StringComparer.OrdinalIgnoreCase);
+
     public ProcessIdentity? Identity { get; init; } = new(
         "https://dev.azure.com/ExampleOrg",
         "Twig",
@@ -114,6 +130,13 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
         }
 
         return _details.TryGetValue(typeReferenceName, out var detail) ? detail : null;
+    }
+
+    public Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
+        CancellationToken ct = default)
+    {
+        ConstraintCallCount++;
+        return Task.FromResult(ValueConstraints);
     }
 
     /// <summary>
@@ -242,7 +265,13 @@ public sealed class ProcessDescriptionAssemblerTests
                     // position. Flattening only the KIND would let the condition list's order
                     // wobble between two runs while this projection still compared equal —
                     // which is the byte-stability defect this projection exists to catch.
-                    + $"{FlattenRequiredness(field.Requiredness)}|{field.DefaultValue}|"
+                    + $"{FlattenRequiredness(field.Requiredness)}|"
+                    // 🔴 The value constraint, INCLUDING its values in their sorted positions.
+                    // Flattening only the kind would let the values' order wobble between two
+                    // runs while this projection still compared equal — which is exactly the
+                    // byte-stability defect this projection exists to catch, and picklist
+                    // values arrive from the server in author order.
+                    + $"{FlattenValueConstraint(field.ValueConstraint)}|{field.DefaultValue}|"
                     + $"{field.Customization}|{field.Description}");
             foreach (var state in type.States)
                 writer.WriteLine($"  state={state.Name}|{state.StateCategory}|{state.Order}");
@@ -272,6 +301,20 @@ public sealed class ProcessDescriptionAssemblerTests
                 string.Join("+", c.Clauses.Select(static cl =>
                     $"{cl.ConditionType}:{cl.Field}:{cl.Value}"))))
             + "]";
+
+    /// <summary>
+    /// A total string form of a field's value constraint, including every value in the order
+    /// the assembler put it in.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The ORDER of the values is included deliberately, for the same reason the conditions'
+    /// is: picklist items arrive in the order whoever authored the list happened to type them,
+    /// and the byte-stability tests are the only thing standing between that and a document
+    /// that diffs dirty against itself. A projection that emitted only the kind, or that
+    /// sorted here, would hide exactly that defect.
+    /// </remarks>
+    private static string FlattenValueConstraint(FieldValueConstraint constraint)
+        => $"{constraint.Kind}({constraint.ListName})[{string.Join(",", constraint.Values)}]";
 
     // ═══════════════════════════════════════════════════════════════
     //  Test 1 — byte-stability
@@ -524,18 +567,15 @@ public sealed class ProcessDescriptionAssemblerTests
     }
 
     /// <summary>
-    /// 🔴 The document declares what it is NOT yet trustworthy about — and does NOT declare a
-    /// gap it has since closed.
+    /// 🔴 The document declares every content item it does NOT yet carry — and declares no gap
+    /// it has closed.
     /// </summary>
     /// <remarks>
-    /// At 0.1 the one remaining reservation is picklist values (AB#237). Conditional
-    /// requiredness (AB#236) was on this list and is not any more: the rules source is merged
-    /// now, so leaving the reservation in place would make the document lie in the OTHER
-    /// direction — warning a reader off an answer it does in fact give.
-    /// <para>
-    /// Both halves are asserted. A test that only checked the surviving gap would pass
-    /// against an implementation that still declared the closed one.
-    /// </para>
+    /// Both halves matter and they pull in opposite directions. Declaring a CLOSED gap warns a
+    /// reader off an answer the document does give; failing to declare an OPEN one lets a
+    /// silent omission pass as completeness. AB#237 originally emptied this list, which turned
+    /// three genuinely-absent Decision 4 items into an affirmative claim that nothing was
+    /// missing — caught in review, and this test is the guard against repeating it.
     /// </remarks>
     [Fact]
     public async Task Assemble_HeaderDeclaresTheKnownGapsWithTheirTickets()
@@ -545,18 +585,42 @@ public sealed class ProcessDescriptionAssemblerTests
         description.ShouldNotBeNull();
 
         var gaps = description.Header.KnownGaps;
-        gaps.ShouldContain(g => g.Subject == "picklistValues" && g.TrackedIn == "AB#237");
 
-        // 🔴 AB#236 landed: the merge is done, so the reservation must be gone.
+        // 🔴 AB#237 landed: the constraint merge is done, so this reservation must be gone.
+        gaps.ShouldNotContain(
+            g => g.Subject == "picklistValues",
+            "value constraints are merged from the org field source now — declaring it a gap "
+            + "would warn a reader off an answer this document does give");
+        gaps.ShouldNotContain(g => g.TrackedIn == "AB#237");
+
+        // 🔴 AB#236 landed too: same reasoning, asserted so a revert of either shows up here.
         gaps.ShouldNotContain(
             g => g.Subject == "conditionalRequiredness",
             "requiredness is merged from the rules source now — declaring it a gap would warn "
             + "a reader off an answer this document does give");
         gaps.ShouldNotContain(g => g.TrackedIn == "AB#236");
 
-        // Sorted, like everything else, so the reservations do not swap between two documents.
+        // 🔴 …and the content the document genuinely does NOT carry is declared. Decision 4
+        // requires rules, behaviour membership and form layout per type; none has shipped.
+        // Without these the artifact would silently omit three of six per-type content items
+        // while its header implied completeness.
+        gaps.ShouldContain(g => g.Subject == "rules" && g.TrackedIn == "AB#238");
+        gaps.ShouldContain(g => g.Subject == "behaviourMembership" && g.TrackedIn == "AB#238");
+        gaps.ShouldContain(g => g.Subject == "formLayout" && g.TrackedIn == "AB#238");
+
+        // The closed set, so an invented fourth reservation for something the document DOES
+        // answer would red here.
+        gaps.Select(g => g.Subject)
+            .ShouldBe(["behaviourMembership", "formLayout", "rules"]);
+
+        // Sorted, like everything else, so two documents' reservations cannot swap positions.
         gaps.Select(g => g.Subject)
             .ShouldBe([.. gaps.Select(g => g.Subject).OrderBy(x => x, StringComparer.Ordinal)]);
+
+        // Every gap names a ticket a reader can go and look up — a reservation with no tracker
+        // is a dead end rather than a promise.
+        gaps.ShouldAllBe(g => !string.IsNullOrWhiteSpace(g.TrackedIn));
+        gaps.ShouldAllBe(g => !string.IsNullOrWhiteSpace(g.Detail));
     }
 
     /// <summary>
@@ -570,15 +634,28 @@ public sealed class ProcessDescriptionAssemblerTests
         var assembler = BuildAssembler(source);
 
         await assembler.AssembleAsync(null, FixedCapture);
-        var afterFirst = source.TypeListCallCount;
+
+        var afterFirstTypes = source.TypeListCallCount;
+        var afterFirstConstraints = source.ConstraintCallCount;
 
         await assembler.AssembleAsync(null, FixedCapture);
 
-        afterFirst.ShouldBeGreaterThan(0);
+        afterFirstTypes.ShouldBeGreaterThan(0);
         source.TypeListCallCount.ShouldBeGreaterThan(
-            afterFirst,
+            afterFirstTypes,
             "the second run must re-fetch — a cache would trade away the one property the "
             + "artifact exists to have");
+
+        // 🔴 The picklist source is covered too (AB#237). It is the one source fetched ONCE
+        // per run rather than once per type, which makes it the most tempting thing in this
+        // class to memoize across runs — and the ruling is no caching of ANY kind, not "no
+        // caching of the sources that happened to exist when the rule was written". A new
+        // source added without extending this test is how the ruling quietly stops holding.
+        afterFirstConstraints.ShouldBeGreaterThan(0);
+        source.ConstraintCallCount.ShouldBeGreaterThan(
+            afterFirstConstraints,
+            "the second run must re-resolve value constraints — a stale picklist is a stale "
+            + "claim about what the server accepts");
     }
 
     /// <summary>
@@ -1366,7 +1443,409 @@ public sealed class ProcessDescriptionAssemblerTests
         couldNotRead.Fields.Single().Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
         genuinelyNone.Fields.Single().Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
 
-        couldNotRead.Unfetched.ShouldBe(["rules"]);
-        genuinelyNone.Unfetched.ShouldBeEmpty();
+        // 🔴 Asserted by CONTAINMENT on the label under test rather than by exact list
+        // equality. This fixture says nothing about value constraints, so its fields are
+        // legitimately Unknown and `picklists` is legitimately present too (AB#237) — pinning
+        // the whole list would make this test fail whenever an unrelated label is added, which
+        // is a maintenance trap rather than a defence of the rules label.
+        couldNotRead.Unfetched.ShouldContain("rules");
+        genuinelyNone.Unfetched.ShouldNotContain("rules");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Tests 4 and 5 — accepted values, and honest silence (AB#237)
+    //
+    //  🔴 THESE SHIP TOGETHER, and the spec says so in bold. Alone, test 4 ("an
+    //  unconstrained field is not reported as constrained") passes against an implementation
+    //  that never emits picklist data AT ALL. Test 5 — a genuinely picklist-backed field
+    //  carries its resolved values — is what proves test 4 is not passing by simply never
+    //  emitting anything. Deleting either one hollows out the other.
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The AB#237 fixture: one field the org route reports as genuinely picklist-backed, and
+    /// one it reports, explicitly, as not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Both fields are named and typed like choice lists on purpose.</b>
+    /// <c>Custom.ExecutionMode</c> and <c>Custom.PriorityBand</c> are indistinguishable by
+    /// name, type or shape — only the SOURCE tells them apart. A name-matching implementation
+    /// would report both the same way and fail the pair, which is what makes the ban on
+    /// heuristics testable rather than merely stated.
+    /// </para>
+    /// <para>
+    /// The values are deliberately supplied in a NON-sorted order, so an assembler that
+    /// carried server order through would emit them differently from one that sorted.
+    /// </para>
+    /// <para>
+    /// 🔴 <paramref name="constraintsFailed"/> is a SEPARATE flag rather than passing
+    /// <c>null</c> for <paramref name="constraints"/>. An optional parameter defaulted with
+    /// <c>??</c> cannot distinguish "caller passed nothing" from "caller passed null on
+    /// purpose", so the failed-call fixture would have silently received the default map and
+    /// the test asserting the failure path would have been testing the success path.
+    /// </para>
+    /// </remarks>
+    private static ScriptedDescriptionSource BuildConstraintSource(
+        IReadOnlyDictionary<string, FieldValueConstraint>? constraints = null,
+        bool constraintsFailed = false)
+    {
+        var types = new[] { "Niflheim.Decision" };
+
+        return new ScriptedDescriptionSource(types, new Dictionary<string, ProcessTypeDetail>
+        {
+            ["Niflheim.Decision"] = new(
+                Fields:
+                [
+                    // 🔴 Identical in every respect a heuristic could key on — same type, same
+                    // customization, both named like enums. Only the org source distinguishes.
+                    new ProcessTypeField(
+                        "Custom.ExecutionMode", "Execution Mode", "string", null, false, "custom", false, ""),
+                    new ProcessTypeField(
+                        "Custom.PriorityBand", "Priority Band", "string", null, false, "custom", false, ""),
+                ],
+                States: [],
+                Transitions: [],
+                Unfetched: null,
+                Rules: []),
+        })
+        {
+            ValueConstraints = constraintsFailed
+                ? null
+                : constraints ?? new Dictionary<string, FieldValueConstraint>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    // Values in AUTHOR order, not sorted — the assembler must impose the order.
+                    ["Custom.ExecutionMode"] = FieldValueConstraint.ConstrainedTo(
+                        "WayfinderExecutionMode", ["HITL", "AFK"]),
+                    // 🔴 The EXPLICIT negative: the server states this field is not list-backed.
+                    ["Custom.PriorityBand"] = FieldValueConstraint.Unconstrained,
+                },
+        };
+    }
+
+    /// <summary>
+    /// 🔴 Test 5. A genuinely picklist-backed field carries its RESOLVED values.
+    /// </summary>
+    /// <remarks>
+    /// Without this, test 4 below is hollow: an implementation emitting no picklist data at
+    /// all would satisfy "an unconstrained field is not reported as constrained" trivially.
+    /// Since this org's fields are the evidence base and the fixture is synthetic, the
+    /// precondition that the fixture is GENUINELY picklist-backed is asserted explicitly —
+    /// otherwise the pair tests nothing twice.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_PicklistBackedField_CarriesItsResolvedValues()
+    {
+        var source = BuildConstraintSource();
+
+        // 🔴 THE PRECONDITION. Read back through the seam under test: the source must really
+        // report this field as list-backed with values, or this test passes against an
+        // implementation that resolves nothing.
+        var fromSource = await source.GetFieldValueConstraintsAsync();
+        fromSource.ShouldNotBeNull();
+        fromSource["Custom.ExecutionMode"].Kind.ShouldBe(
+            FieldValueConstraintKind.ListConstrained,
+            "the fixture must be genuinely picklist-backed, or this test is a tautology");
+        fromSource["Custom.ExecutionMode"].Values.ShouldNotBeEmpty();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var field = description.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.ExecutionMode");
+
+        field.ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.ListConstrained);
+        field.ValueConstraint.ListName.ShouldBe("WayfinderExecutionMode");
+
+        // 🔴 The values are CARRIED — a kind flag alone would tell a caller its value must
+        // come from a list without saying which, a reservation the reader cannot act on.
+        // Asserted in SORTED order, not the fixture's author order, so an assembler that
+        // passed server order through fails here.
+        field.ValueConstraint.Values.ShouldBe(["AFK", "HITL"]);
+    }
+
+    /// <summary>
+    /// 🔴 Test 4. A field that LOOKS like a choice list but is not picklist-backed is reported
+    /// as unconstrained — as a fact read off the server, never as a guess.
+    /// </summary>
+    /// <remarks>
+    /// The honesty constraint (b) proper, and the mirror of AB#236: where that ticket was
+    /// about a document that UNDERSTATED requiredness, this is about one that could OVERSTATE
+    /// constraint. The fixture's two fields are indistinguishable by name and type, so an
+    /// implementation guessing from either reports them alike and fails this test or its pair.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldThatIsNotPicklistBacked_IsReportedAsUnconstrained()
+    {
+        var source = BuildConstraintSource();
+
+        // 🔴 THE PRECONDITION for the no-heuristic claim: the two fields really are alike in
+        // every attribute a name- or type-matching implementation could key on. Without this
+        // the test could pass merely because the two happened to differ somewhere else.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Decision");
+        var constrained = detail!.Fields.Single(f => f.ReferenceName == "Custom.ExecutionMode");
+        var unconstrained = detail.Fields.Single(f => f.ReferenceName == "Custom.PriorityBand");
+        constrained.Type.ShouldBe(unconstrained.Type);
+        constrained.Customization.ShouldBe(unconstrained.Customization);
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var field = description.Types[0].Fields
+            .Single(f => f.ReferenceName == "Custom.PriorityBand");
+
+        field.ValueConstraint.Kind.ShouldBe(
+            FieldValueConstraintKind.Unconstrained,
+            "the server states this field is not list-backed — reporting it as constrained "
+            + "would tell a caller its value must come from a list the server does not enforce");
+        field.ValueConstraint.Values.ShouldBeEmpty();
+        field.ValueConstraint.ListName.ShouldBeNull();
+
+        // 🔴 And the OTHER field, in the same document, is constrained. This is what stops
+        // this test passing against an implementation that reports every field unconstrained
+        // — the hollow-guard failure the spec names for exactly this pair.
+        description.Types[0].Fields.Single(f => f.ReferenceName == "Custom.ExecutionMode")
+            .ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.ListConstrained);
+    }
+
+    /// <summary>
+    /// 🔴 An UNREADABLE picklist source is labelled, not laundered into "unconstrained".
+    /// </summary>
+    /// <remarks>
+    /// The count-shaped-404 hazard again. "We could not read the lists" and "the server
+    /// accepts anything here" are different claims and only one is safe to act on — and the
+    /// second is this ticket's own lie, arriving through a failed fetch instead of a bad
+    /// guess. So a failed constraint call yields <c>unknown</c> per field AND puts
+    /// <c>picklists</c> in the type's unfetched list.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WhenThePicklistCallFailed_FieldsAreUnknownAndTheTypeIsLabelled()
+    {
+        // 🔴 constraintsFailed, not `constraints: null`: the call FAILED. An empty or default
+        // map would mean the source was read and reported something, which is a different
+        // fact — and an optional parameter cannot express "null on purpose".
+        var source = BuildConstraintSource(constraintsFailed: true);
+        source.ValueConstraints.ShouldBeNull();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var type = description.Types[0];
+
+        foreach (var field in type.Fields)
+        {
+            field.ValueConstraint.Kind.ShouldBe(
+                FieldValueConstraintKind.Unknown,
+                "a failed picklist call must not render as 'the server accepts anything'");
+        }
+
+        // 🔴 …and the failure is NAMED. Without the label, `unknown` on every field is the
+        // only signal, and a reader diffing two documents would see a clean diff where one
+        // side simply failed to ask.
+        type.Unfetched.ShouldContain("picklists");
+    }
+
+    /// <summary>
+    /// A field the org source does not report at all is <c>unknown</c>, not unconstrained.
+    /// </summary>
+    /// <remarks>
+    /// The map is org-scoped and the field list is type-scoped, so a row present on one and
+    /// absent from the other is a source disagreement. Inventing "unconstrained" for it would
+    /// be a confident claim nothing supports — and it is the same overstatement the ticket
+    /// removes, reached by a different route.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldMissingFromTheConstraintSource_IsUnknownRatherThanUnconstrained()
+    {
+        // The source answers about one of the two fields only.
+        var source = BuildConstraintSource(new Dictionary<string, FieldValueConstraint>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["Custom.ExecutionMode"] = FieldValueConstraint.Unconstrained,
+        });
+
+        // Precondition: the map is non-null (the call SUCCEEDED) and genuinely omits the other
+        // field — so this is about a partial answer, not a failed one.
+        var fromSource = await source.GetFieldValueConstraintsAsync();
+        fromSource.ShouldNotBeNull();
+        fromSource.ShouldNotContainKey("Custom.PriorityBand");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.PriorityBand")
+            .ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.Unknown);
+
+        // 🔴 The type IS labelled, even though the source call SUCCEEDED. A partial failure is
+        // still a failure: without the label the document would say `unknown` on this field
+        // while its unfetched list said everything was read — claiming "I could not read this"
+        // and "everything was read" at once. The label is derived from the resolved answers,
+        // not from whether the call came back.
+        description.Types[0].Unfetched.ShouldContain("picklists");
+    }
+
+    /// <summary>
+    /// 🔴 A PARTIAL picklist failure is labelled too, not only a total one.
+    /// </summary>
+    /// <remarks>
+    /// The defect this reds against: labelling only on a null map lets the document emit
+    /// <c>valueConstraint: unknown</c> for a field while that type's <c>unfetched</c> list is
+    /// EMPTY — simultaneously claiming "I could not read this" and "everything was read".
+    /// A reader diffing two documents sees a clean unfetched column and has no signal that any
+    /// constraint answer is missing, which is this ticket's own failure mode arriving one
+    /// layer down. The label is therefore derived from the RESOLVED answers rather than from
+    /// whether the call came back.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WhenOnlySomeConstraintsResolved_TheTypeIsStillLabelled()
+    {
+        // The call SUCCEEDED — one field resolved, the other came back Unknown.
+        var source = BuildConstraintSource(new Dictionary<string, FieldValueConstraint>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["Custom.ExecutionMode"] = FieldValueConstraint.ConstrainedTo("L", ["A"]),
+            ["Custom.PriorityBand"] = FieldValueConstraint.Unknown,
+        });
+
+        // Precondition: the map is NON-null, so this is a partial failure and not the total
+        // one the other test covers. Without this the two tests would be the same test.
+        var fromSource = await source.GetFieldValueConstraintsAsync();
+        fromSource.ShouldNotBeNull();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var type = description.Types[0];
+
+        // Precondition: one field really did resolve, so this is not the total-failure shape
+        // wearing a different hat.
+        type.Fields.Single(f => f.ReferenceName == "Custom.ExecutionMode")
+            .ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.ListConstrained);
+        type.Fields.Single(f => f.ReferenceName == "Custom.PriorityBand")
+            .ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.Unknown);
+
+        type.Unfetched.ShouldContain(
+            "picklists",
+            "an unlabelled Unknown claims 'I could not read this' and 'everything was read' "
+            + "at the same time");
+    }
+
+    /// <summary>
+    /// …and a type whose constraints ALL resolved is not labelled.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The other side. Without this, an implementation that labelled every type
+    /// unconditionally would pass every assertion above while making the label meaningless —
+    /// a false reservation is as much a lie as a missing one.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WhenEveryConstraintResolved_TheTypeIsNotLabelled()
+    {
+        var source = BuildConstraintSource();
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        description.ShouldNotBeNull();
+
+        var type = description.Types[0];
+
+        // Precondition: nothing is Unknown, so the label genuinely has no reason to fire.
+        type.Fields.ShouldAllBe(f => f.ValueConstraint.Kind != FieldValueConstraintKind.Unknown);
+
+        type.Unfetched.ShouldNotContain("picklists");
+    }
+
+    /// <summary>
+    /// 🔴 The constraint join is case-INSENSITIVE on the field reference name.
+    /// </summary>
+    /// <remarks>
+    /// The org field route and the per-type fields route are different surfaces, and this
+    /// route family is already known to be inconsistent about spelling. An ordinal-exact join
+    /// would drop a real constraint over a casing difference and report a list-backed field as
+    /// unconstrained — byte-identical to a field that genuinely is, and with no unfetched
+    /// label to catch it. Independent review caught exactly this class of defect in AB#236.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_ConstraintKeyedWithDifferentCasing_StillJoinsToTheField()
+    {
+        var source = BuildConstraintSource(new Dictionary<string, FieldValueConstraint>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            // Deliberately spelled differently from the fields route's `Custom.ExecutionMode`.
+            ["custom.executionmode"] = FieldValueConstraint.ConstrainedTo("List", ["B", "A"]),
+        });
+
+        // Precondition: the two spellings really do differ, or the join is not exercised.
+        var detail = await source.GetTypeDetailAsync("Niflheim.Decision");
+        var fieldsSpelling = detail!.Fields
+            .Single(f => string.Equals(f.ReferenceName, "Custom.ExecutionMode", StringComparison.OrdinalIgnoreCase))
+            .ReferenceName;
+        fieldsSpelling.ShouldNotBe(
+            "custom.executionmode",
+            "the two routes must genuinely spell the reference name differently, or the "
+            + "case-insensitive join is not exercised");
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        var field = description!.Types[0].Fields.Single(f => f.ReferenceName == fieldsSpelling);
+        field.ValueConstraint.Kind.ShouldBe(
+            FieldValueConstraintKind.ListConstrained,
+            "a casing difference between two routes must not silently drop a real constraint");
+        field.ValueConstraint.Values.ShouldBe(["A", "B"]);
+    }
+
+    /// <summary>
+    /// 🔴 Two fields differing ONLY in their value constraint order deterministically.
+    /// </summary>
+    /// <remarks>
+    /// The field sort's tiebreak chain must stay TOTAL over every document-visible member.
+    /// Adding <c>ValueConstraint</c> without extending the chain would leave two rows agreeing
+    /// on reference name, display name and type but constrained to different lists falling
+    /// through <c>OrderBy</c>'s stability to WIRE order — reintroducing the exact
+    /// non-determinism the assembler exists to remove, and silently. Independent review caught
+    /// AB#236 adding a member without extending the chain; this test reds against repeating it.
+    /// <para>
+    /// Modelled on <c>Assemble_FieldsDifferingOnlyInRequiredness_AreOrderedDeterministically</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FieldsDifferingOnlyInValueConstraint_AreOrderedDeterministically()
+    {
+        // Two rows identical in EVERY other document-visible member. Only the constraint can
+        // break the tie.
+        ProcessTypeField Row() => new(
+            "Custom.Duplicate", "Duplicate", "string", null, false, "custom", false, "");
+
+        var types = new[] { "Niflheim.Decision" };
+
+        ScriptedDescriptionSource Build(IReadOnlyList<string> values) =>
+            new(types, new Dictionary<string, ProcessTypeDetail>
+            {
+                ["Niflheim.Decision"] = new(
+                    Fields: [Row(), Row()],
+                    States: [],
+                    Transitions: [],
+                    Unfetched: null,
+                    Rules: []),
+            })
+            {
+                ValueConstraints = new Dictionary<string, FieldValueConstraint>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Custom.Duplicate"] = FieldValueConstraint.ConstrainedTo("L", values),
+                },
+            };
+
+        // The SAME constraint arriving with its values in two different server orders must
+        // produce the identical document — the values are sorted, so the rows cannot swap.
+        var first = await BuildAssembler(Build(["Zulu", "Alpha"])).AssembleAsync(null, FixedCapture);
+        var second = await BuildAssembler(Build(["Alpha", "Zulu"])).AssembleAsync(null, FixedCapture);
+
+        first.ShouldNotBeNull();
+        second.ShouldNotBeNull();
+        Flatten(first).ShouldBe(Flatten(second));
+
+        // Precondition: there really are two otherwise-identical rows, so the tiebreak chain
+        // is genuinely exercised rather than the test comparing a single row to itself.
+        first.Types[0].Fields.Count.ShouldBe(2);
     }
 }

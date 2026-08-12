@@ -597,15 +597,15 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     }
 
     /// <summary>
-    /// The known gaps reach every rendering too — for the same reason. And a gap that has been
-    /// CLOSED is absent from every rendering.
+    /// The known gaps reach every rendering — and a gap that has been CLOSED reaches none.
     /// </summary>
     /// <remarks>
-    /// AB#236 merged the rules source, so <c>conditionalRequiredness</c> is no longer a
-    /// reservation. Leaving it in the artifact would warn a reader off an answer the document
-    /// now gives — a lie in the opposite direction from the one the reservation existed to
-    /// prevent. The negative half is asserted in both renderings because the defect this test
-    /// family already caught was one format carrying header content and the other not.
+    /// AB#236 merged the rules source and AB#237 merged the constraint source, so neither
+    /// <c>conditionalRequiredness</c> nor <c>picklistValues</c> is a reservation any more.
+    /// Leaving either in the artifact would warn a reader off an answer the document now
+    /// gives. The surviving reservations are Decision 4 content this build genuinely does not
+    /// carry, and they must reach BOTH renderings — the defect this test family already caught
+    /// was one format carrying header content and the other not.
     /// </remarks>
     [Theory]
     [InlineData("json")]
@@ -617,10 +617,185 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         await BuildCommand().ExecuteAsync(null, path, format);
 
         var content = await File.ReadAllTextAsync(path);
-        content.ShouldContain("picklistValues");
-        content.ShouldContain("AB#237");
+
+        // The open reservations, in both renderings.
+        content.ShouldContain("formLayout");
+        content.ShouldContain("AB#238");
+
+        // The closed ones, in neither.
+        content.ShouldNotContain("picklistValues");
+        content.ShouldNotContain("AB#237");
         content.ShouldNotContain("conditionalRequiredness");
         content.ShouldNotContain("AB#236");
+    }
+
+    /// <summary>
+    /// 🔴 The human rendering warns, in prose, about what the document does not carry.
+    /// </summary>
+    /// <remarks>
+    /// An incomplete document that only admits its incompleteness in the machine format would
+    /// let the person most likely to over-trust it never see the warning.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_HumanRendering_WarnsAboutWhatTheDocumentDoesNotCarry()
+    {
+        var path = TempFile(".txt");
+
+        // Precondition: there really are gaps to declare, or this asserts the wrong branch of
+        // BuildHeader. The empty-list branch is covered separately.
+        ProcessDescriptionAssembler.KnownGaps.ShouldNotBeEmpty();
+
+        await BuildCommand().ExecuteAsync(null, path, "human");
+
+        var content = await File.ReadAllTextAsync(path);
+        content.ShouldContain("KNOWN INCOMPLETE");
+        content.ShouldContain("formLayout");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Value constraints in the RENDERED document (AB#237)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 Tests 4 and 5 at the RENDERED surface: the constrained field's values reach the
+    /// file, and the unconstrained one is stated as unconstrained rather than left blank.
+    /// </summary>
+    /// <remarks>
+    /// Asserted on the artifact a person actually reads, not on the model. Both halves are in
+    /// ONE test on purpose — split apart, the negative half passes against a renderer that
+    /// emits no constraint data at all, which is the hollow guard the spec names for this pair.
+    /// <para>
+    /// 🔴 A BLANK cell would not satisfy the positive claim. "Unconstrained" is a fact this
+    /// document asserts, and a reader cannot tell an empty cell from a renderer that dropped
+    /// the column.
+    /// </para>
+    /// <para>
+    /// 🔴 Asserted against the COMPLETE formats only, and that is not a gap. The abridged
+    /// rendering carries identity and counts per type and emits no field rows at all — for
+    /// any field property, not just this one — so demanding a field's values there would be
+    /// asserting the summary is not a summary. Decision 8 makes <c>-o json</c> the format
+    /// that carries everything, and the abridged one declares itself as incomplete rather
+    /// than silently omitting. Every alias that produces the complete document is covered so
+    /// the guard cannot be satisfied by one renderer while another drops the column.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-full")]
+    [InlineData("json-compact")]
+    public async Task Execute_RenderedDocument_CarriesValuesAndStatesUnconstrainedAsAFact(string format)
+    {
+        // Precondition: the format under test really is one that promises the complete
+        // document — otherwise this asserts against a rendering that is entitled to omit.
+        ProcessDescriptionCommand.IsCompleteFormat(format).ShouldBeTrue();
+
+        var path = TempFile(".out");
+
+        var source = new ScriptedDescriptionSource(
+            ["Niflheim.Decision"],
+            new Dictionary<string, ProcessTypeDetail>
+            {
+                ["Niflheim.Decision"] = new(
+                    Fields:
+                    [
+                        // Indistinguishable by name and type — only the source separates them.
+                        new ProcessTypeField(
+                            "Custom.ExecutionMode", "Execution Mode", "string", null, false, "custom", false, ""),
+                        new ProcessTypeField(
+                            "Custom.PriorityBand", "Priority Band", "string", null, false, "custom", false, ""),
+                    ],
+                    States: [],
+                    Transitions: [],
+                    Unfetched: null,
+                    Rules: []),
+            })
+        {
+            ValueConstraints = new Dictionary<string, FieldValueConstraint>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["Custom.ExecutionMode"] = FieldValueConstraint.ConstrainedTo(
+                    "WayfinderExecutionMode", ["HITL", "AFK"]),
+                ["Custom.PriorityBand"] = FieldValueConstraint.Unconstrained,
+            },
+        };
+
+        // Precondition: the fixture genuinely carries one of each, or one half of the pair is
+        // never exercised and the other becomes a tautology.
+        var constraints = await source.GetFieldValueConstraintsAsync();
+        constraints!["Custom.ExecutionMode"].Kind.ShouldBe(FieldValueConstraintKind.ListConstrained);
+        constraints["Custom.PriorityBand"].Kind.ShouldBe(FieldValueConstraintKind.Unconstrained);
+
+        await BuildCommand(source).ExecuteAsync(null, path, format);
+
+        var content = await File.ReadAllTextAsync(path);
+
+        // 🔴 Parsed and bound PER FIELD, not grepped. Whole-file substring assertions would be
+        // satisfied by a renderer that stamped `unconstrained` on BOTH fields while still
+        // emitting allowedValues on one — the fixture is deliberately built so the two rows
+        // are indistinguishable except by constraint, which makes the binding the only thing
+        // worth asserting.
+        var fields = ParseFieldRows(content);
+
+        var constrained = fields["Custom.ExecutionMode"];
+        var unconstrained = fields["Custom.PriorityBand"];
+
+        // Test 5: the resolved values reach the artifact, sorted, on the right field.
+        constrained.Constraint.ShouldBe("list");
+        constrained.List.ShouldBe("WayfinderExecutionMode");
+        constrained.AllowedValues.ShouldBe("AFK, HITL");
+
+        // Test 4: the negative is STATED on the other field, not left blank.
+        unconstrained.Constraint.ShouldBe(
+            "unconstrained",
+            "'unconstrained' is a fact this document asserts — a blank cell is indistinguishable "
+            + "from a renderer that dropped the column");
+        unconstrained.AllowedValues.ShouldBeNullOrEmpty();
+    }
+
+    /// <summary>
+    /// The rendered field rows, keyed by reference name, so an assertion can bind a value to
+    /// the field it belongs to instead of to the file as a whole.
+    /// </summary>
+    private static Dictionary<string, (string? Constraint, string? List, string? AllowedValues)>
+        ParseFieldRows(string json)
+    {
+        var rows = new Dictionary<string, (string?, string?, string?)>(StringComparer.Ordinal);
+
+        void Walk(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    if (element.TryGetProperty("valueConstraint", out _)
+                        && element.TryGetProperty("referenceName", out var reference))
+                    {
+                        rows[reference.GetString()!] = (
+                            Read(element, "valueConstraint"),
+                            Read(element, "valueList"),
+                            Read(element, "allowedValues"));
+                    }
+
+                    foreach (var property in element.EnumerateObject())
+                        Walk(property.Value);
+                    break;
+
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                        Walk(item);
+                    break;
+            }
+        }
+
+        static string? Read(JsonElement element, string name)
+            => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+
+        using var document = JsonDocument.Parse(json);
+        Walk(document.RootElement);
+
+        rows.ShouldNotBeEmpty("no field rows were found in the rendered document at all");
+        return rows;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -678,12 +853,15 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 The document declares that it is KNOWN INCOMPLETE, on its face, in the file itself.
+    /// 🔴 The document carries its <c>knownGaps</c> mechanism on its face, in the file itself,
+    /// even when there is nothing to declare.
     /// </summary>
     /// <remarks>
     /// The reservation must survive the session that shipped it — a note in a PR description
-    /// does not travel with the file. At 0.1 the surviving reservation is picklist values
-    /// (AB#237); conditional requiredness was one until AB#236 merged the rules source.
+    /// does not travel with the file. Both of 0.1's reservations are now closed (AB#236's
+    /// rules merge, AB#237's constraint merge), so the KEY must still be present while its
+    /// contents are empty: a document that dropped the key entirely could not be distinguished
+    /// from one built before reservations existed.
     /// </remarks>
     [Fact]
     public async Task Execute_WrittenDocumentDeclaresItsKnownIncompleteness()
@@ -694,12 +872,14 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         var content = await File.ReadAllTextAsync(path);
 
+        // The mechanism, and the reservations it currently carries.
         content.ShouldContain("knownGaps");
-        content.ShouldContain("picklistValues");
-        content.ShouldContain("AB#237");
+        content.ShouldContain("AB#238");
 
-        // 🔴 The closed reservation is gone. Declaring a gap the document no longer has warns
-        // a reader off an answer it does give.
+        // 🔴 Both closed reservations are gone. Declaring a gap the document no longer has
+        // warns a reader off an answer it does give.
+        content.ShouldNotContain("picklistValues");
+        content.ShouldNotContain("AB#237");
         content.ShouldNotContain("conditionalRequiredness");
         content.ShouldNotContain("AB#236");
     }

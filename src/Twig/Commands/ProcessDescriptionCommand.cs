@@ -25,12 +25,11 @@ namespace Twig.Commands;
 /// in scripts — so a caller does not learn a second convention inside one command family.
 /// </para>
 /// <para>
-/// 🔴 <b>KNOWN INCOMPLETE at descriptor version 0.1.</b> The document is not yet trustworthy
-/// about picklist values (AB#237). It says so on its face, in its own header, rather than
-/// presenting a partial truth as a whole one — see
-/// <see cref="ProcessDescriptionAssembler.KnownGaps"/>. Conditional requiredness was on that
-/// list until AB#236 merged the rules source; requiredness is now reported in a form that
-/// carries the conditional case.
+/// 🔴 <b>Descriptor version 0.1 now declares NO known gaps.</b> Both reservations it shipped
+/// with have been closed by the tickets that named them: conditional requiredness by AB#236's
+/// rules merge, picklist values by AB#237's constraint merge. The mechanism is kept — see
+/// <see cref="ProcessDescriptionAssembler.KnownGaps"/> — and the human rendering states the
+/// absence positively rather than printing a warning heading with nothing under it.
 /// </para>
 /// <para>
 /// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation Decisions
@@ -310,13 +309,31 @@ internal sealed class ProcessDescriptionCommand(
             // 🔴 The human reader is told the same reservation, in prose. An incomplete
             // document that only admits its incompleteness in the machine format would let
             // the person most likely to over-trust it never see the warning.
+            //
+            // 🔴 The EMPTY case is rendered POSITIVELY rather than as a bare heading (AB#237
+            // emptied this list). "KNOWN INCOMPLETE — do not treat this document as
+            // authoritative about:" followed by nothing is a worse artifact than either
+            // state: it reads as a warning whose subject was lost, so a reader cannot tell
+            // whether the document has no reservations or the renderer dropped them. Dropping
+            // the section entirely was the other candidate and is worse still — silence is
+            // exactly what an older, genuinely-incomplete document also produces in a format
+            // that omitted the section, so the reader could not distinguish "makes no
+            // reservations" from "does not implement reservations". Saying so in one line
+            // makes the absence a CLAIM, which is what a diff of two documents needs.
             new DocumentField(
                 "knownGapsHuman",
-                new RenderNode.Section("KNOWN INCOMPLETE — do not treat this document as authoritative about:",
-                [
-                    .. header.KnownGaps.Select(gap => (RenderNode)new RenderNode.Text(
-                        $"  {gap.Subject} ({gap.TrackedIn}): {gap.Detail}")),
-                ]),
+                header.KnownGaps.Count == 0
+                    ? new RenderNode.Section(null,
+                    [
+                        new RenderNode.Text(
+                            "This document declares no known gaps: it makes no reservations "
+                            + "about its own completeness."),
+                    ])
+                    : new RenderNode.Section("KNOWN INCOMPLETE — do not treat this document as authoritative about:",
+                    [
+                        .. header.KnownGaps.Select(gap => (RenderNode)new RenderNode.Text(
+                            $"  {gap.Subject} ({gap.TrackedIn}): {gap.Detail}")),
+                    ]),
                 Audience: RenderAudience.HumanOnly),
         ]);
     }
@@ -354,6 +371,23 @@ internal sealed class ProcessDescriptionCommand(
                             ["requiredWhen"] = field.Requiredness.Conditions.Count == 0
                                 ? RenderCell.DisplayOnly(string.Empty)
                                 : RenderCell.String(DescribeConditions(field.Requiredness)),
+                            // 🔴 Whether the field's value is restricted to a list, read as
+                            // an explicit server fact (AB#237). The mirror of `requiredness`:
+                            // that one could understate what the process demands, this one
+                            // could OVERSTATE it — telling a caller its value must come from
+                            // a list when the server accepts anything. `unconstrained` is a
+                            // positive claim here, not a default, which is why `unknown` is a
+                            // separate token rather than folded into it.
+                            ["valueConstraint"] = RenderCell.String(
+                                ValueConstraintToken(field.ValueConstraint.Kind)),
+                            ["valueList"] = field.ValueConstraint.ListName is null
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.String(field.ValueConstraint.ListName),
+                            // Walked in the assembler's sorted order and joined; no ordering
+                            // is decided here.
+                            ["allowedValues"] = field.ValueConstraint.Values.Count == 0
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.String(string.Join(", ", field.ValueConstraint.Values)),
                             ["defaultValue"] = field.DefaultValue is null
                                 ? RenderCell.DisplayOnly(string.Empty)
                                 : RenderCell.String(field.DefaultValue),
@@ -466,6 +500,28 @@ internal sealed class ProcessDescriptionCommand(
                 clause.Value is null
                     ? $"{clause.ConditionType} {clause.Field}"
                     : $"{clause.ConditionType} {clause.Field} = {clause.Value}"))));
+
+    /// <summary>
+    /// The document's word for one value-constraint case.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Four distinct tokens, and none is a synonym for another. <c>unknown</c> is
+    /// deliberately NOT <c>unconstrained</c>: rendering an unreadable picklist source as
+    /// "unconstrained" would tell a caller the server accepts anything when nobody asked, the
+    /// most dangerous of the wrong answers because acting on it fails at the server. And
+    /// <c>suggested</c> is deliberately NOT <c>list</c>: a suggested picklist offers values in
+    /// the editor while the server enforces nothing, so calling it a constraint overstates what
+    /// the process demands. Written out rather than switch-expression-defaulted so a new enum
+    /// member cannot silently render as one of these.
+    /// </remarks>
+    private static string ValueConstraintToken(FieldValueConstraintKind kind) => kind switch
+    {
+        FieldValueConstraintKind.ListConstrained => "list",
+        FieldValueConstraintKind.ListSuggested => "suggested",
+        FieldValueConstraintKind.Unconstrained => "unconstrained",
+        FieldValueConstraintKind.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled value constraint kind."),
+    };
 
     /// <remarks>
     /// The abridged shape is deliberately unspecified by the ruling — it is a rendering

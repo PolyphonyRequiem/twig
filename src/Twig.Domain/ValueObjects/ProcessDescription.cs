@@ -214,6 +214,12 @@ internal sealed record ProcessDescriptionType(
 /// 🔴 The MERGED answer: unconditional, conditional-with-its-conditions, or never. Not a
 /// boolean, because a boolean cannot carry the conditional case without lying.
 /// </param>
+/// <param name="ValueConstraint">
+/// 🔴 Whether the field's value is restricted to a list, and to WHICH values — read as an
+/// explicit server fact, never guessed from the field's name or type. The mirror of
+/// <paramref name="Requiredness"/>: that one could understate what a process demands, this
+/// one could OVERSTATE it.
+/// </param>
 /// <param name="Customization">
 /// <c>custom</c> | <c>inherited</c> | <c>system</c>, carried verbatim from the server.
 /// </param>
@@ -225,6 +231,7 @@ internal sealed record ProcessDescriptionField(
     string Type,
     string? DefaultValue,
     FieldRequiredness Requiredness,
+    FieldValueConstraint ValueConstraint,
     string Customization,
     bool IsLocked,
     string Description);

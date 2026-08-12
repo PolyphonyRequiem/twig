@@ -97,6 +97,14 @@ internal static class AdoApiVersions
     /// not type-scoped and must never be presented as a type's field list. Type-scoped
     /// fields come from <see cref="ProcessWorkItemTypeFields"/>.
     /// </para>
+    /// <para>
+    /// 🔴 <b>Two different URLs share this constant.</b> The project-scoped
+    /// <c>{project}/_apis/wit/fields</c> (<c>AdoIterationService</c>, the field definition
+    /// sync) and the ORG-scoped <c>_apis/wit/fields</c> with no project segment
+    /// (<c>AdoProcessDescriptionSource</c>, AB#237, read for <c>isPicklist</c> /
+    /// <c>picklistId</c> only). Same version, same schema, different scope — if you change
+    /// this constant, check both callers.
+    /// </para>
     /// </summary>
     internal const string Fields = "7.1";
 
@@ -293,8 +301,11 @@ internal static class AdoApiVersions
     /// <para>
     /// 🔴 The list-all call returns metadata only — every entry has <c>items: []</c> —
     /// so the item values cost one extra call per list. Picklists are org-wide, not
-    /// per-process. Nothing on any process route names which picklist backs which field;
-    /// that association is an open capability gap, not something a version choice fixes.
+    /// per-process. Nothing on any PROCESS route names which picklist backs which field;
+    /// that association is read FIELD-FIRST off <c>_apis/wit/fields</c>, whose
+    /// <c>isPicklist</c> / <c>picklistId</c> pair carries it — see
+    /// <c>AdoProcessDescriptionSource.GetFieldValueConstraintsAsync</c> (AB#237). It was
+    /// recorded as an open capability gap until that ticket found the field-first route.
     /// </para>
     /// </summary>
     internal const string ProcessLists = "7.1-preview.1";

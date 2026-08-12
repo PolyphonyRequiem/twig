@@ -147,6 +147,36 @@ internal interface IProcessDescriptionSource
     /// </returns>
     Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists the process's behaviour CATALOGUE — every backlog level the process defines,
+    /// with its display name and rank.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>A separate call from <see cref="GetTypeDetailAsync"/> because the per-type route
+    /// is not readable on its own.</b> Per-type membership lives at
+    /// <c>workItemTypesBehaviors/{ref}/behaviors</c> and returns a bare reference —
+    /// <c>{"behavior":{"id":"Custom.3daa…"},"isDefault":true}</c>. A custom backlog level's id
+    /// is a GUID, so a document carrying the edge alone would report that a type belongs to
+    /// <c>Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f</c>: true, unreadable, and worthless in
+    /// a diff between two processes whose levels have different ids and the same name.
+    /// </para>
+    /// <para>
+    /// PROCESS-scoped, so it is the same answer for every type: fetched once per run and
+    /// joined by reference name, never per type. That join is <c>OrdinalIgnoreCase</c>, like
+    /// every other cross-route name match in this layer.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// The catalogue, or <c>null</c> when it could not be read — never an empty list standing
+    /// in for a failure. 🔴 An empty catalogue would claim the process defines no backlog
+    /// levels at all, and would silently strip every membership of its name while the document
+    /// still asserted the membership. A type whose memberships went unresolved carries
+    /// <c>behaviourCatalogue</c> in its unfetched list instead.
+    /// </returns>
+    Task<IReadOnlyList<ProcessBehaviourSummary>?> GetBehaviourCatalogueAsync(
+        CancellationToken ct = default);
 }
 
 /// <summary>Which process a description is about, and where it came from.</summary>
@@ -213,9 +243,32 @@ internal sealed record ProcessTypeSummary(
 /// this ticket removes.
 /// </para>
 /// </param>
+/// <param name="Behaviours">
+/// 🔴 Which backlog levels this type belongs to — the membership edge, resolved against the
+/// process's behaviour catalogue so the reader sees a name rather than a GUID.
+/// <para>
+/// <c>null</c> means the membership call FAILED and <c>behaviours</c> appears in
+/// <paramref name="Unfetched"/>. Distinguished from an empty list — which means the type
+/// genuinely belongs to no backlog level, a real and common state for a task-like type —
+/// because collapsing them would let "we could not ask" render as "this type appears on no
+/// backlog", which is a claim a reader would act on.
+/// </para>
+/// </param>
+/// <param name="Layout">
+/// 🔴 The type's form layout: the pages, columns, groups and controls the web editor draws.
+/// <para>
+/// <c>null</c> means the layout call FAILED and <c>formLayout</c> appears in
+/// <paramref name="Unfetched"/>. The layout route legitimately answers 404 for a type the
+/// process serves no layout for, which is also reported here as unfetched rather than as an
+/// empty layout — an empty layout is a positive claim that the form has no pages at all, and
+/// nothing observed serves one.
+/// </para>
+/// </param>
 internal sealed record ProcessTypeDetail(
     IReadOnlyList<ProcessTypeField> Fields,
     IReadOnlyList<ProcessTypeState> States,
     IReadOnlyList<ProcessTypeTransition> Transitions,
     IReadOnlyList<string>? Unfetched = null,
-    IReadOnlyList<ProcessRule>? Rules = null);
+    IReadOnlyList<ProcessRule>? Rules = null,
+    IReadOnlyList<ProcessBehaviourMembership>? Behaviours = null,
+    ProcessDescriptionLayout? Layout = null);

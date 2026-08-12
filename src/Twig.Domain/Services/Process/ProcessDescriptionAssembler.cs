@@ -1,3 +1,4 @@
+using System.Text;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
@@ -55,42 +56,62 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// carry — not merely for the ones a ticket happened to name.</b> AB#237 emptied this list
     /// by closing the last of 0.1's two original reservations, and that was a mistake caught in
     /// review: it converted three EXISTING silent omissions (rules, behaviour membership, form
-    /// layout — all required by Decision 4, all still unshipped and tracked in AB#238) into an
-    /// affirmative claim that the document omits nothing. A missing reservation is as much a
-    /// lie as a false one, and the affirmative version is worse than the silence it replaced.
+    /// layout — all required by Decision 4, all still unshipped) into an affirmative claim that
+    /// the document omits nothing. A missing reservation is as much a lie as a false one, and
+    /// the affirmative version is worse than the silence it replaced.
     /// </para>
     /// <para>
-    /// So the two CLOSED reservations are gone — conditional requiredness with AB#236's rules
-    /// merge, picklist values with AB#237's constraint merge, and declaring either now would
-    /// warn a reader off an answer this document does give — while the three genuinely-absent
-    /// content items are declared. That is the honest state: this document is trustworthy about
-    /// what it carries and says plainly what it does not carry yet.
+    /// 🔴 <b>The claim this list makes is CHECKED against Decision 4 item by item, not
+    /// assumed.</b> Decision 4 enumerates the document's content: header (organisation,
+    /// process, timestamp, descriptor version, pinned api-version per route) and, per type,
+    /// identity with customization and inheritance, fields with reference and display name,
+    /// type, requiredness, default value and picklist values, states, transitions, rules each
+    /// tagged with its customizationType, behaviour membership, and form layout. AB#234-235
+    /// carried the header, identity, fields, states and transitions; AB#236 requiredness
+    /// merged from the rules source; AB#237 picklist values; AB#238 the last three.
     /// </para>
     /// <para>
-    /// 🔴 <b>Remove an entry only when the corresponding ticket actually lands, and add one for
-    /// any content item that ships incomplete.</b> Deleting one early converts a document that
+    /// 🔴 <b>ONE reservation survives that audit, and finding it is the reason the audit is
+    /// worth doing.</b> The rule <c>id</c> is reachable and deliberately not carried — for a
+    /// good reason, but a reason that is a build JUDGEMENT rather than a ruling. An empty list
+    /// would have claimed the document omits nothing reachable, which would have been false.
+    /// The form layout is now carried WHOLE, including each level's visibility, inheritance,
+    /// contribution flag and arrangement key, and the system controls the same response
+    /// returns — all of which an earlier draft of this ticket reached and then dropped in the
+    /// renderer while this list claimed completeness.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>A non-empty list is a CLAIM and so is an empty one.</b> Either way the mechanism
+    /// stays and the human rendering states the position positively, because "this document
+    /// makes no reservations" and silence are different things — silence is also what a
+    /// document that never implemented reservations produces.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Add an entry for any content item that ships incomplete, and remove one only when
+    /// the corresponding ticket actually lands.</b> Deleting one early converts a document that
     /// is honestly incomplete into one that is silently wrong — the exact failure class this
     /// feature exists to prevent.
     /// </para>
     /// </remarks>
     internal static readonly IReadOnlyList<ProcessDescriptionGap> KnownGaps =
     [
+        // 🔴 DECLARED rather than left in a doc comment. The rule id is the one Decision 4
+        // content item this build deliberately does not carry, and the reasoning — a
+        // per-process GUID makes every rule on every type diff dirty between two documents,
+        // drowning the real differences and defeating the comparison case — is a build
+        // judgement, not a ruling. A judgement that omits something reachable belongs in the
+        // artifact where a reader can see it, not only where a maintainer can.
+        //
+        // Independent review raised exactly this: S3 says carry everything and MARK rather
+        // than filter, so an unratified omission with no marker is the shape the ruling bans,
+        // however good its reason. Declaring it keeps the header's completeness claim true and
+        // puts the call in front of whoever ratifies or reverses it.
         new ProcessDescriptionGap(
-            "behaviourMembership",
-            "Which backlog levels a type belongs to is not reported. A reader cannot tell from "
-                + "this document whether a type appears on a portfolio, requirement or task "
-                + "backlog.",
-            "AB#238"),
-        new ProcessDescriptionGap(
-            "formLayout",
-            "The work item form's layout — pages, sections, groups and controls — is not "
-                + "reported. Two processes whose forms differ can produce identical documents.",
-            "AB#238"),
-        new ProcessDescriptionGap(
-            "rules",
-            "Rules are read for their makeRequired actions but are not themselves reported, so "
-                + "a rule that sets a value, copies a field or hides one is invisible here. "
-                + "Requiredness IS answered; the rest of a rule's effect is not.",
+            "ruleIdentity",
+            "Each rule's server-assigned id is not reported. Rules are identified here by "
+                + "their observable content instead, because the id is a per-process GUID: "
+                + "two processes defining the same rule carry different ids, so including it "
+                + "would make every rule diff dirty and bury the real differences.",
             "AB#238"),
     ];
 
@@ -154,27 +175,61 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
         // the per-type gather so it overlaps with it rather than adding to the critical path.
         var constraintsTask = source.GetFieldValueConstraintsAsync(ct);
 
+        // 🔴 Also once per run (AB#238), and for the same reason: the behaviour CATALOGUE is
+        // process-scoped. It is what turns a membership edge — which arrives as a bare
+        // reference like `Custom.3daa3b35-…` — into a name a reader can compare across two
+        // processes.
+        var catalogueTask = source.GetBehaviourCatalogueAsync(ct);
+
         // 🔴 Fetched concurrently — the ruled latency mitigation. Ordering is NOT taken from
         // completion: results are indexed back onto `selected` positionally, then sorted
         // below. Task.WhenAll preserves input order in its result array regardless of which
         // task finished first, which is what makes the reverse-completion test meaningful
         // rather than accidental.
+        //
+        // 🔴 The fan-out is BOUNDED, and AB#238 is why it had to become so. Each type's detail
+        // call now issues FIVE concurrent GETs (fields, states, rules, behaviours, layout)
+        // against three before, so an ungated projection over 14 types is ~70 in-flight
+        // requests plus the picklist fan-out alongside — a 429 generator, and throttling
+        // degrades exactly the answers this document exists to make trustworthy. Four matches
+        // the bound already applied to the picklist fetch in the fetch layer.
+        //
+        // The gate is disposed only AFTER the gather completes; disposing it while a
+        // continuation could still call WaitAsync is the trap the sibling site avoids too.
+        using var typeGate = new SemaphoreSlim(4);
         var detailsTask = Task.WhenAll(
-            selected.Select(type => source.GetTypeDetailAsync(
-                type.ReferenceName,
-                // 🔴 Passed through, not dropped. A DERIVED type is keyed by its own
-                // reference name on the process routes but by its PARENT's on the route that
-                // carries transitions; without this the fetch silently returns zero
-                // transitions for exactly the derived types.
-                type.Inherits,
-                ct)));
+            selected.Select(async type =>
+            {
+                await typeGate.WaitAsync(ct);
+                try
+                {
+                    return await source.GetTypeDetailAsync(
+                        type.ReferenceName,
+                        // 🔴 Passed through, not dropped. A DERIVED type is keyed by its own
+                        // reference name on the process routes but by its PARENT's on the
+                        // route that carries transitions; without this the fetch silently
+                        // returns zero transitions for exactly the derived types.
+                        type.Inherits,
+                        ct);
+                }
+                finally { typeGate.Release(); }
+            }));
 
         // Gathered before either is awaited individually, so a fault in one cannot leave the
         // other's exception unobserved.
-        await Task.WhenAll(detailsTask, constraintsTask).ConfigureAwait(false);
+        await Task.WhenAll(detailsTask, constraintsTask, catalogueTask).ConfigureAwait(false);
 
         var details = await detailsTask;
         var constraints = await constraintsTask;
+        var catalogue = await catalogueTask;
+
+        // 🔴 Indexed OrdinalIgnoreCase. The membership route and the catalogue route are two
+        // different surfaces on a route family already known to be inconsistent about
+        // spelling, and an exact join would silently drop a behaviour's NAME over a casing
+        // difference — leaving the document asserting membership of an unnamed GUID while its
+        // unfetched list said everything was read. Every cross-route reference-name match in
+        // this layer is OrdinalIgnoreCase for the same reason.
+        var behavioursByReference = BuildBehaviourIndex(catalogue);
 
         var described = new List<ProcessDescriptionType>(selected.Count);
         for (var i = 0; i < selected.Count; i++)
@@ -215,9 +270,32 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
                 // org-wide (AB#237): an unresolved value constraint is indistinguishable from
                 // a process whose fields are genuinely unconstrained — this ticket's own lie,
                 // arriving through a failed fetch instead of a bad guess.
+                //
+                // 🔴 `behaviourCatalogue` likewise (AB#238): the catalogue is process-wide,
+                // but an unresolved catalogue leaves THIS type's memberships unnamed, and the
+                // reader looking at a membership with no name needs to be told why here rather
+                // than in a header line they will read past.
+                // 🔴 The whole-detail-failure branch carries no behaviourCatalogue term: with
+                // `detail` null there are no memberships to leave unnamed, so a reservation
+                // there would be a false one. `behaviours` is already in WholeTypeUnfetched.
                 SortUnfetched(detail is null
-                    ? [.. WholeTypeUnfetched, .. PicklistUnfetched(constraints, mergedFields)]
-                    : [.. detail.Unfetched ?? [], .. PicklistUnfetched(constraints, mergedFields)])));
+                    ? [
+                        .. WholeTypeUnfetched,
+                        .. PicklistUnfetched(constraints, mergedFields),
+                    ]
+                    : [
+                        .. detail.Unfetched ?? [],
+                        .. PicklistUnfetched(constraints, mergedFields),
+                        .. BehaviourCatalogueUnfetched(
+                            catalogue, behavioursByReference, detail.Behaviours),
+                    ]),
+                // 🔴 EVERY rule, inherited ones included, each tagged (AB#238). See
+                // SortRules: filtering here is the reversal this design most fears.
+                SortRules(detail?.Rules),
+                ResolveBehaviours(detail?.Behaviours, behavioursByReference),
+                // 🔴 The one collection whose ORDER IS ITS CONTENT. Sorted on the server's
+                // explicit `order` key rather than alphabetically — see SortLayout.
+                SortLayout(detail?.Layout)));
         }
 
         // The one ordering that decides whether two whole-process documents line up.
@@ -299,14 +377,510 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// unlabelled that reads as a positive claim that nothing is conditionally required.
     /// </para>
     /// <para>
-    /// 🔴 <c>picklists</c> is deliberately NOT in this list. It is appended separately (see
-    /// <see cref="PicklistUnfetched"/>) because the picklist fetch is ORG-scoped and
-    /// independent of the per-type detail call: a type whose detail failed may still have a
-    /// perfectly good constraint answer, and claiming otherwise would be a false reservation.
+    /// 🔴 <c>behaviours</c> and <c>formLayout</c> are in this list (AB#238) because both are
+    /// per-type fetches that live inside the detail call. <c>behaviourCatalogue</c> is NOT —
+    /// like <c>picklists</c> it is a process-scoped source appended separately, since a type
+    /// whose detail failed may still have had a perfectly good catalogue, and a type with no
+    /// memberships lost nothing when the catalogue did fail.
     /// </para>
     /// </remarks>
     private static readonly IReadOnlyList<string> WholeTypeUnfetched =
-        ["fields", "rules", "states", "transitions"];
+        ["behaviours", "fields", "formLayout", "rules", "states", "transitions"];
+
+    // ── Rules (AB#238) ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every rule on the type, ordered so two documents line up.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>There is deliberately no filter in this method, and adding one is the single most
+    /// likely way this ticket gets undone.</b> A type derived from a system one carries ~54
+    /// rules, of which one or two were authored here — verified live: <c>Niflheim.Epic</c> and
+    /// <c>Niflheim.Issue</c> carry 54 each (53 system, 1 custom) while <c>Niflheim.Grilling</c>
+    /// carries 2, both custom. So a verbatim carry is roughly 95% inherited plumbing on
+    /// exactly the types a caller most often asks about, and dropping the inherited ones is
+    /// the obvious, tempting, WRONG call. It was ruled against, and the reasoning binds:
+    /// <b>a difference that exists only in the omitted part diffs clean.</b> A reader who wants
+    /// only the authored rules can filter a complete document; a reader handed a filtered one
+    /// cannot recover what was dropped and cannot tell that anything was.
+    /// </para>
+    /// <para>
+    /// The customization tag on every rule is what makes that filtering available downstream.
+    /// It is the intended way to pay the noise cost — not decoration, and not optional.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Disabled rules are carried too</b>, unlike in the requiredness merge, and the two
+    /// are not in tension. There, a disabled rule must not make a field read as required,
+    /// because it does not fire. Here, a rule disabled on one process and enabled on another is
+    /// a real structural difference, and dropping it would diff clean over it — which is the
+    /// omission this feature exists to prevent. The document carries the disabled FLAG so the
+    /// reader can tell the two apart.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The sort is total over every document-visible member.</b> Rules arrive in server
+    /// order and the server does not promise it stable; at ~54 rules per derived type an
+    /// unsorted carry is the largest byte-stability hazard this feature has. The chain runs
+    /// customization kind → customization token → name → disabled → the canonical clause key →
+    /// the canonical action key, so two rules alike in every earlier member still order
+    /// deterministically rather than falling through <c>OrderBy</c>'s stability to WIRE order.
+    /// Two rules identical in ALL of them are indistinguishable in the document, so their
+    /// relative order cannot be observed.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<ProcessDescriptionRule> SortRules(IReadOnlyList<ProcessRule>? rules)
+    {
+        if (rules is null || rules.Count == 0)
+            return [];
+
+        return
+        [
+            .. rules
+                .Select(static rule => new ProcessDescriptionRule(
+                    rule.Name ?? string.Empty,
+                    rule.CustomizationOrUnknown,
+                    rule.IsDisabled,
+                    // 🔴 Clauses within one rule are conjunctive, so their order carries no
+                    // meaning and sorting them is lossless — as well as required, since the
+                    // server's order is not promised stable. The sigil is trimmed for the same
+                    // reason it is in the requiredness merge: the same rule must not diff dirty
+                    // between two documents merely because one route spelled the verb `$when`.
+                    SortRuleConditions(rule.Conditions),
+                    SortRuleActions(rule.Actions)))
+                .OrderBy(static r => r.Customization.Kind)
+                .ThenBy(static r => r.Customization.Token, StringComparer.Ordinal)
+                .ThenBy(static r => r.Name, StringComparer.Ordinal)
+                .ThenBy(static r => r.IsDisabled)
+                .ThenBy(static r => CanonicalRuleConditionKey(r.Conditions), StringComparer.Ordinal)
+                .ThenBy(static r => CanonicalRuleActionKey(r.Actions), StringComparer.Ordinal),
+        ];
+    }
+
+    /// <remarks>
+    /// Ordinal on every member so a tie on the verb cannot fall through to wire order. The
+    /// leading <c>$</c> is trimmed (see <see cref="TrimRuleSigil"/>) but the verb is otherwise
+    /// verbatim — the reader compares the server's vocabulary, not Twig's paraphrase.
+    /// </remarks>
+    private static IReadOnlyList<RuleCondition> SortRuleConditions(
+        IReadOnlyList<RuleCondition> conditions)
+        =>
+        [
+            .. conditions
+                .Select(static c => new RuleCondition(
+                    TrimRuleSigil(c.ConditionType), c.Field, c.Value))
+                .OrderBy(static c => c.ConditionType, StringComparer.Ordinal)
+                .ThenBy(static c => c.Field, StringComparer.Ordinal)
+                .ThenBy(static c => c.Value, StringComparer.Ordinal),
+        ];
+
+    /// <remarks>
+    /// 🔴 Actions within a rule are sorted for the same reason the conditions are, and the
+    /// loss is nil: ADO's actions on one rule are independent effects, not a sequence — there
+    /// is no action whose meaning depends on running after another.
+    /// </remarks>
+    private static IReadOnlyList<RuleAction> SortRuleActions(IReadOnlyList<RuleAction> actions)
+        =>
+        [
+            .. actions
+                .Select(static a => new RuleAction(
+                    TrimRuleSigil(a.ActionType), a.TargetField, a.Value))
+                .OrderBy(static a => a.ActionType, StringComparer.Ordinal)
+                .ThenBy(static a => a.TargetField, StringComparer.Ordinal)
+                .ThenBy(static a => a.Value, StringComparer.Ordinal),
+        ];
+
+    /// <summary>A total, stable string form of a rule's condition set.</summary>
+    /// <remarks>
+    /// 🔴 LENGTH-PREFIXED rather than separator-joined, following AB#237's key. A rule
+    /// condition's VALUE is an arbitrary user-authored string — a state name, a field value —
+    /// so no separator character can be assumed absent from it. A separator convention would
+    /// be a guarantee this system does not have, and two different condition sets colliding
+    /// onto one key would order ambiguously. A null value is encoded distinctly from an empty
+    /// one for the same totality reason.
+    /// </remarks>
+    private static string CanonicalRuleConditionKey(IReadOnlyList<RuleCondition> conditions)
+    {
+        var key = new StringBuilder();
+        foreach (var c in conditions)
+            AppendSegments(key, c.ConditionType, c.Field, c.Value);
+
+        return key.ToString();
+    }
+
+    /// <summary>A total, stable string form of a rule's action set.</summary>
+    /// <remarks>Length-prefixed for the same reason as its condition sibling.</remarks>
+    private static string CanonicalRuleActionKey(IReadOnlyList<RuleAction> actions)
+    {
+        var key = new StringBuilder();
+        foreach (var a in actions)
+            AppendSegments(key, a.ActionType, a.TargetField, a.Value);
+
+        return key.ToString();
+    }
+
+    /// <remarks>
+    /// The length-prefixing primitive, shared so the two canonical keys above cannot drift
+    /// apart in how they encode a null. <c>~</c> stands for "absent" and can never be
+    /// confused with a present value, because a present one always begins with its length.
+    /// </remarks>
+    private static void AppendSegments(StringBuilder key, params string?[] parts)
+    {
+        foreach (var part in parts)
+        {
+            key.Append('|');
+            if (part is null)
+                key.Append('~');
+            else
+                key.Append(part.Length).Append(':').Append(part);
+        }
+    }
+
+    // ── Behaviour membership (AB#238) ─────────────────────────────────────────
+
+    /// <remarks>
+    /// 🔴 <c>OrdinalIgnoreCase</c>: the membership route and the catalogue route are different
+    /// surfaces, and an exact join would silently drop a behaviour's name over a casing
+    /// difference.
+    /// <para>
+    /// 🔴 <b>A duplicate reference name that DISAGREES degrades to unresolvable rather than
+    /// being settled by wire order.</b> Keeping the first entry and keeping the last are BOTH
+    /// order-dependent — only an order-independent rule is not, and the map is
+    /// <c>OrdinalIgnoreCase</c>, so two rows differing only in the casing of
+    /// <c>referenceName</c> collide here. This mirrors
+    /// <c>GetFieldValueConstraintsAsync</c>'s rule exactly: when two rows genuinely disagree
+    /// neither answer is defensible, so the honest report is that we do not know — which
+    /// leaves the membership unnamed and earns the <c>behaviourCatalogue</c> label.
+    /// </para>
+    /// <para>
+    /// Two rows that AGREE are not a conflict and keep their answer; treating them as one
+    /// would discard a perfectly good name.
+    /// </para>
+    /// </remarks>
+    private static Dictionary<string, ProcessBehaviourSummary> BuildBehaviourIndex(
+        IReadOnlyList<ProcessBehaviourSummary>? catalogue)
+    {
+        var index = new Dictionary<string, ProcessBehaviourSummary>(StringComparer.OrdinalIgnoreCase);
+        if (catalogue is null)
+            return index;
+
+        foreach (var behaviour in catalogue)
+        {
+            if (string.IsNullOrWhiteSpace(behaviour.ReferenceName))
+                continue;
+
+            if (!index.TryGetValue(behaviour.ReferenceName, out var existing))
+            {
+                index[behaviour.ReferenceName] = behaviour;
+                continue;
+            }
+
+            // Same identity, different answer: neither spelling of the name is defensible, so
+            // the entry becomes unresolvable rather than depending on send order.
+            if (!string.Equals(existing.Name, behaviour.Name, StringComparison.Ordinal)
+                || existing.Rank != behaviour.Rank)
+            {
+                index[behaviour.ReferenceName] = existing with
+                {
+                    Name = string.Empty,
+                    Rank = null,
+                };
+            }
+        }
+
+        return index;
+    }
+
+    /// <summary>
+    /// The type's backlog-level memberships, named from the catalogue and ordered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>An unresolved membership keeps its reference name and loses only its NAME.</b>
+    /// Dropping the membership entirely would let a real difference — this type is on a backlog
+    /// level, that one is not — diff clean, which is the omission this feature exists to
+    /// prevent. "On a level we could not name" is a weaker claim than the full one and a far
+    /// stronger one than silence.
+    /// </para>
+    /// <para>
+    /// 🔴 Sorted on the behaviour REFERENCE name, not on the catalogue's <c>rank</c>. Rank is
+    /// carried as a fact, but two processes may rank the same level differently, and ordering
+    /// on it would make every membership line shift when one rank changed — burying the real
+    /// difference in noise. Reference name is stable across processes, which is what a diff
+    /// needs.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>A duplicate membership that DISAGREES degrades rather than being settled by wire
+    /// order.</b> <c>seen</c> is <c>OrdinalIgnoreCase</c>, so two rows for one behaviour under
+    /// different spellings collapse onto one key — and <c>IsDefault</c> is output-visible and
+    /// can differ between them, which would make the document's answer to "where does a new
+    /// item of this type land" depend on the order the server sent the rows. Keeping the first
+    /// is as order-dependent as keeping the last. On disagreement the WEAKER claim wins
+    /// (<c>IsDefault</c> false), matching AB#237's rule for two witnesses that disagree:
+    /// asserting the stronger claim on the strength of a contradiction is not defensible.
+    /// </para>
+    /// <para>
+    /// 🔴 The emitted reference name is the CATALOGUE's spelling where the join resolved, not
+    /// the membership route's. The join is deliberately case-insensitive because the two routes
+    /// are not known to agree on casing — so carrying the membership route's spelling into the
+    /// document would put an unstable value in both the output AND the ordinal sort key that
+    /// positions the row, which is exactly the diff noise the case-insensitive join was added
+    /// to prevent. The catalogue is the naming authority.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<ProcessBehaviourMembership> ResolveBehaviours(
+        IReadOnlyList<ProcessBehaviourMembership>? memberships,
+        IReadOnlyDictionary<string, ProcessBehaviourSummary> catalogue)
+    {
+        if (memberships is null || memberships.Count == 0)
+            return [];
+
+        var resolved = new Dictionary<string, ProcessBehaviourMembership>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var membership in memberships)
+        {
+            if (string.IsNullOrWhiteSpace(membership.ReferenceName))
+                continue;
+
+            var named = catalogue.TryGetValue(membership.ReferenceName, out var summary)
+                ? membership with
+                {
+                    ReferenceName = summary.ReferenceName,
+                    Name = summary.Name,
+                    Rank = summary.Rank,
+                }
+                : membership;
+
+            if (!resolved.TryGetValue(named.ReferenceName, out var existing))
+            {
+                resolved[named.ReferenceName] = named;
+                continue;
+            }
+
+            // Two rows for one behaviour. Only IsDefault can differ once both have been named
+            // from the same catalogue entry, and the weaker claim wins.
+            if (existing.IsDefault != named.IsDefault)
+                resolved[named.ReferenceName] = existing with { IsDefault = false };
+        }
+
+        return
+        [
+            .. resolved.Values
+                .OrderBy(static b => b.ReferenceName, StringComparer.Ordinal)
+                // Total over the remaining document-visible members, so two memberships alike
+                // on reference name cannot fall through to wire order.
+                .ThenBy(static b => b.Name, StringComparer.Ordinal)
+                .ThenBy(static b => b.Rank)
+                .ThenBy(static b => b.IsDefault),
+        ];
+    }
+
+    /// <summary>
+    /// The <c>behaviourCatalogue</c> unfetched label, when a membership went unnamed.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Derived from the RESOLVED memberships rather than from the catalogue's nullness, the
+    /// same way <see cref="PicklistUnfetched"/> is — and for the same reason. A total catalogue
+    /// failure is not the only way to get an unnamed membership: the catalogue can succeed
+    /// while omitting one behaviour the membership route reports. Labelling only the total
+    /// failure would let the document show a membership with no name while its type's unfetched
+    /// list said everything was read.
+    /// <para>
+    /// 🔴 A type with NO memberships gets no label even when the catalogue failed. The
+    /// catalogue only supplies names for memberships, so a type that has none lost nothing —
+    /// claiming otherwise would be a false reservation, which is as much a lie as a missing one.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> BehaviourCatalogueUnfetched(
+        IReadOnlyList<ProcessBehaviourSummary>? catalogue,
+        IReadOnlyDictionary<string, ProcessBehaviourSummary> index,
+        IReadOnlyList<ProcessBehaviourMembership>? memberships)
+    {
+        // 🔴 The SAME null/whitespace guard ResolveBehaviours applies. Without it a
+        // blank-reference row — which never reaches the document at all — would still earn the
+        // type a reservation, i.e. a reservation about a row the document does not contain.
+        // (It would also throw: Dictionary.ContainsKey(null) is an ArgumentNullException.)
+        var real = memberships?
+            .Where(static m => !string.IsNullOrWhiteSpace(m.ReferenceName))
+            .ToList() ?? [];
+
+        if (real.Count == 0)
+            return [];
+
+        if (catalogue is null)
+            return ["behaviourCatalogue"];
+
+        // 🔴 The index built ONCE by the caller, not rebuilt per type. A second construction
+        // site would be O(types x catalogue) for nothing and could drift from the first —
+        // and the two disagreeing is precisely how a type gets a reservation whose cause the
+        // document does not show, or loses one it needed.
+        //
+        // A behaviour the catalogue reports but could not NAME (two rows disagreed, so the
+        // entry degraded) counts as unresolved too: the membership renders with a blank name,
+        // which unlabelled reads as a level that has no name rather than one we could not name.
+        return real.Any(m => !index.TryGetValue(m.ReferenceName, out var summary)
+                || string.IsNullOrEmpty(summary.Name))
+            ? ["behaviourCatalogue"]
+            : [];
+    }
+
+    // ── Form layout (AB#238) ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// The form layout, ordered on the server's own arrangement keys.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>This is the one collection in the document whose ORDER IS ITS CONTENT, and sorting
+    /// it alphabetically would destroy exactly what the reader asked for.</b> "Description sits
+    /// above Acceptance Criteria" is the fact being described. So the sort is on the server's
+    /// explicit <c>order</c> key at each level — faithful to the form AND deterministic — with
+    /// the element's id as a total tiebreak.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Not "just trust the array order".</b> The server does not promise array order
+    /// stable, this document's whole value rests on two runs producing identical bytes, and an
+    /// order taken from an array is not something a test can prove. Sorting on the key the
+    /// server itself supplies is the only option that is both faithful and provable.
+    /// </para>
+    /// <para>
+    /// A missing <c>order</c> sorts before any stated one (<c>null</c> orders first under
+    /// <c>OrderBy</c>) and the id tiebreak keeps it deterministic — so a version drift that
+    /// dropped the key degrades to a stable alphabetical order rather than to wire order.
+    /// </para>
+    /// <para>
+    /// Sections are ordered by ID rather than by an order key because the server gives sections
+    /// none: their ids (<c>Section1</c>…<c>Section4</c>) ARE the arrangement.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The tiebreak chains are TOTAL over every member, and the child collections
+    /// participate through a canonical key.</b> The order key plus the id is not enough: ids are
+    /// not enforced unique (a contributed column or group is the plausible source of a
+    /// collision), and any tie left unresolved falls through <c>OrderBy</c>'s stability to WIRE
+    /// order — reintroducing exactly the non-determinism this class exists to remove. Adding a
+    /// member to any layout level without extending its chain is how that regresses.
+    /// </para>
+    /// </remarks>
+    private static ProcessDescriptionLayout? SortLayout(ProcessDescriptionLayout? layout)
+    {
+        if (layout is null)
+            return null;
+
+        return new ProcessDescriptionLayout(
+            SystemControls:
+            [
+                // Sorted on the same key and chain as any other control list.
+                .. layout.SystemControls
+                    .OrderBy(static c => c.Order)
+                    .ThenBy(static c => c.Id, StringComparer.Ordinal)
+                    .ThenBy(static c => c.Label, StringComparer.Ordinal)
+                    .ThenBy(static c => c.ControlType, StringComparer.Ordinal)
+                    .ThenBy(static c => c.ReadOnly)
+                    .ThenBy(static c => c.Visible)
+                    .ThenBy(static c => c.Inherited)
+                    .ThenBy(static c => c.IsContribution),
+            ],
+            Pages:
+        [
+            .. layout.Pages
+                .Select(static page => page with
+                {
+                    Sections =
+                    [
+                        .. page.Sections
+                            .Select(static section => section with
+                            {
+                                Groups =
+                                [
+                                    .. section.Groups
+                                        .Select(static group => group with
+                                        {
+                                            Controls =
+                                            [
+                                                .. group.Controls
+                                                    .OrderBy(static c => c.Order)
+                                                    .ThenBy(static c => c.Id, StringComparer.Ordinal)
+                                                    .ThenBy(static c => c.Label, StringComparer.Ordinal)
+                                                    .ThenBy(static c => c.ControlType, StringComparer.Ordinal)
+                                                    .ThenBy(static c => c.ReadOnly)
+                                                    .ThenBy(static c => c.Visible)
+                                                    .ThenBy(static c => c.Inherited)
+                                                    .ThenBy(static c => c.IsContribution),
+                                            ],
+                                        })
+                                        .OrderBy(static g => g.Order)
+                                        .ThenBy(static g => g.Id, StringComparer.Ordinal)
+                                        .ThenBy(static g => g.Label, StringComparer.Ordinal)
+                                        .ThenBy(static g => g.Visible)
+                                        .ThenBy(static g => g.Inherited)
+                                        .ThenBy(static g => g.IsContribution)
+                                        // The controls, already ordered above, as the final
+                                        // discriminator: two groups alike in every scalar
+                                        // member but holding different controls must not tie.
+                                        .ThenBy(static g => CanonicalControlKey(g.Controls), StringComparer.Ordinal),
+                                ],
+                            })
+                            // A section's id is its only scalar member, so its GROUPS are the
+                            // only other discriminator available — and two sections sharing an
+                            // id would otherwise order their groups by wire order.
+                            .OrderBy(static s => s.Id, StringComparer.Ordinal)
+                            .ThenBy(static s => CanonicalGroupKey(s.Groups), StringComparer.Ordinal),
+                    ],
+                })
+                .OrderBy(static p => p.Order)
+                .ThenBy(static p => p.Id, StringComparer.Ordinal)
+                .ThenBy(static p => p.Label, StringComparer.Ordinal)
+                .ThenBy(static p => p.PageType, StringComparer.Ordinal)
+                .ThenBy(static p => p.Visible)
+                .ThenBy(static p => p.Inherited)
+                .ThenBy(static p => p.IsContribution)
+                .ThenBy(static p => CanonicalSectionKey(p.Sections), StringComparer.Ordinal),
+        ]);
+    }
+
+    /// <summary>A total, stable string form of a control list, used only as an ordering tiebreak.</summary>
+    /// <remarks>
+    /// 🔴 LENGTH-PREFIXED via <see cref="AppendSegments"/>, like every other canonical key in
+    /// this class. Control ids and labels are arbitrary user-authored strings — a group label
+    /// can contain any character — so no separator convention can be assumed safe, and two
+    /// different control sets colliding onto one key would order ambiguously.
+    /// </remarks>
+    private static string CanonicalControlKey(IReadOnlyList<ProcessDescriptionLayoutControl> controls)
+    {
+        var key = new StringBuilder();
+        foreach (var c in controls)
+        {
+            AppendSegments(key, c.Id, c.Label, c.ControlType);
+            key.Append('|').Append(c.Order).Append(c.ReadOnly).Append(c.Visible)
+                .Append(c.Inherited).Append(c.IsContribution);
+        }
+
+        return key.ToString();
+    }
+
+    /// <summary>A total, stable string form of a group list.</summary>
+    private static string CanonicalGroupKey(IReadOnlyList<ProcessDescriptionLayoutGroup> groups)
+    {
+        var key = new StringBuilder();
+        foreach (var g in groups)
+        {
+            AppendSegments(key, g.Id, g.Label, CanonicalControlKey(g.Controls));
+            key.Append('|').Append(g.Order).Append(g.Visible).Append(g.Inherited)
+                .Append(g.IsContribution);
+        }
+
+        return key.ToString();
+    }
+
+    /// <summary>A total, stable string form of a section list.</summary>
+    private static string CanonicalSectionKey(IReadOnlyList<ProcessDescriptionLayoutSection> sections)
+    {
+        var key = new StringBuilder();
+        foreach (var s in sections)
+            AppendSegments(key, s.Id, CanonicalGroupKey(s.Groups));
+
+        return key.ToString();
+    }
 
     /// <remarks>
     /// Sorted and de-duplicated so two documents cannot differ merely in the order a fetch
@@ -471,7 +1045,7 @@ internal sealed class ProcessDescriptionAssembler(IProcessDescriptionSource sour
     /// </remarks>
     private static string CanonicalValueConstraintKey(FieldValueConstraint constraint)
     {
-        var key = new System.Text.StringBuilder();
+        var key = new StringBuilder();
 
         key.Append(constraint.ListName is null ? "~" : $"{constraint.ListName.Length}:{constraint.ListName}");
 

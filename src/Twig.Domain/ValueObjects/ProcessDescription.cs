@@ -159,6 +159,39 @@ internal sealed record ProcessDescriptionGap(string Subject, string Detail, stri
 /// <param name="Transitions">
 /// The allowed state transitions, sorted by from-state then to-state ordinal.
 /// </param>
+/// <param name="Rules">
+/// 🔴 EVERY rule on the type, sorted ordinal, each tagged with its
+/// <see cref="ProcessDescriptionRule.Customization"/>.
+/// <para>
+/// 🔴 <b>Inherited rules are CARRIED, not filtered, and that is a ruling that reverses the
+/// obvious call.</b> A type derived from a system one carries ~54 rules of which one or two
+/// were authored here, so a verbatim carry is roughly 95% inherited plumbing on exactly the
+/// types a caller most often asks about. The volume argument is real and was ruled against
+/// anyway: <b>a difference that exists only in the omitted part diffs clean.</b> A reader who
+/// wants the authored rules can filter a complete document; a reader handed a filtered one
+/// cannot recover what was dropped and cannot tell anything was. The per-rule customization
+/// tag is what makes that filtering available downstream — it is the intended way to pay the
+/// noise cost, not a decoration.
+/// </para>
+/// </param>
+/// <param name="Behaviours">
+/// Which backlog levels the type belongs to, sorted by behaviour reference name ordinal.
+/// Empty means the type belongs to none — a real state — while a failed membership call puts
+/// <c>behaviours</c> in <paramref name="Unfetched"/>.
+/// </param>
+/// <param name="Layout">
+/// The type's form layout, or <c>null</c> when it could not be read (in which case
+/// <c>formLayout</c> is in <paramref name="Unfetched"/>).
+/// <para>
+/// 🔴 The layout is sorted on the SERVER'S OWN <c>order</c> key rather than alphabetically,
+/// unlike every other collection in this document. That is deliberate and is the one place it
+/// is correct: a form's arrangement IS its content — "Description above Acceptance Criteria"
+/// is the fact being described — so ordering pages, groups or controls by name would be
+/// deterministic and WRONG, destroying the very thing the reader asked for. Sorting on the
+/// key the server itself supplies is both faithful to the form and provable; trusting the
+/// array's arrival order would be neither, since the server does not promise it stable.
+/// </para>
+/// </param>
 /// <param name="Unfetched">
 /// 🔴 The parts of this type that could NOT be fetched, sorted ordinal. Empty when
 /// everything was read successfully.
@@ -181,7 +214,54 @@ internal sealed record ProcessDescriptionType(
     IReadOnlyList<ProcessDescriptionField> Fields,
     IReadOnlyList<ProcessTypeState> States,
     IReadOnlyList<ProcessTypeTransition> Transitions,
-    IReadOnlyList<string> Unfetched);
+    IReadOnlyList<string> Unfetched,
+    IReadOnlyList<ProcessDescriptionRule> Rules,
+    IReadOnlyList<ProcessBehaviourMembership> Behaviours,
+    ProcessDescriptionLayout? Layout);
+
+/// <summary>
+/// One rule as the DOCUMENT carries it: the server's rule, flattened into ordered clauses and
+/// actions and tagged with where it was authored.
+/// </summary>
+/// <remarks>
+/// <para>
+/// 🔴 <b>Distinct from <see cref="ProcessRule"/> for the same reason
+/// <see cref="ProcessDescriptionField"/> is distinct from <see cref="ProcessTypeField"/>:</b>
+/// the fetch type is the wire's honest report with whatever order the server happened to send,
+/// and the document type is the ordered, byte-stable projection. Rendering
+/// <see cref="ProcessRule"/> straight into the document would carry SERVER order for the
+/// conditions and actions of ~54 rules per derived type, and the server does not promise that
+/// order stable — which would break byte-stability, the single most important property of this
+/// feature, in a way no single-run unit test can see.
+/// </para>
+/// <para>
+/// 🔴 The rule's server-assigned <c>id</c> is deliberately NOT carried. It is a per-process
+/// GUID: two processes that define the same rule carry different ids, so including it would
+/// make every rule on every type diff dirty between two documents and drown the real
+/// differences — defeating the comparison case the whole feature exists for. Identity in this
+/// document is the rule's observable CONTENT.
+/// </para>
+/// </remarks>
+/// <param name="Name">
+/// The rule's display name where the server gives one, else empty. Authored rules carry a
+/// human name; system plumbing rules carry none, verified live. Never identity.
+/// </param>
+/// <param name="Customization">
+/// 🔴 Authored here, inherited, system, or not stated. The reader's filter for the inherited
+/// bulk, and the reason carrying everything is bearable.
+/// </param>
+/// <param name="IsDisabled">
+/// Whether the rule is disabled. Carried: a rule disabled on one process and enabled on
+/// another is a real difference, and dropping disabled rules would diff clean over it.
+/// </param>
+/// <param name="Conditions">The gating clauses, sorted ordinal. Conjunctive.</param>
+/// <param name="Actions">What the rule does when it fires, sorted ordinal.</param>
+internal sealed record ProcessDescriptionRule(
+    string Name,
+    RuleCustomization Customization,
+    bool IsDisabled,
+    IReadOnlyList<RuleCondition> Conditions,
+    IReadOnlyList<RuleAction> Actions);
 
 /// <summary>
 /// One field as the DOCUMENT carries it: the per-type fields route's structural facts, plus

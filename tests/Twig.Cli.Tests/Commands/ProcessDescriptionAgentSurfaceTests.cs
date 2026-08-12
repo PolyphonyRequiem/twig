@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
@@ -210,12 +211,19 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
 
     /// <summary>The agent surface's bytes for the same selection, via the real render path.</summary>
     private static async Task<string> AgentDocumentAsync(string[]? types)
-    {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(
-            types, CapturedAt, CancellationToken.None);
+        => ProcessDescriptionDocument.Render((await AgentOutcomeAsync(types)).ShouldBeAssembled());
 
-        return description is null ? string.Empty : ProcessDescriptionDocument.Render(description);
-    }
+    /// <summary>
+    /// The agent surface's raw outcome, before the document is rendered.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Separated from <see cref="AgentDocumentAsync"/> by AB#244 so the failure arms are
+    /// reachable from a test. Before the union they were not: two of them were the same
+    /// <c>null</c> and the third was an exception, so "which failure was it" had no answer a
+    /// test could assert on.
+    /// </remarks>
+    private static Task<ProcessDescriptionResult> AgentOutcomeAsync(string[]? types)
+        => BuildAssembler(BuildSource()).AssembleAsync(types, CapturedAt, CancellationToken.None);
 
     // ═══════════════════════════════════════════════════════════════
     //  Test 14 — one format, not two
@@ -441,8 +449,7 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
         // non-indented document has no line breaks, so this distinguishes the two options
         // rather than assuming they differ.
         var shared = ProcessDescriptionDocument.Render(
-            (await BuildAssembler(BuildSource())
-                .AssembleAsync(["Niflheim.Grilling"], CapturedAt, CancellationToken.None))!);
+            (await AgentOutcomeAsync(["Niflheim.Grilling"])).ShouldBeAssembled());
 
         ProcessDescriptionDocument.Indented.ShouldBeTrue();
         shared.ShouldContain("\n");
@@ -504,12 +511,11 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
     /// types that happened to exist.
     /// </summary>
     [Fact]
-    public async Task AgentSurface_WithAnUnknownType_Throws()
+    public async Task AgentSurface_WithAnUnknownType_ReturnsTypeNotFound()
     {
-        var ex = await Should.ThrowAsync<ProcessDescriptionTypeNotFoundException>(
-            () => AgentDocumentAsync(["Niflheim.Nope"]));
+        var notFound = (await AgentOutcomeAsync(["Niflheim.Nope"])).ShouldBeTypeNotFound();
 
-        ex.TypeReferenceName.ShouldBe("Niflheim.Nope");
+        notFound.TypeReferenceName.ShouldBe("Niflheim.Nope");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -564,8 +570,21 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
 
         // And the seam both surfaces go through takes a type selection and a timestamp — there
         // is nowhere below them for a part filter to live either.
-        var assemblerParameters = typeof(ProcessDescriptionAssembler)
-            .GetMethod(nameof(ProcessDescriptionAssembler.AssembleAsync))!
+        //
+        // 🔴 Reached by REFLECTION, so a signature change does not break it at compile time.
+        // AB#244 changed this method's RETURN type, which this assertion could not have seen —
+        // so the return type is now pinned here too. A reflection site that only checks
+        // parameter names goes on passing while the thing it describes changes underneath it,
+        // which is the same silent-green failure class this file's negative assertions guard.
+        var assembleMethod = typeof(ProcessDescriptionAssembler)
+            .GetMethod(nameof(ProcessDescriptionAssembler.AssembleAsync))!;
+
+        assembleMethod.ReturnType.ShouldBe(
+            typeof(Task<ProcessDescriptionResult>),
+            "AssembleAsync must return the result UNION, not a nullable document — the "
+            + "null-plus-exception shape is what AB#244 removed");
+
+        var assemblerParameters = assembleMethod
             .GetParameters()
             .Select(p => p.Name!)
             .ToArray();

@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Reflection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Shouldly;
 using Twig.Domain.Services.Process;
+using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Xunit;
 
@@ -107,20 +109,99 @@ public sealed class ProcessDescriptionToolTests
         var viaTool = await ProcessTools.RenderDocumentAsync(
             assembler, new FrozenTimeProvider(capturedAt), null, CancellationToken.None);
 
-        var description = await assembler.AssembleAsync(null, capturedAt, CancellationToken.None);
-        var viaSharedRender = ProcessDescriptionDocument.Render(description!);
+        // 🔴 Pattern-matched, not ShouldBeOfType<T>() and not a cast: a C# union is a WRAPPER,
+        // so its runtime type is ProcessDescriptionRenderResult and never the case type, and
+        // an explicit conversion to a case type does not compile at all (AB#244).
+        if (viaTool is not RenderedProcessDescription rendered)
+            throw new ShouldAssertException(
+                $"expected a rendered document, got {viaTool.Value?.GetType().Name}");
+
+        var outcome = await assembler.AssembleAsync(null, capturedAt, CancellationToken.None);
+        if (outcome is not ProcessDescriptionAssembled assembled)
+            throw new ShouldAssertException(
+                $"expected ProcessDescriptionAssembled, got {outcome.Value?.GetType().Name}");
+
+        var toolDocument = rendered.Document;
+        var viaSharedRender = ProcessDescriptionDocument.Render(assembled.Description);
 
         // PRECONDITION: a real document, not an empty string — byte-identity between two empty
         // results would satisfy the assertion while proving nothing.
-        viaTool.Length.ShouldBeGreaterThan(100);
-        viaTool.ShouldContain("descriptorVersion");
+        toolDocument.Length.ShouldBeGreaterThan(100);
+        toolDocument.ShouldContain("descriptorVersion");
 
-        viaTool.ShouldBe(
+        toolDocument.ShouldBe(
             viaSharedRender,
             "ProcessTools.RenderDocumentAsync must render through ProcessDescriptionDocument.Render "
             + "— a second serializer on this surface is exactly the drift acceptance criterion 2 "
             + "forbids (AB#241).");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#244 — the three failure arms are distinguishable BY CODE
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 Each failure arm reports its own error code, and no two arms share one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The machine-readable half of AB#244, and the half the CLI test cannot cover. An agent
+    /// branches on the CODE, not on the prose — so two arms sharing a code re-collapses at the
+    /// layer that actually drives behaviour whatever the messages say. The remedies genuinely
+    /// differ: retry the unfetchable type list, fix the workspace for an unresolved process,
+    /// fix the argument for an unknown type.
+    /// </para>
+    /// <para>
+    /// 🔴 This test exists because its absence was MEASURED, not suspected: a mutation swapping
+    /// the unfetchable arm's code from <c>ADO_UNREACHABLE</c> to <c>ITEM_NOT_FOUND</c> left all
+    /// 1297 tests in this suite green. The agent surface had the fix implemented and unguarded.
+    /// </para>
+    /// <para>
+    /// 🔴 Asserted as PAIRWISE DISTINCTNESS over the whole set, not as three independent
+    /// equality checks. Three separate assertions would each pass while two arms quietly
+    /// converged on the same value if someone updated both together; distinctness is the
+    /// property the ticket actually claims, so it is the property asserted.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void EachFailureArm_ReportsItsOwnErrorCode()
+    {
+        var typeNotFound = ProcessTools.DescribeFailure(
+            new ProcessDescriptionTypeNotFound("Niflheim.Nope"));
+        var unresolved = ProcessTools.DescribeFailure(new ProcessIdentityUnresolved());
+        var unfetchable = ProcessTools.DescribeFailure(new ProcessTypesUnfetchable());
+
+        // The exact mapping, so a silent re-point of any one arm reds here by name.
+        typeNotFound.Code.ShouldBe(McpErrorCode.InvalidInput);
+        unresolved.Code.ShouldBe(McpErrorCode.ItemNotFound);
+        unfetchable.Code.ShouldBe(McpErrorCode.AdoUnreachable);
+
+        // 🔴 The claim itself: three arms, three codes, no sharing.
+        string[] codes = [typeNotFound.Code, unresolved.Code, unfetchable.Code];
+        codes.Distinct(StringComparer.Ordinal).Count().ShouldBe(
+            3,
+            "each failure arm must be distinguishable by CODE — an agent branches on the code, "
+            + "so two arms sharing one re-collapses the distinction AB#244 exists to make");
+
+        // And the messages differ too, mirroring the CLI's own criterion-2 guard.
+        string[] messages = [typeNotFound.Message, unresolved.Message, unfetchable.Message];
+        messages.ShouldAllBe(m => m.Length > 0);
+        messages.Distinct(StringComparer.Ordinal).Count().ShouldBe(3);
+
+        // The not-found message names the type the caller actually asked for — exact, not a
+        // substring of some longer name that would also contain it.
+        typeNotFound.Message.ShouldContain("'Niflheim.Nope'");
+    }
+
+    /// <summary>
+    /// The success arm never reaches <see cref="ProcessTools.DescribeFailure"/> — it is
+    /// handled by the caller, and arriving here would mean a rendered document was about to be
+    /// reported as an error.
+    /// </summary>
+    [Fact]
+    public void DescribeFailure_OnTheSuccessArm_Throws()
+        => Should.Throw<UnreachableException>(
+            () => ProcessTools.DescribeFailure(new RenderedProcessDescription("{}")));
 
     private sealed class FrozenTimeProvider(DateTimeOffset now) : TimeProvider
     {

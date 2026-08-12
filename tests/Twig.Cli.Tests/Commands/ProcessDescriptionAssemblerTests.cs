@@ -1,4 +1,5 @@
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
 using Twig.Domain.ValueObjects;
@@ -124,9 +125,24 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
         return Task.FromResult(Identity);
     }
 
+    /// <summary>
+    /// When true, the type-list route does not answer — <see cref="GetTypesAsync"/> returns
+    /// <c>null</c>, the way the real source reports a failed fetch.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Distinct from a null <see cref="Identity"/> and that is the point (AB#244). "This
+    /// project has no process" and "the type list route did not answer" are different failures
+    /// with different remedies, and until this flag existed the fixture could only produce the
+    /// first — so the second had no test to fail.
+    /// </remarks>
+    public bool TypeListUnfetchable { get; init; }
+
     public Task<IReadOnlyList<ProcessTypeSummary>?> GetTypesAsync(CancellationToken ct = default)
     {
         TypeListCallCount++;
+
+        if (TypeListUnfetchable)
+            return Task.FromResult<IReadOnlyList<ProcessTypeSummary>?>(null);
 
         IReadOnlyList<ProcessTypeSummary>? summaries = [.. _typeOrder.Select(reference =>
             new ProcessTypeSummary(
@@ -633,8 +649,8 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_TwoRunsAgainstUnchangedProcess_ProduceIdenticalDocuments()
     {
-        var first = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
-        var second = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var first = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var second = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         first.ShouldNotBeNull();
         second.ShouldNotBeNull();
@@ -650,8 +666,8 @@ public sealed class ProcessDescriptionAssemblerTests
     {
         var later = FixedCapture.AddHours(9);
 
-        var first = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
-        var second = await BuildAssembler(BuildSource()).AssembleAsync(null, later);
+        var first = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var second = (await BuildAssembler(BuildSource()).AssembleAsync(null, later)).ShouldBeAssembled();
 
         first.ShouldNotBeNull();
         second.ShouldNotBeNull();
@@ -677,7 +693,7 @@ public sealed class ProcessDescriptionAssemblerTests
         var wireOrder = (await source.GetTypesAsync())!.Select(t => t.ReferenceName).ToList();
         wireOrder.ShouldNotBe([.. wireOrder.OrderBy(x => x, StringComparer.Ordinal)]);
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         description.Types.Select(t => t.ReferenceName)
@@ -723,9 +739,7 @@ public sealed class ProcessDescriptionAssemblerTests
         await reversedSource.ReleaseInScriptedOrderAsync();
         var reversedResult = await reversedTask;
 
-        inOrder.ShouldNotBeNull();
-        reversedResult.ShouldNotBeNull();
-        Flatten(inOrder).ShouldBe(Flatten(reversedResult));
+        Flatten(inOrder.ShouldBeAssembled()).ShouldBe(Flatten(reversedResult.ShouldBeAssembled()));
     }
 
     /// <summary>
@@ -784,16 +798,15 @@ public sealed class ProcessDescriptionAssemblerTests
         await reversedSource.ReleaseInScriptedOrderAsync();
         var reversedResult = await reversedTask;
 
-        inOrder.ShouldNotBeNull();
-        reversedResult.ShouldNotBeNull();
+        var inOrderDocument = inOrder.ShouldBeAssembled();
 
         // Precondition: the gate really was contended, or this ran ungated after all.
         inOrderSource.MaxConcurrentDetailFetches.ShouldBe(
             ProcessDescriptionAssembler.MaxConcurrentTypeFetches);
 
-        inOrder.Types.Count.ShouldBe(types.Length);
-        Flatten(inOrder).ShouldBe(
-            Flatten(reversedResult),
+        inOrderDocument.Types.Count.ShouldBe(types.Length);
+        Flatten(inOrderDocument).ShouldBe(
+            Flatten(reversedResult.ShouldBeAssembled()),
             "the gate decides which fetches run in which wave, so it is an ordering input — "
             + "the document must still be byte-identical whichever order they complete in");
     }
@@ -832,7 +845,7 @@ public sealed class ProcessDescriptionAssemblerTests
             + "have issued only the first while awaiting it");
 
         await source.ReleaseInScriptedOrderAsync();
-        (await assembleTask).ShouldNotBeNull();
+        (await assembleTask).ShouldBeAssembled();
     }
 
     /// <summary>
@@ -911,9 +924,8 @@ public sealed class ProcessDescriptionAssemblerTests
         }
 
         await source.ReleaseInScriptedOrderAsync();
-        var description = await assembleTask;
+        var description = (await assembleTask).ShouldBeAssembled();
 
-        description.ShouldNotBeNull();
         description.Types.Count.ShouldBe(
             types.Length,
             "the gate throttles the fan-out; it must never drop a type from the document");
@@ -946,7 +958,7 @@ public sealed class ProcessDescriptionAssemblerTests
         var source = BuildSource();
         var roster = (await source.GetTypesAsync())!.Select(t => t.ReferenceName).ToList();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Types.Select(t => t.ReferenceName).ShouldBe(
@@ -996,10 +1008,10 @@ public sealed class ProcessDescriptionAssemblerTests
         withExtra.Except(shared, StringComparer.Ordinal).ShouldBe([TypeWithRules]);
         shared.Except(withExtra, StringComparer.Ordinal).ShouldBeEmpty();
 
-        var richer = await BuildAssembler(BuildSource(typeOrder: withExtra))
-            .AssembleAsync(null, FixedCapture);
-        var thinner = await BuildAssembler(BuildSource(typeOrder: shared))
-            .AssembleAsync(null, FixedCapture);
+        var richer = (await BuildAssembler(BuildSource(typeOrder: withExtra))
+            .AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var thinner = (await BuildAssembler(BuildSource(typeOrder: shared))
+            .AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         richer.ShouldNotBeNull();
         thinner.ShouldNotBeNull();
@@ -1037,7 +1049,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_RecordsTheProcessIdNotJustTheName()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Header.ProcessId.ShouldBe("7f984e4c-e856-4fc3-8457-fd4e8acf2e57");
@@ -1059,8 +1071,8 @@ public sealed class ProcessDescriptionAssemblerTests
         var summaries = await source.GetTypesAsync();
         summaries!.Select(s => s.Name).Distinct().Count().ShouldBe(1);
 
-        var description = await BuildAssembler(source)
-            .AssembleAsync(["Niflheim.CustomAlpha"], FixedCapture);
+        var description = (await BuildAssembler(source)
+            .AssembleAsync(["Niflheim.CustomAlpha"], FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Types.Count.ShouldBe(1);
@@ -1074,9 +1086,9 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_NamedType_ProducesTheSameDocumentShapeWithFewerTypes()
     {
-        var whole = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
-        var single = await BuildAssembler(BuildSource())
-            .AssembleAsync(["Niflheim.CustomAlpha"], FixedCapture);
+        var whole = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var single = (await BuildAssembler(BuildSource())
+            .AssembleAsync(["Niflheim.CustomAlpha"], FixedCapture)).ShouldBeAssembled();
 
         whole.ShouldNotBeNull();
         single.ShouldNotBeNull();
@@ -1111,15 +1123,24 @@ public sealed class ProcessDescriptionAssemblerTests
             + "shape, same ordering, right down to the rules, memberships and layout");
     }
 
-    /// <summary>An unknown type is a hard error naming what was asked for, not an empty document.</summary>
+    /// <summary>
+    /// An unknown type is a hard error naming what was asked for, not an empty document — and
+    /// it arrives as a union ARM rather than as a thrown exception (AB#244).
+    /// </summary>
     [Fact]
-    public async Task Assemble_UnknownType_ThrowsNamingTheTypeAskedFor()
+    public async Task Assemble_UnknownType_ReturnsTypeNotFoundNamingTheTypeAskedFor()
     {
-        var ex = await Should.ThrowAsync<ProcessDescriptionTypeNotFoundException>(
-            () => BuildAssembler(BuildSource()).AssembleAsync(["Niflheim.NoSuchType"], FixedCapture));
+        var outcome = await BuildAssembler(BuildSource())
+            .AssembleAsync(["Niflheim.NoSuchType"], FixedCapture);
 
-        ex.TypeReferenceName.ShouldBe("Niflheim.NoSuchType");
-        ex.Message.ShouldContain("Niflheim.NoSuchType");
+        // 🔴 Pattern-matched, not ShouldBeOfType<T>(): a C# union is a WRAPPER, so the runtime
+        // type is ProcessDescriptionResult and never the case type. Same trap MergeResult sets.
+        var notFound = outcome.ShouldBeTypeNotFound();
+        notFound.TypeReferenceName.ShouldBe("Niflheim.NoSuchType");
+
+        // And it is NOT the success arm — asserting the case above would be satisfied by a
+        // union that carried both, which this one cannot, but the claim is worth pinning.
+        (outcome is ProcessDescriptionAssembled).ShouldBeFalse();
     }
 
     /// <summary>
@@ -1129,7 +1150,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_HeaderCarriesProvenanceAndPinnedRouteVersions()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Header.Organization.ShouldBe("https://dev.azure.com/ExampleOrg");
@@ -1170,7 +1191,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_HeaderDeclaresTheKnownGapsWithTheirTickets()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
 
@@ -1294,7 +1315,7 @@ public sealed class ProcessDescriptionAssemblerTests
                     Transitions: [new ProcessTypeTransition("", "To do")]),
             });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var field = description.Types[0].Fields.ShouldHaveSingleItem();
@@ -1326,7 +1347,7 @@ public sealed class ProcessDescriptionAssemblerTests
             // Zulu deliberately absent → its detail fetch returns null.
             new Dictionary<string, ProcessTypeDetail> { ["Niflheim.CustomAlpha"] = HostileDetail("a") });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Types.Select(t => t.ReferenceName)
@@ -1401,7 +1422,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 // Zulu absent → its detail fetch returns null, i.e. it could not be read.
             });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var genuinelyEmpty = description.Types.Single(t => t.ReferenceName == "Niflheim.CustomAlpha");
@@ -1446,7 +1467,7 @@ public sealed class ProcessDescriptionAssemblerTests
                     Unfetched: ["fields"]),
             });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var type = description.Types[0];
@@ -1476,7 +1497,7 @@ public sealed class ProcessDescriptionAssemblerTests
         // Precondition: the input is genuinely unsorted and contains a duplicate.
         scrambled.ShouldNotBe([.. scrambled.OrderBy(x => x, StringComparer.Ordinal)]);
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Types[0].Unfetched.ShouldBe(["fields", "states", "transitions"]);
@@ -1496,9 +1517,9 @@ public sealed class ProcessDescriptionAssemblerTests
     {
         var source = BuildSource();
 
-        var description = await BuildAssembler(source).AssembleAsync(
+        var description = (await BuildAssembler(source).AssembleAsync(
             ["Niflheim.CustomAlpha", "niflheim.customalpha", "Niflheim.CustomAlpha"],
-            FixedCapture);
+            FixedCapture)).ShouldBeAssembled();
 
         description.ShouldNotBeNull();
         description.Types.Count.ShouldBe(1);
@@ -1547,7 +1568,7 @@ public sealed class ProcessDescriptionAssemblerTests
         string.Equals(target, onTheFieldsRoute, StringComparison.Ordinal).ShouldBeFalse();
         string.Equals(target, onTheFieldsRoute, StringComparison.OrdinalIgnoreCase).ShouldBeTrue();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
             .Requiredness.Kind.ShouldBe(
@@ -1602,21 +1623,62 @@ public sealed class ProcessDescriptionAssemblerTests
             .ShouldBe(reversedWire.Select(f => f.RequiredUnconditionally).Reverse());
         forwardWire.Select(f => (f.ReferenceName, f.Name, f.Type)).Distinct().Count().ShouldBe(1);
 
-        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
-        var reversed = await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture);
+        var forward = (await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var reversed = (await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         Flatten(forward!).ShouldBe(
             Flatten(reversed!),
             "two rows differing only below the identifying members must not order by wire order");
     }
 
-    /// <summary>An unresolvable process yields no document rather than an empty one.</summary>
+    /// <summary>
+    /// An unresolvable process yields the <see cref="ProcessIdentityUnresolved"/> arm, not a
+    /// document and not the arm that means the type list failed.
+    /// </summary>
     [Fact]
-    public async Task Assemble_WhenProcessCannotBeResolved_ReturnsNull()
+    public async Task Assemble_WhenProcessCannotBeResolved_ReturnsProcessUnresolved()
     {
         var source = new ScriptedDescriptionSource([], []) { Identity = null };
 
-        (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeNull();
+        var outcome = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        (outcome is ProcessIdentityUnresolved).ShouldBeTrue(
+            $"expected ProcessIdentityUnresolved, got {outcome.Value?.GetType().Name}");
+    }
+
+    /// <summary>
+    /// 🔴 An unfetchable type list is a DIFFERENT arm from an unresolvable process (AB#244).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the assertion the old shape could not make. Both outcomes were <c>null</c>, so
+    /// any test of either was satisfied by the other and the distinction had no test at all —
+    /// which is exactly how the command came to collapse them into one message.
+    /// </para>
+    /// <para>
+    /// PRECONDITION asserted explicitly: the process identity DOES resolve on this fixture.
+    /// Without it a source that failed to resolve identity would take the earlier branch and
+    /// this test would pass while never reaching the code it names.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_WhenTypeListCannotBeFetched_ReturnsTypesUnfetchableNotProcessUnresolved()
+    {
+        var source = new ScriptedDescriptionSource([], []) { TypeListUnfetchable = true };
+
+        // PRECONDITION: identity resolves, so the failure under test is the type list's.
+        (await source.GetProcessIdentityAsync()).ShouldNotBeNull();
+
+        var outcome = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        (outcome is ProcessTypesUnfetchable).ShouldBeTrue(
+            $"expected ProcessTypesUnfetchable, got {outcome.Value?.GetType().Name}");
+
+        // 🔴 The load-bearing half: the two failures are DISTINGUISHABLE. Under the old
+        // null-returning shape both were the same value, so this could not be asserted.
+        (outcome is ProcessIdentityUnresolved).ShouldBeFalse(
+            "an unfetchable type list must not be reported as an unresolvable process — the "
+            + "two have different remedies (AB#244)");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1699,7 +1761,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 && a.TargetField == "Custom.WayfinderAnswer"),
             "the RULES source must say required, or the two sources do not disagree");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var merged = description.Types[0].Fields
@@ -1742,7 +1804,7 @@ public sealed class ProcessDescriptionAssemblerTests
         detail.Rules!.SelectMany(r => r.Actions)
             .ShouldNotContain(a => a.TargetField == "System.Title");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         var title = description!.Types[0].Fields.Single(f => f.ReferenceName == "System.Title");
         title.Requiredness.Kind.ShouldBe(FieldRequirednessKind.Always);
@@ -1778,7 +1840,7 @@ public sealed class ProcessDescriptionAssemblerTests
         detail.Rules!.SelectMany(r => r.Actions)
             .ShouldContain(a => a.TargetField == "System.Title");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "System.Title")
             .Requiredness.Kind.ShouldBe(
@@ -1810,7 +1872,7 @@ public sealed class ProcessDescriptionAssemblerTests
         rule.IsDisabled.ShouldBeTrue();
         rule.Actions.ShouldContain(a => a.TargetField == "Custom.WayfinderAnswer");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
             .Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
@@ -1842,7 +1904,7 @@ public sealed class ProcessDescriptionAssemblerTests
             .RequiredUnconditionally.ShouldBeFalse();
         detail.Rules.ShouldHaveSingleItem().Conditions.ShouldBeEmpty();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         var merged = description!.Types[0].Fields
             .Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
@@ -1876,7 +1938,7 @@ public sealed class ProcessDescriptionAssemblerTests
             .ShouldContain(a => a.TargetField == "Custom.WayfinderAnswer"
                 && a.ActionType != "makeRequired");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
             .Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
@@ -1908,7 +1970,7 @@ public sealed class ProcessDescriptionAssemblerTests
         detail!.Rules.ShouldHaveSingleItem().Actions
             .ShouldContain(a => a.ActionType.StartsWith('$'));
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         var merged = description!.Types[0].Fields
             .Single(f => f.ReferenceName == "Custom.WayfinderAnswer");
@@ -1955,8 +2017,8 @@ public sealed class ProcessDescriptionAssemblerTests
         forwardOnTheWire.Count(r => r.Actions.Any(a => a.TargetField == "Custom.WayfinderAnswer"))
             .ShouldBeGreaterThan(1);
 
-        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
-        var backward = await BuildAssembler(backwardSource).AssembleAsync(null, FixedCapture);
+        var forward = (await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var backward = (await BuildAssembler(backwardSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         forward.ShouldNotBeNull();
         backward.ShouldNotBeNull();
@@ -2002,7 +2064,7 @@ public sealed class ProcessDescriptionAssemblerTests
         conditionsOnTheWire.Count.ShouldBe(2);
         conditionsOnTheWire.Select(r => r.Conditions.Single().Value).Distinct().Count().ShouldBe(1);
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.WayfinderAnswer")
             .Requiredness.Conditions.ShouldHaveSingleItem();
@@ -2041,7 +2103,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 Rules: []),
         });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var couldNotRead = description.Types.Single(t => t.ReferenceName == "Niflheim.Grilling");
@@ -2158,7 +2220,7 @@ public sealed class ProcessDescriptionAssemblerTests
             "the fixture must be genuinely picklist-backed, or this test is a tautology");
         fromSource["Custom.ExecutionMode"].Values.ShouldNotBeEmpty();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var field = description.Types[0].Fields
@@ -2198,7 +2260,7 @@ public sealed class ProcessDescriptionAssemblerTests
         constrained.Type.ShouldBe(unconstrained.Type);
         constrained.Customization.ShouldBe(unconstrained.Customization);
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var field = description.Types[0].Fields
@@ -2237,7 +2299,7 @@ public sealed class ProcessDescriptionAssemblerTests
         var source = BuildConstraintSource(constraintsFailed: true);
         source.ValueConstraints.ShouldBeNull();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var type = description.Types[0];
@@ -2280,7 +2342,7 @@ public sealed class ProcessDescriptionAssemblerTests
         fromSource.ShouldNotBeNull();
         fromSource.ShouldNotContainKey("Custom.PriorityBand");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types[0].Fields.Single(f => f.ReferenceName == "Custom.PriorityBand")
             .ValueConstraint.Kind.ShouldBe(FieldValueConstraintKind.Unknown);
@@ -2321,7 +2383,7 @@ public sealed class ProcessDescriptionAssemblerTests
         var fromSource = await source.GetFieldValueConstraintsAsync();
         fromSource.ShouldNotBeNull();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var type = description.Types[0];
@@ -2352,7 +2414,7 @@ public sealed class ProcessDescriptionAssemblerTests
     {
         var source = BuildConstraintSource();
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         description.ShouldNotBeNull();
 
         var type = description.Types[0];
@@ -2393,7 +2455,7 @@ public sealed class ProcessDescriptionAssemblerTests
             "the two routes must genuinely spell the reference name differently, or the "
             + "case-insensitive join is not exercised");
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         var field = description!.Types[0].Fields.Single(f => f.ReferenceName == fieldsSpelling);
         field.ValueConstraint.Kind.ShouldBe(
@@ -2446,8 +2508,8 @@ public sealed class ProcessDescriptionAssemblerTests
 
         // The SAME constraint arriving with its values in two different server orders must
         // produce the identical document — the values are sorted, so the rows cannot swap.
-        var first = await BuildAssembler(Build(["Zulu", "Alpha"])).AssembleAsync(null, FixedCapture);
-        var second = await BuildAssembler(Build(["Alpha", "Zulu"])).AssembleAsync(null, FixedCapture);
+        var first = (await BuildAssembler(Build(["Zulu", "Alpha"])).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var second = (await BuildAssembler(Build(["Alpha", "Zulu"])).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         first.ShouldNotBeNull();
         second.ShouldNotBeNull();
@@ -2516,7 +2578,7 @@ public sealed class ProcessDescriptionAssemblerTests
             .ShouldBe(SystemRules);
         rules.Count(r => r.CustomizationOrUnknown.Kind == RuleCustomizationKind.Custom).ShouldBe(1);
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var described = description!.Types.Single();
 
         // 🔴 A COUNT, not non-empty. This is the assertion a filtering implementation fails.
@@ -2570,7 +2632,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 ]),
         });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types.Single().Rules.Single().Customization.Kind.ShouldBe(
             RuleCustomizationKind.Unknown,
@@ -2610,7 +2672,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 ]),
         });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var described = description!.Types.Single();
 
         described.Rules.Count.ShouldBe(1);
@@ -2666,8 +2728,8 @@ public sealed class ProcessDescriptionAssemblerTests
         forwardWire.Select(r => (r.Name, r.IsDisabled, r.CustomizationOrUnknown.Kind))
             .Distinct().Count().ShouldBe(1);
 
-        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
-        var reversed = await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture);
+        var forward = (await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var reversed = (await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         Flatten(forward!).ShouldBe(
             Flatten(reversed!),
@@ -2699,7 +2761,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_RuleClausesAndActions_AreOrderedNotCarriedInWireOrder()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var multiClause = description!.Types
             .Single(t => t.ReferenceName == TypeWithRules)
             .Rules.Single(r => r.Conditions.Count > 1);
@@ -2725,7 +2787,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_BehaviourMembership_AppearsWithNamesFromTheCatalogue()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var type = description!.Types.Single(t => t.ReferenceName == TypeWithRules);
 
         type.Behaviours.Count.ShouldBe(2);
@@ -2787,7 +2849,7 @@ public sealed class ProcessDescriptionAssemblerTests
             BehaviourCatalogue = [],
         };
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var type = description!.Types.Single();
 
         type.Behaviours.Count.ShouldBe(
@@ -2830,7 +2892,7 @@ public sealed class ProcessDescriptionAssemblerTests
             BehaviourCatalogue = null,
         };
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         description!.Types.Single(t => t.ReferenceName == WithMemberships)
             .Unfetched.ShouldContain("behaviourCatalogue");
@@ -2873,7 +2935,7 @@ public sealed class ProcessDescriptionAssemblerTests
             BehaviourCatalogue = [new ProcessBehaviourSummary("Custom.3daa3b35", "Wayfinding", 40)],
         };
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var membership = description!.Types.Single().Behaviours.Single();
 
         membership.Name.ShouldBe(
@@ -2925,7 +2987,7 @@ public sealed class ProcessDescriptionAssemblerTests
             ],
         };
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var type = description!.Types.Single();
 
         var membership = type.Behaviours.Single();
@@ -2967,7 +3029,7 @@ public sealed class ProcessDescriptionAssemblerTests
             ],
         };
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var type = description!.Types.Single();
 
         type.Behaviours.Single().Name.ShouldBe(
@@ -3010,8 +3072,8 @@ public sealed class ProcessDescriptionAssemblerTests
                 BehaviourCatalogue = [new ProcessBehaviourSummary("Custom.X", "X", 10)],
             };
 
-        var forward = await BuildAssembler(Source(true)).AssembleAsync(null, FixedCapture);
-        var reversed = await BuildAssembler(Source(false)).AssembleAsync(null, FixedCapture);
+        var forward = (await BuildAssembler(Source(true)).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
+        var reversed = (await BuildAssembler(Source(false)).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         // The document must not depend on which row the server sent first.
         Flatten(forward!).ShouldBe(
@@ -3043,7 +3105,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_FormLayout_IsOrderedByTheServersOrderKey()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var layout = description!.Types
             .Single(t => t.ReferenceName == TypeWithRules)
             .Layout;
@@ -3118,7 +3180,7 @@ public sealed class ProcessDescriptionAssemblerTests
                 [TypeThatHasALayout] = HostileDetail("z"),
             });
 
-        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(source).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
         var type = description!.Types.Single(t => t.ReferenceName == Type);
 
         type.Layout.ShouldBeNull();
@@ -3151,7 +3213,7 @@ public sealed class ProcessDescriptionAssemblerTests
     [Fact]
     public async Task Assemble_InheritedVsAuthored_IsMarkedOnTypesAndOnRules()
     {
-        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var description = (await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture)).ShouldBeAssembled();
 
         // On TYPES: the fixture's roster mixes custom and inherited.
         description!.Types.Select(t => t.Customization).Distinct().Order(StringComparer.Ordinal)

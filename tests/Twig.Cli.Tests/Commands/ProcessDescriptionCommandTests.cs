@@ -1056,7 +1056,13 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         exitCode.ShouldBe(1);
         File.Exists(path).ShouldBeFalse();
-        _stderr.ToString().ShouldContain("Could not describe");
+
+        // 🔴 Asserted on THIS arm's own vocabulary (AB#244). It used to check for "Could not
+        // describe", the message an unresolvable process SHARED with an unfetchable type list —
+        // so it was equally satisfied by the other failure, and could not have noticed the two
+        // being collapsed. The pairwise inequality is asserted in
+        // ProcessUnresolvedAndTypesUnfetchable_DoNotShareOneMessage.
+        _stderr.ToString().ShouldContain("does not resolve");
     }
 
     /// <summary>
@@ -1486,5 +1492,69 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         content.ShouldContain("\"requiredWhen\": \"whenChanged System.State\"");
         content.ShouldNotContain("whenChanged System.State =");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#244 — the two failures no longer share one message
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>The stderr text a failing run produced, with the exit code asserted first.</summary>
+    private async Task<string> FailureMessageAsync(IProcessDescriptionSource source)
+    {
+        var exitCode = await BuildCommand(source).ExecuteAsync(
+            null, null, ProcessDescriptionCommand.CompleteFormat);
+
+        exitCode.ShouldBe(1, "the run under test must FAIL, or there is no message to compare");
+        return _stderr.ToString();
+    }
+
+    /// <summary>
+    /// 🔴 An unresolvable process and an unfetchable type list produce DIFFERENT messages.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Acceptance criterion 2, and the assertion that most needed to be written this way. A
+    /// test that merely checked "an error was reported" passes against the collapsed version
+    /// too — before AB#244 both failures arrived as the same <c>null</c> and this command
+    /// emitted ONE message covering both, so it was green on exactly the behaviour the ticket
+    /// exists to change. Comparing the two strings for INEQUALITY is what makes it red there.
+    /// </para>
+    /// <para>
+    /// 🔴 Both preconditions are asserted rather than assumed: each message must be non-empty,
+    /// otherwise two empty strings would be equal and the inequality assertion would fail for
+    /// the wrong reason — or worse, two whitespace variants would differ and it would pass for
+    /// one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ProcessUnresolvedAndTypesUnfetchable_DoNotShareOneMessage()
+    {
+        var unresolved = await FailureMessageAsync(
+            new ScriptedDescriptionSource([], []) { Identity = null });
+
+        _stderr.GetStringBuilder().Clear();
+
+        var unfetchable = await FailureMessageAsync(
+            new ScriptedDescriptionSource([], []) { TypeListUnfetchable = true });
+
+        // PRECONDITION: both actually said something.
+        unresolved.Trim().ShouldNotBeEmpty();
+        unfetchable.Trim().ShouldNotBeEmpty();
+
+        // 🔴 The criterion itself.
+        unfetchable.ShouldNotBe(
+            unresolved,
+            "an unresolvable process and an unfetchable type list have DIFFERENT remedies — "
+            + "configuration versus retry/auth — so they must not share one message (AB#244)");
+
+        // And each names its own remedy, so the difference is meaningful rather than cosmetic
+        // whitespace. Asserted on the DISTINGUISHING vocabulary, not on the whole sentence,
+        // so a reworded message stays green while a re-collapsed one does not.
+        unresolved.ShouldContain("does not resolve");
+        unfetchable.ShouldContain("type list");
+
+        // The cross-checks: neither message claims the other's cause.
+        unresolved.ShouldNotContain("type list");
+        unfetchable.ShouldNotContain("does not resolve");
     }
 }

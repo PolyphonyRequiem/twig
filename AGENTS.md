@@ -41,14 +41,11 @@ It exits non-zero unless every suite is a genuine, unaborted pass. Grep its
 output for `TWIG-VERDICT` — never for `Passed!` (see "Reading test results").
 
 🔴 **A green `TWIG-VERDICT OVERALL` is necessary but NOT sufficient before you push.** This
-script runs four suites; CI runs six and compiles the whole solution. Run CI's own commands
-too, then read the exit code:
+script runs four suites; CI runs six and compiles the whole solution. `--pre-push` adds
+CI's own commands and folds them into the verdict:
 
 ```bash
-dotnet restore \
-  && dotnet build --no-restore \
-  && dotnet test --no-build --settings test.runsettings
-echo "EXIT=$?"
+tools/run-tests.sh --pre-push
 ```
 
 Why, what it catches, and the incident that forced it: see "Before you push: the script's
@@ -154,27 +151,57 @@ cleanest available proof that the script's verdict and CI's verdict are differen
 not the same one measured twice. (Re-measure rather than quoting these figures — they drift
 with every card.)
 
-**So run CI's own commands before pushing, in addition to the script.** These are exactly
-the three steps from `.github/workflows/ci.yml`, in order:
+**So run CI's own commands before pushing, in addition to the script.** `--pre-push` does
+exactly that, and reconciles the result for you:
+
+```bash
+tools/run-tests.sh --pre-push
+```
+
+It runs the four suites as usual, then — **serially, never concurrently** — CI's own three
+steps from `.github/workflows/ci.yml`:
 
 ```bash
 dotnet restore \
   && dotnet build --no-restore \
   && dotnet test --no-build --settings test.runsettings
-echo "EXIT=$?"
 ```
 
-🔴 **Chain them with `&&`, and read that `EXIT`.** Both halves of that are load-bearing:
+The wide run gets its own reconciled verdict line, and `OVERALL` covers both:
 
-- **If the build fails and you run `dotnet test --no-build` anyway**, you get the trap in the
-  next paragraph — a green-looking run of whatever assemblies happen to still be on disk.
-- **This command has no `TWIG-VERDICT`.** It is the one place this file asks you to judge a
-  run by its exit code, which is precisely the judgement call `tools/run-tests.sh` exists to
-  abolish. The 300 s `TestSessionTimeout` in `test.runsettings` applies here too, so an
-  aborted six-assembly run prints the same false-green `Passed!` described above. Reconcile
-  it by hand with the recipe from "Reading test results":
-  `grep -E "Passed!|Failed!|Aborted|\[FAIL\]"`. Wrapping this command in the script is not
-  done yet — until it is, this is a known soft spot, not a solved problem.
+```
+TWIG-VERDICT SolutionWide: PASSED (8082 tests across 6 assemblies) [log: artifacts/test-logs/SolutionWide.log]
+TWIG-VERDICT OVERALL: PASSED
+```
+
+(As ever, the *shape* of that line is the guidance, never the number. The assembly count is
+in the verdict deliberately, but read it as *evidence*, not as a guard: nothing asserts it
+equals six, because hardcoding a total is how this file's counts go stale. The guards that
+actually fail a narrowed run are the exit code and the invalid-argument marker.)
+
+🔴 **The `&&` chaining is load-bearing, and `--pre-push` preserves it.** If the build fails
+and `dotnet test --no-build` runs anyway, you get the trap two paragraphs down — a
+green-looking run of whatever assemblies happen to still be on disk. Chaining means the test
+step is never reached; the reconciler's invalid-argument marker is the second line of defence
+for when a stale output directory survives a *successful* build.
+
+The 300 s `TestSessionTimeout` in `test.runsettings` applies to the wide run too
+(`Directory.Build.props` sets `RunSettingsFilePath`, so both paths pick it up), so an aborted
+six-assembly run prints the same false-green `Passed!` described above — `--pre-push` runs it
+through the same abort-marker check as every other suite, so you no longer reconcile it by
+hand.
+
+If you run the wide command by hand instead, you are back to judging it by its exit code, and
+`grep -E "Passed!|Failed!|Aborted|\[FAIL\]"` **does not save you**: measured on a real broken
+run it returned five matches, every one of them a green `Passed!` line, and nothing else.
+It does not come back empty — it comes back *green*, which is worse. Prefer the flag.
+
+The reconciler's own guards are self-tested — four negative arms and two positive, so
+neither an always-FAILED guard nor an always-PASSED one could get through:
+
+```bash
+tools/run-tests.sh --selftest
+```
 
 (Add `-m:1` to the build if a parallel MSBuild is contending with another worktree. That is a
 local convenience; CI builds without it.)
@@ -197,13 +224,16 @@ green while doing it.
 `dotnet test --no-build --settings test.runsettings` took **74-76 s**; `tools/run-tests.sh`
 took **92-99 s**. The wide command is the *cheaper* of the two despite running two more
 assemblies, because it runs the six in **parallel** in one invocation while the script runs
-four **serially** in four. Both are dominated by the Cli suite (~71 s of either).
+four **serially** in four. Both are dominated by the Cli suite (~71 s of either). So
+`--pre-push`, which runs both, roughly **doubles** the cost rather than multiplying it —
+measured at ~2m50s warm on this tree.
 
 🔴 **That parallelism is not a licence to run the two commands at the same time.** One
 `dotnet test` parallelising across assemblies it owns is fine; two separate `dotnet test`
 processes collide over shared build output and produce a bogus
 `SQLitePCL DllNotFoundException` (see "Canonical test command"). Run the script and the wide
-command one after the other.
+command one after the other — which is exactly what `--pre-push` does, and why it runs the
+wide command *after* the four-suite loop rather than beside it.
 
 ### How the AB#241 gap bit
 

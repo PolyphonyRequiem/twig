@@ -112,7 +112,6 @@ public sealed class RendererFactory
         // escape sequences.
         console.Profile.Capabilities.Ansi = false;
         console.Profile.Capabilities.Links = false;
-        console.Profile.Capabilities.Legacy = false;
         console.Profile.Capabilities.Interactive = false;
         console.Profile.Capabilities.Unicode = true;
         console.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;

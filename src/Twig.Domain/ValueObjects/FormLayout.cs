@@ -34,7 +34,38 @@ namespace Twig.Domain.ValueObjects;
 public sealed record FormLayout(
     string WorkItemTypeReferenceName,
     string ProcessId,
-    IReadOnlyList<LayoutPage> Pages);
+    IReadOnlyList<LayoutPage> Pages)
+{
+    /// <summary>
+    /// The server-placed controls that sit outside the page structure — state, reason,
+    /// assigned-to, area and iteration path, history, links, attachments.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Added as an init-only member with a default, deliberately NOT as a fourth
+    /// positional parameter.</b> This record is public and analyzer-governed, and a
+    /// positional addition rewrites its constructor and its <c>Deconstruct</c>, and the type
+    /// is referenced across the domain, the CLI, the TUI and the sample host. An init-only
+    /// member with a default leaves
+    /// every existing construction site compiling untouched, which is what makes carrying
+    /// this fact affordable at all.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Carried rather than discarded (AB#247).</b> The server returns
+    /// <c>systemControls</c> in the SAME response as <c>pages</c>, so it was already being
+    /// deserialized and then thrown away — an omission with no marker, while the layout
+    /// command claimed to render "the form". These are the controls a person sees at the
+    /// top of every work item; a form rendering without them is missing its header.
+    /// </para>
+    /// <para>
+    /// Empty is the honest default: a layout built by a caller that has no system controls
+    /// to declare (the fallback layout, and every hand-built test fixture) asserts nothing
+    /// about the server's. An absent key is read as empty rather than as a distinct state —
+    /// no observed layout omits it, and the parse guards the omission anyway.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<LayoutControl> SystemControls { get; init; } = [];
+}
 
 /// <summary>A tab in the form.</summary>
 /// <param name="PageType">

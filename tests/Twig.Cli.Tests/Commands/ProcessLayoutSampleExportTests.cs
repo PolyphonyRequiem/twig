@@ -139,6 +139,17 @@ public sealed class ProcessLayoutSampleExportTests
             else if (url.Contains("/_apis/projects/", StringComparison.OrdinalIgnoreCase))
                 body = "{\"capabilities\":{\"processTemplate\":{\"templateName\":\"Agile\","
                      + "\"templateTypeId\":\"adcc42ab-9882-485e-a3ed-7678f01f66bc\"}}}";
+            else if (url.Contains("/work/processes/", StringComparison.OrdinalIgnoreCase)
+                  && url.Contains("/workItemTypes?", StringComparison.OrdinalIgnoreCase))
+                // 🔴 The PROCESS roster. The layout fetch resolves against this one, not the
+                // project route below (AB#247) — the two disagree on the reference name of
+                // every inherited type, and only this one names what the process owns.
+                // 🔴 Both halves of the condition are load-bearing: the project route
+                // `/_apis/wit/workitemtypes?…` contains `workItemTypes?` too, so matching on
+                // that alone would shadow it.
+                body = "{\"count\":1,\"value\":[{\"name\":\"Bug\",\"referenceName\":"
+                     + "\"Microsoft.VSTS.WorkItemTypes.Bug\",\"customization\":\"inherited\","
+                     + "\"isDisabled\":false}]}";
             else if (url.Contains("/_apis/wit/workitemtypes", StringComparison.OrdinalIgnoreCase))
                 body = "{\"count\":1,\"value\":[{\"name\":\"Bug\",\"referenceName\":"
                      + "\"Microsoft.VSTS.WorkItemTypes.Bug\",\"isDisabled\":false}]}";

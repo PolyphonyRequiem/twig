@@ -98,6 +98,14 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
             "work/processes/{processId}/workItemTypes/{ref}/rules", AdoApiVersions.ProcessRules),
         new ProcessDescriptionRouteVersion(
             "wit/workitemtypes?$expand=all", AdoApiVersions.ProjectWorkItemTypesExpanded),
+        // 🔴 The picklist association source (AB#237). ORG-scoped, not process-scoped: no
+        // process route carries `isPicklist` or a picklist reference at any version, with or
+        // without $expand. Read for that ONE attribute and joined by reference name — never
+        // presented as a type's field list, which is the defect this whole feature fixes.
+        new ProcessDescriptionRouteVersion(
+            "wit/fields", AdoApiVersions.Fields),
+        new ProcessDescriptionRouteVersion(
+            "work/processes/lists/{listId}", AdoApiVersions.ProcessLists),
     ];
 
     public async Task<ProcessIdentity?> GetProcessIdentityAsync(CancellationToken ct = default)
@@ -293,6 +301,245 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
                     action.Value)).ToList() ?? [],
                 rule.IsDisabled)),
         ];
+    }
+
+    /// <remarks>
+    /// 🔴 The picklist association source (AB#237). Two hops, deliberately:
+    /// <list type="number">
+    /// <item><description>
+    /// <c>_apis/wit/fields</c> for the association itself. This is the ONLY route that
+    /// carries it — no process route reports <c>isPicklist</c> or a picklist reference at any
+    /// api-version, with or without <c>$expand=all</c>. It reports <c>isPicklist</c> on
+    /// EVERY row, which is what lets a non-list-backed field be reported as unconstrained as
+    /// a stated server FACT rather than as a guess. That explicit negative is what makes the
+    /// ban on name-matching costless rather than a sacrifice.
+    /// </description></item>
+    /// <item><description>
+    /// <c>_apis/work/processes/lists/{id}</c> for the contents, once per DISTINCT list. The
+    /// list-all route returns metadata only (every entry carries <c>items: []</c>), so there
+    /// is no batch form; distinct rather than per field, because several fields may share one
+    /// list.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// 🔴 Returns <c>null</c> on a failed field-list call and never an empty map. An empty map
+    /// asserts that every field is unconstrained — a confident claim built on a call that
+    /// never came back, and precisely this ticket's own lie in the OVERSTATING direction
+    /// inverted.
+    /// </para>
+    /// <para>
+    /// 🔴 A field whose list could not be resolved is <see cref="FieldValueConstraint.Unknown"/>
+    /// rather than unconstrained, and the whole run is NOT failed for it: the association is
+    /// still known for every other field, and discarding those answers over one bad list
+    /// would trade a lot of truth for no extra honesty.
+    /// </para>
+    /// <para>
+    /// Keyed <c>OrdinalIgnoreCase</c>: this route and the per-type fields route are different
+    /// surfaces, and an exact join would silently drop a real constraint over a casing
+    /// difference — reporting a list-backed field as unconstrained, byte-identical to a field
+    /// that genuinely is.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
+        CancellationToken ct = default)
+    {
+        // 🔴 GA 7.1 and org-scoped. Read for `isPicklist`/`picklistId` ONLY — this list is
+        // identical for every work item type and must never be presented as a type's fields.
+        var url = $"{_orgUrl}/_apis/wit/fields?api-version={AdoApiVersions.Fields}";
+
+        AdoOrgFieldListResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoOrgFieldListResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        catch (JsonException) { return null; }
+
+        if (result?.Value is null)
+            return null;
+
+        // One fetch per DISTINCT list id, gathered before the map is built.
+        // 🔴 OrdinalIgnoreCase: a GUID's casing is not part of its identity, so two spellings
+        // of one id must not cost two round trips — or, worse, miss the lookup below and
+        // report a genuinely list-backed field as Unknown.
+        var listIds = result.Value
+            .Where(f => f.IsPicklist == true && !string.IsNullOrWhiteSpace(f.PicklistId))
+            .Select(f => f.PicklistId!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // 🔴 Fan-out is BOUNDED. One in-flight GET per distinct list, unthrottled, is fine at
+        // this org's seven lists and is a 429 generator at two hundred — and a throttle here
+        // degrades exactly the answer this ticket exists to make trustworthy. Four is the same
+        // order as the per-type fetch this method runs alongside.
+        using var gate = new SemaphoreSlim(4);
+        var fetched = await Task.WhenAll(listIds.Select(async id =>
+        {
+            await gate.WaitAsync(ct);
+            try { return await FetchPicklistAsync(id, ct); }
+            finally { gate.Release(); }
+        }));
+
+        var lists = new Dictionary<string, AdoPicklistResponse?>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < listIds.Count; i++)
+            lists[listIds[i]] = fetched[i];
+
+        var constraints = new Dictionary<string, FieldValueConstraint>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var field in result.Value)
+        {
+            if (string.IsNullOrWhiteSpace(field.ReferenceName))
+                continue;
+
+            var resolved = ResolveOne(field, lists);
+
+            // 🔴 A duplicate reference name must not be settled by WIRE ORDER. The map is
+            // OrdinalIgnoreCase and this route is org-scoped, so two rows differing only in
+            // casing collapse onto one key — and "last writer wins" would make the document
+            // depend on the order the server happened to send them, which is the one thing
+            // this feature forbids. When two rows genuinely disagree neither answer is
+            // defensible, so the honest report is that we do not know.
+            if (constraints.TryGetValue(field.ReferenceName, out var existing)
+                && !SameConstraint(existing, resolved))
+            {
+                constraints[field.ReferenceName] = FieldValueConstraint.Unknown;
+                continue;
+            }
+
+            constraints[field.ReferenceName] = resolved;
+        }
+
+        return constraints;
+    }
+
+    /// <summary>
+    /// One org field row's value constraint, before the duplicate-key check.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Four outcomes, and only ONE of them is <see cref="FieldValueConstraint.Unconstrained"/>.
+    /// Three separate ways of not knowing all resolve to
+    /// <see cref="FieldValueConstraint.Unknown"/> rather than collapsing into the positive
+    /// claim — that collapse is the exact lie AB#237 removes.
+    /// </remarks>
+    private static FieldValueConstraint ResolveOne(
+        AdoOrgFieldResponse field,
+        IReadOnlyDictionary<string, AdoPicklistResponse?> lists)
+    {
+        // 🔴 The key is ABSENT, not false. This route is documented to carry `isPicklist` on
+        // every row, and the whole no-heuristic design rests on that. If it ever stops, that is
+        // a source change — and reading a missing key as the explicit negative would be
+        // "absence of evidence rendered as a stated fact", the banned inference in a new hat.
+        if (field.IsPicklist is null)
+            return FieldValueConstraint.Unknown;
+
+        // 🔴 The explicit negative, carried as a FACT. Not an absence of evidence and not an
+        // inference from the field's name or type.
+        if (field.IsPicklist == false)
+            return FieldValueConstraint.Unconstrained;
+
+        // 🔴 `isPicklist` is TRUE but the pointer is missing. The association is PROVEN present
+        // and only the target is unreadable, so this is Unknown — never unconstrained.
+        // `picklistId` is a conditional key on this route, so a version slip that drops it
+        // while keeping `isPicklist: true` reaches exactly here, and "the server accepts
+        // anything" would be the most dangerous of the three wrong answers, because acting on
+        // it fails at the server.
+        if (string.IsNullOrWhiteSpace(field.PicklistId))
+            return FieldValueConstraint.Unknown;
+
+        // 🔴 The field IS list-backed but its list did not come back. Unknown for the same
+        // reason: the association is proven, only the values are missing.
+        if (!lists.TryGetValue(field.PicklistId, out var list) || list is null)
+            return FieldValueConstraint.Unknown;
+
+        // Values are passed through in server order. 🔴 The ASSEMBLER sorts them — the single
+        // ordering authority — and doing it here as well would make byte-stability depend on
+        // two places agreeing forever.
+        //
+        // 🔴 Nulls ARE filtered here, at the DTO boundary, because that is a typing concern
+        // rather than an ordering one: `items` is a JSON array that may contain null, while
+        // FieldValueConstraint.Values is declared non-nullable. An unfiltered null renders as
+        // an empty segment in the joined value list — indistinguishable from a real
+        // empty-string value the process actually accepts.
+        IReadOnlyList<string> values = [.. (list.Items ?? []).Where(static v => v is not null)];
+
+        // 🔴 SUGGESTED is not CONSTRAINED. A suggested picklist offers its values in the web
+        // editor while the server still accepts anything, so calling it a constraint would
+        // tell a caller its write must come from the list when it need not — the overstatement
+        // this ticket removes, arriving through an unread flag rather than a bad guess.
+        //
+        // Either witness is enough: the field row's flag is primary, and the list's own mirrors
+        // it. If they disagree the weaker claim wins, because disagreement between two views of
+        // one list is not grounds for asserting the stronger one.
+        return field.IsPicklistSuggested == true || list.IsSuggested == true
+            ? FieldValueConstraint.SuggestedFrom(list.Name, values)
+            : FieldValueConstraint.ConstrainedTo(list.Name, values);
+    }
+
+    /// <remarks>
+    /// Structural comparison INCLUDING the values. <see cref="FieldValueConstraint"/> is a
+    /// record, but its <c>Values</c> is an <c>IReadOnlyList&lt;string&gt;</c>, which records
+    /// compare by REFERENCE — so compiler-generated equality would call two identical lists
+    /// different and manufacture a conflict that is not there.
+    /// </remarks>
+    private static bool SameConstraint(FieldValueConstraint left, FieldValueConstraint right)
+        => left.Kind == right.Kind
+            && string.Equals(left.ListName, right.ListName, StringComparison.Ordinal)
+            && left.Values.SequenceEqual(right.Values, StringComparer.Ordinal);
+
+    /// <remarks>
+    /// Returns <c>null</c> on failure rather than an empty list: an empty <c>items</c> array
+    /// is a REAL state (a list that exists and holds nothing, constraining the field to
+    /// nothing), so laundering a failed call into one would assert something false about the
+    /// field rather than merely losing detail.
+    /// <para>
+    /// 🔴 <b>The envelope is VALIDATED, not merely deserialized, and that is load-bearing on
+    /// this route family.</b> A count-shaped error body (<c>{"count":1,"value":{"Message":…}}</c>)
+    /// carries none of this DTO's keys, and <c>System.Text.Json</c> ignores unmapped members by
+    /// default — so unlike every sibling fetch in this class it does NOT throw. Those siblings
+    /// deserialize into a <c>*ListResponse</c> whose <c>Value</c> is a <c>List&lt;T&gt;</c>, and
+    /// the count-shaped body puts an OBJECT where the array belongs, which is what makes them
+    /// fail. That defence is structural, and this DTO — a bare object with no array-shaped
+    /// member — falls outside it.
+    /// </para>
+    /// <para>
+    /// Untreated, a failed fetch would deserialize into an all-null instance and be reported as
+    /// <c>ListConstrained</c> with NO values: "the server accepts no value at all here", the
+    /// strongest possible positive claim, built on a call that failed. That is worse than the
+    /// unconstrained collapse this ticket exists to prevent. A real picklist always carries
+    /// <c>id</c>, so its absence is the tell.
+    /// </para>
+    /// </remarks>
+    private async Task<AdoPicklistResponse?> FetchPicklistAsync(string listId, CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/work/processes/lists/{Uri.EscapeDataString(listId)}" +
+            $"?api-version={AdoApiVersions.ProcessLists}";
+
+        AdoPicklistResponse? list;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            list = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoPicklistResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        // 🔴 ANY ADO failure on ONE list yields Unknown for the fields it backs, and leaves
+        // every other field's answer intact. Narrower catches (404 + malformed JSON only) would
+        // let a throttle or a transient server error on a single list fail the whole
+        // description — contradicting this method's own contract, and trading a lot of truth
+        // for no extra honesty. Cancellation still propagates: that is the caller's decision,
+        // not a source failure.
+        catch (AdoException) { return null; }
+        catch (JsonException) { return null; }
+
+        // 🔴 The count-shaped-body guard. Absence of `id` means this is not a picklist payload
+        // at all — treat it as a failed fetch, never as a list that exists and holds nothing.
+        return string.IsNullOrWhiteSpace(list?.Id) ? null : list;
     }
 
     private async Task<IReadOnlyList<ProcessTypeField>?> FetchFieldsAsync(

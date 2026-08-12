@@ -30,9 +30,11 @@ namespace Twig.Domain.ValueObjects;
 /// guard against a future caller reaching for it as though it were the whole truth.
 /// </para>
 /// <para>
-/// This route carries <b>no</b> <c>allowedValues</c> and no picklist reference at any
+/// 🔴 This route carries <b>no</b> <c>allowedValues</c> and no picklist reference at any
 /// api-version, with or without <c>$expand=all</c>. A field that looks like a choice list
-/// is not known to be constrained from here.
+/// is not known to be constrained from here — which is why
+/// <see cref="ProcessDescriptionField.ValueConstraint"/> is merged in from the ORG field
+/// route (AB#237) rather than guessed from this row's name or type.
 /// </para>
 /// <para>
 /// Evidence: branch <c>docs/process-descriptor-map</c>,

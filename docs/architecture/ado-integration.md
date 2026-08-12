@@ -217,6 +217,8 @@ constant in `AdoApiVersions`; never inline a literal.
 | `.../workItemTypes/{ref}/states` | `7.1` | `customizationType`, `order`, `stateCategory`. **preview.2 is rejected on this route** |
 | `.../workItemTypes/{ref}/rules` | `7.1` | `makeRequired` actions and their conditions — the **second source of requiredness** |
 | `{project}/_apis/wit/workitemtypes?$expand=all` | `7.1` | The **only** source of state transitions (see below) |
+| `_apis/wit/fields` | `7.1` | `isPicklist` / `picklistId` — the **only** source of the picklist association (AB#237) |
+| `_apis/work/processes/lists/{listId}` | `7.1-preview.1` | A picklist's `items`; the list-all route returns metadata only |
 
 🔴 **Requiredness is merged from two routes, and reading either alone lies (AB#236).**
 The per-type `fields` route reports **unconditional** requiredness only. A field made
@@ -235,6 +237,58 @@ layer reads `makeRequired` actions off rules rather than reporting them, and tho
 are identical at both versions. Moving the constant would change the shipped
 `twig process rules` output for no gain here; it belongs to the ticket that carries
 rules into the document (AB#238).
+
+🔴 **Value constraints come from a THIRD source, and guessing them is banned (AB#237).**
+No process route carries `allowedValues` or any picklist reference, at any api-version,
+with or without `$expand=all`. The association is readable **field-first** off the
+org-scoped `_apis/wit/fields`, which reports `isPicklist` on *every* row — and that
+explicit negative is what makes the ban on name-matching costless rather than a
+sacrifice: the document states "not list-constrained" as a **server fact**, never as an
+inference from a field being called `Status` or typed `string`.
+
+So the document carries `valueConstraint` (`list` | `suggested` | `unconstrained` | `unknown`)
+with the resolved `allowedValues` attached. Four values and not a boolean, because there are two
+distinct ways to overstate and one to understate:
+
+- 🔴 `unknown` (the picklist call failed, or the source contradicted itself) must not collapse
+  into `unconstrained`, which would tell a caller the server accepts anything when nobody
+  successfully asked — the most dangerous wrong answer, because acting on it fails at the server.
+  A field in this state puts `picklists` in its type's `unfetched` list, and that label is derived
+  from the RESOLVED answers rather than from whether the call came back, so a *partial* failure is
+  labelled too.
+- 🔴 `suggested` (ADO's `isPicklistSuggested`) must not collapse into `list`. A suggested picklist
+  offers its values in the web editor while the server enforces nothing, so calling it a
+  constraint tells a caller its write must come from the list when it need not. The values are
+  still carried — they are true — but the claim attached to them is weaker. Both the field row's
+  `isPicklistSuggested` and the list's own `isSuggested` are read, and on disagreement the weaker
+  claim wins.
+
+Three separate ways of not knowing — an absent `isPicklist` key, `isPicklist: true` with no
+`picklistId`, and a list that would not resolve — all land on `unknown` rather than on the
+positive negative. `isPicklist` and `isPicklistSuggested` are modelled as **nullable** bools for
+that reason: a non-nullable `bool` deserializes an absent key to `false`, and `false` is consumed
+as a stated server fact, so a version drift would manufacture the explicit negative out of nothing.
+
+`picklistId` is a **conditional key**: the server omits it entirely rather than sending
+`null` when `isPicklist` is false. Reading only `picklistId` is how the original endpoint
+survey concluded this route did not carry the association at all. Values cost one call per
+**distinct** list — the list-all route returns metadata only, with every entry carrying
+`items: []`.
+
+The join to the type-scoped field list is `OrdinalIgnoreCase`, like every other
+reference-name match in this layer. An exact join would drop a real constraint over a
+casing difference and report a list-backed field as unconstrained — byte-identical to a
+field that genuinely is, and carrying no `unfetched` label to catch it.
+
+> ⚠️ **The org's picklist state has changed since the research this ticket rests on.**
+> Finding 0005 (2026-08-11) recorded 199 fields with **zero** picklist-backed, and seven
+> orphan lists backing nothing. Probed live during AB#237's implementation: 200 fields with
+> **seven** picklist-backed, every one of the seven lists now bound, and the server's own
+> validator rejecting a junk value into `Custom.WayfinderExecutionMode` — the exact probe
+> that was *accepted* in 0005. The orphan-picklist defect 0005 flagged has been fixed in the
+> Niflheim process. This changes the ticket's *illustration*, not its design: the honesty
+> constraint and the ban on name-matching hold either way, and the implementation reads the
+> server rather than assuming either state.
 
 Three findings that constrain this layer, all probed live:
 

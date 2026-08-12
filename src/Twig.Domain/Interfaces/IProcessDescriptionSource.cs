@@ -102,6 +102,51 @@ internal interface IProcessDescriptionSource
         string typeReferenceName,
         string? inheritsFrom = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves, for every field the ORG knows about, whether its value is restricted to a
+    /// picklist — and where it is, that list's contents.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>A separate call from <see cref="GetTypeDetailAsync"/> because it is a separate
+    /// SOURCE.</b> The per-type fields route carries no <c>allowedValues</c> and no picklist
+    /// reference at any api-version, with or without <c>$expand=all</c>. The association is
+    /// only readable field-first off <c>_apis/wit/fields</c>, which is ORG-scoped rather than
+    /// type-scoped — so it is fetched once per run and joined, not fetched per type.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The explicit negative is the whole point.</b> That route returns
+    /// <c>isPicklist</c> on EVERY field, so a field that is not list-backed can be reported
+    /// as unconstrained <i>as a server fact</i>. This is what makes the ban on name-matching
+    /// costless rather than a sacrifice: there is nothing to guess. An implementation
+    /// inferring constraint from a field being called <c>Status</c> would be wrong in both
+    /// directions on this org's own data.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Keyed by field REFERENCE name, and the join must be case-insensitive.</b> This is
+    /// a different route from the per-type fields route, and this route family is already
+    /// known to be inconsistent about spelling. An ordinal-exact join would silently drop a
+    /// field's constraint over a casing difference and report it as unconstrained — which is
+    /// byte-identical to a genuinely unconstrained field and carries no <c>Unfetched</c>
+    /// label. That is this ticket's own lie, reintroduced as a failed JOIN.
+    /// </para>
+    /// <para>
+    /// Values cost one extra call per DISTINCT list: the list-all route returns metadata only
+    /// (every entry carries <c>items: []</c>). Distinct, not per field — several fields may
+    /// share one list, and asking once per field would multiply the round-trips for nothing.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// The constraint per field reference name, or <c>null</c> when the picklist source could
+    /// not be read at all. 🔴 <c>null</c> is NOT an empty map: an empty map would assert every
+    /// field is unconstrained, which is precisely the overstatement inverted — a confident
+    /// claim built on a call that never came back. A field absent from a non-null map is one
+    /// the org route did not report, and is <see cref="FieldValueConstraint.Unknown"/> rather
+    /// than unconstrained for the same reason.
+    /// </returns>
+    Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
+        CancellationToken ct = default);
 }
 
 /// <summary>Which process a description is about, and where it came from.</summary>

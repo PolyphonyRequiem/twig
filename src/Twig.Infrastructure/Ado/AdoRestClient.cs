@@ -11,12 +11,14 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.Ado;
 
 /// <summary>
-/// Implements <see cref="IAdoWorkItemService"/> via ADO REST API (api-version=7.1).
+/// Implements <see cref="IAdoWorkItemService"/> via ADO REST API.
 /// </summary>
+/// <remarks>
+/// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
+/// records what that version buys. Never inline a version literal here.
+/// </remarks>
 internal sealed class AdoRestClient : IAdoWorkItemService
 {
-    private const string ApiVersion = "7.1";
-    private const string CommentApiVersion = "7.1-preview.4";
     private const string JsonPatchMediaType = "application/json-patch+json";
 
     private readonly HttpClient _http;
@@ -67,7 +69,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
         var lookup = await GetFieldDefLookupAsync(ct);
@@ -77,7 +79,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
         var lookup = await GetFieldDefLookupAsync(ct);
@@ -99,7 +101,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = AdoResponseMapper.MapPatchDocument(changes);
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
@@ -112,7 +114,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public async Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default)
     {
         var typeName = Uri.EscapeDataString(request.TypeName);
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/${typeName}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/${typeName}?api-version={AdoApiVersions.WorkItemTemplate}";
         var patchDoc = AdoResponseMapper.MapSeedToCreatePayload(request, _orgUrl);
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
@@ -190,7 +192,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         if (remaining.Count == tags.Length)
             return;
 
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
             new()
@@ -208,7 +210,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={CommentApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={AdoApiVersions.WorkItemComments}";
         var request = new AdoCommentRequest { Text = text };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoCommentRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -235,7 +237,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     {
         var topParam = top.HasValue ? $"&$top={top.Value}" : "";
         var precisionParam = timePrecision ? "&timePrecision=true" : "";
-        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}{precisionParam}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={AdoApiVersions.Wiql}{topParam}{precisionParam}";
         var request = new AdoWiqlRequest { Query = wiql };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoWiqlRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -251,7 +253,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
             new()
@@ -275,7 +277,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public async Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
     {
         // 1. GET current work item with relations to obtain the Rev (ETag) and relations array.
-        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={ApiVersion}";
+        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(getResponse, ct);
 
@@ -292,7 +294,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
             return;
 
         // 3. PATCH with a JSON Patch "remove" operation and If-Match for optimistic concurrency.
-        var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={ApiVersion}";
+        var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
             new()
@@ -311,7 +313,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public async Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default)
     {
         // 1. Fetch current revision for optimistic concurrency
-        var workItemUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
+        var workItemUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={AdoApiVersions.WorkItems}";
         using var getResponse = await SendAsync(HttpMethod.Get, workItemUrl, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(getResponse, ct);
 
@@ -360,7 +362,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     /// <inheritdoc />
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         try
         {
             using var _ = await SendAsync(HttpMethod.Delete, url, content: null, ifMatch: null, ct);
@@ -405,7 +407,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     private async Task<IReadOnlyList<WorkItem>> FetchBatchChunkAsync(IReadOnlyList<int> ids, CancellationToken ct)
     {
         var idsCsv = string.Join(',', ids);
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems?ids={idsCsv}&$expand=relations&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems?ids={idsCsv}&$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -463,7 +465,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         {
             var skip = page * HistoryPageSize;
             var url = $"{_orgUrl}/{_project}/_apis/wit/workItems/{id}/updates" +
-                      $"?$top={HistoryPageSize}&$skip={skip}&api-version={ApiVersion}";
+                      $"?$top={HistoryPageSize}&$skip={skip}&api-version={AdoApiVersions.WorkItemUpdates}";
 
             using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -510,7 +512,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
                 var chunk = targetIds.Skip(offset).Take(MaxBatchSize).ToList();
                 var idsCsv = string.Join(',', chunk);
                 var url = $"{_orgUrl}/{_project}/_apis/wit/workitems" +
-                          $"?ids={idsCsv}&errorPolicy=omit&api-version={ApiVersion}";
+                          $"?ids={idsCsv}&errorPolicy=omit&api-version={AdoApiVersions.WorkItems}";
 
                 using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
                 await using var stream = await response.Content.ReadAsStreamAsync(ct);

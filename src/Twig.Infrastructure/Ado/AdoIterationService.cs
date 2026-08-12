@@ -11,10 +11,12 @@ namespace Twig.Infrastructure.Ado;
 /// Implements <see cref="IIterationService"/> via ADO REST API.
 /// Provides current iteration detection and process template inference.
 /// </summary>
+/// <remarks>
+/// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
+/// records what that version buys. Never inline a version literal here.
+/// </remarks>
 internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider, IFormLayoutProvider
 {
-    private const string ApiVersion = "7.1";
-
     private readonly HttpClient _http;
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
@@ -53,7 +55,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<IterationPath> GetCurrentIterationAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?$timeframe=current&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?$timeframe=current&api-version={AdoApiVersions.TeamIterations}";
         using var response = await SendAsync(url, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -96,7 +98,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<AdoProcessTemplate?> FetchProcessTemplateAsync(CancellationToken ct)
     {
-        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={AdoApiVersions.Projects}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse, ct);
@@ -219,7 +221,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/teamfieldvalues?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/teamfieldvalues?api-version={AdoApiVersions.TeamFieldValues}";
         using var response = await SendAsync(url, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -243,7 +245,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         try
         {
             // Use the VSSPS profile endpoint — works reliably with both PAT and az cli tokens
-            var url = "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1";
+            var url = $"https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version={AdoApiVersions.Profile}";
             using var response = await SendAsync(url, ct);
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -309,7 +311,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<AdoWorkItemTypeListResponse?> FetchWorkItemTypesAsync(CancellationToken ct)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes?api-version={AdoApiVersions.WorkItemTypes}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoWorkItemTypeListResponse, ct);
@@ -332,7 +334,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         }
 
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
-            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/rules?api-version={ApiVersion}";
+            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/rules?api-version={AdoApiVersions.ProcessRules}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var result = await JsonSerializer.DeserializeAsync(
@@ -387,7 +389,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         }
 
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
-            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/layout?api-version={ApiVersion}";
+            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/layout?api-version={AdoApiVersions.ProcessLayout}";
 
         AdoFormLayoutResponse? result;
         try
@@ -455,7 +457,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={AdoApiVersions.ProcessConfiguration}";
         try
         {
             using var response = await SendAsync(url, ct);
@@ -485,7 +487,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<IReadOnlyList<FieldDefinition>> FetchFieldDefinitionsAsync(CancellationToken ct)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={AdoApiVersions.Fields}";
         try
         {
             using var response = await SendAsync(url, ct);
@@ -514,7 +516,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<AreaTreeNode> GetAreaTreeAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/classificationnodes/areas?$depth=10&api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/classificationnodes/areas?$depth=10&api-version={AdoApiVersions.ClassificationNodes}";
         using var response = await SendAsync(url, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -543,7 +545,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<IReadOnlyList<TeamIteration>> FetchTeamIterationsAsync(CancellationToken ct)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?api-version={ApiVersion}";
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?api-version={AdoApiVersions.TeamIterations}";
         using var response = await SendAsync(url, ct);
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);

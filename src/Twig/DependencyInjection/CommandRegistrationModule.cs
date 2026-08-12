@@ -111,6 +111,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();
         services.AddSingleton<ProcessLayoutCommand>();
+        services.AddSingleton<ProcessDescriptionCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
         // ADO #148: the Bench command surface. The workflow it depends on is registered in the

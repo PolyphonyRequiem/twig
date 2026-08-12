@@ -71,6 +71,12 @@ internal static class CommandExamples
             "twig process layout Bug --out layout.txt     Write the readable layout to a file",
             "twig process layout Bug -o json --out l.json Write the machine-readable layout to a file",
         ],
+        ["process description"] =
+        [
+            "twig process description                            Summarise every type in this project's process",
+            "twig process description -o json --out proc.json    Write the complete document, for diffing",
+            "twig process description Niflheim.Grilling          Describe one type, by its reference name",
+        ],
         ["new"] =
         [
             "twig new task \"Write tests\"         Create a new Task under the active item",

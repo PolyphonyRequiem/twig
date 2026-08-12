@@ -33,6 +33,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 🔴 The process description's model-to-document projection is surface-neutral and must be
+         SHARED, not duplicated (AB#241). Twig.Mcp references Domain but not the twig executable,
+         so leaving the projection in the CLI command would have forced the agent surface to write
+         a second serializer — and "byte-identical across both surfaces" would have become a
+         convention rather than a structural fact. Twig.RenderTree is a pure, AOT-clean,
+         dependency-free presentation vocabulary carrying no I/O and no Spectre.Console, so this
+         does not put rendering concerns into the domain: it puts one VOCABULARY there. It also
+         multi-targets net10.0;net11.0 identically, so Domain's packable target list is unchanged.
+         Note Twig.RenderTree.csproj already granted InternalsVisibleTo to Twig.Domain before this
+         reference existed. -->
+    <ProjectReference Include="..\Twig.RenderTree\Twig.RenderTree.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AdditionalFiles Include="PublicAPI.Shipped.txt" />
     <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
     <!-- The union support types are only part of Twig.Domain's public surface on net10.0,

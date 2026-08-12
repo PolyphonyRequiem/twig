@@ -16,6 +16,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Twig\Twig.csproj" />
+    <!-- 🔴 Test 14 (AB#241) asserts the agent surface's document is BYTE-IDENTICAL to the CLI's
+         for the same type selection. That assertion is only worth anything if it drives the two
+         REAL surfaces, so this project needs both. Reimplementing either path inside the test
+         would compare the CLI against a copy of the MCP surface rather than the MCP surface, and
+         would stay green through any change to the real one. -->
+    <ProjectReference Include="..\..\src\Twig.Mcp\Twig.Mcp.csproj" />
     <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 

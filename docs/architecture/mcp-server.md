@@ -95,7 +95,7 @@ The default **compact** profile advertises ten high-frequency tools:
 | `twig_history` | Read an item's change history |
 
 Use `--tool-profile full` or `TWIG_MCP_TOOL_PROFILE=full` to advertise all
-thirty-eight tools. `core` aliases `compact`; `all` aliases `full`. Profile filtering
+thirty-nine tools. `core` aliases `compact`; `all` aliases `full`. Profile filtering
 affects discovery only: hidden tools remain callable by name so cached clients
 and explicit integrations continue to work.
 
@@ -133,11 +133,47 @@ in `McpToolCatalog.BatchableToolNames` and has an AOT-safe dispatcher case;
 recursive batch calls are rejected. A catalog regression test fails if tool
 registration and batch dispatch drift apart.
 
+### The process description surface (AB#241)
+
+`twig_process_description` returns the same structural process document the CLI's
+`twig process description -o json` writes — **byte-identical for the same type
+selection**, the header's capture timestamp excepted. That is a hard acceptance
+criterion, not a quality goal: if the two surfaces each assembled their own
+document, "the agent gets the same document with fewer types" would be a convention
+rather than a structural fact, and it would drift.
+
+Two things make it structural, and BOTH are required:
+
+1. **One assembler.** `ProcessDescriptionAssembler` (domain layer) is the single
+   ordering authority and produces the document model.
+2. **One projection.** `ProcessDescriptionDocument.BuildTree` turns that model into
+   the render tree. It lives in the domain layer *because* of this ticket — it was
+   private to the CLI command inside the `twig` executable, which `Twig.Mcp` does not
+   reference, so an agent surface would have had to author a second serializer.
+
+🔴 **The envelope must use `Utf8JsonWriter.WriteRawValue`, never
+`JsonDocument.Parse(...).WriteTo(...)`.** `JsonRenderer` writes with the default
+encoder; the MCP envelope writes with `UnsafeRelaxedJsonEscaping`. Parsing the
+document and re-writing it through the envelope's writer **re-encodes** it: on the
+live Niflheim process six lines differed — `\u0027`→`'`, `\u0026`→`&`,
+`\u002B`→`+`. Every one is valid JSON carrying the same string value, so the
+difference survives any assertion that re-parses both sides, and it was found only
+by diffing the two surfaces' real output. `WriteRawValue` emits the bytes verbatim.
+
+🔴 **Selection is only ever WHICH TYPES, never which parts of a type.** Per-part
+selection is forbidden: it is a filter, and a reader handed a filtered document
+cannot recover what was dropped and cannot tell that anything was. Omitting `types`
+describes every type; an explicitly empty list is an error rather than a silent
+reading in either direction.
+
+Measured live, whole process: **508,793 bytes, 14 types, ~2.9 s** on both surfaces.
+
 ### Metadata budgets
 
 Tests generate the real SDK protocol models and enforce both count and byte
 budgets. The normal single-workspace compact profile is limited to ten tools /
-8.5 KB; the fidelity-first full profile is limited to forty tools / 37 KB.
+8.5 KB; the fidelity-first full profile is limited to forty tools / 39 KB (raised
+from 37 KB for twig_history, and again for twig_process_description).
 This measures serialized metadata rather than C# source text. Zero-workspace
 startup retains workspace parameters for diagnosis, so its compact catalog is
 slightly larger but remains below 10 KB.

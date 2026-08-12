@@ -197,7 +197,10 @@ State ordering uses a stable sort: `OrderBy(CategoryRank).ThenBy(OriginalIndex)`
 
 ### Process description routes
 
-`AdoProcessDescriptionSource` serves `twig process description`. It is a
+`AdoProcessDescriptionSource` serves `twig process description` — and, since AB#241,
+the `twig_process_description` MCP tool, which goes through the SAME assembler and the
+SAME projection so both surfaces emit a byte-identical document. See
+`docs/architecture/mcp-server.md` § "The process description surface". It is a
 **separate class from `AdoIterationService`, deliberately**: that service memoizes
 every route it calls, and the description must not cache anything — a stale
 description is a wrong description, and the artifact is a truth claim about a

@@ -4,6 +4,7 @@ title: Read the ADO work item form layout, and export it to disk
 type: execute
 status: open
 blocked_by: []
+tracked_in: [242, 247]
 ---
 
 ## Why
@@ -50,3 +51,196 @@ small command on top.
 
 - Rendering. That is a separate ticket, and its input is this ticket's output.
 - Any work item values. This reads structure only.
+
+---
+
+## Ruling — does `twig process layout` survive its overlap with `twig process description`? (AB#242)
+
+**Status: MEASURED. The decision itself is Daniel's and is recorded below once made.**
+
+`docs/specs/process-description.spec.md` (branch `docs/process-descriptor-map`) carried exactly
+one open question, deferred to the build by Daniel on the grounds that the overlap should be
+**observed rather than predicted**. It is now observable. Everything in this section is from real
+runs against the live `Niflheim` process (14 types, org `PolyphonyRequiem`, project `Twig`), not
+from reading the code.
+
+### How it was measured
+
+```bash
+twig process description --out desc.json -o json          # whole process, 14 types
+twig process layout <display-name> --out lay.json -o json # once per type, 14 times
+```
+
+Both outputs were then compared structurally: every layout control was reduced to its
+`(page, section, group, controlId)` tuple in both documents and the sets and sequences compared.
+
+🔴 **The whole measurement was re-run from scratch after this branch was rebased onto `9bbd5bdd`**
+(PR #377, the Spectre.Console 0.54.0 → 0.57.2 bump, which touches `RendererFactory` — shared by
+both verbs' output path). Every structural and code figure below reproduced exactly; only the
+timings moved, and they were re-taken with a larger sample. See §4.
+
+### 1. The data overlap is TOTAL, and it is a strict superset
+
+| | `process layout` (14 runs) | `process description` (1 run) |
+|---|---|---|
+| Field controls emitted | **117** | **117** |
+| Same control set, per type | — | **identical, 11/11 servable types** |
+| Same control ORDER, per type | — | **identical, 11/11** |
+| Page ids identical | — | **11/11** |
+| Group ids identical | — | **11/11** |
+| System controls emitted | **0** | **99** (9 per type) |
+
+🔴 **The description emits every control the layout command emits, in the same order, and 99 rows
+it does not.** There is no control, page or group the layout command reports that the description
+omits. The overlap is not partial.
+
+Per-row attributes, comparing the two documents' own key sets:
+
+| Row | Attributes in `layout` | Extra attributes in `description` |
+|---|---|---|
+| page | 6 | `inherited`, `order` |
+| group | 5 | `inherited`, `order`, `section` |
+| control | 7 | `inherited`, `order`, `section` |
+
+The layout command carries **no attribute the description lacks**. `section` survives in the
+layout command only as a nesting level rather than a named value; the description carries it as
+an explicit key on each row.
+
+### 2. Where the two genuinely differ — three real differences, not one
+
+**a. Type addressing is inconsistent between the two verbs.** `process layout` takes a **display
+name** (`Task`); `process description` takes a **reference name** (`Niflheim.Task`).
+`twig process description Task` fails with *"Work item type 'Task' does not exist in this
+process"*. This is a live inconsistency in the same command family and is worth fixing whichever
+way #242 goes.
+
+**b. Locked system types.** Three of the 14 (`TestCase`, `TestPlan`, `TestSuite`) are locked and
+the layout route answers **400 VS403115**, not 404.
+
+- `process layout "Test Case"` → **exit 1**, raw server error, no output.
+- `process description` → those types appear with `unfetched: formLayout` and the document still
+  carries the other 11. **The description degrades; the layout command fails.**
+
+**c. Shape and audience.** `layout` emits a nested tree plus a readable indented human rendering
+of the form (~22 lines for Task). The description emits **flat** rows carrying their full path,
+and its human rendering is the deliberately-abridged one-line-per-type summary — it prints **no
+layout detail at all**. Reading one type's form in a terminal is served by `layout` today and by
+nothing else.
+
+### 3. Code overlap is SMALLER than the data overlap suggests
+
+Non-comment, non-blank lines:
+
+| Component | Lines | Shared? |
+|---|---:|---|
+| Wire DTO `AdoFormLayoutResponse.cs` | 73 | ✅ **shared by both paths** |
+| Route + pinned api-version `AdoApiVersions.ProcessLayout = "7.1"` | 1 | ✅ **shared constant, two call sites** |
+| `FormLayout.cs` (layout's value object) | 31 | layout only |
+| `ProcessDescriptionLayout.cs` (description's value object) | 33 | description only |
+| Fetch + map, `AdoIterationService` | 122 | layout only |
+| Fetch + map, `AdoProcessDescriptionSource` | 70 | description only |
+| Render, `ProcessLayoutCommand.BuildLayoutTree` | 82 | layout only |
+| Render, layout block in `ProcessDescriptionDocument` | 76 | description only |
+| `ProcessLayoutCommand` shell (validation, `--out`, errors) | 55 | layout only |
+
+**Shared: 74 lines (the DTO and the route constant). Duplicated-in-spirit: ~190 lines of
+fetch/map and ~158 lines of render.** So the duplication is real but it is **parallel
+implementation over a shared wire contract**, not copy-paste — and `ProcessDescriptionLayout`'s
+own remarks already record why the split exists: `FormLayout` does **not carry the server's
+`order` key**, and the description cannot be byte-stable without it. Adding `order` to
+`FormLayout` would change a shipped **public** record's constructor.
+
+🔴 **`FormLayout` is not the layout command's private type.** It has **15** referencing files, and
+three of them are the TUI (`DetailDocumentSource`, `WorkItemFormView`, `Program`) plus
+`WorkItemDetailProjector` and `FallbackFormLayout`. Deleting the layout *command* frees the
+command shell and its renderer — **~137 lines** — and nothing else. The fetch path is production
+code for the 1.0 server-driven editor and ships regardless; this ticket says so at the top.
+
+### 4. Cost of the overlap, measured
+
+Eight runs of each, on the rebased head (`main` @ `9bbd5bdd`, after the Spectre.Console 0.57.2
+bump touched the shared renderer factory):
+
+| Invocation | min / median / max | Bytes |
+|---|---|---|
+| `process layout Task` | 1.22 / **1.31** / 1.40 s | 8,360 |
+| `process description Niflheim.Task` | 1.65 / **1.71** / 1.89 s | 50,133 |
+| `process description` (whole, 14 types) | 2.75 / **2.84** / 2.90 s | 508,793 |
+
+🔴 **Eight samples rather than three, deliberately.** A first pass took three each and produced a
+0.4 s gap that a second pass did not reproduce; run-to-run spread on three samples is wide enough
+to swamp the difference being claimed. On eight, the one-type gap is **~0.40 s** and stable.
+
+Reading one type's form via the description costs **~0.4 s more and 6× the bytes**, and the human
+rendering of it carries **no layout detail whatsoever**.
+
+Test surface: `ProcessLayoutCommandTests` (345 lines) + `ProcessLayoutSampleExportTests`
+(209 lines) = **554 lines** attributable to the command.
+
+### The two shapes
+
+**Shape A — `layout` survives as its own command, and the inconsistencies are fixed.**
+Keep both verbs. Treat the ~137 duplicated command-and-render lines as the accepted cost the
+separate-verb ruling already priced in, and spend a small follow-up on the three measured
+differences: accept a reference name as well as a display name, and stop failing hard on locked
+types (report them the way the description does).
+
+- *For:* the layout command is the **only** surface that renders a readable form to a terminal —
+  the description's human rendering is abridged by binding ruling and shows none of it, and
+  Decision 10 explicitly **forbids** per-part selection that would let the description serve
+  "just the layout". It is 6× cheaper for the one-type case, it is the input the 1.0 editor work
+  was built around, and it is `internal` so nothing public is frozen by keeping it.
+- *Against:* two renderers over one wire payload stay in the tree, and can drift.
+
+**Shape B — `layout` becomes a view onto the description.**
+Delete the command's own fetch/render path and have `process layout <type>` render the layout rows
+out of the assembled description document.
+
+- *For:* one fetch path, one ordering authority, ~137 lines and one renderer gone; `order` and
+  `inherited` arrive at the layout surface for free.
+- *Against:* it makes the cheap one-type read pay the description's assembly cost; the
+  description's layout rows are **flat and path-prefixed**, so the readable indented rendering has
+  to be rebuilt from them anyway (the ~82 lines come back in a different file); and it couples a
+  1.0-editor-adjacent command to a `0.1` document whose own spec says the layout shape is still
+  under design. It also brushes against Decision 10 — a layout-only view *is* per-part selection,
+  even if it is a separate command rather than a switch.
+
+### Recommendation
+
+🔴 **Shape A, ranked first, and not narrowly.** The overlap that was feared is a *data* overlap and
+it is total; the overlap that actually costs anything is ~137 lines of command-and-render code
+over a **shared** DTO and route. Against that, `layout` is the only surface that renders a form a
+person can read, and the ruling that made the description's human rendering abridged is the same
+ruling that stops the description ever replacing it. Shape B pays real coupling for a saving that
+mostly reappears elsewhere.
+
+The honest tidy-up is not a merge — it is the **three measured differences** in §2, which are
+worth their own ticket regardless of which shape is chosen.
+
+---
+
+## 🔴 RULED — Shape A. `twig process layout` survives as its own command.
+
+**Ruled by Daniel, 2026-08-12, on the measurement above.** The open question in
+`docs/specs/process-description.spec.md` is now CLOSED and must not be reopened in review.
+
+**The decision:** both verbs stay. The overlap is accepted, exactly as the separate-verb ruling
+priced it — and the measurement shows the cost is smaller than the overlap's appearance
+suggested, because what the two verbs share is the wire contract rather than the implementation.
+
+**What follows from it:**
+
+- Nothing is deleted and nothing is merged. `ProcessLayoutCommand`, `FormLayout`, and the
+  layout fetch path all stay where they are.
+- `FormLayout` stays `internal`, per Implementation Decision 9. Keeping the command does not
+  freeze it.
+- The three measured inconsistencies in §2 are scheduled as **AB#247** — display-name vs
+  reference-name addressing, the hard failure on locked types, and the layout command's missing
+  system controls. They are defects in the layout command in their own right, not overlap
+  tidy-up, which is why they survive this ruling rather than being closed by it.
+
+**What this ruling does NOT license.** It is not a statement that duplication here is free. If
+the two renderers drift — if a future change lands in the description's layout rows and not the
+layout command's, or the reverse — that drift is the cost this ruling accepted, and the answer is
+to fix the drift, not to reopen the merge question. The measurement is preserved above so a later
+reader can re-run it rather than re-argue it.

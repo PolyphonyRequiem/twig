@@ -16,14 +16,21 @@ internal interface IFormLayoutProvider
     /// Gets the form layout for <paramref name="workItemTypeName"/> under the process the
     /// current project uses.
     /// </summary>
+    /// <param name="workItemTypeName">
+    /// 🔴 The type's DISPLAY name (<c>Task</c>) or its process REFERENCE name
+    /// (<c>Niflheim.Task</c>). Both are accepted, and both resolve against the PROCESS's
+    /// own type roster — see the implementation's remarks for why the project's roster is
+    /// the wrong one to resolve against (AB#247).
+    /// </param>
     /// <returns>
-    /// The layout, or <c>null</c> when it cannot be determined — an unknown or disabled
-    /// work item type, an undetectable process, or a server that does not serve a layout
-    /// for this process. Callers must handle <c>null</c> rather than assume a layout
-    /// exists; whether stock (non-inherited) processes serve one is an open question on
-    /// ticket 1004.
+    /// <see cref="FormLayoutResult.Served"/>, <see cref="FormLayoutResult.Locked"/>, or
+    /// <see cref="FormLayoutResult.Unavailable"/>. Callers must handle all three:
+    /// collapsing <c>Locked</c> into <c>Unavailable</c> loses the fact that the process
+    /// answered, and collapsing either into an empty layout asserts the form has no
+    /// controls. Whether stock (non-inherited) processes serve a layout at all is an open
+    /// question on ticket 1004, answered by observing <c>Unavailable</c>.
     /// </returns>
-    Task<FormLayout?> GetFormLayoutAsync(
+    Task<FormLayoutResult> GetFormLayoutAsync(
         string workItemTypeName,
         CancellationToken ct = default);
 }

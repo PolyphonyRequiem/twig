@@ -17,6 +17,13 @@ namespace Twig.Infrastructure.Ado;
 /// </remarks>
 internal sealed class AdoIterationService : IIterationService, IProcessRuleProvider, IFormLayoutProvider, IProcessTypeFieldProvider
 {
+    /// <summary>
+    /// The marker ADO puts in the 400 it answers a LOCKED work item type's layout route
+    /// with. Matched literally so the catch stays narrow — see
+    /// <see cref="FetchFormLayoutAsync"/>.
+    /// </summary>
+    private const string LockedFormLayoutMarker = "VS403115";
+
     private readonly HttpClient _http;
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
@@ -25,13 +32,16 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     // Lazy-initialized caches — safe because CLI is single-threaded
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
+    // 🔴 The PROCESS's roster, distinct from _workItemTypesCache's PROJECT roster. They
+    // disagree on the reference name of every inherited type — see FetchFormLayoutAsync.
+    private Task<AdoProcessWorkItemTypeListResponse?>? _processWorkItemTypesCache;
     private Task<AdoProcessTemplate?>? _processTemplateCache;
     private Task<ProcessConfigurationData>? _processConfigCache;
     private Task<IReadOnlyList<FieldDefinition>>? _fieldDefinitionsCache;
     private Task<IReadOnlyList<TeamIteration>>? _teamIterationsCache;
     private readonly Dictionary<string, Task<IReadOnlyList<ProcessRule>>> _processRulesCache =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Task<FormLayout?>> _formLayoutCache =
+    private readonly Dictionary<string, Task<FormLayoutResult>> _formLayoutCache =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Task<IReadOnlyList<ProcessTypeField>?>> _processTypeFieldsCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -208,7 +218,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         return rulesTask;
     }
 
-    public Task<FormLayout?> GetFormLayoutAsync(
+    public Task<FormLayoutResult> GetFormLayoutAsync(
         string workItemTypeName,
         CancellationToken ct = default)
     {
@@ -376,35 +386,68 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     /// Fetches and parses the server-defined form layout for one work item type.
     /// </summary>
     /// <remarks>
-    /// Reuses the same process-template + work-item-type resolution as
-    /// <see cref="FetchProcessRulesAsync"/>: the layout endpoint is process-scoped and
-    /// keyed by the type's REFERENCE name, not its display name.
     /// <para>
-    /// Returns <c>null</c> rather than an empty layout when the process or type cannot be
-    /// resolved, or when the server does not serve a layout. Those are different facts
-    /// from "this type has a layout with no pages in it", and the caller reports them
-    /// differently — whether stock processes serve a layout at all is unverified, and
-    /// collapsing the two would hide the answer.
+    /// 🔴 <b>Resolves against the PROCESS's own type roster, not the project's (AB#247).</b>
+    /// The two rosters are different, and they give the SAME type different reference
+    /// names. Verified live against the <c>Niflheim</c> process: the project route
+    /// (<c>_apis/wit/workitemtypes</c>) lists 20 types and reports <c>Task</c> as
+    /// <c>Microsoft.VSTS.WorkItemTypes.Task</c> — the STOCK parent type — while the process
+    /// route lists the process's own 14 and reports it as <c>Niflheim.Task</c>. Three types
+    /// collide this way (<c>Task</c>, <c>Issue</c>, <c>Epic</c>: the ones this process
+    /// inherits and re-parents).
+    /// </para>
+    /// <para>
+    /// Resolving through the project roster therefore fetched the PARENT type's layout and
+    /// labelled it with the parent's identity. The two forms happen to be identical today
+    /// because nothing has customized the child forms — so the defect was invisible in the
+    /// output — but the moment one is edited, this would silently serve the stock form
+    /// while claiming to describe the process's type. That is the trap Implementation
+    /// Decision 11 records — <i>"the project named Twig does not run on the process named
+    /// Twig"</i> (<c>docs/specs/process-description.spec.md</c>, branch
+    /// <c>docs/process-descriptor-map</c>) — one layer down, and it is why the description
+    /// resolves by process reference name.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The stock PARENT type is not reachable through this method.</b> Only rows of the
+    /// process roster are matched; a parent's reference name is not one, and the roster's
+    /// <c>inherits</c> field is deliberately not consulted. Naming the parent in full reports
+    /// no layout. That is accepted (AB#247, ticket 1004): this verb describes the process's
+    /// form, and the parent's form is a different question.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>Both name forms are accepted</b>, matching the sibling <c>process description</c>
+    /// verb: the display name (<c>Task</c>) and the process reference name
+    /// (<c>Niflheim.Task</c>) reach the same type. Reference name is tried FIRST, because it
+    /// is the stable identity and display names lie; the display-name pass is the
+    /// convenience. Measured against the live org, no display name collides with any
+    /// reference name and no name is duplicated within the roster, so the two passes cannot
+    /// currently disagree — and ordering them makes the answer defined if that ever changes.
+    /// </para>
+    /// <para>
+    /// Returns <see cref="FormLayoutResult.Unavailable"/> rather than an empty layout when
+    /// the process or type cannot be resolved, or when the server does not serve a layout.
+    /// Those are different facts from "this type has a layout with no pages in it", and the
+    /// caller reports them differently — whether stock processes serve a layout at all is
+    /// unverified, and collapsing the two would hide the answer.
     /// </para>
     /// </remarks>
-    private async Task<FormLayout?> FetchFormLayoutAsync(
+    private async Task<FormLayoutResult> FetchFormLayoutAsync(
         string workItemTypeName,
         CancellationToken ct)
     {
         var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
-        var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
-        var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
-            !type.IsDisabled &&
-            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId))
+            return new FormLayoutResult.Unavailable();
 
-        if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId) ||
-            string.IsNullOrWhiteSpace(workItemType?.ReferenceName))
-        {
-            return null;
-        }
+        var processTypes = await (_processWorkItemTypesCache ??=
+            FetchProcessWorkItemTypesAsync(processTemplate.TemplateTypeId, ct));
+
+        var referenceName = ResolveProcessTypeReferenceName(processTypes, workItemTypeName);
+        if (referenceName is null)
+            return new FormLayoutResult.Unavailable();
 
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
-            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/layout?api-version={AdoApiVersions.ProcessLayout}";
+            $"/workItemTypes/{Uri.EscapeDataString(referenceName)}/layout?api-version={AdoApiVersions.ProcessLayout}";
 
         AdoFormLayoutResponse? result;
         try
@@ -420,16 +463,130 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         catch (AdoNotFoundException)
         {
             // The process serves no layout for this type. A real answer, not a failure.
-            return null;
+            return new FormLayoutResult.Unavailable();
+        }
+        // 🔴 A LOCKED system type answers this route with 400 VS403115 ("you cannot modify
+        // form layout information … as these work item types are locked"), NOT a 404 — so
+        // the AdoNotFoundException arm above never sees it, and without this catch the raw
+        // server error propagated out and the command exited 1 with no output (AB#247).
+        //
+        // 🔴 NARROWED to the VS403115 marker, not every 400 — the same discipline the
+        // description's FetchLayoutAsync already applies, and for the same reason: a
+        // malformed api-version, a bad reference-name escape, or a future validation error
+        // must NOT become a silent degraded success. A broad `catch (AdoBadRequestException)`
+        // here would be the exception-swallow-too-broad regression, not a fix.
+        //
+        // Reported as its own Locked arm rather than Unavailable: the process ANSWERED, and
+        // its answer is a durable fact about the type ("never, for this one") rather than an
+        // absence this method cannot explain.
+        catch (AdoBadRequestException ex)
+            when (ex.Message.Contains(LockedFormLayoutMarker, StringComparison.Ordinal))
+        {
+            return new FormLayoutResult.Locked(referenceName);
         }
 
+        // 🔴 Absence of `pages` means this is not a layout payload at all — treat it as a
+        // failed fetch, never as a form that has no pages.
         if (result?.Pages is null)
+            return new FormLayoutResult.Unavailable();
+
+        return new FormLayoutResult.Served(new FormLayout(
+            referenceName,
+            processTemplate.TemplateTypeId,
+            result.Pages.Select(MapLayoutPage).ToList())
+        {
+            // 🔴 Carried, not discarded (AB#247). These arrive in the SAME response as
+            // `pages` — they were already being deserialized and then thrown away, so the
+            // command's rendering of "the form" was missing every control a person sees at
+            // the top of a work item (state, reason, assigned-to, area and iteration path,
+            // history, links, attachments — 9 per type in this process).
+            SystemControls = (result.SystemControls ?? [])
+                .OrderBy(c => c.Order ?? int.MaxValue)
+                .Select(MapLayoutControl)
+                .ToList(),
+        });
+    }
+
+    /// <summary>
+    /// Fetches the PROCESS's own work item type roster — the list the layout route is keyed
+    /// by.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Distinct from <see cref="FetchWorkItemTypesAsync"/>, which reads the PROJECT's
+    /// roster. See <see cref="FetchFormLayoutAsync"/>'s remarks: the two disagree on the
+    /// reference name of every inherited type, and only this one names the types the
+    /// process actually owns.
+    /// <para>
+    /// The api-version is load-bearing and named from
+    /// <see cref="AdoApiVersions.ProcessWorkItemTypes"/> — at the neighbouring preview
+    /// version the same URL returns id and class instead of referenceName and
+    /// customization, so a version slip loses the identity this resolution depends on
+    /// without changing the row count.
+    /// </para>
+    /// </remarks>
+    private async Task<AdoProcessWorkItemTypeListResponse?> FetchProcessWorkItemTypesAsync(
+        string processId,
+        CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
+            $"/workItemTypes?api-version={AdoApiVersions.ProcessWorkItemTypes}";
+
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            return await JsonSerializer.DeserializeAsync(
+                stream,
+                TwigJsonContext.Default.AdoProcessWorkItemTypeListResponse,
+                ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        catch (JsonException)
+        {
+            // A count-shaped 404 envelope carries an OBJECT where the array belongs, so it
+            // fails to deserialize rather than yielding an empty list. That is the correct
+            // outcome: a failure, not a process with no types.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a caller's type argument to the process's reference name, accepting either
+    /// the reference name itself or the display name.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Reference name is matched FIRST and display name second, deliberately. Reference
+    /// name is the stable identity; the display-name pass exists so the layout verb accepts
+    /// the same argument a person would type. Ordering them means a future roster in which
+    /// one type's display name equals another's reference name resolves to the stable
+    /// identity rather than to whichever row was enumerated first. No such collision exists
+    /// in the measured org.
+    /// <para>
+    /// Disabled types are excluded from both passes — a disabled type is not part of the
+    /// process's live form surface, matching the existing rules and fields resolution.
+    /// </para>
+    /// </remarks>
+    private static string? ResolveProcessTypeReferenceName(
+        AdoProcessWorkItemTypeListResponse? processTypes,
+        string workItemTypeName)
+    {
+        var candidates = processTypes?.Value?
+            .Where(type => !type.IsDisabled && !string.IsNullOrWhiteSpace(type.ReferenceName))
+            .ToList();
+
+        if (candidates is null || candidates.Count == 0)
             return null;
 
-        return new FormLayout(
-            workItemType.ReferenceName,
-            processTemplate.TemplateTypeId,
-            result.Pages.Select(MapLayoutPage).ToList());
+        var byReferenceName = candidates.FirstOrDefault(type => string.Equals(
+            type.ReferenceName, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+        if (byReferenceName is not null)
+            return byReferenceName.ReferenceName;
+
+        var byDisplayName = candidates.FirstOrDefault(type => string.Equals(
+            type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+
+        return byDisplayName?.ReferenceName;
     }
 
     /// <summary>

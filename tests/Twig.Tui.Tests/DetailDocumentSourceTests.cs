@@ -46,7 +46,7 @@ public class DetailDocumentSourceTests
     {
         var provider = Substitute.For<IFormLayoutProvider>();
         provider.GetFormLayoutAsync("User Story", Arg.Any<CancellationToken>())
-            .Returns(ServedLayout("System.Title", "Contoso.Compliance.ReviewTicket"));
+            .Returns(new FormLayoutResult.Served(ServedLayout("System.Title", "Contoso.Compliance.ReviewTicket")));
 
         var document = await new DetailDocumentSource(provider).GetAsync(Item());
 
@@ -58,7 +58,7 @@ public class DetailDocumentSourceTests
     {
         var provider = Substitute.For<IFormLayoutProvider>();
         provider.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((FormLayout?)null);
+            .Returns(new FormLayoutResult.Unavailable());
 
         var document = await new DetailDocumentSource(provider).GetAsync(Item());
 
@@ -75,7 +75,7 @@ public class DetailDocumentSourceTests
         // empty server form silently sprout Twig-authored rows.
         var provider = Substitute.For<IFormLayoutProvider>();
         provider.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FormLayout("User Story", "real-process-guid", []));
+            .Returns(new FormLayoutResult.Served(new FormLayout("User Story", "real-process-guid", [])));
 
         var document = await new DetailDocumentSource(provider).GetAsync(Item());
 
@@ -87,7 +87,23 @@ public class DetailDocumentSourceTests
     {
         var provider = Substitute.For<IFormLayoutProvider>();
         provider.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns<Task<FormLayout?>>(_ => throw new HttpRequestException("unreachable"));
+            .Returns<Task<FormLayoutResult>>(_ => throw new HttpRequestException("unreachable"));
+
+        var document = await new DetailDocumentSource(provider).GetAsync(Item());
+
+        FieldRefsOf(document).ShouldContain("System.Title");
+    }
+
+    [Fact]
+    public async Task GetAsync_LockedType_DegradesToTheFallbackLikeAnAbsentLayout()
+    {
+        // 🔴 A LOCKED type (AB#247) is a THIRD provider answer, and this surface has nowhere
+        // to show the distinction — but it must still paint the pane rather than blank it.
+        // The production switch maps Locked and Unavailable to the fallback explicitly, so a
+        // future FOURTH arm crashes there instead of silently inheriting this behaviour.
+        var provider = Substitute.For<IFormLayoutProvider>();
+        provider.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FormLayoutResult.Locked("Microsoft.VSTS.WorkItemTypes.TestCase"));
 
         var document = await new DetailDocumentSource(provider).GetAsync(Item());
 
@@ -108,7 +124,7 @@ public class DetailDocumentSourceTests
         // The tree fires a selection on every keypress; the provider hits ADO REST.
         var provider = Substitute.For<IFormLayoutProvider>();
         provider.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ServedLayout("System.Title"));
+            .Returns(new FormLayoutResult.Served(ServedLayout("System.Title")));
 
         var source = new DetailDocumentSource(provider);
         await source.GetAsync(Item());
@@ -125,11 +141,11 @@ public class DetailDocumentSourceTests
         // path from the fallback path, so it cannot special-case either.
         var served = Substitute.For<IFormLayoutProvider>();
         served.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ServedLayout("System.Title"));
+            .Returns(new FormLayoutResult.Served(ServedLayout("System.Title")));
 
         var absent = Substitute.For<IFormLayoutProvider>();
         absent.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((FormLayout?)null);
+            .Returns(new FormLayoutResult.Unavailable());
 
         var a = await new DetailDocumentSource(served).GetAsync(Item());
         var b = await new DetailDocumentSource(absent).GetAsync(Item());

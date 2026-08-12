@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -46,7 +47,11 @@ internal sealed class ProcessLayoutCommand(
     /// <summary>
     /// Executes <c>twig process layout &lt;type&gt; [--out path]</c>.
     /// </summary>
-    /// <param name="typeName">Work item type display name (e.g. <c>Bug</c>, <c>Task</c>).</param>
+    /// <param name="typeName">
+    /// Work item type display name (<c>Task</c>) or process reference name
+    /// (<c>Niflheim.Task</c>). Both are accepted, matching the sibling
+    /// <c>process description</c> verb (AB#247).
+    /// </param>
     /// <param name="outPath">Optional file to write the rendered layout to.</param>
     public async Task<int> ExecuteAsync(
         string typeName,
@@ -62,17 +67,43 @@ internal sealed class ProcessLayoutCommand(
             return 1;
         }
 
-        var layout = await formLayoutProvider.GetFormLayoutAsync(typeName, ct);
+        var result = await formLayoutProvider.GetFormLayoutAsync(typeName, ct);
 
-        if (layout is null)
+        // 🔴 Three arms, matched exhaustively, because the provider reports three distinct
+        // facts and this command previously collapsed one of them into a crash. See
+        // FormLayoutResult's remarks for why an empty layout is none of them.
+        FormLayout layout;
+        switch (result)
         {
-            // Deliberately distinguished from an empty layout. Ticket 1004 carries an open
-            // question — whether stock (non-inherited) processes serve a layout at all —
-            // and collapsing "no layout served" into "layout with no tabs" would hide it.
-            _stderr.WriteLine(fmt.FormatError(
-                $"No form layout available for type '{typeName}'. The type may not exist in this " +
-                "project, or this project's process does not serve a layout."));
-            return 1;
+            case FormLayoutResult.Served served:
+                layout = served.Layout;
+                break;
+
+            // 🔴 Degrades rather than failing (AB#247). A locked type answers the layout
+            // route with 400 VS403115, and this command used to exit 1 with the raw server
+            // error on stderr and no output at all. The sibling `process description` reports
+            // the same answer as `unfetched: formLayout` and carries on; this is the same
+            // honesty at the single-type surface, with a non-zero exit because the caller
+            // asked for exactly this type and did not get it.
+            case FormLayoutResult.Locked locked:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"No form layout available for type '{locked.TypeReferenceName}': the type is " +
+                    "locked by the process, so the server does not serve its layout. " +
+                    "'twig process description' reports the same types with 'unfetched: formLayout'."));
+                return 1;
+
+            case FormLayoutResult.Unavailable:
+                // Deliberately distinguished from an empty layout. Ticket 1004 carries an open
+                // question — whether stock (non-inherited) processes serve a layout at all —
+                // and collapsing "no layout served" into "layout with no tabs" would hide it.
+                _stderr.WriteLine(fmt.FormatError(
+                    $"No form layout available for type '{typeName}'. The type may not exist in this " +
+                    "project, or this project's process does not serve a layout."));
+                return 1;
+
+            default:
+                throw new UnreachableException(
+                    $"Unhandled FormLayoutResult: {result.GetType().Name}");
         }
 
         var tree = BuildLayoutTree(layout);
@@ -186,13 +217,49 @@ internal sealed class ProcessLayoutCommand(
                 sectionBranches));
         }
 
+        // 🔴 The server's system controls — state, reason, assigned-to, area and iteration
+        // path, history, links, attachments. They were deserialized and discarded before
+        // AB#247, so this command's rendering of "the form" omitted every control a person
+        // sees at the top of a work item.
+        var systemControlBranches = new List<RenderTreeBranch>(layout.SystemControls.Count);
+        if (layout.SystemControls.Count > 0)
+        {
+            humanLines.Add(new RenderNode.Text("System controls"));
+
+            foreach (var control in layout.SystemControls)
+            {
+                var flags = string.Concat(
+                    control.ReadOnly ? " (read-only)" : string.Empty,
+                    control.Visible ? string.Empty : " (hidden)");
+                humanLines.Add(new RenderNode.Text(
+                    $"  {control.Label,-28} {control.Id}{flags}"));
+
+                systemControlBranches.Add(new RenderTreeBranch(
+                    new RenderRow("systemControl", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                    {
+                        ["id"] = RenderCell.String(control.Id),
+                        ["label"] = RenderCell.String(control.Label),
+                        ["controlType"] = RenderCell.String(control.ControlType),
+                        ["readOnly"] = RenderCell.Boolean(control.ReadOnly),
+                        ["visible"] = RenderCell.Boolean(control.Visible),
+                        ["isContribution"] = RenderCell.Boolean(control.IsContribution),
+                    }),
+                    []));
+            }
+        }
+
         var root = new RenderTreeBranch(
             new RenderRow("formLayout", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {
                 ["workItemType"] = RenderCell.String(layout.WorkItemTypeReferenceName),
                 ["processId"] = RenderCell.String(layout.ProcessId),
             }),
-            pageBranches);
+            // 🔴 System controls are emitted as their own branch ALONGSIDE the pages, not
+            // merged into them (AB#247). That mirrors the wire shape — the server returns
+            // `systemControls` as a sibling of `pages`, precisely because these controls sit
+            // outside the tab structure — and merging them into a page would invent a
+            // placement the server never stated.
+            [.. pageBranches, .. systemControlBranches]);
 
         var doc = new RenderNode.Document(null, [
             new DocumentField(

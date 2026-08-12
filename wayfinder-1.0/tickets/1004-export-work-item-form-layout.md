@@ -234,6 +234,28 @@ suggested, because what the two verbs share is the wire contract rather than the
   layout fetch path all stay where they are.
 - `FormLayout` stays `internal`, per Implementation Decision 9. Keeping the command does not
   freeze it.
+
+  > 🔴 **This line records real DRIFT, discovered while building AB#247 — not a mistake in the
+  > ruling.** Implementation Decision 9 does say it, naming the type explicitly:
+  > *"`ProcessRule` (with its condition and action types) and `FormLayout` stay `internal`.
+  > Neither goes through the public-API/SemVer mechanism now"*
+  > (`docs/specs/process-description.spec.md`, branch `docs/process-descriptor-map`), and it
+  > ranks the two — *"If only one is promoted later, promote the rule type first"* — which only
+  > parses if `FormLayout` is in its scope.
+  >
+  > **The code disagrees.** `FormLayout` is `public sealed record`
+  > (`src/Twig.Domain/ValueObjects/FormLayout.cs`) and its whole surface is declared in
+  > `src/Twig.Domain/PublicAPI.Unshipped.txt` — it goes through exactly the mechanism Decision 9
+  > says it does not. Which is correct is **not AB#247's call to make**: it is a live conflict
+  > between a decision and the tree, and it needs its own ticket.
+  >
+  > What AB#247 did about it: **nothing to the type's visibility.** `SystemControls` was added as
+  > a **non-breaking init-only member** with a `PublicAPI.Unshipped.txt` entry rather than as a
+  > positional parameter — the shape that is correct under either resolution. It does add two
+  > declared entries to the public surface, but it makes **no shipped SemVer promise** (nothing
+  > moves to `PublicAPI.Shipped.txt`), breaks no existing construction site, and does not block a
+  > later demotion to `internal`. Nothing in the AB#242 ruling above depends on the answer; that
+  > ruling is that the command survives, and the type's visibility does not bear on it.
 - The three measured inconsistencies in §2 are scheduled as **AB#247** — display-name vs
   reference-name addressing, the hard failure on locked types, and the layout command's missing
   system controls. They are defects in the layout command in their own right, not overlap
@@ -244,3 +266,75 @@ the two renderers drift — if a future change lands in the description's layout
 layout command's, or the reverse — that drift is the cost this ruling accepted, and the answer is
 to fix the drift, not to reopen the merge question. The measurement is preserved above so a later
 reader can re-run it rather than re-argue it.
+
+---
+
+## 🔴 RULED — `twig process layout` resolves against the PROCESS's type roster. (AB#247)
+
+**Ruled by Daniel, 2026-08-12, on the measurement below.** This ruling was NOT anticipated by
+#242. It came out of building AB#247's first item, and it makes that item a bigger change than
+"accept both name spellings".
+
+### What the measurement found
+
+§2a above recorded the two verbs as disagreeing about *how a type is spelled* — display name
+versus reference name. That was **incomplete**. They disagree about *which roster a type comes
+from*, and the two rosters give the same type **different reference names**:
+
+| | route | types | `Task` resolves to |
+|---|---|---|---|
+| `process layout` | `{project}/_apis/wit/workitemtypes` | **20** | `Microsoft.VSTS.WorkItemTypes.Task` |
+| `process description` | `_apis/work/processes/{id}/workItemTypes` | **14** | `Niflheim.Task` |
+
+Three types collide — `Task`, `Issue`, `Epic` — the three this process **inherits and
+re-parents**. For those, `twig process layout Task` was fetching and reporting the **stock parent
+type's** form, labelled with the parent's identity.
+
+**It was harmless in content, and that is what made it dangerous.** All three collision pairs were
+diffed control-by-control against the live org and matched exactly: same field-control sets in the
+same order (Task 10 controls, Issue 13, Epic 11 — identical parent-vs-child in each case), same
+page ids, and the same 9 system controls. The layouts agree because nothing has customized the
+child forms yet. **The first person to edit one gets the stock form served silently, with no
+marker.**
+
+This is Implementation Decision 11's trap one layer down — *"the project named Twig does not run
+on the process named Twig"* — and it is the same reason the description resolves by process
+reference name.
+
+### The decision
+
+`process layout` resolves against the **process roster**, and accepts **either** the display name
+or the process reference name. Reference name is matched first, as the stable identity; display
+name second, as the convenience.
+
+**What follows from it:**
+
+- `twig process layout Task` now reports `Niflheim.Task`, not
+  `Microsoft.VSTS.WorkItemTypes.Task`. This is a **behaviour change on a shipped command**, and
+  it is the point of the fix rather than a side effect.
+- 🔴 **The stock parent form is no longer reachable from this verb at all** — not even by naming
+  it in full. Resolution matches rows of the process roster only, and
+  `Microsoft.VSTS.WorkItemTypes.Task` is not a row in it; the parent is named only by the
+  child row's `inherits` field, which resolution does not consult. Verified live:
+  `twig process layout Microsoft.VSTS.WorkItemTypes.Task` reports no layout available.
+  **This is a real loss, accepted deliberately** — the verb describes the process's form, and
+  the parent's form is not it. If reading a parent form is ever wanted, following `inherits` is
+  a separate change and a separate decision.
+- Six project-only types also leave the layout command's reach: `Shared Steps`,
+  `Shared Parameter`, and the code-review and feedback request/response pairs. They are not in
+  the process's roster, so the process layout route does not serve them.
+- The two verbs now agree on **what a type is**, not merely on what you may type.
+
+### The ambiguity question, measured rather than assumed
+
+AB#247's brief flagged that accepting both name forms needs a rule for the ambiguous case, and
+reserved that rule for Daniel. Measured against the live org, **the ambiguity does not currently
+exist**:
+
+- No display name is also any type's reference name (0 of 20 project + 14 process rows).
+- No display name is duplicated within either roster.
+
+So no tie-break rule was invented. The reference-name-first ordering is a **defined answer for a
+case that cannot presently arise**, not a ruling on it — if a real collision ever appears, the
+rule for it is still Daniel's to make.
+

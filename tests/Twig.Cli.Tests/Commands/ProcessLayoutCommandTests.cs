@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
@@ -90,7 +91,13 @@ public sealed class ProcessLayoutCommandTests : IDisposable
 
     private void GivenLayout(FormLayout? layout, string typeName = "Bug") =>
         _formLayoutProvider.GetFormLayoutAsync(typeName, Arg.Any<CancellationToken>())
-            .Returns(layout);
+            .Returns(layout is null
+                ? new FormLayoutResult.Unavailable()
+                : new FormLayoutResult.Served(layout));
+
+    private void GivenResult(FormLayoutResult result, string typeName = "Bug") =>
+        _formLayoutProvider.GetFormLayoutAsync(typeName, Arg.Any<CancellationToken>())
+            .Returns(result);
 
     // ═══════════════════════════════════════════════════════════════
     //  Writing the file
@@ -341,5 +348,175 @@ public sealed class ProcessLayoutCommandTests : IDisposable
         _stderr.ToString().ShouldContain("work item type is required");
         await _formLayoutProvider.DidNotReceiveWithAnyArgs()
             .GetFormLayoutAsync(default!, default);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#247 — locked types degrade instead of failing hard
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// A LOCKED type must be reported as locked, naming the type, rather than escaping as a
+    /// raw server error. Before AB#247 the 400 VS403115 answer propagated out of the fetch
+    /// and the command died with the server's own text on stderr.
+    /// </summary>
+    /// <remarks>
+    /// Asserts the EXACT reason, not merely that some error was printed: an assertion that
+    /// only checked for "No form layout available" would pass against the Unavailable arm
+    /// too, and the whole point of AB#247 is that those two answers are different.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_LockedType_ReportsItAsLockedAndNamesTheType()
+    {
+        GivenResult(new FormLayoutResult.Locked("Microsoft.VSTS.WorkItemTypes.TestCase"));
+        var path = TempFile(".json");
+
+        var exitCode = await _cmd.ExecuteAsync("Bug", outPath: path, outputFormat: "json");
+
+        exitCode.ShouldBe(1);
+        File.Exists(path).ShouldBeFalse();
+
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("locked");
+        stderr.ShouldContain("Microsoft.VSTS.WorkItemTypes.TestCase");
+    }
+
+    /// <summary>
+    /// 🔴 Locked and Unavailable must not print the same thing. This is the assertion that
+    /// fails if a later change collapses the two arms into one message — the collapse the
+    /// command's own remarks forbid, because ticket 1004's open question about stock
+    /// processes is answered by telling them apart in the output.
+    /// </summary>
+    [Fact]
+    public async Task Execute_LockedAndUnavailable_ReportDifferentReasons()
+    {
+        GivenResult(new FormLayoutResult.Locked("Microsoft.VSTS.WorkItemTypes.TestCase"));
+        await _cmd.ExecuteAsync("Bug", outPath: null, outputFormat: "json");
+        var lockedMessage = _stderr.ToString();
+
+        using var unavailableStderr = new StringWriter();
+        var unavailableProvider = Substitute.For<IFormLayoutProvider>();
+        unavailableProvider.GetFormLayoutAsync("Bug", Arg.Any<CancellationToken>())
+            .Returns(new FormLayoutResult.Unavailable());
+        var unavailableCmd = new ProcessLayoutCommand(
+            unavailableProvider,
+            new OutputFormatterFactory(new HumanOutputFormatter()),
+            new RendererFactory(),
+            stderr: unavailableStderr);
+
+        await unavailableCmd.ExecuteAsync("Bug", outPath: null, outputFormat: "json");
+        var unavailableMessage = unavailableStderr.ToString();
+
+        lockedMessage.ShouldNotBeEmpty();
+        unavailableMessage.ShouldNotBeEmpty();
+        lockedMessage.ShouldNotBe(unavailableMessage);
+        unavailableMessage.ShouldNotContain("locked");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#247 — the server's system controls are rendered
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The server returns <c>systemControls</c> alongside the pages — state, reason,
+    /// assigned-to, area and iteration path, history, links, attachments. They were
+    /// deserialized and discarded, so the command's rendering of "the form" omitted every
+    /// control a person sees at the top of a work item.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Asserts STRUCTURALLY, by parsing the emitted document. An earlier version of this
+    /// test used a bare <c>ShouldContain("System.State")</c> on the file text, which would
+    /// have passed even if the control had been folded into a page — the exact placement
+    /// error the next test forbids. A weak assertion standing next to a strong one is still
+    /// a weak assertion, so the two were merged.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_RendersTheServersSystemControls()
+    {
+        GivenLayout(SampleLayout() with
+        {
+            SystemControls =
+            [
+                new LayoutControl("System.State", "State", "FieldControl",
+                    ReadOnly: false, Visible: true, IsContribution: false),
+                new LayoutControl("System.AssignedTo", "Assigned To", "FieldControl",
+                    ReadOnly: false, Visible: true, IsContribution: false),
+            ],
+        });
+        var path = TempFile(".json");
+
+        var exitCode = await _cmd.ExecuteAsync("Bug", outPath: path, outputFormat: "json");
+
+        exitCode.ShouldBe(0);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var emitted = document.RootElement.GetProperty("layout").GetProperty("children")
+            .EnumerateArray()
+            .Where(child => child.GetProperty("kind").GetString() == "systemControl")
+            .Select(child => child.GetProperty("id").GetString())
+            .ToList();
+
+        emitted.ShouldBe(["System.State", "System.AssignedTo"]);
+    }
+
+    /// <summary>
+    /// 🔴 System controls are their own rows, NOT merged into a page. The server returns
+    /// them as a sibling of <c>pages</c> precisely because they sit outside the tab
+    /// structure, and folding them into a page would invent a placement it never stated.
+    /// </summary>
+    /// <remarks>
+    /// Parses the emitted document rather than substring-matching it: a bare
+    /// <c>ShouldContain("System.State")</c> would pass even if the control had been
+    /// appended to a page's control list, which is the failure this test exists to catch.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_EmitsSystemControlsAsTheirOwnRowsNotInsideAPage()
+    {
+        GivenLayout(SampleLayout() with
+        {
+            SystemControls =
+            [
+                new LayoutControl("System.State", "State", "FieldControl",
+                    ReadOnly: false, Visible: true, IsContribution: false),
+            ],
+        });
+        var path = TempFile(".json");
+
+        await _cmd.ExecuteAsync("Bug", outPath: path, outputFormat: "json");
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var children = document.RootElement.GetProperty("layout").GetProperty("children");
+
+        var systemControls = children.EnumerateArray()
+            .Where(child => child.GetProperty("kind").GetString() == "systemControl")
+            .Select(child => child.GetProperty("id").GetString())
+            .ToList();
+
+        systemControls.ShouldBe(["System.State"]);
+
+        // And it must not ALSO have been folded into a page.
+        var pages = children.EnumerateArray()
+            .Where(child => child.GetProperty("kind").GetString() == "page")
+            .ToList();
+        pages.ShouldNotBeEmpty();
+        pages.Any(page => page.GetRawText().Contains("System.State", StringComparison.Ordinal))
+            .ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A layout with no system controls emits none — the empty default must not
+    /// materialise a phantom row.
+    /// </summary>
+    [Fact]
+    public async Task Execute_NoSystemControls_EmitsNoSystemControlRows()
+    {
+        GivenLayout(SampleLayout());
+        var path = TempFile(".json");
+
+        await _cmd.ExecuteAsync("Bug", outPath: path, outputFormat: "json");
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        document.RootElement.GetProperty("layout").GetProperty("children").EnumerateArray()
+            .Any(child => child.GetProperty("kind").GetString() == "systemControl")
+            .ShouldBeFalse();
     }
 }

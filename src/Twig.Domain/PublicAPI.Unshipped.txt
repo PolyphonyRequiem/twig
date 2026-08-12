@@ -1222,6 +1222,8 @@ Twig.Domain.ValueObjects.FormLayout.Pages.get -> System.Collections.Generic.IRea
 Twig.Domain.ValueObjects.FormLayout.Pages.init -> void
 Twig.Domain.ValueObjects.FormLayout.ProcessId.get -> string!
 Twig.Domain.ValueObjects.FormLayout.ProcessId.init -> void
+Twig.Domain.ValueObjects.FormLayout.SystemControls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.LayoutControl!>!
+Twig.Domain.ValueObjects.FormLayout.SystemControls.init -> void
 Twig.Domain.ValueObjects.FormLayout.WorkItemTypeReferenceName.get -> string!
 Twig.Domain.ValueObjects.FormLayout.WorkItemTypeReferenceName.init -> void
 Twig.Domain.ValueObjects.LayoutControl

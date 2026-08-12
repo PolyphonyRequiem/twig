@@ -4,7 +4,7 @@ title: Read the ADO work item form layout, and export it to disk
 type: execute
 status: open
 blocked_by: []
-tracked_in: [242, 247]
+tracked_in: [242, 247, 253]
 ---
 
 ## Why
@@ -247,7 +247,7 @@ suggested, because what the two verbs share is the wire contract rather than the
   > (`src/Twig.Domain/ValueObjects/FormLayout.cs`) and its whole surface is declared in
   > `src/Twig.Domain/PublicAPI.Unshipped.txt` — it goes through exactly the mechanism Decision 9
   > says it does not. Which is correct is **not AB#247's call to make**: it is a live conflict
-  > between a decision and the tree, and it needs its own ticket.
+  > between a decision and the tree. **Tracked as AB#253.**
   >
   > What AB#247 did about it: **nothing to the type's visibility.** `SystemControls` was added as
   > a **non-breaking init-only member** with a `PublicAPI.Unshipped.txt` entry rather than as a

@@ -15,12 +15,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.Mcp.Tests" />
-    <!-- 🔴 AB#241's byte-identity test lives in Twig.Cli.Tests because that is where the CLI
-         surface and its scripted description source already are, and the assertion needs BOTH
-         real surfaces in one place. Moving the test to Twig.Mcp.Tests instead would have needed
-         the CLI's command, formatter and renderer factories there, which is the larger and more
-         invasive direction. -->
-    <InternalsVisibleTo Include="Twig.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>

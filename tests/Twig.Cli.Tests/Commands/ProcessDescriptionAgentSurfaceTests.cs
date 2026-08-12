@@ -7,8 +7,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Mcp.Services;
-using Twig.Mcp.Tools;
 using Twig.Rendering;
 using Xunit;
 
@@ -28,10 +26,21 @@ namespace Twig.Cli.Tests.Commands;
 /// <para>
 /// 🔴 <b>Both sides are the shipped code, not a re-creation of it.</b> The CLI side runs
 /// <see cref="ProcessDescriptionCommand.ExecuteAsync"/> and reads the file it wrote; the agent
-/// side runs <see cref="ProcessTools.RenderDocumentAsync(ProcessDescriptionAssembler, TimeProvider, IReadOnlyList{string}?, CancellationToken)"/>,
-/// which is what the MCP tool itself calls. A test that reimplemented either path would be
+/// side runs <see cref="ProcessDescriptionDocument.Render"/> against the same assembler, which
+/// is the exact call `ProcessTools.RenderDocumentAsync` makes and the whole of what that method
+/// does after resolving its two dependencies. A test that reimplemented either path would be
 /// comparing one surface against a COPY of the other and would stay green through any change to
 /// the real one — the hollow-guard class this repo has already been bitten by twice.
+/// </para>
+/// <para>
+/// 🔴 <b>This project deliberately does NOT reference Twig.Mcp.</b> An earlier revision did, so
+/// the test could call the tool method directly — and it turned CI red: Twig.Mcp is an
+/// EXECUTABLE, referencing it copies `twig-mcp` into this suite's output, and
+/// `BinaryLauncherTests` clears PATH precisely to assert that binary is NOT found. Instead the
+/// real MCP host started in-process and crashed the Cli test host after 48 tests. It passed
+/// locally only because AGENTS.md's canonical runner excludes `BinaryLauncher`. The parity
+/// assertion that the tool actually calls this shared render lives in Twig.Mcp.Tests, where the
+/// reference belongs.
 /// </para>
 /// <para>
 /// Fixture and clock are shared with <see cref="ProcessDescriptionCommandTests"/> deliberately:
@@ -200,12 +209,13 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
     }
 
     /// <summary>The agent surface's bytes for the same selection, via the real render path.</summary>
-    private static Task<string> AgentDocumentAsync(string[]? types) =>
-        ProcessTools.RenderDocumentAsync(
-            BuildAssembler(BuildSource()),
-            new FrozenTimeProvider(CapturedAt),
-            types,
-            CancellationToken.None);
+    private static async Task<string> AgentDocumentAsync(string[]? types)
+    {
+        var description = await BuildAssembler(BuildSource()).AssembleAsync(
+            types, CapturedAt, CancellationToken.None);
+
+        return description is null ? string.Empty : ProcessDescriptionDocument.Render(description);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Test 14 — one format, not two
@@ -538,16 +548,11 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
         document.ShouldContain("\"behaviour\"");
         document.ShouldContain("\"layoutPage\"");
 
-        // The agent surface's parameters: type selection, workspace, verbose, cancellation.
-        // Nothing that names a part.
-        var toolParameters = typeof(ProcessTools)
-            .GetMethod(nameof(ProcessTools.ProcessDescription))!
-            .GetParameters()
-            .Select(p => p.Name!)
-            .ToArray();
-
-        toolParameters.ShouldBe(["types", "workspace", "verbose", "ct"]);
-
+        // 🔴 The MCP TOOL's own parameters are asserted in Twig.Mcp.Tests
+        // (ProcessDescriptionToolTests.TheTool_OffersNoPerPartSelection) — this project cannot
+        // reference Twig.Mcp without copying the twig-mcp executable into its output and
+        // crashing the test host. The two halves together cover all three surfaces.
+        //
         // The CLI verb's parameters: one type, an output path, an output format, cancellation.
         var commandParameters = typeof(ProcessDescriptionCommand)
             .GetMethod(nameof(ProcessDescriptionCommand.ExecuteAsync))!
@@ -571,7 +576,7 @@ public sealed class ProcessDescriptionAgentSurfaceTests : IDisposable
         // is what stops the assertions above from being satisfied by renaming a filter argument.
         foreach (var part in parts)
         {
-            foreach (var parameter in toolParameters.Concat(commandParameters).Concat(assemblerParameters))
+            foreach (var parameter in commandParameters.Concat(assemblerParameters))
             {
                 parameter.Contains(part, StringComparison.OrdinalIgnoreCase).ShouldBeFalse(
                     $"parameter '{parameter}' names the part '{part}' — per-part selection is "

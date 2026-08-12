@@ -67,8 +67,69 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
                     new ProcessTypeField("System.Title", "Title", "string", null, true, "system", false, ""),
                 ],
                 States: [new ProcessTypeState("Done", "Completed", 3, "339947", "custom", false)],
-                Transitions: [new ProcessTypeTransition("Done", "Done")]),
-        });
+                Transitions: [new ProcessTypeTransition("Done", "Done")],
+                Unfetched: null,
+                // 🔴 The AB#238 content, present in the COMMAND fixture and not only in the
+                // assembler's. Without it ~70 lines of new rendering code had no coverage at
+                // all, and independent review found a blocking defect living in exactly that
+                // gap — page and group flags that reached a value object and then no cell.
+                Rules:
+                [
+                    new ProcessRule(
+                        Conditions: [new RuleCondition("when", "System.State", "Done")],
+                        Actions: [new RuleAction("makeRequired", "Custom.DecisionOnly", null)],
+                        IsDisabled: false,
+                        Customization: RuleCustomization.From("custom"),
+                        Name: "Decision must record its standing"),
+                    new ProcessRule(
+                        Conditions: [new RuleCondition("whenNotChanged", "System.State", null)],
+                        Actions: [new RuleAction("makeReadOnly", "System.Reason", null)],
+                        IsDisabled: false,
+                        Customization: RuleCustomization.From("system")),
+                ],
+                Behaviours:
+                [
+                    new ProcessBehaviourMembership("Custom.Wayfinding", string.Empty, null, true),
+                ],
+                Layout: new ProcessDescriptionLayout(
+                SystemControls:
+                [
+                    new ProcessDescriptionLayoutControl(
+                        "System.State", "State", "FieldControl",
+                        ReadOnly: false, Visible: true, Inherited: true,
+                        IsContribution: false, Order: 0),
+                ],
+                Pages:
+                [
+                    new ProcessDescriptionLayoutPage(
+                        "Page.Details", "Details", "custom",
+                        Visible: true, Inherited: true, IsContribution: false, Order: 0,
+                        [
+                            new ProcessDescriptionLayoutSection("Section1",
+                            [
+                                // 🔴 A HIDDEN group, so a renderer that dropped the group flags
+                                // produces a document indistinguishable from one where it is
+                                // shown — the defect this fixture exists to catch.
+                                new ProcessDescriptionLayoutGroup(
+                                    "Group.Main", "Main", Visible: false, Inherited: true,
+                                    IsContribution: false, Order: 0,
+                                    [
+                                        new ProcessDescriptionLayoutControl(
+                                            "Custom.DecisionOnly", "Decision Only", "FieldControl",
+                                            ReadOnly: false, Visible: true, Inherited: false,
+                                            IsContribution: false, Order: 0),
+                                    ]),
+                            ]),
+                        ]),
+                    // A page with no controls at all — server-rendered, still part of the form.
+                    new ProcessDescriptionLayoutPage(
+                        "Page.Links", "Links", "links",
+                        Visible: true, Inherited: true, IsContribution: false, Order: 1, []),
+                ])),
+        })
+        {
+            BehaviourCatalogue = [new ProcessBehaviourSummary("Custom.Wayfinding", "Wayfinding", 40)],
+        };
     }
 
     private ProcessDescriptionCommand BuildCommand(IProcessDescriptionSource? source = null) =>
@@ -597,15 +658,14 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     }
 
     /// <summary>
-    /// The known gaps reach every rendering — and a gap that has been CLOSED reaches none.
+    /// A gap that has been CLOSED reaches no rendering.
     /// </summary>
     /// <remarks>
-    /// AB#236 merged the rules source and AB#237 merged the constraint source, so neither
-    /// <c>conditionalRequiredness</c> nor <c>picklistValues</c> is a reservation any more.
-    /// Leaving either in the artifact would warn a reader off an answer the document now
-    /// gives. The surviving reservations are Decision 4 content this build genuinely does not
-    /// carry, and they must reach BOTH renderings — the defect this test family already caught
-    /// was one format carrying header content and the other not.
+    /// AB#236 merged the rules source, AB#237 merged the constraint source, and AB#238 carried
+    /// rules, behaviour membership and form layout — so none of those is a reservation any
+    /// more. Leaving any of them in the artifact would warn a reader off an answer the document
+    /// now gives. Asserted in BOTH renderings: the defect this test family already caught was
+    /// one format carrying header content and the other not.
     /// </remarks>
     [Theory]
     [InlineData("json")]
@@ -618,38 +678,66 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         var content = await File.ReadAllTextAsync(path);
 
-        // The open reservations, in both renderings.
-        content.ShouldContain("formLayout");
-        content.ShouldContain("AB#238");
+        // 🔴 The POSITIVE half, first. Without it every assertion below is satisfied by a
+        // zero-byte file or a command that crashed after creating one — the
+        // "passes against code that does nothing" shape. An earlier draft of this test was
+        // all-negative and independent review caught it.
+        content.ShouldContain("Niflheim.Decision");
+        content.ShouldContain("descriptorVersion");
 
-        // The closed ones, in neither.
+        // Every CLOSED reservation's subject, in neither rendering. Asserted on the gap
+        // SUBJECTS rather than on ticket ids: a raw ticket-id match is brittle, since any
+        // future banner or route note carrying one would red this for the wrong reason.
         content.ShouldNotContain("picklistValues");
-        content.ShouldNotContain("AB#237");
         content.ShouldNotContain("conditionalRequiredness");
-        content.ShouldNotContain("AB#236");
+        content.ShouldNotContain("behaviourMembership");
+
+        // …and the one reservation that DOES survive reaches both renderings. A reservation
+        // carried in only one format lets the reader of the other over-trust the document —
+        // the defect this test family already caught once.
+        content.ShouldContain("ruleIdentity");
     }
 
     /// <summary>
-    /// 🔴 The human rendering warns, in prose, about what the document does not carry.
+    /// 🔴 The human rendering states the ABSENCE of reservations positively, rather than
+    /// printing a warning heading with nothing under it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// An incomplete document that only admits its incompleteness in the machine format would
-    /// let the person most likely to over-trust it never see the warning.
+    /// let the person most likely to over-trust it never see the warning — so the human
+    /// rendering carries the reservations in prose. With the list empty as of AB#238 the
+    /// interesting case inverts: "KNOWN INCOMPLETE — do not treat this document as
+    /// authoritative about:" followed by nothing reads as a warning whose subject was lost.
+    /// </para>
+    /// <para>
+    /// 🔴 Dropping the section entirely was the other candidate and is worse still: silence is
+    /// also what an older document produced in a format that never implemented reservations, so
+    /// a reader could not tell "makes no reservations" from "does not implement them". Saying
+    /// so in one line makes the absence a CLAIM, which is what a diff of two documents needs.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task Execute_HumanRendering_WarnsAboutWhatTheDocumentDoesNotCarry()
     {
         var path = TempFile(".txt");
 
-        // Precondition: there really are gaps to declare, or this asserts the wrong branch of
-        // BuildHeader. The empty-list branch is covered separately.
+        // Precondition: there really IS a reservation to declare, so this asserts the branch
+        // of BuildHeader it means to. The empty branch renders the absence positively instead
+        // and is covered by its own assertion below.
         ProcessDescriptionAssembler.KnownGaps.ShouldNotBeEmpty();
 
         await BuildCommand().ExecuteAsync(null, path, "human");
 
         var content = await File.ReadAllTextAsync(path);
+
+        // 🔴 The human reader is told the reservation in PROSE. An incomplete document that
+        // only admits its incompleteness in the machine format would let the person most
+        // likely to over-trust it never see the warning.
         content.ShouldContain("KNOWN INCOMPLETE");
-        content.ShouldContain("formLayout");
+        content.ShouldContain("ruleIdentity");
+        // A reservation names a ticket a reader can look up; one without is a dead end.
+        content.ShouldContain("AB#238");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -858,10 +946,10 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
     /// </summary>
     /// <remarks>
     /// The reservation must survive the session that shipped it — a note in a PR description
-    /// does not travel with the file. Both of 0.1's reservations are now closed (AB#236's
-    /// rules merge, AB#237's constraint merge), so the KEY must still be present while its
-    /// contents are empty: a document that dropped the key entirely could not be distinguished
-    /// from one built before reservations existed.
+    /// does not travel with the file. Every reservation 0.1 opened with is now closed (AB#236's
+    /// rules merge, AB#237's constraint merge, AB#238's rules, behaviours and layout), so the
+    /// KEY must still be present while its contents are empty: a document that dropped the key
+    /// entirely could not be distinguished from one built before reservations existed.
     /// </remarks>
     [Fact]
     public async Task Execute_WrittenDocumentDeclaresItsKnownIncompleteness()
@@ -872,16 +960,172 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
 
         var content = await File.ReadAllTextAsync(path);
 
-        // The mechanism, and the reservations it currently carries.
+        // 🔴 The MECHANISM survives an empty list. Dropping the key would make a document that
+        // makes no reservations indistinguishable from one that cannot make any.
         content.ShouldContain("knownGaps");
-        content.ShouldContain("AB#238");
 
-        // 🔴 Both closed reservations are gone. Declaring a gap the document no longer has
-        // warns a reader off an answer it does give.
+        // 🔴 Every closed reservation is gone. Declaring a gap the document no longer has
+        // warns a reader off an answer it does give. Asserted on the gap SUBJECTS rather than
+        // on ticket ids, which are brittle against any future banner carrying one.
         content.ShouldNotContain("picklistValues");
-        content.ShouldNotContain("AB#237");
         content.ShouldNotContain("conditionalRequiredness");
-        content.ShouldNotContain("AB#236");
+        content.ShouldNotContain("behaviourMembership");
+
+        // 🔴 …and the reservation that survives the audit is IN the file. The rule id is
+        // reachable and deliberately not carried, so declaring it is what keeps the header's
+        // completeness position true rather than an overstatement.
+        content.ShouldContain("ruleIdentity");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Rules, behaviours and layout in the RENDERED document (AB#238)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 Every AB#238 content item reaches the rendered file, with every member of every
+    /// layout level in a cell.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This test exists because its absence hid a blocking defect.</b> The domain-level
+    /// tests cannot see the render tree, so ~70 lines of new rendering code had no direct
+    /// coverage — and independent review found that the page's <c>visible</c> /
+    /// <c>inherited</c> / <c>isContribution</c> reached a cell only for pages with NO controls,
+    /// while the GROUP's flags reached one nowhere at all. A process that hid a group, or hid a
+    /// populated page, therefore produced a byte-identical document: the
+    /// "a difference that exists only in the omitted part diffs clean" failure this whole
+    /// feature exists to prevent, living in the renderer rather than the assembler.
+    /// </para>
+    /// <para>
+    /// Asserted against the COMPLETE format only. The abridged rendering carries identity and
+    /// counts per type by design, and demanding detail there would be asserting the summary is
+    /// not a summary.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-full")]
+    [InlineData("json-compact")]
+    public async Task Execute_CompleteRendering_CarriesRulesBehavioursAndEveryLayoutMember(string format)
+    {
+        // Precondition: the format under test really is one that promises the complete
+        // document — otherwise this asserts against a rendering entitled to omit.
+        ProcessDescriptionCommand.IsCompleteFormat(format).ShouldBeTrue();
+
+        var path = TempFile(".out");
+        await BuildCommand().ExecuteAsync(null, path, format);
+        var content = await File.ReadAllTextAsync(path);
+
+        // Rules: both classes present, each with its tag, and the rule's own effect readable.
+        content.ShouldContain("Decision must record its standing");
+        content.ShouldContain("\"customization\": \"custom\"");
+        content.ShouldContain("\"customization\": \"system\"");
+        content.ShouldContain("makeRequired Custom.DecisionOnly");
+        content.ShouldContain("whenNotChanged System.State");
+
+        // Behaviour membership, named from the catalogue.
+        content.ShouldContain("Custom.Wayfinding");
+        content.ShouldContain("Wayfinding");
+
+        // Layout, down to the control.
+        content.ShouldContain("Page.Details");
+        content.ShouldContain("Group.Main");
+        content.ShouldContain("FieldControl");
+        // 🔴 A page carrying NO controls still reaches the file — a process that removed the
+        // links tab differs from one that did not.
+        content.ShouldContain("Page.Links");
+
+        // 🔴 The GROUP flags. The fixture's group is HIDDEN, so a renderer that dropped them
+        // would emit a document identical to one where it is shown.
+        content.ShouldContain("layoutGroup");
+        content.ShouldContain("groupLabel");
+
+        // The counts, including the authored/total split the customization tag exists to give.
+        content.ShouldContain("ruleCount");
+        content.ShouldContain("authoredRuleCount");
+        content.ShouldContain("behaviourCount");
+        content.ShouldContain("layoutControlCount");
+    }
+
+    /// <summary>
+    /// 🔴 A hidden group and a shown group produce DIFFERENT documents.
+    /// </summary>
+    /// <remarks>
+    /// The discriminating form of the assertion above. Checking that a `visible` cell merely
+    /// exists is weak — it passes against a renderer that hardcodes one value. This drives the
+    /// fixture both ways and asserts the rendered bytes actually differ, which is the property
+    /// a reader diffing two processes depends on.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_HidingALayoutGroup_ChangesTheRenderedDocument()
+    {
+        async Task<string> RenderWith(bool groupVisible)
+        {
+            var path = TempFile(".json");
+            var source = new ScriptedDescriptionSource(
+                ["Niflheim.Decision"],
+                new Dictionary<string, ProcessTypeDetail>
+                {
+                    ["Niflheim.Decision"] = new(
+                        Fields: [], States: [], Transitions: [], Unfetched: null,
+                        Rules: [], Behaviours: [],
+                        Layout: new ProcessDescriptionLayout(
+                        SystemControls: [],
+                        Pages:
+                        [
+                            new ProcessDescriptionLayoutPage(
+                                "P", "P", "custom", true, false, false, 0,
+                                [
+                                    new ProcessDescriptionLayoutSection("S1",
+                                    [
+                                        new ProcessDescriptionLayoutGroup(
+                                            "G", "G", groupVisible, false, false, 0,
+                                            [
+                                                new ProcessDescriptionLayoutControl(
+                                                    "System.Title", "Title", "FieldControl",
+                                                    false, true, false, false, 0),
+                                            ]),
+                                    ]),
+                                ]),
+                        ])),
+                });
+
+            await BuildCommand(source).ExecuteAsync(
+                null, path, ProcessDescriptionCommand.CompleteFormat);
+            return await File.ReadAllTextAsync(path);
+        }
+
+        var shown = await RenderWith(groupVisible: true);
+        var hidden = await RenderWith(groupVisible: false);
+
+        shown.ShouldNotBe(
+            hidden,
+            "a hidden group is a real difference between two processes — if it diffs clean, "
+            + "the difference is hiding in the part the renderer dropped");
+    }
+
+    /// <summary>
+    /// The abridged rendering carries the authored/total rule split and the backlog count.
+    /// </summary>
+    /// <remarks>
+    /// The summary is entitled to omit detail, but the counts are what make it useful: on a
+    /// derived type the total is ~54 and the authored count is 1, and the second number is the
+    /// one a person scanning the summary actually wants. The banner above it already declares
+    /// the rendering abridged and names the format that carries the whole thing.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_AbridgedRendering_CarriesTheAuthoredAndTotalRuleCounts()
+    {
+        var path = TempFile(".txt");
+
+        await BuildCommand().ExecuteAsync(null, path, "human");
+
+        var content = await File.ReadAllTextAsync(path);
+
+        content.ShouldContain("rules authored/total");
+        content.ShouldContain("backlogs");
+        // The fixture's Decision type carries 2 rules, 1 of them authored.
+        content.ShouldContain("1/2 rules authored/total");
     }
 
     /// <summary>

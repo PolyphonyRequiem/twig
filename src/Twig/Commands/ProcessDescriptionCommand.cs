@@ -25,11 +25,21 @@ namespace Twig.Commands;
 /// in scripts — so a caller does not learn a second convention inside one command family.
 /// </para>
 /// <para>
-/// 🔴 <b>Descriptor version 0.1 now declares NO known gaps.</b> Both reservations it shipped
-/// with have been closed by the tickets that named them: conditional requiredness by AB#236's
-/// rules merge, picklist values by AB#237's constraint merge. The mechanism is kept — see
-/// <see cref="ProcessDescriptionAssembler.KnownGaps"/> — and the human rendering states the
-/// absence positively rather than printing a warning heading with nothing under it.
+/// 🔴 <b>Descriptor version 0.1 declares NO known gaps, and as of AB#238 that claim is
+/// checked rather than assumed.</b> Every content item Implementation Decision 4 enumerates is
+/// now carried: conditional requiredness by AB#236's rules merge, picklist values by AB#237's
+/// constraint merge, and rules, behaviour membership and form layout by AB#238. The mechanism
+/// is kept — see <see cref="ProcessDescriptionAssembler.KnownGaps"/> — and the human rendering
+/// states the absence positively rather than printing a warning heading with nothing under it,
+/// because "this document makes no reservations" is itself the claim a reader needs in order
+/// to read a future non-empty list as meaningful.
+/// </para>
+/// <para>
+/// 🔴 <b>The descriptor version stays 0.1 despite this ticket adding three content items.</b>
+/// 0.1 is explicitly "still under design" and the form layout's shape was named on the record
+/// as the reason it is not 1.0 — so shipping the layout does not settle it, and bumping now
+/// would announce a stability this document does not yet have. Raised rather than decided
+/// silently: it is a contract question.
 /// </para>
 /// <para>
 /// Governing ruling: <c>docs/specs/process-description.spec.md (branch docs/process-descriptor-map)</c> Implementation Decisions
@@ -425,6 +435,184 @@ internal sealed class ProcessDescriptionCommand(
                         }),
                         []));
                 }
+
+                // 🔴 EVERY rule, inherited ones included (AB#238). There is deliberately no
+                // filter here and adding one is the reversal this ticket most fears: a
+                // derived type carries ~54 rules of which one or two were authored, so
+                // dropping the inherited ones is tempting and wrong. A difference that
+                // exists only in the omitted part diffs clean, and a reader handed a
+                // filtered document cannot tell anything was dropped. `customization` on
+                // every row is what makes the filtering available to the READER instead.
+                foreach (var rule in type.Rules)
+                {
+                    children.Add(new RenderTreeBranch(
+                        new RenderRow("rule", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                        {
+                            ["name"] = RenderCell.String(rule.Name),
+                            // 🔴 The token, not a paraphrase — and `unknown` for an absent
+                            // one rather than a guess at which real class it resembled.
+                            ["customization"] = RenderCell.String(
+                                RuleCustomizationToken(rule.Customization)),
+                            // Carried: a rule disabled on one process and enabled on another
+                            // is a real difference and must not diff clean.
+                            ["isDisabled"] = RenderCell.Boolean(rule.IsDisabled),
+                            // Walked in the assembler's sorted order; no order decided here.
+                            ["conditions"] = rule.Conditions.Count == 0
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.String(DescribeRuleConditions(rule.Conditions)),
+                            ["actions"] = rule.Actions.Count == 0
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.String(DescribeRuleActions(rule.Actions)),
+                        }),
+                        []));
+                }
+
+                // 🔴 Which backlog levels the type belongs to (AB#238). The reference name is
+                // always present; the display name may be empty when the catalogue could not
+                // be read, in which case `behaviourCatalogue` is in the type's unfetched list.
+                foreach (var behaviour in type.Behaviours)
+                {
+                    children.Add(new RenderTreeBranch(
+                        new RenderRow("behaviour", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                        {
+                            ["referenceName"] = RenderCell.String(behaviour.ReferenceName),
+                            ["name"] = RenderCell.String(behaviour.Name),
+                            ["rank"] = behaviour.Rank is null
+                                ? RenderCell.DisplayOnly(string.Empty)
+                                : RenderCell.Integer(behaviour.Rank.Value),
+                            ["isDefault"] = RenderCell.Boolean(behaviour.IsDefault),
+                        }),
+                        []));
+                }
+
+                // 🔴 The form layout (AB#238), flattened: one row per PAGE and one per
+                // CONTROL, with the page, column and group named on each control row. Flat
+                // rather than nested because the render tree carries rows, and because a flat
+                // form is what a LINE-oriented diff can actually compare — a nested structure
+                // moves every descendant line when one group is inserted. The assembler's
+                // order is walked as given: the arrangement IS the content here.
+                //
+                // 🔴 EVERY member of every layout level reaches a cell, and that is a
+                // correctness requirement rather than completeness for its own sake. An
+                // earlier draft carried the page flags only on pages that had NO controls and
+                // the group flags nowhere at all — so a process that hid a group, or hid a
+                // populated page, or marked one inherited-vs-authored differently, produced a
+                // byte-identical document. That is precisely the "a difference that exists
+                // only in the omitted part diffs clean" failure this feature exists to
+                // prevent, arriving in the renderer instead of the assembler.
+                if (type.Layout is not null)
+                {
+                    foreach (var page in type.Layout.Pages)
+                    {
+                        // 🔴 A page row is emitted UNCONDITIONALLY, not only for pages that
+                        // hold no controls. The page's own flags live here, so a page whose
+                        // visibility or inheritance changed shows up as one changed line
+                        // rather than being invisible; and a process that removed the links
+                        // tab differs from one that did not, which dropping empty pages would
+                        // diff clean over.
+                        children.Add(new RenderTreeBranch(
+                            new RenderRow("layoutPage",
+                                new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                                {
+                                    ["page"] = RenderCell.String(page.Id),
+                                    ["pageLabel"] = RenderCell.String(page.Label),
+                                    // history / links / attachments pages are server-rendered
+                                    // and carry no field controls. They are still part of the
+                                    // form a person sees.
+                                    ["pageType"] = RenderCell.String(page.PageType),
+                                    ["visible"] = RenderCell.Boolean(page.Visible),
+                                    ["inherited"] = RenderCell.Boolean(page.Inherited),
+                                    ["isContribution"] = RenderCell.Boolean(page.IsContribution),
+                                    // 🔴 The server's arrangement key, carried as a fact. Two
+                                    // forms whose relative sequence happens to match but whose
+                                    // order keys differ are not the same form, and omitting it
+                                    // would let that difference diff clean.
+                                    ["order"] = OrderCell(page.Order),
+                                }),
+                            []));
+
+                        foreach (var section in page.Sections)
+                        {
+                            foreach (var group in section.Groups)
+                            {
+                                // 🔴 A group row too, unconditionally, for the same reason:
+                                // a hidden or newly-inherited group is a real difference, and
+                                // a group whose controls were all removed would otherwise
+                                // vanish from the document entirely.
+                                children.Add(new RenderTreeBranch(
+                                    new RenderRow("layoutGroup",
+                                        new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                                        {
+                                            ["page"] = RenderCell.String(page.Id),
+                                            // The COLUMN. Kept rather than collapsed: merging
+                                            // columns is a rendering decision a reader can
+                                            // make, and a parse that discards them leaves no
+                                            // way back.
+                                            ["section"] = RenderCell.String(section.Id),
+                                            ["group"] = RenderCell.String(group.Id),
+                                            ["groupLabel"] = RenderCell.String(group.Label),
+                                            ["visible"] = RenderCell.Boolean(group.Visible),
+                                            ["inherited"] = RenderCell.Boolean(group.Inherited),
+                                            ["isContribution"] = RenderCell.Boolean(group.IsContribution),
+                                            ["order"] = OrderCell(group.Order),
+                                        }),
+                                    []));
+
+                                foreach (var control in group.Controls)
+                                {
+                                    children.Add(new RenderTreeBranch(
+                                        new RenderRow("layoutControl",
+                                            new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                                            {
+                                                // The control's place in the form, so a reader
+                                                // of one row knows where it sits without
+                                                // reconstructing the tree.
+                                                ["page"] = RenderCell.String(page.Id),
+                                                ["section"] = RenderCell.String(section.Id),
+                                                ["group"] = RenderCell.String(group.Id),
+                                                // For an ordinary field control this is the
+                                                // field REFERENCE name, which is what ties the
+                                                // layout back to the type's field list.
+                                                ["control"] = RenderCell.String(control.Id),
+                                                ["controlLabel"] = RenderCell.String(control.Label),
+                                                ["controlType"] = RenderCell.String(control.ControlType),
+                                                ["readOnly"] = RenderCell.Boolean(control.ReadOnly),
+                                                ["visible"] = RenderCell.Boolean(control.Visible),
+                                                // The layout's own inherited-vs-authored mark,
+                                                // the same distinction rules and types carry.
+                                                ["inherited"] = RenderCell.Boolean(control.Inherited),
+                                                ["isContribution"] = RenderCell.Boolean(control.IsContribution),
+                                                ["order"] = OrderCell(control.Order),
+                                            }),
+                                        []));
+                                }
+                            }
+                        }
+                    }
+
+                    // 🔴 The SYSTEM controls — state, reason, assigned-to, area and iteration
+                    // path, tags — which the server returns alongside the pages and places
+                    // outside the page structure. Carried for the same reason everything else
+                    // is: a process that hid one or made it read-only differs from one that
+                    // did not, and an omission with no marker is the failure S3 bans.
+                    foreach (var control in type.Layout.SystemControls)
+                    {
+                        children.Add(new RenderTreeBranch(
+                            new RenderRow("layoutSystemControl",
+                                new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                                {
+                                    ["control"] = RenderCell.String(control.Id),
+                                    ["controlLabel"] = RenderCell.String(control.Label),
+                                    ["controlType"] = RenderCell.String(control.ControlType),
+                                    ["readOnly"] = RenderCell.Boolean(control.ReadOnly),
+                                    ["visible"] = RenderCell.Boolean(control.Visible),
+                                    ["inherited"] = RenderCell.Boolean(control.Inherited),
+                                    ["isContribution"] = RenderCell.Boolean(control.IsContribution),
+                                    ["order"] = OrderCell(control.Order),
+                                }),
+                            []));
+                    }
+                }
             }
 
             typeBranches.Add(new RenderTreeBranch(
@@ -443,6 +631,29 @@ internal sealed class ProcessDescriptionCommand(
                     ["fieldCount"] = RenderCell.Integer(type.Fields.Count),
                     ["stateCount"] = RenderCell.Integer(type.States.Count),
                     ["transitionCount"] = RenderCell.Integer(type.Transitions.Count),
+                    // 🔴 A count, and NOT a substitute for the rules themselves — those are
+                    // emitted in full above. It is here because the abridged rendering needs
+                    // a number, and because a count changing is the fastest way for a reader
+                    // scanning a diff to spot that a type's rule set moved at all.
+                    ["ruleCount"] = RenderCell.Integer(type.Rules.Count),
+                    // 🔴 The AUTHORED count beside the total, because that ratio is the whole
+                    // point of the customization tag: ~54 rules of which 1 is authored is the
+                    // common shape, and a reader needs the second number without filtering
+                    // the document by hand. Derived from the tag, never from a filter applied
+                    // to the document — the document still carries all of them.
+                    ["authoredRuleCount"] = RenderCell.Integer(
+                        type.Rules.Count(static r =>
+                            r.Customization.Kind == RuleCustomizationKind.Custom)),
+                    ["behaviourCount"] = RenderCell.Integer(type.Behaviours.Count),
+                    // 🔴 DisplayOnly-empty when the layout could not be read, rather than 0.
+                    // A form with zero controls and a form we failed to fetch are different
+                    // facts, and `formLayout` in the unfetched list is the second one.
+                    ["layoutControlCount"] = type.Layout is null
+                        ? RenderCell.DisplayOnly(string.Empty)
+                        : RenderCell.Integer(type.Layout.Pages
+                            .SelectMany(static p => p.Sections)
+                            .SelectMany(static s => s.Groups)
+                            .Sum(static g => g.Controls.Count)),
                     // 🔴 Which parts could not be read. Empty means everything was read. This
                     // is what stops an empty field list reading as "this type has no fields"
                     // when the truth is "the call failed" — indistinguishable otherwise, and
@@ -523,10 +734,82 @@ internal sealed class ProcessDescriptionCommand(
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unhandled value constraint kind."),
     };
 
+    /// <summary>
+    /// A layout element's server-assigned arrangement key.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 An ABSENT order renders as an empty display-only cell rather than as <c>0</c>. Zero is
+    /// a real and common order key — it is the FIRST element — so collapsing "the server did not
+    /// send one" into it would assert a position nothing supports, and would make an element
+    /// whose key was dropped by a version drift indistinguishable from the one that genuinely
+    /// leads its group.
+    /// </remarks>
+    private static RenderCell OrderCell(int? order)
+        => order is null ? RenderCell.DisplayOnly(string.Empty) : RenderCell.Integer(order.Value);
+
+    /// <summary>
+    /// The document's word for one rule-customization case.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Four distinct tokens, and <c>unknown</c> is deliberately NOT a synonym for
+    /// <c>system</c>. This tag is the reader's FILTER for the ~54 inherited rules a derived
+    /// type carries, so rendering an unstated class as <c>system</c> would invite the reader
+    /// to discard rules that might be authored — silently undoing the carry-everything ruling
+    /// from the far end. Written out rather than switch-expression-defaulted so a new enum
+    /// member cannot silently render as one of these.
+    /// <para>
+    /// An unrecognised server token renders as <c>unknown:&lt;token&gt;</c> rather than as a
+    /// bare <c>unknown</c>: Twig does not own this vocabulary, and a class it has not seen is
+    /// a fact worth showing rather than an error worth erasing.
+    /// </para>
+    /// </remarks>
+    private static string RuleCustomizationToken(RuleCustomization customization)
+        => customization.Kind switch
+        {
+            RuleCustomizationKind.Custom => "custom",
+            RuleCustomizationKind.Inherited => "inherited",
+            RuleCustomizationKind.System => "system",
+            RuleCustomizationKind.Unknown => customization.Token.Length == 0
+                ? "unknown"
+                : $"unknown:{customization.Token}",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(customization), customization.Kind, "Unhandled rule customization kind."),
+        };
+
+    /// <summary>The conditions that gate a rule, in one stable line.</summary>
+    /// <remarks>
+    /// 🔴 Walks the assembler's sorted order and imposes none of its own. Joined with
+    /// <c>AND</c> because a rule's conditions are conjunctive — the server's own semantics.
+    /// </remarks>
+    private static string DescribeRuleConditions(IReadOnlyList<RuleCondition> conditions)
+        => string.Join(" AND ", conditions.Select(static c =>
+            c.Value is null
+                ? $"{c.ConditionType} {c.Field}"
+                : $"{c.ConditionType} {c.Field} = {c.Value}"));
+
+    /// <summary>What a rule does when it fires, in one stable line.</summary>
+    /// <remarks>
+    /// Joined with <c>;</c> rather than <c>AND</c>: a rule's actions are independent effects
+    /// applied together, not a conjunction of conditions, and using the same connective for
+    /// both would suggest a relationship the server does not have.
+    /// </remarks>
+    private static string DescribeRuleActions(IReadOnlyList<RuleAction> actions)
+        => string.Join("; ", actions.Select(static a =>
+            a.Value is null
+                ? $"{a.ActionType} {a.TargetField}"
+                : $"{a.ActionType} {a.TargetField} = {a.Value}"));
+
     /// <remarks>
     /// The abridged shape is deliberately unspecified by the ruling — it is a rendering
     /// concern with no contract weight, since the machine document carries the promise. This
     /// is a build choice: identity, authored-vs-inherited, and counts, one line per type.
+    /// <para>
+    /// 🔴 The rule count is shown as <c>authored/total</c> (AB#238) rather than as a bare
+    /// total. On a derived type the total is ~54 and the authored count is 1, and the second
+    /// number is the one a person scanning this actually wants — while the first stops the
+    /// summary implying the document only carries the authored ones. Neither number replaces
+    /// the rules themselves, which are in <c>-o json</c>; the banner above says so.
+    /// </para>
     /// </remarks>
     private static IReadOnlyList<RenderNode> BuildAbridgedTypeLines(ProcessDescription description)
     {
@@ -540,10 +823,15 @@ internal sealed class ProcessDescriptionCommand(
                 ? string.Empty
                 : $"  [COULD NOT READ: {string.Join(", ", type.Unfetched)}]";
 
+            var authored = type.Rules.Count(static r =>
+                r.Customization.Kind == RuleCustomizationKind.Custom);
+
             lines.Add(new RenderNode.Text(
                 $"{type.ReferenceName,-46} {type.Customization,-10} "
                 + $"{type.Fields.Count,4} fields  {type.States.Count,3} states  "
-                + $"{type.Transitions.Count,4} transitions{incomplete}"));
+                + $"{type.Transitions.Count,4} transitions  "
+                + $"{authored}/{type.Rules.Count} rules authored/total  "
+                + $"{type.Behaviours.Count,2} backlogs{incomplete}"));
         }
 
         return lines;

@@ -219,6 +219,9 @@ constant in `AdoApiVersions`; never inline a literal.
 | `{project}/_apis/wit/workitemtypes?$expand=all` | `7.1` | The **only** source of state transitions (see below) |
 | `_apis/wit/fields` | `7.1` | `isPicklist` / `picklistId` — the **only** source of the picklist association (AB#237) |
 | `_apis/work/processes/lists/{listId}` | `7.1-preview.1` | A picklist's `items`; the list-all route returns metadata only |
+| `.../workItemTypesBehaviors/{ref}/behaviors` | `7.1` | Per-type **backlog-level membership** (AB#238). 🔴 Note the segment — see below |
+| `_apis/work/processes/{id}/behaviors` | `7.1-preview.2` | The behaviour **catalogue**: `referenceName`, `name`, `rank`. One call per run |
+| `.../workItemTypes/{ref}/layout` | `7.1` | The form layout — pages, sections, groups, controls, each with its `order` |
 
 🔴 **Requiredness is merged from two routes, and reading either alone lies (AB#236).**
 The per-type `fields` route reports **unconditional** requiredness only. A field made
@@ -230,13 +233,17 @@ to `fields`. So the document carries `requiredness` (`always` | `conditional` |
 `never`) with the conditions attached, never a bare boolean — a boolean cannot
 express the conditional case, and gets it wrong in the silent direction.
 
-The rules route stays pinned at **`7.1`, not preview.2**, deliberately.
-`7.1-preview.2` additionally carries `customizationType` per rule, which is the only
-available filter for the ~54 inherited system rules on a derived type — but this
-layer reads `makeRequired` actions off rules rather than reporting them, and those
-are identical at both versions. Moving the constant would change the shipped
-`twig process rules` output for no gain here; it belongs to the ticket that carries
-rules into the document (AB#238).
+The rules route stays pinned at **`7.1`, not preview.2** — and as of AB#238 that is
+settled rather than deferred. AB#236 recorded a note that preview.2 "additionally
+carries `customizationType`", derived from the 0001 endpoint survey, and deferred the
+move to the ticket that would need the tag. **Re-probed live 2026-08-12: the two
+versions return BYTE-IDENTICAL bodies and GA already carries `customizationType`.**
+Both return 54 rules for `Niflheim.Epic` with the keys
+`actions, conditions, customizationType, id, isDisabled, name, url` and the same
+53-system / 1-custom split. So the tag AB#238 requires costs no version change, and
+the shipped `twig process rules` output is untouched. 🔴 Do not "align" this constant
+with its preview.2 neighbours on the strength of the survey note — there is nothing
+to buy, and a version change here is a behaviour change to a shipped command.
 
 🔴 **Value constraints come from a THIRD source, and guessing them is banned (AB#237).**
 No process route carries `allowedValues` or any picklist reference, at any api-version,
@@ -289,6 +296,96 @@ field that genuinely is, and carrying no `unfetched` label to catch it.
 > Niflheim process. This changes the ticket's *illustration*, not its design: the honesty
 > constraint and the ban on name-matching hold either way, and the implementation reads the
 > server rather than assuming either state.
+
+🔴 **Behaviour membership needs TWO routes, and the obvious one does not exist (AB#238).**
+Per-type membership lives at `.../workItemTypesBehaviors/{ref}/behaviors` — note the
+segment. The natural `.../workItemTypes/{ref}/behaviors` returns an **HTML 404** ("the
+controller for path … was not found") for every type on both an inherited and a stock
+process, probed live 2026-08-11 and re-probed 2026-08-12. Note the shape too: an HTML
+page, not this family's usual count-shaped JSON envelope.
+
+That route returns a **reference only** — `{"behavior":{"id":"Custom.3daa…"},"isDefault":true}`
+— and a custom backlog level's reference name is a GUID. A document carrying the edge
+alone would report that a type belongs to `Custom.3daa3b35-2574-4c94-b260-0d15fe6db82f`:
+true, unreadable, and worthless in a diff between two processes whose levels have
+different ids and the same name. So the **process-scoped catalogue** supplies the name
+and rank, fetched once per run (it is the same answer for every type) and joined
+`OrdinalIgnoreCase`.
+
+An unresolved membership keeps its reference name and loses only its NAME, with
+`behaviourCatalogue` added to the type's `unfetched` list. Dropping the membership
+entirely would let a real difference — this type is on a backlog level, that one is not —
+diff clean. 🔴 A type with **no** memberships gets no label even when the catalogue failed:
+it lost nothing, and a false reservation is as much a lie as a missing one.
+
+🔴 **The form layout is the one collection whose ORDER IS ITS CONTENT (AB#238).** Every
+other collection in the document is sorted alphabetically on an ordinal key; sorting the
+layout that way would be deterministic and **wrong**, because "Description sits above
+Acceptance Criteria" is precisely the fact a reader asked for. It is sorted instead on the
+server's own explicit `order` key at each level, with the element id as a total tiebreak —
+faithful to the form *and* provable. Trusting the array's order was rejected: the server
+does not promise it stable, and an order taken from an array is not something a test can
+assert. Sections are ordered by **id** because the server gives them no order key; their
+ids (`Section1`…`Section4`) *are* the arrangement.
+
+🔴 **The layout DTO needs a deliberate count-shaped-body guard, and this is the AB#237
+defect class in its new home.** A count-shaped 404 carries none of the layout DTO's keys
+and `System.Text.Json` ignores unmapped members, so unlike the sibling LIST fetches it does
+**not** throw — those survive it only by accident, because their `value` is a `List<T>` and
+the error body puts an object where the array belongs. The layout response is a bare object,
+falls outside that accidental defence, and untreated would report the type's form as
+**empty**: a positive claim built on a call that failed. The guard is the presence of
+`pages`, keyed on presence rather than emptiness so a layout that genuinely serves no pages
+stays distinguishable from one that could not be read.
+
+🔴 **Rules are carried WHOLE, inherited ones included (AB#238), and that reverses the
+obvious call.** `Niflheim.Epic` and `Niflheim.Issue` carry 54 rules each of which 53 are
+system plumbing and 1 was authored; `Niflheim.Grilling` carries 2, both authored. So a
+verbatim carry is ~95% noise on exactly the types a caller most often asks about, and
+filtering the inherited ones out is tempting and wrong: **a difference that exists only in
+the omitted part diffs clean.** A reader who wants only the authored rules can filter a
+complete document; a reader handed a filtered one cannot recover what was dropped or tell
+that anything was. Every rule carries its `customizationType`, which is what makes that
+filtering available *to the reader* — the intended way to pay the noise cost. An absent tag
+is `unknown` and never `system`: mislabelling an authored rule as inherited plumbing invites
+the reader's own filter to discard it, undoing the ruling from the far end.
+
+🔴 **The layout is carried WHOLE, including the parts it is easy to reach and then drop.**
+Every level's `visible`, `inherited`, `isContribution` and `order` reaches a cell, and so do
+the `systemControls` the same response returns alongside `pages`. Independent review caught an
+earlier draft carrying the page flags only for pages with *no* controls, the group flags
+nowhere at all, `order` at no level, and `systemControls` deserialized and then discarded — so
+a process that hid a group, hid a populated page, or marked one inherited-vs-authored
+differently produced a **byte-identical document**. That is the "a difference that exists only
+in the omitted part diffs clean" failure this feature exists to prevent, living in the renderer
+rather than the assembler, and it is the reason there is now a command-layer test asserting the
+new rows reach the file: the domain tests cannot see the render tree.
+
+🔴 **One reservation survives the completeness audit: `ruleIdentity`.** The rule's
+server-assigned `id` is reachable and deliberately not carried — it is a per-process GUID, so
+two processes defining the same rule carry different ids and including it would make every rule
+diff dirty and bury the real differences. That reasoning is a build **judgement**, not a
+ruling, and S3 says carry everything and *mark* rather than filter — so it is declared in
+`KnownGaps` where a reader sees it, not left in a doc comment where only a maintainer would.
+An empty list would have claimed the document omits nothing reachable, which would have been
+false.
+
+🔴 **A LOCKED system type answers the layout route with 400, not 404.** `TestCase`,
+`TestPlan` and `TestSuite` are locked in this process, and the layout route returns
+**`400 VS403115`** — *"you cannot modify form layout information for work item types … as
+these work item types are locked"* — where every other failure on this family is a 404 or a
+count-shaped body. An unhandled `AdoBadRequestException` there propagated out of
+`GetTypeDetailAsync` and **killed the entire description**: 14 types lost to one type's
+answer, with a green 7,879-test suite behind it. Found by running the command live, because
+the seam tests drive a scripted source that never returns a 400.
+
+It is swallowed rather than re-raised because it **is an answer**: the process will not serve
+a layout for that type, ever, which is a fact about the type rather than a transport failure.
+Reported as `formLayout` unfetched — the honest weaker claim, since this layer cannot
+distinguish "locked" from "call failed" and an empty layout would assert the form has no
+pages. 🔴 Verified live that the hazard is **layout-only**: the same locked type serves 55
+rules, 3 states, 49 fields and 0 behaviours normally, so a blanket 400-swallow across the
+fetch layer would be wider than the evidence supports.
 
 Three findings that constrain this layer, all probed live:
 

@@ -177,12 +177,20 @@ internal static class AdoApiVersions
     /// and inherited rules on a type.
     /// <para>
     /// Pinned <c>7.1</c>, which is what the shipped <c>twig process rules</c> path has
-    /// always called and what its behaviour is verified against. 🔴 Note for later work:
-    /// the endpoint survey exercised this route at <c>7.1-preview.2</c>, where each rule
-    /// also carries <c>customizationType</c> (<c>custom</c> vs inherited) — the only
-    /// available filter for the ~54 inherited system rules that dominate derived types.
-    /// Moving to preview.2 is a <b>behaviour change</b> and belongs to the ticket that
-    /// needs that filter, not here.
+    /// always called and what its behaviour is verified against.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The move to <c>7.1-preview.2</c> that AB#236 deferred turned out to be
+    /// unnecessary — re-probed live 2026-08-12 and the two versions return BYTE-IDENTICAL
+    /// bodies.</b> The endpoint survey (0001) recorded <c>customizationType</c> as a preview.2
+    /// attribute, which read as "GA does not carry it"; it does. Both versions return 54 rules
+    /// for <c>Niflheim.Epic</c> with the keys
+    /// <c>actions, conditions, customizationType, id, isDisabled, name, url</c>, and the same
+    /// 53-system / 1-custom split. So AB#238 carries the customization tag the ruling requires
+    /// WITHOUT a version change, and the shipped <c>twig process rules</c> output is untouched.
+    /// Do not "align" this constant with its preview.2 neighbours on the strength of the survey
+    /// note — there is nothing to buy, and a version change here is a behaviour change to a
+    /// shipped command.
     /// </para>
     /// </summary>
     internal const string ProcessRules = "7.1";
@@ -309,4 +317,44 @@ internal static class AdoApiVersions
     /// </para>
     /// </summary>
     internal const string ProcessLists = "7.1-preview.1";
+
+    /// <summary>
+    /// <c>_apis/work/processes/{processId}/workItemTypesBehaviors/{ref}/behaviors</c> —
+    /// which backlog levels ONE type belongs to. GA <c>7.1</c>.
+    /// <para>
+    /// 🔴 <b>The route segment is <c>workItemTypesBehaviors</c>, NOT
+    /// <c>workItemTypes/{ref}/behaviors</c>.</b> The obvious route returns an HTML 404 ("the
+    /// controller for path … was not found or does not implement IController") for every type
+    /// on both an inherited and a stock process — probed live 2026-08-11 and re-probed
+    /// 2026-08-12. Note the shape: an HTML page, not the count-shaped JSON envelope the rest of
+    /// this family returns for a 404.
+    /// </para>
+    /// <para>
+    /// <c>7.1</c> and <c>7.1-preview.1</c> return byte-identical bodies (verified 2026-08-12),
+    /// so GA is chosen for the usual reason: it is the version least likely to move under us.
+    /// The row is a REFERENCE only — <c>{"behavior":{"id":…},"isDefault":…}</c> — so naming
+    /// the level costs one further call, see <see cref="ProcessBehaviors"/>.
+    /// </para>
+    /// </summary>
+    internal const string ProcessTypeBehaviors = "7.1";
+
+    /// <summary>
+    /// <c>_apis/work/processes/{processId}/behaviors</c> — the process's behaviour
+    /// CATALOGUE: every backlog level it defines, with name and rank. <c>7.1-preview.2</c>.
+    /// <para>
+    /// PROCESS-scoped, so it is ONE call per description run regardless of how many types are
+    /// described — never per type. It exists in the description's fetch path solely to turn the
+    /// membership route's bare reference into a readable name: a custom backlog level's
+    /// reference name is a GUID (<c>Custom.3daa3b35-…</c>), so a document carrying the edge
+    /// alone would be true and unreadable, and worthless in a diff between two processes whose
+    /// levels have different ids and the same name.
+    /// </para>
+    /// <para>
+    /// preview.2 is the version 0001 probed this route working at; it returns
+    /// <c>referenceName</c>, <c>name</c>, <c>rank</c>, <c>customization</c> and
+    /// <c>inherits</c>. 🔴 <c>referenceName</c> here is the same identity the membership route
+    /// keys <c>id</c> — the join between the two names the level.
+    /// </para>
+    /// </summary>
+    internal const string ProcessBehaviors = "7.1-preview.2";
 }

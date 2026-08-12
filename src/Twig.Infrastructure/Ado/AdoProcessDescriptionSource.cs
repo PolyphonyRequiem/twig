@@ -46,6 +46,19 @@ namespace Twig.Infrastructure.Ado;
 /// </remarks>
 internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 {
+    /// <summary>
+    /// The ADO error code a LOCKED work item type answers the layout route with.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The whole reason the layout fetch catches a 400 at all. <c>TestCase</c>,
+    /// <c>TestPlan</c> and <c>TestSuite</c> are locked in this process and answer
+    /// <i>"you cannot modify form layout information for work item types … as these work item
+    /// types are locked"</i> — a 400, where every other failure on this family is a 404 or a
+    /// count-shaped body. Matched as a marker so the catch stays bounded to that ONE answer
+    /// rather than swallowing every 400.
+    /// </remarks>
+    private const string LockedFormLayoutMarker = "VS403115";
+
     private readonly HttpClient _http;
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
@@ -106,6 +119,21 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
             "wit/fields", AdoApiVersions.Fields),
         new ProcessDescriptionRouteVersion(
             "work/processes/lists/{listId}", AdoApiVersions.ProcessLists),
+        // 🔴 The behaviour MEMBERSHIP source (AB#238). Note the route segment:
+        // `workItemTypesBehaviors`, not `workItemTypes/{ref}/behaviors` — the obvious one
+        // returns an HTML 404 for every type, on both an inherited and a stock process.
+        new ProcessDescriptionRouteVersion(
+            "work/processes/{processId}/workItemTypesBehaviors/{ref}/behaviors",
+            AdoApiVersions.ProcessTypeBehaviors),
+        // 🔴 The behaviour CATALOGUE (AB#238). Process-scoped, one call per run, fetched
+        // solely to turn the membership route's bare GUID reference into a readable name.
+        new ProcessDescriptionRouteVersion(
+            "work/processes/{processId}/behaviors", AdoApiVersions.ProcessBehaviors),
+        // 🔴 The form LAYOUT (AB#238), at the same version the shipped `twig process layout`
+        // command reads it at — so two surfaces describing the same form cannot disagree
+        // because one of them was pinned somewhere else.
+        new ProcessDescriptionRouteVersion(
+            "work/processes/{processId}/workItemTypes/{ref}/layout", AdoApiVersions.ProcessLayout),
     ];
 
     public async Task<ProcessIdentity?> GetProcessIdentityAsync(CancellationToken ct = default)
@@ -214,13 +242,20 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         // reference name — this is a process route, so unlike the transitions fetch it needs
         // no parent-name fallback.
         var rulesTask = FetchRulesAsync(identity.ProcessId, typeReferenceName, ct);
+        // 🔴 The behaviour MEMBERSHIP fetch (AB#238) — on `workItemTypesBehaviors`, not the
+        // obvious `workItemTypes/{ref}/behaviors`, which 404s for every type.
+        var behavioursTask = FetchBehavioursAsync(identity.ProcessId, typeReferenceName, ct);
+        // 🔴 The form LAYOUT fetch (AB#238). Keyed by the type's own process reference name,
+        // like the rules and fields calls; this is a process route, so no parent fallback.
+        var layoutTask = FetchLayoutAsync(identity.ProcessId, typeReferenceName, ct);
 
         // 🔴 Gathered with WhenAll before any individual await. Awaiting them one at a time
         // means the FIRST fault propagates while the later tasks are never awaited, and their
-        // exceptions become unobserved. FetchRulesAsync swallows only AdoNotFoundException and
+        // exceptions become unobserved. The fetches swallow only AdoNotFoundException and
         // JsonException; offline, throttle and unexpected-response faults do propagate, so
         // this is reachable rather than theoretical.
-        await Task.WhenAll(fieldsTask, statesTask, rulesTask).ConfigureAwait(false);
+        await Task.WhenAll(fieldsTask, statesTask, rulesTask, behavioursTask, layoutTask)
+            .ConfigureAwait(false);
 
         // States are read before transitions because the transitions fallback needs them:
         // a parent's transitions are only trustworthy for a derived type whose own states the
@@ -228,20 +263,31 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         var fields = await fieldsTask;
         var states = await statesTask;
         var rules = await rulesTask;
+        var behaviours = await behavioursTask;
+        var layout = await layoutTask;
 
         var transitions = await FetchTransitionsAsync(
             typeReferenceName, inheritsFrom, states, ct);
 
         // If every part failed, the type could not be described at all — report that rather
         // than a document row claiming an empty type.
-        if (fields is null && states is null && transitions is null && rules is null)
+        if (fields is null && states is null && transitions is null && rules is null
+            && behaviours is null && layout is null)
+        {
             return null;
+        }
 
         // 🔴 A PARTIAL failure is named, not swallowed. Otherwise "the fields call 404'd" and
         // "this type has no fields" render identically, and the second is a confident wrong
         // answer — the exact failure this route family's count-shaped 404 invites.
-        var unfetched = new List<string>(4);
+        var unfetched = new List<string>(6);
+        // 🔴 A failed BEHAVIOURS call is named. Without the label, "we could not ask" reads as
+        // "this type appears on no backlog level", which a reader would act on.
+        if (behaviours is null) unfetched.Add("behaviours");
         if (fields is null) unfetched.Add("fields");
+        // 🔴 A failed LAYOUT call is named rather than rendered as a form with no pages —
+        // which would be the strongest possible positive claim built on a call that failed.
+        if (layout is null) unfetched.Add("formLayout");
         // 🔴 A failed RULES call is named too. Requiredness is merged from it, so without the
         // label a reader would take "nothing is conditionally required" from a call that
         // never came back.
@@ -249,7 +295,277 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         if (states is null) unfetched.Add("states");
         if (transitions is null) unfetched.Add("transitions");
 
-        return new ProcessTypeDetail(fields ?? [], states ?? [], transitions ?? [], unfetched, rules);
+        return new ProcessTypeDetail(
+            fields ?? [], states ?? [], transitions ?? [], unfetched, rules, behaviours, layout);
+    }
+
+    /// <summary>
+    /// Which backlog levels one type belongs to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>The route segment is <c>workItemTypesBehaviors</c>, not
+    /// <c>workItemTypes/{ref}/behaviors</c>.</b> The obvious route returns an HTML 404 for
+    /// every type on every arm — verified live 2026-08-11 and re-verified 2026-08-12. Note it
+    /// is an HTML page rather than this family's usual count-shaped JSON envelope, so it
+    /// arrives here as a JSON parse failure rather than as a clean deserialization.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The count-shaped-body guard is the <c>behavior.id</c> check below, and it is
+    /// deliberate rather than accidental.</b> This response deserializes into a
+    /// <c>*ListResponse</c> whose <c>Value</c> is a <c>List&lt;T&gt;</c>, so a count-shaped
+    /// error body — which puts an OBJECT where the array belongs — throws, the same accidental
+    /// defence the sibling list fetches enjoy. But the ROWS are bare objects with no
+    /// array-shaped member, so a row that deserialized clean while carrying no reference at all
+    /// would become a membership of the empty-string behaviour: a confident claim about a
+    /// backlog level that does not exist. A real row always carries <c>behavior.id</c>.
+    /// </para>
+    /// <para>
+    /// Returns <c>null</c> on failure and never an empty list, so "the membership call failed"
+    /// cannot be laundered into "this type belongs to no backlog level" — a claim a reader
+    /// would act on, and which is TRUE for several types in this org, so the two are
+    /// indistinguishable downstream unless the failure is named.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyList<ProcessBehaviourMembership>?> FetchBehavioursAsync(
+        string processId,
+        string typeReferenceName,
+        CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
+            $"/workItemTypesBehaviors/{Uri.EscapeDataString(typeReferenceName)}" +
+            $"/behaviors?api-version={AdoApiVersions.ProcessTypeBehaviors}";
+
+        AdoTypeBehaviourListResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoTypeBehaviourListResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        catch (JsonException) { return null; }
+
+        if (result?.Value is null)
+            return null;
+
+        var memberships = new List<ProcessBehaviourMembership>(result.Value.Count);
+        foreach (var row in result.Value)
+        {
+            // 🔴 The row guard. A row with no reference names no backlog level, and carrying it
+            // as a membership of "" would be a confident claim about a level that does not
+            // exist. Skipped rather than failing the whole call: the other rows are still true.
+            if (string.IsNullOrWhiteSpace(row.Behavior?.Id))
+                continue;
+
+            // 🔴 The NAME is left empty here and filled by the assembler's join against the
+            // process-scoped catalogue. Resolving it in this method would mean one catalogue
+            // fetch per type for a process-wide answer.
+            memberships.Add(new ProcessBehaviourMembership(
+                row.Behavior.Id, string.Empty, null, row.IsDefault));
+        }
+
+        return memberships;
+    }
+
+    /// <remarks>
+    /// 🔴 The behaviour CATALOGUE (AB#238) — process-scoped, so ONE call per description run
+    /// however many types are described. It exists only to name what the membership route
+    /// references: a custom backlog level's reference name is a GUID, so a document carrying
+    /// the membership edge alone would be true, unreadable, and worthless in a diff between two
+    /// processes that gave the same level different ids.
+    /// <para>
+    /// Returns <c>null</c> on failure, never an empty list. An empty catalogue would claim the
+    /// process defines no backlog levels at all — a positive claim built on a call that never
+    /// came back — while silently stripping every membership of its name.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<ProcessBehaviourSummary>?> GetBehaviourCatalogueAsync(
+        CancellationToken ct = default)
+    {
+        var identity = await GetProcessIdentityAsync(ct);
+        if (identity is null)
+            return null;
+
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(identity.ProcessId)}" +
+            $"/behaviors?api-version={AdoApiVersions.ProcessBehaviors}";
+
+        AdoProcessBehaviourListResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoProcessBehaviourListResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        catch (JsonException) { return null; }
+
+        if (result?.Value is null)
+            return null;
+
+        var catalogue = new List<ProcessBehaviourSummary>(result.Value.Count);
+        foreach (var behaviour in result.Value)
+        {
+            // referenceName is the join key. A row without one can name nothing.
+            if (string.IsNullOrWhiteSpace(behaviour.ReferenceName))
+                continue;
+
+            catalogue.Add(new ProcessBehaviourSummary(
+                behaviour.ReferenceName,
+                behaviour.Name ?? string.Empty,
+                behaviour.Rank));
+        }
+
+        return catalogue;
+    }
+
+    /// <summary>
+    /// One type's form layout, in the document's ordered shape.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Read at the same api-version the shipped <c>twig process layout</c> command uses</b>
+    /// (<see cref="AdoApiVersions.ProcessLayout"/>), so two surfaces describing the same form
+    /// cannot disagree because one of them was pinned elsewhere. <c>7.1</c> and
+    /// <c>7.1-preview.1</c> return byte-identical bodies, verified live 2026-08-12.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>This DTO needs a DELIBERATE count-shaped-body guard.</b> A count-shaped 404
+    /// (<c>{"count":1,"value":{"Message":…}}</c>) carries none of this DTO's keys, and
+    /// <c>System.Text.Json</c> ignores unmapped members — so unlike the sibling LIST fetches it
+    /// does not throw. Those siblings deserialize into a <c>*ListResponse</c> whose
+    /// <c>Value</c> is a <c>List&lt;T&gt;</c> and the count-shaped body puts an object where
+    /// the array belongs; that defence is structural, and this DTO — a bare object whose only
+    /// array-shaped member is <c>pages</c> — falls outside it. Untreated, a failed fetch
+    /// deserializes into an all-null instance and the <c>Pages is null</c> check below is what
+    /// turns it into <c>null</c> rather than a layout with no pages. Keeping that check keyed
+    /// on <c>pages</c> is therefore load-bearing, not defensive tidiness: a real layout always
+    /// carries at least one page.
+    /// </para>
+    /// <para>
+    /// Returns <c>null</c> both when the call failed and when the process serves no layout for
+    /// the type. Those are different facts and this method cannot distinguish them, so it makes
+    /// the weaker claim: <c>formLayout</c> lands in the type's unfetched list either way, which
+    /// says "this document does not answer that for this type" rather than "this type's form is
+    /// empty". Reporting an empty layout would be the stronger and unsupportable one.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>No ordering is decided here.</b> Every level is passed through in server order and
+    /// the ASSEMBLER sorts on the <c>order</c> key carried alongside — a second ordering
+    /// authority would make byte-stability depend on two places agreeing forever.
+    /// </para>
+    /// </remarks>
+    private async Task<ProcessDescriptionLayout?> FetchLayoutAsync(
+        string processId,
+        string typeReferenceName,
+        CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
+            $"/workItemTypes/{Uri.EscapeDataString(typeReferenceName)}" +
+            $"/layout?api-version={AdoApiVersions.ProcessLayout}";
+
+        AdoFormLayoutResponse? result;
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AdoFormLayoutResponse, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (AdoNotFoundException) { return null; }
+        // 🔴 A LOCKED system type answers this route with 400 VS403115
+        // ("you cannot modify form layout information … as these work item types are locked"),
+        // NOT a 404. Found by running the command live against the real process: without this
+        // catch, one locked type (TestCase / TestPlan / TestSuite are all locked in this org)
+        // propagated out of GetTypeDetailAsync and killed the WHOLE description — 14 types
+        // lost to one type's answer. The seam tests could not see it, because a scripted
+        // source never returns a 400.
+        //
+        // Swallowed rather than re-raised because it IS an answer: the process will not serve
+        // a layout for this type, ever, and that is a fact about the type rather than a
+        // transport failure. It is reported as `formLayout` unfetched — the honest weaker
+        // claim, since this method cannot distinguish "locked" from "call failed" and an empty
+        // layout would assert the type's form has no pages.
+        // 🔴 NARROWED to the VS403115 marker, not every 400. A malformed api-version, a bad
+        // reference-name escape or a future validation error must NOT become a silent
+        // "formLayout unfetched" with exit 0 — that would be the exception-swallow-too-broad
+        // failure, and it is asymmetric with the sibling fetches, which swallow only
+        // AdoNotFoundException and JsonException. Only the locked-type answer is an answer.
+        catch (AdoBadRequestException ex)
+            when (ex.Message.Contains(LockedFormLayoutMarker, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        catch (JsonException) { return null; }
+
+        // 🔴 The count-shaped-body guard. Absence of `pages` means this is not a layout payload
+        // at all — treat it as a failed fetch, never as a form that has no pages.
+        if (result?.Pages is null)
+            return null;
+
+        return new ProcessDescriptionLayout(
+            SystemControls:
+            [
+                // 🔴 Carried, not discarded. These arrive in the SAME response as `pages` — so
+                // they are reachable, and dropping them would be an omission with no marker
+                // while the document's header claims it makes no reservations.
+                .. (result.SystemControls ?? []).Select(static control =>
+                    new ProcessDescriptionLayoutControl(
+                        control.Id ?? string.Empty,
+                        control.Label ?? string.Empty,
+                        control.ControlType ?? string.Empty,
+                        control.ReadOnly,
+                        control.Visible ?? true,
+                        control.Inherited ?? false,
+                        control.IsContribution,
+                        control.Order)),
+            ],
+            Pages:
+        [
+            .. result.Pages.Select(static page => new ProcessDescriptionLayoutPage(
+                page.Id ?? string.Empty,
+                page.Label ?? string.Empty,
+                page.PageType ?? string.Empty,
+                // An absent `visible` means visible; the server omits it on the common case.
+                page.Visible ?? true,
+                page.Inherited ?? false,
+                page.IsContribution,
+                page.Order,
+                [
+                    .. (page.Sections ?? []).Select(static section =>
+                        new ProcessDescriptionLayoutSection(
+                            section.Id ?? string.Empty,
+                            [
+                                .. (section.Groups ?? []).Select(static group =>
+                                    new ProcessDescriptionLayoutGroup(
+                                        group.Id ?? string.Empty,
+                                        group.Label ?? string.Empty,
+                                        group.Visible ?? true,
+                                        group.Inherited ?? false,
+                                        group.IsContribution,
+                                        group.Order,
+                                        [
+                                            .. (group.Controls ?? []).Select(static control =>
+                                                new ProcessDescriptionLayoutControl(
+                                                    control.Id ?? string.Empty,
+                                                    control.Label ?? string.Empty,
+                                                    // Verbatim: the reader compares the
+                                                    // server's vocabulary, not a paraphrase.
+                                                    control.ControlType ?? string.Empty,
+                                                    control.ReadOnly,
+                                                    control.Visible ?? true,
+                                                    control.Inherited ?? false,
+                                                    control.IsContribution,
+                                                    control.Order)),
+                                        ])),
+                            ])),
+                ])),
+        ]);
     }
 
     /// <remarks>
@@ -299,7 +615,14 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
                     action.ActionType ?? string.Empty,
                     action.TargetField ?? string.Empty,
                     action.Value)).ToList() ?? [],
-                rule.IsDisabled)),
+                rule.IsDisabled,
+                // 🔴 The customization tag (AB#238) — the ONLY filter available for the ~54
+                // inherited system rules a derived type carries, and therefore the thing that
+                // makes the carry-everything ruling bearable for a reader. Absent means
+                // Unknown, never `system`: reading a missing key as inherited plumbing would
+                // let the reader's own filter discard authored rules.
+                RuleCustomization.From(rule.CustomizationType),
+                rule.Name)),
         ];
     }
 

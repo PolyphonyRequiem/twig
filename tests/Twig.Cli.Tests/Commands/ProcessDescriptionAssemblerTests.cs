@@ -139,6 +139,29 @@ internal sealed class ScriptedDescriptionSource : IProcessDescriptionSource
         return Task.FromResult(ValueConstraints);
     }
 
+    /// <summary>How many times the process-scoped behaviour catalogue was hit.</summary>
+    public int BehaviourCatalogueCallCount { get; private set; }
+
+    /// <summary>
+    /// The behaviour catalogue the process reports, used to name membership edges.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Defaults to an EMPTY LIST, not <c>null</c>, for the same reason
+    /// <see cref="ValueConstraints"/> does. An empty catalogue means "we read it and it names
+    /// none of these behaviours", which leaves memberships present but unnamed; <c>null</c>
+    /// means the call FAILED and additionally puts <c>behaviourCatalogue</c> in the unfetched
+    /// list of every type that HAS memberships. Two different facts, and conflating them would
+    /// make the unfetched-label test meaningless.
+    /// </remarks>
+    public IReadOnlyList<ProcessBehaviourSummary>? BehaviourCatalogue { get; init; } = [];
+
+    public Task<IReadOnlyList<ProcessBehaviourSummary>?> GetBehaviourCatalogueAsync(
+        CancellationToken ct = default)
+    {
+        BehaviourCatalogueCallCount++;
+        return Task.FromResult(BehaviourCatalogue);
+    }
+
     /// <summary>
     /// Releases the detail fetches in <see cref="CompletionOrder"/>, one at a time.
     /// </summary>
@@ -202,7 +225,119 @@ public sealed class ProcessDescriptionAssemblerTests
             new ProcessTypeTransition("Done", "To do"),
             new ProcessTypeTransition("", "To do"),
             new ProcessTypeTransition("To do", "Doing"),
-        ]);
+        ],
+        Unfetched: null,
+        // 🔴 Hostile here too (AB#238), and rules are the biggest hazard of the three: they
+        // arrive in server order at ~54 per derived type. Deliberately reverse-tagged
+        // (system first, custom last) with the conditions and actions of one rule ALSO out of
+        // order, so an assembler that sorted rules but not their internals would still red.
+        Rules:
+        [
+            new ProcessRule(
+                Conditions:
+                [
+                    new RuleCondition("whenWas", "System.State", "Doing"),
+                    new RuleCondition("when", "System.State", "Done"),
+                ],
+                Actions:
+                [
+                    new RuleAction("makeReadOnly", "System.Reason", null),
+                    new RuleAction("copyValue", "System.Reason", "Completed"),
+                ],
+                IsDisabled: false,
+                Customization: RuleCustomization.From("system")),
+            new ProcessRule(
+                Conditions: [new RuleCondition("when", "System.State", "Done")],
+                Actions: [new RuleAction("makeRequired", $"Custom.{seed}Alpha", null)],
+                IsDisabled: false,
+                Customization: RuleCustomization.From("custom"),
+                Name: "Authored rule"),
+        ],
+        // Reverse-sorted by reference name, so a document emitting arrival order differs.
+        Behaviours:
+        [
+            new ProcessBehaviourMembership("Custom.Zeta", string.Empty, null, false),
+            new ProcessBehaviourMembership("Custom.Alpha", string.Empty, null, true),
+        ],
+        // 🔴 Pages, groups and controls all presented with their `order` keys DESCENDING, so
+        // an assembler that trusted array order rather than sorting on the key would emit the
+        // form upside down — and the byte-stability comparison would still pass, which is why
+        // the ordering tests assert the resulting positions rather than only cross-run
+        // equality.
+        Layout: new ProcessDescriptionLayout(
+        SystemControls:
+        [
+            // Reverse-ordered on the key, like every other level of this fixture, so an
+            // implementation that carried them in wire order is distinguishable.
+            new ProcessDescriptionLayoutControl(
+                "System.AreaPath", "Area", "WorkItemClassificationControl",
+                false, true, true, false, 1),
+            new ProcessDescriptionLayoutControl(
+                "System.State", "State", "FieldControl", false, true, true, false, 0),
+        ],
+        Pages:
+        [
+            new ProcessDescriptionLayoutPage(
+                "Page.Second", "Second", "custom", true, true, false, 1,
+                [
+                    new ProcessDescriptionLayoutSection("Section2", []),
+                ]),
+            new ProcessDescriptionLayoutPage(
+                "Page.First", "First", "custom", true, false, false, 0,
+                [
+                    new ProcessDescriptionLayoutSection("Section2",
+                    [
+                        // 🔴 Order key and ALPHABETICAL order deliberately DISAGREE here:
+                        // System.Title is order 0 and Custom.Zulu is order 1, so an
+                        // implementation that sorted the layout alphabetically — a
+                        // deterministic but WRONG choice, since a form's arrangement is its
+                        // content — produces the opposite sequence and the assertion sees it.
+                        // The wire order is descending on the key so trusting array order is
+                        // also distinguishable.
+                        new ProcessDescriptionLayoutGroup(
+                            "Group.Late", "Late", true, true, false, 1,
+                            [
+                                new ProcessDescriptionLayoutControl(
+                                    "Custom.Zulu", "Zulu", "FieldControl",
+                                    false, true, false, false, 1),
+                                new ProcessDescriptionLayoutControl(
+                                    "System.Title", "Title", "FieldControl",
+                                    false, true, true, false, 0),
+                            ]),
+                    ]),
+                    new ProcessDescriptionLayoutSection("Section1",
+                    [
+                        new ProcessDescriptionLayoutGroup(
+                            "Group.Early", "Early", true, false, false, 0,
+                            [
+                                new ProcessDescriptionLayoutControl(
+                                    "System.Description", "Description", "HtmlFieldControl",
+                                    false, true, true, false, 0),
+                            ]),
+                    ]),
+                ]),
+        ]));
+
+    /// <summary>
+    /// A type in <see cref="BuildSource"/>'s roster that carries the full hostile detail —
+    /// rules, behaviours and layout included.
+    /// </summary>
+    private const string TypeWithRules = "Niflheim.CustomAlpha";
+
+    /// <summary>
+    /// The catalogue naming the two behaviours <see cref="HostileDetail"/>'s memberships
+    /// reference.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately in the OPPOSITE order to the memberships, and with ranks that would sort
+    /// them the other way round — so a document ordering memberships by rank rather than by
+    /// reference name produces a different order and the ordering test can see it.
+    /// </remarks>
+    private static readonly IReadOnlyList<ProcessBehaviourSummary> Catalogue =
+    [
+        new ProcessBehaviourSummary("Custom.Alpha", "Alpha Backlog", 40),
+        new ProcessBehaviourSummary("Custom.Zeta", "Zeta Backlog", 10),
+    ];
 
     private static ScriptedDescriptionSource BuildSource(
         IReadOnlyList<string>? completionOrder = null,
@@ -210,13 +345,14 @@ public sealed class ProcessDescriptionAssemblerTests
     {
         // Reference names deliberately NOT in sorted order, so a document that emitted them
         // in arrival order would differ from one that sorted.
-        var types = typeOrder ?? ["Niflheim.CustomZulu", "Microsoft.VSTS.WorkItemTypes.Task", "Niflheim.CustomAlpha"];
+        var types = typeOrder ?? ["Niflheim.CustomZulu", "Microsoft.VSTS.WorkItemTypes.Task", TypeWithRules];
 
         return new ScriptedDescriptionSource(
             types,
             types.ToDictionary(t => t, HostileDetail))
         {
             CompletionOrder = completionOrder,
+            BehaviourCatalogue = Catalogue,
         };
     }
 
@@ -256,30 +392,80 @@ public sealed class ProcessDescriptionAssemblerTests
             writer.WriteLine($"gap={gap.Subject}|{gap.TrackedIn}");
 
         foreach (var type in description.Types)
-        {
-            writer.WriteLine($"type={type.ReferenceName}|{type.Name}|{type.Customization}|{type.Inherits}");
-            foreach (var field in type.Fields)
-                writer.WriteLine(
-                    $"  field={field.ReferenceName}|{field.Name}|{field.Type}|"
-                    // 🔴 The MERGED requiredness, including every condition in its sorted
-                    // position. Flattening only the KIND would let the condition list's order
-                    // wobble between two runs while this projection still compared equal —
-                    // which is the byte-stability defect this projection exists to catch.
-                    + $"{FlattenRequiredness(field.Requiredness)}|"
-                    // 🔴 The value constraint, INCLUDING its values in their sorted positions.
-                    // Flattening only the kind would let the values' order wobble between two
-                    // runs while this projection still compared equal — which is exactly the
-                    // byte-stability defect this projection exists to catch, and picklist
-                    // values arrive from the server in author order.
-                    + $"{FlattenValueConstraint(field.ValueConstraint)}|{field.DefaultValue}|"
-                    + $"{field.Customization}|{field.Description}");
-            foreach (var state in type.States)
-                writer.WriteLine($"  state={state.Name}|{state.StateCategory}|{state.Order}");
-            foreach (var transition in type.Transitions)
-                writer.WriteLine($"  transition={transition.FromState}->{transition.ToState}");
-            foreach (var unfetched in type.Unfetched)
-                writer.WriteLine($"  unfetched={unfetched}");
-        }
+            writer.Write(FlattenType(type));
+
+        return writer.ToString();
+    }
+
+    /// <summary>
+    /// A stable projection of ONE described type, walked to the leaf of every collection.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Shared by <see cref="Flatten"/> and by the agent-surface equivalence test, so the two
+    /// cannot come to compare different subsets of the document. Both need a PROJECTION rather
+    /// than record equality: these records' collection members are compared by REFERENCE by
+    /// compiler-generated equality, so <c>ShouldBe</c> fails on two structurally identical
+    /// documents and passes on nothing useful.
+    /// <para>
+    /// Every ordered position of every collection is serialised. A projection that compared
+    /// only counts, or stopped above the rules' own clauses or the layout's controls, would
+    /// pass against an implementation whose order wobbled there — which is precisely the
+    /// failure mode being defended against.
+    /// </para>
+    /// </remarks>
+    private static string FlattenType(ProcessDescriptionType type)
+    {
+        var writer = new StringWriter();
+
+        writer.WriteLine($"type={type.ReferenceName}|{type.Name}|{type.Customization}|{type.Inherits}");
+        foreach (var field in type.Fields)
+            writer.WriteLine(
+                $"  field={field.ReferenceName}|{field.Name}|{field.Type}|"
+                // 🔴 The MERGED requiredness, including every condition in its sorted
+                // position. Flattening only the KIND would let the condition list's order
+                // wobble between two runs while this projection still compared equal —
+                // which is the byte-stability defect this projection exists to catch.
+                + $"{FlattenRequiredness(field.Requiredness)}|"
+                // 🔴 The value constraint, INCLUDING its values in their sorted positions.
+                // Flattening only the kind would let the values' order wobble between two
+                // runs while this projection still compared equal — which is exactly the
+                // byte-stability defect this projection exists to catch, and picklist
+                // values arrive from the server in author order.
+                + $"{FlattenValueConstraint(field.ValueConstraint)}|{field.DefaultValue}|"
+                + $"{field.Customization}|{field.Description}");
+        foreach (var state in type.States)
+            writer.WriteLine($"  state={state.Name}|{state.StateCategory}|{state.Order}");
+        foreach (var transition in type.Transitions)
+            writer.WriteLine($"  transition={transition.FromState}->{transition.ToState}");
+        // 🔴 Every rule in its sorted position, with its conditions and actions in THEIR
+        // sorted positions (AB#238). Emitting only a count would let the rule order — or a
+        // rule's internal clause order — wobble between two runs while this projection
+        // still compared equal, which is exactly the defect it exists to catch. Rules are
+        // the largest such hazard in the document: ~54 per derived type, in server order.
+        foreach (var rule in type.Rules)
+            writer.WriteLine(
+                $"  rule={rule.Name}|{rule.Customization.Kind}:{rule.Customization.Token}|"
+                + $"{rule.IsDisabled}|"
+                + string.Join("+", rule.Conditions.Select(static c =>
+                    $"{c.ConditionType}:{c.Field}:{c.Value}"))
+                + "|"
+                + string.Join("+", rule.Actions.Select(static a =>
+                    $"{a.ActionType}:{a.TargetField}:{a.Value}")));
+        foreach (var behaviour in type.Behaviours)
+            writer.WriteLine(
+                $"  behaviour={behaviour.ReferenceName}|{behaviour.Name}|"
+                + $"{behaviour.Rank}|{behaviour.IsDefault}");
+        // 🔴 The layout walked to the LEAF, in position. Its order is its content, so a
+        // projection that stopped at page level would compare equal across two documents
+        // whose controls were arranged differently — hiding the one property a reader of
+        // the layout actually asked about.
+        //
+        // 🔴 `layout=` is written even when the layout is null so the two cases are
+        // distinguishable in this projection: a type with no layout and a type whose layout
+        // has no pages must not flatten identically.
+        writer.Write(FlattenLayout(type.Layout));
+        foreach (var unfetched in type.Unfetched)
+            writer.WriteLine($"  unfetched={unfetched}");
 
         return writer.ToString();
     }
@@ -315,6 +501,65 @@ public sealed class ProcessDescriptionAssemblerTests
     /// </remarks>
     private static string FlattenValueConstraint(FieldValueConstraint constraint)
         => $"{constraint.Kind}({constraint.ListName})[{string.Join(",", constraint.Values)}]";
+
+    /// <summary>
+    /// A total string form of a form layout, walked to the LEAF in the order the assembler put
+    /// it in.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The layout's ORDER IS ITS CONTENT, so a projection that stopped at page level would
+    /// compare equal across two documents whose controls were arranged differently — hiding
+    /// the one property a reader of the layout actually asked about.
+    /// <para>
+    /// 🔴 The <c>&lt;none&gt;</c> / <c>&lt;present&gt;</c> marker is written even for a null
+    /// layout so the two cases stay distinguishable: a type whose layout could not be read and
+    /// a type whose layout has no pages must not flatten identically.
+    /// </para>
+    /// <para>
+    /// Also used to compare two documents' layouts directly, because
+    /// <c>ProcessDescriptionLayout</c> is a record whose collection members compare by
+    /// REFERENCE — so <c>ShouldBe</c> on the layout itself would fail on two structurally
+    /// identical documents and pass on nothing useful.
+    /// </para>
+    /// </remarks>
+    private static string FlattenLayout(ProcessDescriptionLayout? layout)
+    {
+        var writer = new StringWriter();
+        writer.WriteLine($"  layout={(layout is null ? "<none>" : "<present>")}");
+
+        // 🔴 The system controls are part of the layout and therefore part of this projection.
+        // Omitting them would let their order — or their presence at all — wobble between two
+        // runs while the comparison still passed, which is the defect it exists to catch.
+        foreach (var control in layout?.SystemControls ?? [])
+            writer.WriteLine(
+                $"    systemControl={control.Id}|{control.Label}|{control.ControlType}|"
+                + $"{control.ReadOnly}|{control.Visible}|{control.Inherited}|"
+                + $"{control.IsContribution}|{control.Order}");
+
+        foreach (var page in layout?.Pages ?? [])
+        {
+            writer.WriteLine(
+                $"    page={page.Id}|{page.Label}|{page.PageType}|{page.Visible}|"
+                + $"{page.Inherited}|{page.IsContribution}|{page.Order}");
+            foreach (var section in page.Sections)
+            {
+                writer.WriteLine($"      section={section.Id}");
+                foreach (var group in section.Groups)
+                {
+                    writer.WriteLine(
+                        $"        group={group.Id}|{group.Label}|{group.Visible}|"
+                        + $"{group.Inherited}|{group.IsContribution}|{group.Order}");
+                    foreach (var control in group.Controls)
+                        writer.WriteLine(
+                            $"          control={control.Id}|{control.Label}|"
+                            + $"{control.ControlType}|{control.ReadOnly}|{control.Visible}|"
+                            + $"{control.Inherited}|{control.IsContribution}|{control.Order}");
+                }
+            }
+        }
+
+        return writer.ToString();
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Test 1 — byte-stability
@@ -526,9 +771,18 @@ public sealed class ProcessDescriptionAssemblerTests
         fromSingle.Name.ShouldBe(fromWhole.Name);
         fromSingle.Customization.ShouldBe(fromWhole.Customization);
         fromSingle.Inherits.ShouldBe(fromWhole.Inherits);
-        fromSingle.Fields.ShouldBe(fromWhole.Fields);
-        fromSingle.States.ShouldBe(fromWhole.States);
-        fromSingle.Transitions.ShouldBe(fromWhole.Transitions);
+        // 🔴 Every remaining member compared through the flattened projection rather than with
+        // record equality — including the AB#238 additions, so the agent surface and the CLI
+        // cannot drift apart on exactly the content this ticket adds. The projection is
+        // necessary and not merely convenient: these records' collection members are compared
+        // by REFERENCE by compiler-generated equality, so a nested List (which a conditionally
+        // required field's conditions are) makes `ShouldBe` fail on two structurally identical
+        // documents and pass on nothing useful. The projection walks every ordered position of
+        // every collection to the leaf.
+        FlattenType(fromSingle).ShouldBe(
+            FlattenType(fromWhole),
+            "the agent surface must return the SAME document with fewer types in it — same "
+            + "shape, same ordering, right down to the rules, memberships and layout");
     }
 
     /// <summary>An unknown type is a hard error naming what was asked for, not an empty document.</summary>
@@ -571,11 +825,21 @@ public sealed class ProcessDescriptionAssemblerTests
     /// it has closed.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Both halves matter and they pull in opposite directions. Declaring a CLOSED gap warns a
     /// reader off an answer the document does give; failing to declare an OPEN one lets a
     /// silent omission pass as completeness. AB#237 originally emptied this list, which turned
     /// three genuinely-absent Decision 4 items into an affirmative claim that nothing was
     /// missing — caught in review, and this test is the guard against repeating it.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>AB#238 empties the list, and the assertion below is deliberately NOT just
+    /// "empty".</b> "Nothing is declared" is what an implementation that deleted the mechanism
+    /// produces too. So this test enumerates every Decision 4 content item and asserts the
+    /// document actually CARRIES it — which is what earns the empty list. An implementation
+    /// that emptied the list without shipping the content reds on the carry assertions, not
+    /// on the count, which is the honest place for it to fail.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task Assemble_HeaderDeclaresTheKnownGapsWithTheirTickets()
@@ -600,25 +864,40 @@ public sealed class ProcessDescriptionAssemblerTests
             + "a reader off an answer this document does give");
         gaps.ShouldNotContain(g => g.TrackedIn == "AB#236");
 
-        // 🔴 …and the content the document genuinely does NOT carry is declared. Decision 4
-        // requires rules, behaviour membership and form layout per type; none has shipped.
-        // Without these the artifact would silently omit three of six per-type content items
-        // while its header implied completeness.
-        gaps.ShouldContain(g => g.Subject == "rules" && g.TrackedIn == "AB#238");
-        gaps.ShouldContain(g => g.Subject == "behaviourMembership" && g.TrackedIn == "AB#238");
-        gaps.ShouldContain(g => g.Subject == "formLayout" && g.TrackedIn == "AB#238");
+        // 🔴 AB#238's three reservations are gone because the content shipped — and the
+        // removal is EARNED, not merely asserted. Each item is checked against the document
+        // itself, so an implementation that deleted the reservations without shipping the
+        // content reds HERE, on the missing content, rather than passing a bare count check.
+        gaps.ShouldNotContain(g => g.Subject == "rules");
+        gaps.ShouldNotContain(g => g.Subject == "behaviourMembership");
+        gaps.ShouldNotContain(g => g.Subject == "formLayout");
 
-        // The closed set, so an invented fourth reservation for something the document DOES
-        // answer would red here.
-        gaps.Select(g => g.Subject)
-            .ShouldBe(["behaviourMembership", "formLayout", "rules"]);
+        var type = description.Types.Single(t => t.ReferenceName == TypeWithRules);
+        type.Rules.ShouldNotBeEmpty("the rules reservation was removed, so rules must be carried");
+        type.Behaviours.ShouldNotBeEmpty(
+            "the behaviourMembership reservation was removed, so membership must be carried");
+        type.Layout.ShouldNotBeNull(
+            "the formLayout reservation was removed, so the layout must be carried");
 
-        // Sorted, like everything else, so two documents' reservations cannot swap positions.
-        gaps.Select(g => g.Subject)
-            .ShouldBe([.. gaps.Select(g => g.Subject).OrderBy(x => x, StringComparer.Ordinal)]);
+        // 🔴 …and the layout is carried WHOLE. An earlier draft reached every one of these and
+        // then dropped them in the renderer while this list claimed completeness, so the
+        // reservation's removal is tied to the members actually being present.
+        var page = type.Layout.Pages[0];
+        page.Order.ShouldNotBeNull("the arrangement key is part of the layout, not scaffolding");
+        page.Sections.SelectMany(s => s.Groups).ShouldNotBeEmpty();
+
+        // 🔴 The ONE surviving reservation: the rule id is reachable and deliberately not
+        // carried, so it is DECLARED. An empty list here would claim the document omits
+        // nothing reachable, which is false — and a false completeness claim is the specific
+        // failure this mechanism exists to prevent.
+        gaps.Select(g => g.Subject).ShouldBe(
+            ["ruleIdentity"],
+            "an omission with a good reason is still an omission, and belongs in the artifact "
+            + "rather than only in a doc comment");
 
         // Every gap names a ticket a reader can go and look up — a reservation with no tracker
-        // is a dead end rather than a promise.
+        // is a dead end rather than a promise. Vacuous while the list is empty, and kept so it
+        // is already in place the next time something ships incomplete.
         gaps.ShouldAllBe(g => !string.IsNullOrWhiteSpace(g.TrackedIn));
         gaps.ShouldAllBe(g => !string.IsNullOrWhiteSpace(g.Detail));
     }
@@ -811,7 +1090,11 @@ public sealed class ProcessDescriptionAssemblerTests
         genuinelyEmpty.Unfetched.ShouldBeEmpty();
         // 🔴 'rules' is in the list: requiredness is merged from the rules route (AB#236), so
         // a whole-detail failure leaves the requiredness answer unreadable too.
-        couldNotRead.Unfetched.ShouldBe(["fields", "rules", "states", "transitions"]);
+        // 🔴 'behaviours' and 'formLayout' joined it in AB#238 — both are per-type fetches
+        // inside the detail call, so a whole-detail failure loses them too, and unlabelled
+        // they would read as "belongs to no backlog" and "has an empty form".
+        couldNotRead.Unfetched.ShouldBe(
+            ["behaviours", "fields", "formLayout", "rules", "states", "transitions"]);
     }
 
     /// <summary>
@@ -1847,5 +2130,719 @@ public sealed class ProcessDescriptionAssemblerTests
         // Precondition: there really are two otherwise-identical rows, so the tiebreak chain
         // is genuinely exercised rather than the test comparing a single row to itself.
         first.Types[0].Fields.Count.ShouldBe(2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Test 6 — inherited rules are PRESENT, each tagged (AB#238)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// A type carrying many inherited rules emits ALL of them, each tagged with its
+    /// customization type.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Spec test 6, and the reversal most likely to be "helpfully" undone.</b> The volume
+    /// argument for filtering is real — verified live, <c>Niflheim.Epic</c> carries 54 rules of
+    /// which 53 are system plumbing and 1 was authored — and it was ruled against anyway,
+    /// because a difference that exists only in the omitted part diffs clean.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The assertion is a COUNT, not merely non-empty</b>, exactly as the spec requires:
+    /// an implementation that filtered the inherited rules out would emit the 1 authored rule
+    /// and pass a non-empty check while having undone the ruling completely. The fixture is
+    /// built at the live ratio so the count means what it appears to.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_InheritedRules_ArePresentAndTagged()
+    {
+        const string Type = "Niflheim.Epic";
+        const int SystemRules = 53;
+
+        // The live shape at the live ratio: 53 system rules, 1 authored.
+        var rules = new List<ProcessRule>();
+        for (var i = 0; i < SystemRules; i++)
+        {
+            rules.Add(new ProcessRule(
+                Conditions: [new RuleCondition("when", "System.State", $"S{i:D2}")],
+                Actions: [new RuleAction("makeReadOnly", $"System.Field{i:D2}", null)],
+                IsDisabled: false,
+                Customization: RuleCustomization.From("system")));
+        }
+
+        rules.Add(new ProcessRule(
+            Conditions: [new RuleCondition("when", "System.State", "Done")],
+            Actions: [new RuleAction("makeRequired", "Custom.ClosingStatement", null)],
+            IsDisabled: false,
+            Customization: RuleCustomization.From("custom"),
+            Name: "Epic must state what it delivered"));
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(Fields: [], States: [], Transitions: [], Unfetched: null, Rules: rules),
+        });
+
+        // Precondition, asserted rather than assumed: the fixture really does carry the
+        // lopsided ratio the ruling is about. If it carried only authored rules, an
+        // implementation that filtered would pass every assertion below.
+        rules.Count(r => r.CustomizationOrUnknown.Kind == RuleCustomizationKind.System)
+            .ShouldBe(SystemRules);
+        rules.Count(r => r.CustomizationOrUnknown.Kind == RuleCustomizationKind.Custom).ShouldBe(1);
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var described = description!.Types.Single();
+
+        // 🔴 A COUNT, not non-empty. This is the assertion a filtering implementation fails.
+        described.Rules.Count.ShouldBe(
+            SystemRules + 1,
+            "every rule is carried, inherited plumbing included — a reader who wants only the "
+            + "authored ones can filter a complete document, but a reader handed a filtered "
+            + "one cannot recover what was dropped or tell that anything was");
+
+        described.Rules.Count(r => r.Customization.Kind == RuleCustomizationKind.System)
+            .ShouldBe(SystemRules);
+
+        // 🔴 …and every one carries its tag, which is what makes the filtering available to
+        // the READER. Rules carried without the tag would pay the noise cost and deliver none
+        // of the mitigation the ruling relies on.
+        described.Rules.ShouldAllBe(r => r.Customization.Kind != RuleCustomizationKind.Unknown);
+
+        var authored = described.Rules.Single(
+            r => r.Customization.Kind == RuleCustomizationKind.Custom);
+        authored.Name.ShouldBe("Epic must state what it delivered");
+        authored.Actions.Single().TargetField.ShouldBe("Custom.ClosingStatement");
+    }
+
+    /// <summary>
+    /// A rule whose <c>customizationType</c> the server did not send is reported as
+    /// <c>Unknown</c>, never as <c>System</c>.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The other side of the tag. Reading an absent key as <c>system</c> is the reading a
+    /// nullable-to-default deserialization invites, and it is dangerous in a specific way: the
+    /// tag is the reader's FILTER, so mislabelling an authored rule as inherited plumbing
+    /// invites the reader to throw it away — undoing the carry-everything ruling from the far
+    /// end while the document still technically carries everything.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RuleWithNoCustomizationType_IsUnknownNotSystem()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(
+                Fields: [], States: [], Transitions: [], Unfetched: null,
+                Rules:
+                [
+                    // No Customization supplied at all — the "server did not say" case.
+                    new ProcessRule(
+                        Conditions: [new RuleCondition("when", "System.State", "Done")],
+                        Actions: [new RuleAction("makeRequired", "Custom.Answer", null)],
+                        IsDisabled: false),
+                ]),
+        });
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types.Single().Rules.Single().Customization.Kind.ShouldBe(
+            RuleCustomizationKind.Unknown,
+            "an absent customizationType is not the server stating a class — reporting it as "
+            + "'system' would invite a reader to filter away a rule that may be authored");
+    }
+
+    /// <summary>A DISABLED rule is carried, with its flag, rather than dropped.</summary>
+    /// <remarks>
+    /// 🔴 Not in tension with the requiredness merge skipping disabled rules. There, a disabled
+    /// rule must not make a field read as required, because it does not fire. Here, a rule
+    /// disabled on one process and enabled on another is a real structural difference and
+    /// dropping it would diff clean over exactly that.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_DisabledRule_IsCarriedWithItsFlag()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(
+                Fields:
+                [
+                    new ProcessTypeField(
+                        "Custom.Answer", "Answer", "string", null, false, "custom", false, ""),
+                ],
+                States: [], Transitions: [], Unfetched: null,
+                Rules:
+                [
+                    new ProcessRule(
+                        Conditions: [new RuleCondition("when", "System.State", "Done")],
+                        Actions: [new RuleAction("makeRequired", "Custom.Answer", null)],
+                        IsDisabled: true,
+                        Customization: RuleCustomization.From("custom"),
+                        Name: "A disabled rule"),
+                ]),
+        });
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var described = description!.Types.Single();
+
+        described.Rules.Count.ShouldBe(1);
+        described.Rules.Single().IsDisabled.ShouldBeTrue();
+
+        // …and the disabled rule still does not make the field required, which is the AB#236
+        // behaviour this must not disturb.
+        described.Fields.Single().Requiredness.Kind.ShouldBe(FieldRequirednessKind.Never);
+    }
+
+    /// <summary>
+    /// Two rules differing only in a member below the identifying ones order
+    /// deterministically rather than by wire order.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The rules analogue of
+    /// <c>Assemble_FieldsDifferingOnlyInValueConstraint_AreOrderedDeterministically</c>.
+    /// Independent review caught both AB#236 and AB#237 adding a document member without
+    /// extending a sort chain; this is the guard for the one this ticket adds. Two rules
+    /// alike on customization, name and disabled-flag but differing in their CONDITIONS would
+    /// otherwise fall through <c>OrderBy</c>'s stability to the order the server sent them.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RulesDifferingOnlyInConditions_AreOrderedDeterministically()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        ProcessRule Rule(string state) => new(
+            Conditions: [new RuleCondition("when", "System.State", state)],
+            Actions: [new RuleAction("makeRequired", "Custom.Answer", null)],
+            IsDisabled: false,
+            Customization: RuleCustomization.From("custom"),
+            Name: "Same name");
+
+        ProcessTypeDetail Detail(bool doneFirst) => new(
+            Fields: [], States: [], Transitions: [], Unfetched: null,
+            Rules: doneFirst
+                ? [Rule("Done"), Rule("Doing")]
+                : [Rule("Doing"), Rule("Done")]);
+
+        var forwardSource = new ScriptedDescriptionSource([Type],
+            new Dictionary<string, ProcessTypeDetail> { [Type] = Detail(true) });
+        var reversedSource = new ScriptedDescriptionSource([Type],
+            new Dictionary<string, ProcessTypeDetail> { [Type] = Detail(false) });
+
+        // Precondition: the fixtures really do present the two rules in opposite WIRE order,
+        // and the rules really are identical on every member above the conditions — otherwise
+        // an earlier tiebreak resolves it and the new one is never exercised.
+        var forwardWire = (await forwardSource.GetTypeDetailAsync(Type))!.Rules!;
+        var reversedWire = (await reversedSource.GetTypeDetailAsync(Type))!.Rules!;
+        forwardWire.Select(r => r.Conditions[0].Value)
+            .ShouldBe(reversedWire.Select(r => r.Conditions[0].Value).Reverse());
+        forwardWire.Select(r => (r.Name, r.IsDisabled, r.CustomizationOrUnknown.Kind))
+            .Distinct().Count().ShouldBe(1);
+
+        var forward = await BuildAssembler(forwardSource).AssembleAsync(null, FixedCapture);
+        var reversed = await BuildAssembler(reversedSource).AssembleAsync(null, FixedCapture);
+
+        Flatten(forward!).ShouldBe(
+            Flatten(reversed!),
+            "two rules differing only below the identifying members must not order by wire "
+            + "order");
+
+        // 🔴 The positive half. Stability alone is satisfied by an assembler that emits ZERO
+        // rules — two empty documents flatten identically — so the resulting ORDER is pinned
+        // explicitly rather than only compared to itself.
+        var described = forward!.Types.Single().Rules;
+        described.Count.ShouldBe(2, "an assembler emitting no rules would pass the stability "
+            + "assertion above by vacuity");
+        described.Select(r => r.Conditions.Single().Value).ShouldBe(
+            ["Done", "Doing"],
+            "the tiebreak is the LENGTH-PREFIXED canonical clause key, so \"4:Done\" precedes "
+            + "\"5:Doing\" — deliberately not a plain lexicographic compare on the value, "
+            + "because a rule condition's value is an arbitrary user string in which no "
+            + "separator can be assumed absent");
+    }
+
+    /// <summary>
+    /// A rule's own conditions and actions are ordered too, not just the rules themselves.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The level below the one an implementer naturally guards. Sorting the rule LIST while
+    /// carrying each rule's clauses in server order leaves byte-stability broken inside every
+    /// multi-clause rule — invisible to a test that only compares rule counts or names.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_RuleClausesAndActions_AreOrderedNotCarriedInWireOrder()
+    {
+        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var multiClause = description!.Types
+            .Single(t => t.ReferenceName == TypeWithRules)
+            .Rules.Single(r => r.Conditions.Count > 1);
+
+        // The fixture presents these as whenWas-then-when and makeReadOnly-then-copyValue.
+        multiClause.Conditions.Select(c => c.ConditionType).ShouldBe(["when", "whenWas"]);
+        multiClause.Actions.Select(a => a.ActionType).ShouldBe(["copyValue", "makeReadOnly"]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Behaviour membership (AB#238)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Which backlog levels a type belongs to appears, named from the process catalogue.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The NAME is the point of the join. The membership route returns a bare reference, and
+    /// a custom backlog level's reference name is a GUID — so a document carrying the edge
+    /// alone would be true, unreadable, and worthless in a diff between two processes whose
+    /// levels have different ids and the same name.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_BehaviourMembership_AppearsWithNamesFromTheCatalogue()
+    {
+        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var type = description!.Types.Single(t => t.ReferenceName == TypeWithRules);
+
+        type.Behaviours.Count.ShouldBe(2);
+
+        // 🔴 Ordered by REFERENCE name, not by rank. The catalogue ranks Zeta(10) below
+        // Alpha(40), so a rank ordering would put Zeta first — this assertion is what
+        // distinguishes the two.
+        type.Behaviours.Select(b => b.ReferenceName).ShouldBe(["Custom.Alpha", "Custom.Zeta"]);
+        type.Behaviours.Select(b => b.Name).ShouldBe(["Alpha Backlog", "Zeta Backlog"]);
+        type.Behaviours.Select(b => b.Rank).ShouldBe([40, 10]);
+
+        // The default level is carried: where a new item of this type lands is a real
+        // difference between two processes.
+        type.Behaviours.Single(b => b.IsDefault).ReferenceName.ShouldBe("Custom.Alpha");
+
+        // Nothing is unfetched — every membership was named.
+        type.Unfetched.ShouldNotContain("behaviourCatalogue");
+    }
+
+    /// <summary>
+    /// The catalogue is fetched ONCE per run, not once per type.
+    /// </summary>
+    /// <remarks>
+    /// Not a call-count assertion for its own sake — the spec forbids pinning the fetch layer's
+    /// shape. This guards the cost model: the catalogue is process-scoped, so asking per type
+    /// would multiply round-trips by the type count for an identical answer, on a command whose
+    /// accepted latency ceiling is already round-trip-bound.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_BehaviourCatalogue_IsFetchedOncePerRunNotPerType()
+    {
+        var source = BuildSource();
+
+        await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        source.RequestedTypes.Count.ShouldBe(3, "precondition: three types were described");
+        source.BehaviourCatalogueCallCount.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A membership whose catalogue entry is missing keeps its reference name and is LABELLED,
+    /// rather than being dropped or silently unnamed.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Two failure modes rejected at once. Dropping the membership would let a real
+    /// difference — this type is on a backlog level, that one is not — diff clean, which is the
+    /// omission this feature exists to prevent. Keeping it unnamed and unlabelled would show a
+    /// reader a blank name with no explanation while the type's unfetched list claimed
+    /// everything was read.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_UnresolvedBehaviour_KeepsItsReferenceAndIsLabelled()
+    {
+        var source = new ScriptedDescriptionSource(
+            [TypeWithRules],
+            new Dictionary<string, ProcessTypeDetail> { [TypeWithRules] = HostileDetail("x") })
+        {
+            // Read successfully, but names neither of the memberships.
+            BehaviourCatalogue = [],
+        };
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var type = description!.Types.Single();
+
+        type.Behaviours.Count.ShouldBe(
+            2,
+            "an unnamed membership is still a membership — dropping it would let a real "
+            + "difference diff clean");
+        type.Behaviours.ShouldAllBe(b => b.Name == string.Empty);
+        type.Unfetched.ShouldContain(
+            "behaviourCatalogue",
+            "a blank name with no label would read as a level that has no name, rather than "
+            + "one this document could not name");
+    }
+
+    /// <summary>
+    /// A FAILED catalogue call labels the type, while an EMPTY-but-read catalogue that names
+    /// everything does not.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The distinction the label exists for. <c>null</c> means "we could not ask" and an
+    /// empty list means "we asked and it named nothing" — different facts, and only the first
+    /// justifies a reservation on a type whose memberships were all resolvable.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FailedCatalogue_LabelsOnlyTypesThatHaveMemberships()
+    {
+        const string WithMemberships = "Niflheim.CustomAlpha";
+        const string WithoutMemberships = "Niflheim.CustomBeta";
+
+        var source = new ScriptedDescriptionSource(
+            [WithMemberships, WithoutMemberships],
+            new Dictionary<string, ProcessTypeDetail>
+            {
+                [WithMemberships] = HostileDetail("a"),
+                [WithoutMemberships] = new(
+                    Fields: [], States: [], Transitions: [], Unfetched: null,
+                    Rules: [], Behaviours: []),
+            })
+        {
+            // The call FAILED — not merely returned nothing.
+            BehaviourCatalogue = null,
+        };
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+
+        description!.Types.Single(t => t.ReferenceName == WithMemberships)
+            .Unfetched.ShouldContain("behaviourCatalogue");
+
+        // 🔴 …and the type with no memberships is NOT labelled. It lost nothing when the
+        // catalogue failed, and a false reservation is as much a lie as a missing one.
+        description.Types.Single(t => t.ReferenceName == WithoutMemberships)
+            .Unfetched.ShouldNotContain(
+                "behaviourCatalogue",
+                "a type with no memberships lost nothing to the failed catalogue — declaring "
+                + "a reservation would be a false one");
+    }
+
+    /// <summary>
+    /// The catalogue join is case-INSENSITIVE, like every cross-route name match in this layer.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Independent review caught AB#236 getting this wrong on a different join. An exact
+    /// join here would silently drop a behaviour's NAME over a casing difference between two
+    /// routes, leaving the document asserting membership of an unnamed GUID and putting a
+    /// reservation on a type that did not need one.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_BehaviourJoin_IsCaseInsensitive()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(
+                Fields: [], States: [], Transitions: [], Unfetched: null, Rules: [],
+                Behaviours:
+                [
+                    new ProcessBehaviourMembership(
+                        "custom.3DAA3B35", string.Empty, null, IsDefault: true),
+                ]),
+        })
+        {
+            // Same identity, different spelling — which is what the two routes may do.
+            BehaviourCatalogue = [new ProcessBehaviourSummary("Custom.3daa3b35", "Wayfinding", 40)],
+        };
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var membership = description!.Types.Single().Behaviours.Single();
+
+        membership.Name.ShouldBe(
+            "Wayfinding",
+            "an ordinal-exact join would drop a real name over a casing difference between "
+            + "two routes");
+        membership.Rank.ShouldBe(40);
+        description.Types.Single().Unfetched.ShouldNotContain("behaviourCatalogue");
+
+        // 🔴 The emitted reference name is the CATALOGUE's spelling, not the membership
+        // route's. The join is case-insensitive precisely because the two routes are not known
+        // to agree on casing — so carrying the membership route's spelling would put an
+        // unstable value in the document AND in the ordinal sort key that positions the row,
+        // which is the diff noise the case-insensitive join exists to prevent.
+        membership.ReferenceName.ShouldBe(
+            "Custom.3daa3b35",
+            "the catalogue is the naming authority; emitting the membership route's spelling "
+            + "would make two documents differ over a casing difference");
+    }
+
+    /// <summary>
+    /// Two catalogue rows for one behaviour that DISAGREE leave it unnamed and labelled, rather
+    /// than resolving by wire order.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Keeping the first row and keeping the last are BOTH order-dependent — only an
+    /// order-independent rule is not. The index is <c>OrdinalIgnoreCase</c>, so two rows
+    /// differing only in the casing of <c>referenceName</c> collide here, which is the
+    /// realistic case. This mirrors AB#237's rule for two disagreeing field rows exactly: when
+    /// neither answer is defensible, the honest report is that we do not know.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_CatalogueRowsThatDisagree_LeaveTheBehaviourUnnamedAndLabelled()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(
+                Fields: [], States: [], Transitions: [], Unfetched: null, Rules: [],
+                Behaviours: [new ProcessBehaviourMembership("Custom.X", string.Empty, null, true)]),
+        })
+        {
+            // Same identity by the index's comparer, different answers.
+            BehaviourCatalogue =
+            [
+                new ProcessBehaviourSummary("Custom.X", "One Name", 10),
+                new ProcessBehaviourSummary("custom.x", "Another Name", 20),
+            ],
+        };
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var type = description!.Types.Single();
+
+        var membership = type.Behaviours.Single();
+        membership.Name.ShouldBe(
+            string.Empty,
+            "picking either row would make the document depend on the order the server sent "
+            + "them; neither name is defensible");
+        membership.Rank.ShouldBeNull();
+        type.Unfetched.ShouldContain(
+            "behaviourCatalogue",
+            "a blank name with no label reads as a level that has no name, rather than one "
+            + "this document could not name");
+    }
+
+    /// <summary>
+    /// Two catalogue rows that AGREE are not treated as a conflict.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The other side of the guard. Without it, an implementation that degraded on ANY
+    /// duplicate would pass the test above while discarding a perfectly good name — the
+    /// hollow-guard shape this repo has been bitten by.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_CatalogueRowsThatAgree_KeepTheName()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        var source = new ScriptedDescriptionSource([Type], new Dictionary<string, ProcessTypeDetail>
+        {
+            [Type] = new(
+                Fields: [], States: [], Transitions: [], Unfetched: null, Rules: [],
+                Behaviours: [new ProcessBehaviourMembership("Custom.X", string.Empty, null, true)]),
+        })
+        {
+            BehaviourCatalogue =
+            [
+                new ProcessBehaviourSummary("Custom.X", "Same Name", 10),
+                new ProcessBehaviourSummary("custom.x", "Same Name", 10),
+            ],
+        };
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var type = description!.Types.Single();
+
+        type.Behaviours.Single().Name.ShouldBe(
+            "Same Name",
+            "two rows carrying the same answer are not a disagreement — degrading here would "
+            + "discard a good name over a duplicate that agrees");
+        type.Unfetched.ShouldNotContain("behaviourCatalogue");
+    }
+
+    /// <summary>
+    /// Two membership rows for one behaviour that disagree on <c>isDefault</c> resolve to the
+    /// WEAKER claim, not to whichever the server sent first.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>IsDefault</c> is output-visible and answers "where does a new item of this type
+    /// land". Collapsing two rows by keeping the first makes that answer depend on wire order —
+    /// and the sort chain cannot rescue it, because the losing row is already discarded. The
+    /// weaker claim wins, matching AB#237's rule for two witnesses that disagree.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_DuplicateMembershipsDisagreeingOnDefault_ResolveToTheWeakerClaim()
+    {
+        const string Type = "Niflheim.Grilling";
+
+        ProcessTypeDetail Detail(bool defaultFirst) => new(
+            Fields: [], States: [], Transitions: [], Unfetched: null, Rules: [],
+            Behaviours: defaultFirst
+                ? [
+                    new ProcessBehaviourMembership("Custom.X", string.Empty, null, true),
+                    new ProcessBehaviourMembership("custom.x", string.Empty, null, false),
+                ]
+                : [
+                    new ProcessBehaviourMembership("custom.x", string.Empty, null, false),
+                    new ProcessBehaviourMembership("Custom.X", string.Empty, null, true),
+                ]);
+
+        ScriptedDescriptionSource Source(bool defaultFirst) =>
+            new([Type], new Dictionary<string, ProcessTypeDetail> { [Type] = Detail(defaultFirst) })
+            {
+                BehaviourCatalogue = [new ProcessBehaviourSummary("Custom.X", "X", 10)],
+            };
+
+        var forward = await BuildAssembler(Source(true)).AssembleAsync(null, FixedCapture);
+        var reversed = await BuildAssembler(Source(false)).AssembleAsync(null, FixedCapture);
+
+        // The document must not depend on which row the server sent first.
+        Flatten(forward!).ShouldBe(
+            Flatten(reversed!),
+            "collapsing two membership rows by keeping the first makes isDefault depend on "
+            + "wire order");
+
+        var membership = forward!.Types.Single().Behaviours.Single();
+        membership.IsDefault.ShouldBeFalse(
+            "on disagreement the weaker claim wins — asserting the stronger one on the "
+            + "strength of a contradiction is not defensible");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Form layout (AB#238)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The form layout appears, ordered on the server's <c>order</c> key rather than
+    /// alphabetically or in wire order.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>This is the one collection whose ORDER IS ITS CONTENT.</b> "Description sits above
+    /// Title" is precisely the fact a reader asked for, so an alphabetical sort would be both
+    /// deterministic and wrong. The fixture presents every level with its order key DESCENDING,
+    /// so an implementation that trusted array order emits the form upside down and this test
+    /// sees it.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_FormLayout_IsOrderedByTheServersOrderKey()
+    {
+        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+        var layout = description!.Types
+            .Single(t => t.ReferenceName == TypeWithRules)
+            .Layout;
+
+        layout.ShouldNotBeNull();
+
+        // Pages by their order key: the fixture supplies Second(1) before First(0).
+        layout.Pages.Select(p => p.Id).ShouldBe(["Page.First", "Page.Second"]);
+
+        var first = layout.Pages[0];
+
+        // Sections by id — the server gives them no order key, and the id IS the arrangement.
+        first.Sections.Select(s => s.Id).ShouldBe(["Section1", "Section2"]);
+
+        // Groups by order key, per column.
+        first.Sections[0].Groups.Select(g => g.Id).ShouldBe(["Group.Early"]);
+        first.Sections[1].Groups.Select(g => g.Id).ShouldBe(["Group.Late"]);
+
+        // 🔴 Controls by ORDER KEY, and the fixture is built so alphabetical disagrees:
+        // System.Title is order 0 and Custom.Zulu is order 1, so an implementation sorting
+        // the layout by id would emit Custom.Zulu first. Alphabetical would be deterministic
+        // and WRONG — a form's arrangement is the content the reader asked for.
+        first.Sections[1].Groups[0].Controls.Select(c => c.Id)
+            .ShouldBe(
+                ["System.Title", "Custom.Zulu"],
+                "the layout is ordered on the server's arrangement key, not alphabetically — "
+                + "sorting a form by control name destroys the fact it exists to carry");
+        first.Sections[1].Groups[0].Controls.Select(c => c.Order).ShouldBe([0, 1]);
+
+        // The control type is carried verbatim — the reader compares the server's vocabulary.
+        first.Sections[0].Groups[0].Controls.Single().ControlType.ShouldBe("HtmlFieldControl");
+
+        // 🔴 Inherited-vs-authored is marked on the layout too, the same distinction rules and
+        // types carry.
+        first.Sections[0].Groups[0].Controls.Single().Inherited.ShouldBeTrue();
+        first.Inherited.ShouldBeFalse();
+
+        // 🔴 The SYSTEM controls — state, area path and the rest the server places outside the
+        // page structure — are carried and ordered on the same key. They arrive in the SAME
+        // response as the pages, so dropping them would be an omission with no marker; an
+        // earlier draft deserialized and discarded them while the header claimed the document
+        // made no reservations.
+        layout.SystemControls.Select(c => c.Id).ShouldBe(
+            ["System.State", "System.AreaPath"],
+            "system controls are reachable in the same payload, so the carry-everything ruling "
+            + "reaches them too — and they order on the server's key like any other control");
+    }
+
+    /// <summary>
+    /// A layout that could NOT be read is <c>null</c> and labelled, never an empty layout.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 An empty layout is the strongest possible positive claim — "this type's form has no
+    /// pages at all" — and nothing observed serves one. Rendering a failed fetch as one would
+    /// be worse than the silent omission it replaced.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_UnfetchedLayout_IsNullAndLabelledNotAnEmptyLayout()
+    {
+        const string Type = "Niflheim.Grilling";
+        const string TypeThatHasALayout = "Niflheim.Zulu";
+
+        var source = new ScriptedDescriptionSource(
+            [Type, TypeThatHasALayout],
+            new Dictionary<string, ProcessTypeDetail>
+            {
+                [Type] = new(
+                    Fields: [], States: [], Transitions: [],
+                    Unfetched: ["formLayout"],
+                    Rules: [], Behaviours: [], Layout: null),
+                // The discriminating counterpart: a layout that WAS read.
+                [TypeThatHasALayout] = HostileDetail("z"),
+            });
+
+        var description = await BuildAssembler(source).AssembleAsync(null, FixedCapture);
+        var type = description!.Types.Single(t => t.ReferenceName == Type);
+
+        type.Layout.ShouldBeNull();
+        type.Unfetched.ShouldContain("formLayout");
+
+        // 🔴 The positive counterpart, in the SAME test. Without it this asserts only two
+        // pass-throughs the assembler performs unconditionally, and would pass against an
+        // assembler with no layout handling whatsoever — Layout would default to null and the
+        // unfetched list is copied verbatim. The second type proves a layout that WAS read is
+        // carried and is NOT labelled, so the label discriminates rather than always firing.
+        var withLayout = description.Types.Single(t => t.ReferenceName == TypeThatHasALayout);
+        withLayout.Layout.ShouldNotBeNull();
+        withLayout.Unfetched.ShouldNotContain("formLayout");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Test 10 — inherited-vs-authored on types AND on rules (AB#238)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Inherited-vs-authored is marked on types and on rules alike.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>Spec test 10 — ruling S3's other half.</b> Carrying everything is only useful if
+    /// the reader can tell the classes apart: the ~55 inherited rules on a derived type must
+    /// not drown the one or two someone actually wrote, and the tag is what stops them doing
+    /// so. Asserted on BOTH levels because the type-level marking shipped in AB#234 and could
+    /// pass this alone while rules carried no tag at all.
+    /// </remarks>
+    [Fact]
+    public async Task Assemble_InheritedVsAuthored_IsMarkedOnTypesAndOnRules()
+    {
+        var description = await BuildAssembler(BuildSource()).AssembleAsync(null, FixedCapture);
+
+        // On TYPES: the fixture's roster mixes custom and inherited.
+        description!.Types.Select(t => t.Customization).Distinct().Order(StringComparer.Ordinal)
+            .ShouldBe(["custom", "inherited"]);
+        description.Types.Single(t => t.ReferenceName == "Microsoft.VSTS.WorkItemTypes.Task")
+            .Customization.ShouldBe("inherited");
+        description.Types.Single(t => t.ReferenceName == TypeWithRules)
+            .Customization.ShouldBe("custom");
+
+        // 🔴 On RULES: both classes present and distinguishable, on the same type.
+        var rules = description.Types.Single(t => t.ReferenceName == TypeWithRules).Rules;
+        rules.Select(r => r.Customization.Kind).ShouldBe(
+            [RuleCustomizationKind.Custom, RuleCustomizationKind.System],
+            "the reader must be able to tell an authored rule from inherited plumbing — that "
+            + "distinction is what makes carrying all of them bearable");
+
+        // The tag carries the server's own word, not a paraphrase.
+        rules.Select(r => r.Customization.Token).ShouldBe(["custom", "system"]);
     }
 }

@@ -32,7 +32,8 @@ public sealed class McpToolMetadataTests
             .ToList();
 
         // 40 before wayfinder 0021 removed twig_set, twig_parent, and twig_children.
-        parameters.Count.ShouldBe(37);
+        // 38 since twig_process_description (AB#241) added the named-type agent surface.
+        parameters.Count.ShouldBe(38);
         McpToolDescriptions.WorkspaceOverride.ShouldContain("Omit");
         McpToolDescriptions.WorkspaceOverride.ShouldContain("repo-local");
 

@@ -201,6 +201,13 @@ internal sealed class ToolDispatcher(
                 GetString(args, "type"),
                 workspace, verbose: false, ct),
 
+            // 🔴 Type selection only (AB#241). There is deliberately no argument here naming
+            // which PARTS of a type to describe — per-part selection is forbidden, so a batch
+            // caller cannot reach one either.
+            "twig_process_description" => processTools.ProcessDescription(
+                GetStringArray(args, "types"),
+                workspace, verbose: false, ct),
+
             // Seed tools
             "twig_seed_new" => seedTools.SeedNew(
                 GetRequiredString(args, "title"),
@@ -370,4 +377,24 @@ internal sealed class ToolDispatcher(
 
         throw new ArgumentException($"Argument '{key}' must be an array of strings.");
     }
+
+    /// <summary>
+    /// Reads an OPTIONAL array-of-strings argument, returning <see langword="null"/> when it is
+    /// absent.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Delegates to <see cref="GetRequiredStringArray"/> for the parsing rather than
+    /// reimplementing it, so the two cannot come to accept different inputs — the batch surface
+    /// and the direct tool call must agree on what an argument means. Absence is the ONLY thing
+    /// handled here; a present-but-malformed value still raises the same error the required
+    /// variant does, because "you sent something I could not read" and "you sent nothing" are
+    /// different facts and quietly turning the first into the second would describe the whole
+    /// process when the caller asked for two types.
+    /// </remarks>
+    internal static string[]? GetStringArray(
+        IReadOnlyDictionary<string, object?> args,
+        string key)
+        => !args.TryGetValue(key, out var value) || value is null
+            ? null
+            : GetRequiredStringArray(args, key);
 }

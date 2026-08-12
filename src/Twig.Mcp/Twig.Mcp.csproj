@@ -28,6 +28,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
     <ProjectReference Include="..\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+    <!-- 🔴 The agent surface renders the process description with the SAME JsonRenderer the CLI
+         uses (AB#241), so the two surfaces' documents are byte-identical by construction rather
+         than by two serializers agreeing. Twig.RenderTree is dependency-free and AOT-clean, so
+         it does not compromise this project's PublishAot/TrimMode=full settings. -->
+    <ProjectReference Include="..\Twig.RenderTree\Twig.RenderTree.csproj" />
   </ItemGroup>
 
 </Project>

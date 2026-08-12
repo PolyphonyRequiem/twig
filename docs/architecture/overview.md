@@ -46,11 +46,15 @@ graph TD
 
     SQLite["SQLite DB<br/>.twig/{org}/{project}/twig.db"]
     ADO["Azure DevOps REST API"]
+    RenderTree["Twig.RenderTree<br/>presentation vocabulary<br/>(pure, AOT-clean, no I/O)"]
 
     CLI --> Domain
     MCP --> Domain
     TUI --> Domain
     Domain --> Infra
+    Domain --> RenderTree
+    CLI --> RenderTree
+    MCP --> RenderTree
     Persistence --> SQLite
     AdoRest --> ADO
 ```
@@ -58,6 +62,20 @@ graph TD
 **Dependency rule:** Dependencies flow downward only. Domain has zero references to
 Infrastructure or entry-point projects. Infrastructure implements Domain interfaces.
 Entry points compose the full object graph via dependency injection.
+
+🔴 **Domain references `Twig.RenderTree`, and that is not an exception to the rule.**
+`Twig.RenderTree` is a pure presentation *vocabulary* — render-tree node types with no
+Spectre.Console, no ConsoleAppFramework, no I/O, and no package dependencies beyond
+build-time analyzers. It is neither Infrastructure nor an entry point, so the rule above
+is intact: nothing about the edge lets Domain reach a database, a network, or a console.
+
+The edge exists because a document produced by a domain service must be projected to
+bytes identically on every surface. `ProcessDescriptionDocument` (AB#241) is the case:
+its projection was private to the CLI command inside the `twig` executable, which
+`Twig.Mcp` cannot reference, so the agent surface would have had to author a second
+serializer and "byte-identical across both surfaces" would have been a convention rather
+than a structural fact. Note `Twig.RenderTree.csproj` already granted
+`InternalsVisibleTo Twig.Domain` before the reference existed.
 
 ---
 
@@ -68,7 +86,8 @@ Entry points compose the full object graph via dependency injection.
 | Project | Assembly | Description |
 |---------|----------|-------------|
 | `Twig` | `twig` | CLI entry point. ConsoleAppFramework commands, Spectre.Console rendering, output formatters, hint engine. AOT-compiled. |
-| `Twig.Domain` | (class library) | Core business logic. Aggregates (`WorkItem`, `ProcessConfiguration`), domain services, interfaces, value objects, enums. No external dependencies. |
+| `Twig.Domain` | (class library) | Core business logic. Aggregates (`WorkItem`, `ProcessConfiguration`), domain services, interfaces, value objects, enums. No external package dependencies; references `Twig.RenderTree` for the presentation vocabulary shared projections emit (see the dependency-rule note above). |
+| `Twig.RenderTree` | (class library) | Pure, AOT-clean presentation vocabulary — render-tree node types (`Text`, `KeyValue`, `Record`, `Table`, `TreeView`, `Section`) plus the JSON/minimal/ids renderers. No Spectre.Console, no I/O, no runtime package dependencies. Referenced by Domain and by every entry point. |
 | `Twig.Infrastructure` | (class library) | SQLite persistence, ADO REST clients, authentication providers, git CLI wrapper, JSON serialization (`TwigJsonContext`), configuration, telemetry. |
 | `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport with a compact 10-tool default profile and a 40-tool full profile. AOT-compiled. |
 | `Twig.Tui` | `twig-tui` | Terminal.Gui interactive viewer. Three-pane layout (menu, tree navigator, form). Published as self-contained single-file (non-AOT). |

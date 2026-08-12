@@ -37,6 +37,7 @@ internal static class McpToolCatalog
         "twig_note",
         "twig_patch",
         "twig_process",
+        "twig_process_description",
         "twig_query",
         "twig_refresh",
         "twig_seed_chain",
@@ -90,6 +91,7 @@ internal static class McpToolCatalog
         "twig_history",
         "twig_list_workspaces",
         "twig_process",
+        "twig_process_description",
         "twig_query",
         "twig_seed_validate",
         "twig_seed_view",
@@ -391,6 +393,14 @@ internal static class McpToolCatalog
             case "twig_seed_chain":
                 DenyInteger(properties, "parentId", 0);
                 SetMinimum(properties, "titles", 1, "minItems");
+                break;
+            // 🔴 An empty `types` array is REJECTED at the schema rather than silently meaning
+            // "every type" (AB#241). Omitting the argument is the documented way to ask for the
+            // whole process; an explicit empty list far more likely means a caller built a
+            // selection that came out empty, and answering it with a 500 KB whole-process
+            // document would be the most expensive possible reading of a probable mistake.
+            case "twig_process_description":
+                SetMinimum(properties, "types", 1, "minItems");
                 break;
         }
 

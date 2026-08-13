@@ -1,3 +1,5 @@
+using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.DetailHost;
@@ -102,6 +104,98 @@ internal static class Fixture
     /// <see cref="ReadRevision"/>, so the conflict branch is genuinely reachable.
     /// </summary>
     internal const int AdvancedRemoteRevision = 14;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  0006 §8, M5: "a state with a legal and an illegal target"
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The process rules a host's caller happens to have, built the way an arms-length
+    /// consumer must build them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>This is not optional decoration — without it the M5 arm cannot run at all.</b>
+    /// <c>EditCapability</c> takes its process configuration as an optional constructor
+    /// argument, and with none supplied <c>OfferedStates</c> returns EMPTY while
+    /// <c>Validate</c> ACCEPTS every state move by design ("absent metadata degrades to
+    /// I-don't-know, never to a confident refusal"). A transition check written against a
+    /// capability built without one would fail its legal arm and pass its illegal arm
+    /// <i>vacuously</i>.
+    /// </para>
+    /// <para>
+    /// Built through <see cref="ProcessConfiguration.FromRecords"/> rather than through
+    /// <c>Twig.TestKit</c>'s <c>ProcessConfigBuilder</c> on purpose: this sample's single
+    /// <c>ProjectReference</c> to <c>Twig.Domain</c> IS the boundary evidence ticket 0003
+    /// exists to produce, and reaching into a test kit would defeat it. A real consumer has
+    /// no test kit either.
+    /// </para>
+    /// <para>
+    /// <b>Two types, not one, and that is load-bearing.</b> <see cref="IllegalTarget"/> is a
+    /// state that genuinely exists in this process — on <c>Bug</c> — but not on
+    /// <c>User Story</c>. An illegal target invented as a nonsense string would also be
+    /// refused, but by a check no weaker than "is this word known anywhere", which is not
+    /// the per-type scoping the offer filter claims.
+    /// </para>
+    /// </remarks>
+    internal static ProcessConfiguration Process { get; } = ProcessConfiguration.FromRecords(
+    [
+        new ProcessTypeRecord
+        {
+            TypeName = "User Story",
+            States =
+            [
+                new StateEntry("New", StateCategory.Proposed, null),
+                new StateEntry("Active", StateCategory.InProgress, null),
+                new StateEntry("Resolved", StateCategory.Resolved, null),
+                new StateEntry("Closed", StateCategory.Completed, null),
+                new StateEntry("Removed", StateCategory.Removed, null),
+            ],
+        },
+        new ProcessTypeRecord
+        {
+            TypeName = "Bug",
+            States =
+            [
+                new StateEntry("New", StateCategory.Proposed, null),
+                new StateEntry("Escalated", StateCategory.InProgress, null),
+                new StateEntry("Closed", StateCategory.Completed, null),
+            ],
+        },
+    ]);
+
+    /// <summary>
+    /// The state the item is actually in — the one an offer list is computed FROM.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately read off <see cref="Snapshot"/> rather than restated, so a fixture edit
+    /// that moved the item cannot leave the transition arm silently evaluating a state the
+    /// rendered document is not in.
+    /// </remarks>
+    internal static string CurrentState { get; } = Snapshot.State;
+
+    /// <summary>A target the process permits from <see cref="CurrentState"/>.</summary>
+    internal const string LegalTarget = "Resolved";
+
+    /// <summary>
+    /// A target the process does NOT permit from <see cref="CurrentState"/>, because it
+    /// belongs to a different work item type.
+    /// </summary>
+    internal const string IllegalTarget = "Escalated";
+
+    /// <summary>
+    /// The EXACT set <c>OfferedStates(<see cref="CurrentState"/>)</c> must return.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>Exact, not "contains the legal one and not the illegal one."</b> An
+    /// <c>OfferedStates</c> gutted to <c>return []</c> satisfies every absence check and half
+    /// the presence checks a looser assertion would make, leaving the whole arm hollow — the
+    /// fixture-degradation class AGENTS.md records <c>ConflictResolver.Resolve</c> as the
+    /// worked example of. Every state of the type except the current one, which is what the
+    /// offer-time filter claims to compute.
+    /// </remarks>
+    internal static IReadOnlyList<string> ExpectedOfferedStates { get; } =
+        ["New", "Resolved", "Closed", "Removed"];
 
     internal static FormLayout Layout { get; } = new(
         WorkItemTypeReferenceName: "Microsoft.VSTS.WorkItemTypes.UserStory",

@@ -459,16 +459,45 @@ whoever they broke. `0.1` because the form layout structure is on the record as 
 design and the volume answer could still move the payload — claiming 1.0 with a known-unsettled
 component inside would be false. **Going up costs nothing; coming down costs credibility.**
 
-**`ProcessRule` (with its condition and action types) and `FormLayout` stay `internal`.**
-Neither goes through the public-API/SemVer mechanism now. Exposing them would assert stability
+**`ProcessRule` (with its condition and action types) stays `internal`.**
+It does not go through the public-API/SemVer mechanism now. Exposing it would assert stability
 in code while the document declares 0.1 — a promise contradicting a warning about the same
 content. **Nothing is withheld from the reader:** the document carries the full rule and layout
 content; consumers read the file rather than calling the code.
 
+> 🔴 **NARROWED by AB#253 (ruled by Daniel, 2026-08-12). This clause originally covered
+> `FormLayout` as well; it no longer does.**
+>
+> `FormLayout` and its four child records are **`public`**, and correctly so. That was not
+> drift. `wayfinder-detail-projection` ticket 0003 — `closed`, shipped as AB#155 — promoted
+> them `internal` → `public`, exactly as ticket 0001 (`closed`, a research ticket) had scoped,
+> because
+> `WorkItemDetailProjector.Project` exposes a `FormLayout` **in its public signature** and
+> `samples/Twig.DetailHost` exists to prove an external consumer can call it without
+> referencing `Twig.Infrastructure`. Demoting them does not compile: it forces
+> `WorkItemDetailProjector`, `FallbackFormLayout` and the whole `WorkItemDetailDocument`
+> family internal too, deleting that boundary.
+>
+> This decision was not repudiated — it was **overtaken**. The argument below is sound, and
+> was made before any external consumer of the layout existed. A proven consumer is the
+> stronger claim on the boundary. The full ruling, with the measurement, is at the foot of
+> `wayfinder-1.0/tickets/1004-export-work-item-form-layout.md`; the enforcement point is
+> `tests/Twig.Domain.Tests/Architecture/PublicProjectionBoundaryTests.cs`.
+
 Revisit when the 1.0 editor exists and the layout shape settles. Noted for whoever does: the
 two are **not equally unsettled** — the rule type is a three-member mirror of the wire payload
 with no pending design question, while the layout type is the four-level structure carrying the
-open design note. **If only one is promoted later, promote the rule type first.**
+open design note. ~~**If only one is promoted later, promote the rule type first.**~~
+
+> 🔴 **That ranking is STALE AS A PREDICTION (AB#253).** Reality went the other way round: the
+> layout type was promoted and the rule type was not, because the promotion was driven by a
+> consumer that materialized rather than by settledness. The *observation* still holds — the
+> rule type remains the simpler of the two — but do not read the sentence as describing what
+> happened. Recorded rather than deleted so a reader who remembers it is not left wondering.
+>
+> Practical note for a future promoter: publicising `ProcessRule` **alone** does not compile.
+> Its constructor exposes `RuleCondition`, `RuleAction` and `RuleCustomization`, so the family
+> moves together or not at all.
 
 ### 10. The agent surface: named types only (0004 — new surface, raised and ratified by Daniel)
 
@@ -659,8 +688,10 @@ depends on which way it goes.
   documents; the caller compares them.
 - **Per-part selection on any surface.** Explicitly forbidden (Decision 10). Type selection only.
 - **The abridged rendering's shape.** Deliberately unspecified at 0.1.
-- **Promoting `ProcessRule` or `FormLayout` to the public API.** Revisit when the 1.0 editor
-  exists; promote the rule type first if only one goes.
+- **Promoting `ProcessRule` to the public API.** Revisit when the 1.0 editor exists.
+  (**Amended by AB#253:** this item previously also covered `FormLayout`. It does not — those
+  five records are already public, deliberately, per `wayfinder-detail-projection` 0001/0003.
+  See the narrowing note under Decision 9.)
 - **`--org` / `--project` overrides.** Tracked as #216. Independently shippable, no dependency
   edge either way. Verified: description depth never forces the override.
 - **Reopening #339.** Closed and fixed. The surviving gap is discovery, not supply.

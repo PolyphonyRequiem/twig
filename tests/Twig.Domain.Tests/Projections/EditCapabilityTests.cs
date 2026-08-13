@@ -72,6 +72,10 @@ public class EditCapabilityTests
         var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
 
         capability.CanEdit("system.title").ShouldBeTrue();
+
+        // The negative side belongs in THIS arm: asserting only the true case passes against a
+        // CanEdit hard-wired to true, which would make the case-insensitivity claim vacuous.
+        capability.CanEdit("custom.priority").ShouldBeFalse();
     }
 
     [Fact]
@@ -107,6 +111,10 @@ public class EditCapabilityTests
     {
         var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, TaskProcess());
 
+        // Assert the EXACT offer set, not merely that the current state is absent: an
+        // OfferedStates gutted to `return []` satisfies a bare ShouldNotContain, which would
+        // make this arm — and the precondition at Validate_IllegalTransition below — hollow.
+        capability.OfferedStates("Active").ShouldBe(["New", "Closed"], ignoreOrder: true);
         capability.OfferedStates("Active").ShouldNotContain("Active");
     }
 
@@ -132,8 +140,12 @@ public class EditCapabilityTests
         var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, process);
 
         // Precondition: this transition really is absent from the offer list, so the arm is
-        // testing refusal rather than coincidence.
-        capability.OfferedStates("Closed").ShouldNotContain("Nonexistent");
+        // testing refusal rather than coincidence. Asserted against the exact populated set —
+        // a ShouldNotContain alone is also satisfied by an empty list, which would establish
+        // the opposite of the precondition it claims to prove.
+        var offered = capability.OfferedStates("Closed");
+        offered.ShouldBe(["New", "Active"], ignoreOrder: true);
+        offered.ShouldNotContain("Nonexistent");
 
         var outcome = capability.Validate(new StateMove("Closed", "Nonexistent", []));
 

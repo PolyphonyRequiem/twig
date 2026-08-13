@@ -185,9 +185,13 @@ public class PendingChangeStoreSinkTests
     {
         // Field reference names are the join key across the projection, the capability, and
         // the sink; ADO is not case-consistent about them.
-        var form = new WorkItemFormView(Store(), new DeclaringSink("System.Title"));
-
-        form.EditableFieldRefs.Contains("system.title").ShouldBeTrue();
+        //
+        // Run this through the SHIPPED sink rather than the test's own DeclaringSink: the stub
+        // builds its own OrdinalIgnoreCase set, so asserting against it only proves that
+        // StringComparer.OrdinalIgnoreCase is case-insensitive and stays green even if the
+        // shipped sink's comparer regresses to the default ordinal one.
+        new PendingChangeStoreSink(Store())
+            .PersistableFieldRefs.Contains("system.title").ShouldBeTrue();
     }
 
     // ── The shipped sink itself ─────────────────────────────────────
@@ -230,7 +234,7 @@ public class PendingChangeStoreSinkTests
         var outcome = await sink.SubmitAsync(new StateMove("Active", "Closed",
             [new FieldEdit("System.AssignedTo", "Alice", "Bob")]));
 
-        outcome.ShouldBeUnionCase<Saved>();
+        outcome.ShouldBeUnionCase<Saved>().Revision.ShouldBe(3);
         await store.Received(1).AddChangesBatchAsync(42,
             Arg.Is<IReadOnlyList<(string, string?, string?, string?)>>(rows =>
                 rows.Count == 2 &&
@@ -239,7 +243,12 @@ public class PendingChangeStoreSinkTests
                 rows[0].Item3 == "Active" &&
                 rows[0].Item4 == "Closed" &&
                 rows[1].Item1 == "field" &&
-                rows[1].Item2 == "System.AssignedTo"),
+                rows[1].Item2 == "System.AssignedTo" &&
+                // The accompanying edit's VALUES, not just its ref: a batching path that
+                // carried the field but dropped or swapped prior/proposed is exactly the
+                // silent loss this arm exists to catch.
+                rows[1].Item3 == "Alice" &&
+                rows[1].Item4 == "Bob"),
             Arg.Any<CancellationToken>());
     }
 
@@ -308,7 +317,21 @@ public class PendingChangeStoreSinkTests
         var outcome = await new PendingChangeStoreSink(store).BoundTo(42, 1)
             .SubmitAsync(new FieldEdit("system.title", "Old", "New"));
 
-        outcome.ShouldBeUnionCase<Saved>();
+        outcome.ShouldBeUnionCase<Saved>().Revision.ShouldBe(1);
+
+        // The name says "IsStaged", so assert the row actually reached the store. The open
+        // question this arm exists to pin is what the staged ref looks like: the sink passes
+        // the caller's spelling through rather than canonicalising it, so the flush path must
+        // match case-insensitively too. Asserting only the Saved outcome would let a sink that
+        // accepted the variant and staged nothing pass.
+        await store.Received(1).AddChangesBatchAsync(42,
+            Arg.Is<IReadOnlyList<(string, string?, string?, string?)>>(rows =>
+                rows.Count == 1 &&
+                rows[0].Item1 == "field" &&
+                rows[0].Item2 == "system.title" &&
+                rows[0].Item3 == "Old" &&
+                rows[0].Item4 == "New"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

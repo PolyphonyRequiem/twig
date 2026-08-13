@@ -63,6 +63,7 @@ internal static class Program
 
         var failures = CheckAcceptanceFloor(document);
         failures.AddRange(CheckTwoSinkDifference(document));
+        failures.AddRange(CheckTransitionFloor());
         Console.WriteLine();
         if (failures.Count > 0)
         {
@@ -73,8 +74,129 @@ internal static class Program
 
         Console.WriteLine(
             "PROBE OK: all three field states, a non-custom page, and a contribution control exercised, " +
-            "and the editable control set demonstrably followed the sink.");
+            "the editable control set demonstrably followed the sink, and the state-transition " +
+            $"filter offered exactly [{string.Join(", ", Fixture.ExpectedOfferedStates)}] from " +
+            $"'{Fixture.CurrentState}' while refusing '{Fixture.IllegalTarget}' at entry.");
         return 0;
+    }
+
+    /// <summary>
+    /// Wayfinder 0005 §3 / 0006 §6 M5: proves the transition contract's first two layers —
+    /// offer-time filter, then entry-time re-validation — from OUTSIDE Twig.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Why this arm exists when <c>EditCapabilityTests</c> already covers M5.</b> 0006
+    /// §10 makes this sample the final gate, and its own note says why a test project cannot
+    /// be one: a test can substitute the link under review. Before this arm, M5's behaviour
+    /// was proven only where substitution is cheap — the sample never called
+    /// <c>OfferedStates</c> or <c>Validate</c> at all, so it could have stopped demonstrating
+    /// transitions entirely and nothing would have gone red. That is the AB#341 shape (a
+    /// floor that compiles but never executes), one milestone over.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>The capability is built WITH a process configuration, and that single fact is
+    /// most of this arm.</b> <c>CheckTwoSinkDifference</c> builds its capabilities without
+    /// one, which is correct for what it tests but useless here: with no configuration
+    /// <c>OfferedStates</c> returns empty and <c>Validate</c> accepts every move by design.
+    /// An assertion pair written against such a capability would fail its legal arm and pass
+    /// its illegal arm vacuously. Arm 4 below is the negative control that pins that
+    /// difference rather than leaving it as a comment.
+    /// </para>
+    /// </remarks>
+    private static List<string> CheckTransitionFloor()
+    {
+        var failures = new List<string>();
+
+        // Sink A declares System.State, so nothing about the sink's own declaration can be
+        // what refuses the move below — the refusal has to come from the process rules.
+        var sink = new TwigTuiSinkA();
+        var capability = new EditCapability(sink, Fixture.Type, Fixture.Process);
+
+        // 0. Precondition, asserted rather than assumed: the sink CAN hold a workflow field.
+        //    If it ever stopped declaring System.State, arm 2's refusal would still pass —
+        //    for the wrong reason — and this arm would quietly stop testing transitions.
+        if (!capability.CanEdit("System.State"))
+        {
+            failures.Add(
+                "the transition arm's sink no longer declares 'System.State', so an entry-time " +
+                "refusal below would prove the sink's declaration, not the process rules");
+        }
+
+        // 1. Offer-time filter: the EXACT set, not merely "contains the legal target".
+        //    An OfferedStates gutted to `return []` passes any absence-only check, which is
+        //    the fixture-degradation class this card is named as being in the blast radius of.
+        var offered = capability.OfferedStates(Fixture.CurrentState);
+        if (!offered.OrderBy(s => s, StringComparer.Ordinal)
+                .SequenceEqual(Fixture.ExpectedOfferedStates.OrderBy(s => s, StringComparer.Ordinal)))
+        {
+            failures.Add(
+                $"offer-time filter returned [{string.Join(", ", offered)}] from " +
+                $"'{Fixture.CurrentState}', expected exactly " +
+                $"[{string.Join(", ", Fixture.ExpectedOfferedStates)}] — asserted exactly because " +
+                "an OfferedStates gutted to an empty list satisfies every 'the illegal one is " +
+                "absent' check while offering the host nothing");
+        }
+
+        // 2. Entry-time re-validation: a host that IGNORED the offer list is still refused.
+        //    Offer-time filtering alone is not the contract.
+        var refusal = capability.Validate(
+            new StateMove(Fixture.CurrentState, Fixture.IllegalTarget, []));
+        if (refusal is Rejected rejected)
+        {
+            if (!rejected.Reason.Contains("advisory", StringComparison.Ordinal))
+            {
+                // The caveat is a documentation obligation the card states explicitly: a host
+                // that mistakes a refusal for the server's verdict files a bug when ADO
+                // legitimately disagrees. Assert the word travels with the refusal, not only
+                // that a refusal happened.
+                failures.Add(
+                    $"the entry-time refusal read '{rejected.Reason}' and never said 'advisory' — " +
+                    "the offer filter and this check are both inferred from standard process " +
+                    "templates, and the server is final");
+            }
+        }
+        else
+        {
+            failures.Add(
+                $"a state move '{Fixture.CurrentState}' → '{Fixture.IllegalTarget}' was ACCEPTED at " +
+                "entry despite being absent from the offer list — entry-time re-validation is gone, " +
+                "so a host that ignores OfferedStates can push an illegal transition into the sink");
+        }
+
+        // 3. The legal target is genuinely accepted. Without this, a Validate hard-wired to
+        //    refuse every state move would satisfy arm 2 and look like a working contract.
+        if (capability.Validate(new StateMove(Fixture.CurrentState, Fixture.LegalTarget, []))
+            is not Accepted)
+        {
+            failures.Add(
+                $"the LEGAL state move '{Fixture.CurrentState}' → '{Fixture.LegalTarget}' was refused — " +
+                "a check that refuses everything is not a transition filter");
+        }
+
+        // 4. Negative control on the configuration itself: absent metadata must degrade to
+        //    "I don't know", never to a confident refusal. This is also what proves arms 1-3
+        //    are exercising the process rules rather than something the capability does
+        //    unconditionally — a capability that refused this move too would mean arm 2 never
+        //    depended on the configuration at all.
+        var unconfigured = new EditCapability(sink, Fixture.Type);
+        if (unconfigured.OfferedStates(Fixture.CurrentState).Count != 0)
+        {
+            failures.Add(
+                "a capability built with NO process configuration offered states anyway — Twig " +
+                "cannot know a transition is legal with no rules to judge by");
+        }
+
+        if (unconfigured.Validate(new StateMove(Fixture.CurrentState, Fixture.IllegalTarget, []))
+            is not Accepted)
+        {
+            failures.Add(
+                "a capability built with NO process configuration REFUSED a state move — absent " +
+                "metadata is supposed to degrade to 'I don't know', never to a confident refusal, " +
+                "and if this refuses too then arm 2 above proves nothing about the process rules");
+        }
+
+        return failures;
     }
 
     /// <summary>

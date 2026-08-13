@@ -230,6 +230,22 @@ public class ConflictResolverTests
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.IterationPath");
     }
 
+    /// <summary>
+    /// The all-match case, plus the per-property proof that makes it mean something.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The all-match arm alone is FAIL-OPEN: it sets seven properties identically and
+    /// asserts only <c>NoConflict</c>, so a resolver that compared nothing at all — or was
+    /// gutted to <c>return new NoConflict()</c> — passes it while claiming to prove that all
+    /// seven are compared. Verified by mutation: with <c>Resolve</c> forced to return
+    /// <c>NoConflict</c>, this arm survived along with four others.
+    /// <para>
+    /// The <see cref="Theory"/> below is the other half. Each property is diverged ON ITS OWN
+    /// against an otherwise-identical pair, so a resolver that skips any single property fails
+    /// the row naming it. All-match plus per-property divergence together pin the claim; either
+    /// alone does not.
+    /// </para>
+    /// </remarks>
     [Fact]
     public void Resolve_DifferentRevisions_AllFirstClassPropertiesMatch_NoConflict()
     {
@@ -250,9 +266,67 @@ public class ConflictResolverTests
         };
         remote.MarkSynced(6);
 
+        // Precondition, asserted rather than assumed: the revisions really do diverge, so this
+        // is the conflict path returning NoConflict on equal values -- not the revision-equality
+        // short-circuit, which is a different code path tested separately.
+        local.Revision.ShouldNotBe(remote.Revision);
+
         var result = ConflictResolver.Resolve(local, remote);
 
         Assert.True(result is NoConflict, $"Expected NoConflict but got {result}");
+    }
+
+    [Theory]
+    [InlineData("Title", "System.Title")]
+    [InlineData("State", "System.State")]
+    [InlineData("AssignedTo", "System.AssignedTo")]
+    [InlineData("IterationPath", "System.IterationPath")]
+    [InlineData("AreaPath", "System.AreaPath")]
+    [InlineData("ParentId", "System.Parent")]
+    public void Resolve_EachFirstClassProperty_IsActuallyCompared(string property, string expectedFieldName)
+    {
+        var iter = IterationPath.Parse("Project\\Sprint 1").Value;
+        var area = AreaPath.Parse("Project\\Team").Value;
+
+        var local = new WorkItem
+        {
+            Id = 1, Type = WorkItemType.Task, Title = "Same Title", State = "Active",
+            AssignedTo = "alice", IterationPath = iter, AreaPath = area, ParentId = 10
+        };
+        local.MarkSynced(5);
+
+        // WorkItem's first-class properties are init-only, so the divergent side is built in
+        // the initializer rather than mutated afterwards.
+        var remote = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = property == "Title" ? "Different Title" : "Same Title",
+            State = property == "State" ? "Closed" : "Active",
+            AssignedTo = property == "AssignedTo" ? "bob" : "alice",
+            IterationPath = property == "IterationPath"
+                ? IterationPath.Parse("Project\\Sprint 2").Value
+                : iter,
+            AreaPath = property == "AreaPath"
+                ? AreaPath.Parse("Project\\Other").Value
+                : area,
+            ParentId = property == "ParentId" ? 20 : 10
+        };
+        remote.MarkSynced(6);
+
+        var result = ConflictResolver.Resolve(local, remote);
+
+        if (result is not HasConflicts conflicts)
+        {
+            Assert.Fail($"Diverging {property} alone must produce HasConflicts but got {result}");
+            return;
+        }
+
+        // Exactly one field conflicts, and it is the one diverged. A count-free ShouldContain
+        // would also pass a resolver that reported every property as conflicting on every
+        // diverged revision.
+        conflicts.ConflictingFields.Count.ShouldBe(1);
+        conflicts.ConflictingFields[0].FieldName.ShouldBe(expectedFieldName);
     }
 
     [Fact]

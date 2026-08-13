@@ -31,9 +31,22 @@ namespace Twig.Commands;
 /// machine artifact while <c>--out layout.txt</c> is a readable one.
 /// </para>
 /// <para>
-/// Internal rather than public, deliberately: <see cref="FormLayout"/> is still under
-/// design (ticket 1003's editor is not built yet), and freezing it into twig's public
-/// API surface now would make the shape harder to correct once the renderer exists.
+/// Internal rather than public, deliberately: nothing outside twig constructs a command,
+/// and the command shell is an application detail rather than a contract.
+/// </para>
+/// <para>
+/// 🔴 <b>This paragraph used to justify the command's visibility by
+/// <see cref="FormLayout"/>'s.</b> It read: <i>"<see cref="FormLayout"/> is still under
+/// design ... and freezing it into twig's public API surface now would make the shape
+/// harder to correct once the renderer exists."</i> That was TRUE when written
+/// (<c>0c6b45f8</c>, 2026-08-06) and went stale three days later: AB#155
+/// (<c>25d9f59d</c>, 2026-08-09, <c>wayfinder-detail-projection</c> ticket 0003) promoted
+/// <see cref="FormLayout"/> to <c>public</c> deliberately, so an external host could receive
+/// one from <see cref="Twig.Domain.Projections.WorkItemDetailProjector.Project"/>.
+/// Corrected under AB#253, which ruled that promotion correct and narrowed the spec clause
+/// that contradicted it. The conclusion was never affected: this command stays internal on
+/// its own merits. Kept as a note rather than deleted because the stale sentence is exactly
+/// how the conflict AB#253 resolved stayed invisible for a week.
 /// </para>
 /// </remarks>
 internal sealed class ProcessLayoutCommand(

@@ -632,4 +632,124 @@ public class ProcessConfigurationTests
         // Transitions between non-removed states remain Forward.
         config.GetTransitionKind(WorkItemType.Epic, "Open", "Active").ShouldBe(TransitionKind.Forward);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#369 — state and type lookups must be case-INSENSITIVE
+    //
+    //  ADO returns state names with inconsistent casing: the process definition says
+    //  "To do", individual work items store "To Do", and both are observable on the same
+    //  board at once. TransitionRules was keyed by a (string, string) ValueTuple, whose
+    //  DEFAULT comparer is ordinal and case-sensitive, so GetTransitionKind missed and
+    //  returned null — which Evaluate maps to IsAllowed = false, reported to the user as
+    //  "Transition from 'To Do' to 'Done' is not allowed."
+    //
+    //  That message names a real ADO concept, so it reads as a board rule the user must
+    //  satisfy rather than a twig defect. It cost a real debugging detour on AB#79.
+    // ═══════════════════════════════════════════════════════════════
+
+    private static ProcessConfiguration BuildLowercaseDefinition() =>
+        ProcessConfiguration.FromRecords(new[]
+        {
+            // Exactly what the Twig board's Feature process returns: lowercase 'd'.
+            MakeRecord("Feature", new[] { "To do", "Doing", "Done" }, Array.Empty<string>()),
+        });
+
+    /// <summary>
+    /// The reported repro, at the unit level: the process defines "To do", the item stores
+    /// "To Do", and the move to Done is legal.
+    /// </summary>
+    [Fact]
+    public void GetTransitionKind_ResolvesWhenStoredStateCasingDiffersFromDefinition()
+    {
+        var config = BuildLowercaseDefinition();
+
+        config.GetTransitionKind(WorkItemType.Feature, "To Do", "Done")
+            .ShouldBe(TransitionKind.Forward,
+                "the process defines 'To do' and the item stores 'To Do' — a casing difference "
+                + "is not a process rule violation (AB#369)");
+    }
+
+    [Theory]
+    [InlineData("To Do", "Done")]
+    [InlineData("TO DO", "DONE")]
+    [InlineData("to do", "done")]
+    [InlineData("To do", "Done")]   // exact case — the arm that passed before the fix
+    public void GetTransitionKind_IgnoresCasingOnBothEnds(string from, string to)
+    {
+        BuildLowercaseDefinition()
+            .GetTransitionKind(WorkItemType.Feature, from, to)
+            .ShouldBe(TransitionKind.Forward);
+    }
+
+    /// <summary>
+    /// The guard must not become vacuous. A comparer that accepted everything would satisfy
+    /// every arm above, so an unknown state must still return null.
+    /// </summary>
+    [Theory]
+    [InlineData("To do", "Shipped")]      // unknown target
+    [InlineData("Archived", "Done")]      // unknown source
+    [InlineData("To do", "To do")]        // no self-transition rule is generated
+    public void GetTransitionKind_StillReturnsNullForAStateThatDoesNotExist(string from, string to)
+    {
+        BuildLowercaseDefinition()
+            .GetTransitionKind(WorkItemType.Feature, from, to)
+            .ShouldBeNull("case-insensitivity must not make the lookup accept anything");
+    }
+
+    /// <summary>
+    /// Cut classification must survive the comparer change — a removed-category target is
+    /// still a Cut when reached under different casing.
+    /// </summary>
+    [Fact]
+    public void GetTransitionKind_PreservesCutClassificationAcrossCasing()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord(
+                "Epic",
+                ToStateEntriesWithCategories(
+                    ("Open", StateCategory.Proposed),
+                    ("Active", StateCategory.InProgress),
+                    ("Cancelled", StateCategory.Removed)),
+                Array.Empty<string>()),
+        });
+
+        config.GetTransitionKind(WorkItemType.Epic, "OPEN", "cancelled").ShouldBe(TransitionKind.Cut);
+        config.GetTransitionKind(WorkItemType.Epic, "open", "ACTIVE").ShouldBe(TransitionKind.Forward);
+    }
+
+    /// <summary>
+    /// The same defect one level up, found by auditing rather than reported.
+    /// <c>WorkItemType.Parse</c> normalises casing for well-known types only and explicitly
+    /// preserves it for CUSTOM ones, so a custom type stored and looked up under different
+    /// casing missed <c>TypeConfigs</c> entirely — surfacing as ProcessConfigNotFound.
+    /// </summary>
+    [Fact]
+    public void GetTransitionKind_ResolvesACustomTypeUnderDifferentCasing()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("Wayfinder Task", new[] { "To do", "Done" }, Array.Empty<string>()),
+        });
+
+        var lookedUpDifferently = WorkItemType.Parse("wayfinder task").Value;
+
+        config.GetTransitionKind(lookedUpDifferently, "To do", "Done")
+            .ShouldBe(TransitionKind.Forward,
+                "custom types keep their original casing, so TypeConfigs must not be "
+                + "case-sensitive either (AB#369)");
+    }
+
+    [Fact]
+    public void TypeConfigs_LookupIsCaseInsensitiveForCustomTypes()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("Wayfinder Task", new[] { "To do", "Done" }, Array.Empty<string>()),
+        });
+
+        config.TypeConfigs.ContainsKey(WorkItemType.Parse("WAYFINDER TASK").Value).ShouldBeTrue();
+        config.TypeConfigs.ContainsKey(WorkItemType.Parse("Some Other Type").Value).ShouldBeFalse(
+            "an unknown type must still miss — the comparer must not accept anything");
+    }
 }

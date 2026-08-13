@@ -298,14 +298,49 @@ public class StateTransitionServiceTests
         result.IsAllowed.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// AB#369 — REVERSED. This arm previously asserted the opposite, that a casing mismatch
+    /// makes a transition "not allowed".
+    /// </summary>
+    /// <remarks>
+    /// It was characterization, not a requirement: it arrived in a bulk EPIC-004 commit
+    /// ("35 tests across 5 files"), its comment only restated what the code did ("stored by
+    /// exact name from config"), and no spec or doc asks for case-sensitive state matching.
+    ///
+    /// It was also actively harmful. ADO returns state names with inconsistent casing — the
+    /// process definition says "To do" while individual work items store "To Do", both
+    /// observable on one board — so the behaviour this pinned made `twig state Done` reject a
+    /// legal transition with "Transition from 'To Do' to 'Done' is not allowed." That message
+    /// names a real ADO concept, so it reads as a board rule the user must satisfy rather
+    /// than a twig defect, and it cost a real debugging detour on AB#79.
+    ///
+    /// Every other state comparison in the codebase is already OrdinalIgnoreCase
+    /// (StateTransitionWorkflow.Validate/ExecuteAsync, StateResolver.ResolveByName), so this
+    /// was the lone inconsistency rather than a deliberate design.
+    /// </remarks>
     [Fact]
-    public void Evaluate_CaseSensitiveStateLookup_ReturnsNotAllowed_ForWrongCase()
+    public void Evaluate_IsCaseInsensitive_OnStateNames()
     {
-        // State transitions are stored by exact name from config.
-        // "to do" (lowercase) doesn't match "To Do" (title case).
         var config = ProcessConfigBuilder.Basic();
 
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "to do", "doing");
+
+        result.Kind.ShouldBe(TransitionKind.Forward);
+        result.IsAllowed.ShouldBeTrue(
+            "a casing difference between the process definition and an item's stored state is "
+            + "not a process rule violation (AB#369)");
+    }
+
+    /// <summary>
+    /// The reversal above must not have made the guard permissive. A genuinely unknown state
+    /// is still rejected, so "not allowed" keeps meaning something.
+    /// </summary>
+    [Fact]
+    public void Evaluate_StillRejectsAGenuinelyUnknownState_AfterTheCasingFix()
+    {
+        var config = ProcessConfigBuilder.Basic();
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "to do", "shipped");
 
         result.Kind.ShouldBe(TransitionKind.None);
         result.IsAllowed.ShouldBeFalse();

@@ -19,7 +19,10 @@ public sealed class TypeConfig
     /// <summary>Work item types that can be children of this type.</summary>
     public IReadOnlyList<WorkItemType> AllowedChildTypes { get; }
 
-    /// <summary>Classifies each (from, to) state pair as Forward or Cut.</summary>
+    /// <summary>
+    /// Classifies each (from, to) state pair as Forward or Cut. Keyed case-INSENSITIVELY
+    /// (AB#369) — see <see cref="StatePairComparer"/>.
+    /// </summary>
     public IReadOnlyDictionary<(string From, string To), TransitionKind> TransitionRules { get; }
 
     public TypeConfig(
@@ -31,8 +34,71 @@ public sealed class TypeConfig
         States = states;
         StateEntries = stateEntries;
         AllowedChildTypes = allowedChildTypes;
-        TransitionRules = transitionRules;
+
+        // AB#369: rebuilt here rather than trusting the caller's comparer. A
+        // (string, string) ValueTuple key uses the DEFAULT comparer — ordinal and
+        // case-SENSITIVE — so a rules dictionary keyed by the process definition's casing
+        // ("To do") missed on an item's stored casing ("To Do"), GetTransitionKind returned
+        // null, and a perfectly legal transition was reported as forbidden by process rules.
+        // Every other state comparison in this codebase is OrdinalIgnoreCase
+        // (StateTransitionWorkflow.Validate/ExecuteAsync, StateResolver.ResolveByName), so
+        // the case-sensitive lookup was an inconsistency rather than a decision.
+        //
+        // Normalising at construction rather than at the lookup site is deliberate: the
+        // property is public, callers hand in their own dictionaries, and a fix applied only
+        // in GetTransitionKind would be silently bypassed by anyone reading TransitionRules
+        // directly.
+        TransitionRules = transitionRules as Dictionary<(string From, string To), TransitionKind>
+                is { } d && ReferenceEquals(d.Comparer, StatePairComparer.Instance)
+            ? transitionRules
+            : new Dictionary<(string From, string To), TransitionKind>(
+                transitionRules, StatePairComparer.Instance);
     }
+}
+
+/// <summary>
+/// Compares (from, to) state-name pairs case-insensitively (AB#369).
+/// </summary>
+/// <remarks>
+/// ADO returns state names with inconsistent casing between the process definition
+/// (<c>"To do"</c>) and the values stored on individual work items (<c>"To Do"</c>), and both
+/// spellings are observable on the same board simultaneously. Matching the semantics every
+/// other state comparison in the codebase already uses.
+/// </remarks>
+internal sealed class StatePairComparer : IEqualityComparer<(string From, string To)>
+{
+    public static readonly StatePairComparer Instance = new();
+
+    public bool Equals((string From, string To) x, (string From, string To) y)
+        => StringComparer.OrdinalIgnoreCase.Equals(x.From, y.From)
+        && StringComparer.OrdinalIgnoreCase.Equals(x.To, y.To);
+
+    public int GetHashCode((string From, string To) obj)
+        => HashCode.Combine(
+            StringComparer.OrdinalIgnoreCase.GetHashCode(obj.From),
+            StringComparer.OrdinalIgnoreCase.GetHashCode(obj.To));
+}
+
+/// <summary>
+/// Compares <see cref="WorkItemType"/> keys case-insensitively (AB#369).
+/// </summary>
+/// <remarks>
+/// The same defect as <see cref="StatePairComparer"/>, one level up and found by auditing for
+/// it rather than by a report. <c>WorkItemType.Parse</c> normalises casing for the thirteen
+/// WELL-KNOWN types only and explicitly "preserv[es] original casing" for custom ones, so a
+/// board with a custom type looked up under different casing than it was stored missed the
+/// <c>TypeConfigs</c> entry entirely — surfacing as ProcessConfigNotFound rather than as a
+/// transition error, but from the identical root cause.
+/// </remarks>
+internal sealed class WorkItemTypeComparer : IEqualityComparer<WorkItemType>
+{
+    public static readonly WorkItemTypeComparer Instance = new();
+
+    public bool Equals(WorkItemType x, WorkItemType y)
+        => StringComparer.OrdinalIgnoreCase.Equals(x.Value, y.Value);
+
+    public int GetHashCode(WorkItemType obj)
+        => StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Value);
 }
 
 /// <summary>
@@ -122,7 +188,7 @@ public sealed class ProcessConfiguration
         IReadOnlyList<ProcessTypeRecord> typeRecords,
         ProcessConfigurationData? processConfigurationData)
     {
-        var configs = new Dictionary<WorkItemType, TypeConfig>();
+        var configs = new Dictionary<WorkItemType, TypeConfig>(WorkItemTypeComparer.Instance);
         foreach (var record in typeRecords)
         {
             if (string.IsNullOrWhiteSpace(record.TypeName) || record.States.Count == 0)

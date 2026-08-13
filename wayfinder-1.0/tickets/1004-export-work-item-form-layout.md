@@ -495,8 +495,9 @@ so the acceptance floor it carries is dead weight: the fixture could stop exerci
 field states tomorrow and no check would notice.
 
 **Pre-existing, not introduced by AB#253**, and deliberately not fixed here — this card had no
-business widening into CI configuration. **Now tracked as AB#356.** Recorded so the claim above
-is not read as stronger
+business widening into CI configuration. **Now tracked as AB#359** (originally filed as AB#356,
+which was destroyed in error during AB#350 and recreated — ADO does not reuse ids). Recorded so
+the claim above is not read as stronger
 than it is: *the boundary compiles in CI; it was run by hand once, during this card*
 (`PROBE OK`, exit 0, under `DOTNET_ROLL_FORWARD=Major` because the sample targets `net10.0`
 GA and no GA runtime is installed on this box). **Worth its own work item** to add a

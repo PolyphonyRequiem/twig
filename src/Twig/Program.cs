@@ -13,6 +13,15 @@ using Twig.Infrastructure.Persistence;
 
 SQLitePCL.Batteries.Init();
 
+// AB#350: the generated argument binder deserializes a JSON-array option value
+// through JsonSerializer. Twig sets JsonSerializerIsReflectionEnabledByDefault=false
+// for AOT, so it must be handed a source-generated resolver or every array-form
+// option fails to parse. RepeatableOptionNormalizer emits exactly that form.
+ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
+{
+    TypeInfoResolver = ArgumentBinderJsonContext.Default,
+};
+
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
 try
 {
@@ -151,6 +160,13 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
     Environment.ExitCode = 1;
     return;
 }
+
+// AB#350: collapse repeated --field / --set into the single JSON-array form the
+// argument binder actually supports. ConsoleAppFramework's generated parser
+// ASSIGNS rather than appends on each occurrence, so without this only the last
+// one survives and `twig new` exits 0 having written one field of N. Runs before
+// -o validation so the rewrite cannot perturb it (neither option is -o).
+args = RepeatableOptionNormalizer.Normalize(args);
 
 // Wayfinder 0019: -o is validated ONCE, here, against the single accept-list in
 // OutputFormats. Previously both format factories ended in a catch-all that

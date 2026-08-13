@@ -235,6 +235,39 @@ processes collide over shared build output and produce a bogus
 command one after the other — which is exactly what `--pre-push` does, and why it runs the
 wide command *after* the four-suite loop rather than beside it.
 
+### How the AB#350 gap bit: three suites green while one would not COMPILE
+
+AB#241 below is a *test*-level gap. This one is cruder and arguably worse, because the
+failing suite never ran at all.
+
+A four-suite run during AB#350 reported:
+
+```
+TWIG-VERDICT Cli: FAILED (process exit code 1)
+TWIG-VERDICT Infrastructure: PASSED (1496 tests)
+TWIG-VERDICT Mcp: PASSED (1299 tests)
+TWIG-VERDICT Domain: PASSED (1986 tests)
+```
+
+The Cli line is a `error CS1061` — the suite did not compile, so **zero** of its ~3200 tests
+executed. The other three compiled and passed on their own, because the broken symbol lived
+in `src/Twig` which only the Cli suite references.
+
+🔴 **Three green verdict lines out of four is the shape a healthy run has too.** The failing
+line is one row in a block of four, scrolled past on a wide terminal, and the three PASSED
+counts are large and reassuring. `OVERALL: FAILED` is the only thing that distinguishes it —
+so read `OVERALL`, or read every line, and never sample the middle of the block.
+
+`--pre-push` folds the solution-wide build into the same verdict, which is what caught it:
+
+```
+TWIG-VERDICT SolutionWide: FAILED (solution-wide build failed (error CS) — the test step never ran)
+```
+
+That is the third table row above (**compiles: only the four suites** vs **the whole
+solution**) firing in practice, and it is the reason the row is in the table rather than
+being left as folklore.
+
 ### How the AB#241 gap bit
 
 AB#241 added a `ProjectReference` from `Twig.Cli.Tests` to `Twig.Mcp` so one test could

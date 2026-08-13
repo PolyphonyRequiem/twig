@@ -189,7 +189,12 @@ types (report them the way the description does).
   the description's human rendering is abridged by binding ruling and shows none of it, and
   Decision 10 explicitly **forbids** per-part selection that would let the description serve
   "just the layout". It is 6× cheaper for the one-type case, it is the input the 1.0 editor work
-  was built around, and it is `internal` so nothing public is frozen by keeping it.
+  was built around, and ~~it is `internal` so nothing public is frozen by keeping it~~.
+
+  > **Correction (AB#253):** the struck clause was false when written — `FormLayout` had been
+  > `public` since AB#155 (2026-08-09). Struck entirely rather than rewritten, because it was
+  > never load-bearing: Shape A won on the readable-rendering and cost arguments above, and
+  > the ranking does not change without it.
 - *Against:* two renderers over one wire payload stay in the tree, and can drift.
 
 **Shape B — `layout` becomes a view onto the description.**
@@ -363,7 +368,8 @@ git log --oneline -S "public sealed record FormLayout" -- src/Twig.Domain/ValueO
 # 25d9f59d feat(projection): prove the detail document in a real external host AB#155
 ```
 
-**Exactly one commit**, and it is not an accident. It is
+**Exactly one commit** — under the pathspec shown; unscoped, this branch's own AB#253 commit
+also matches. And it is not an accident. It is
 `wayfinder-detail-projection/tickets/0003-real-external-host-probe.md` (`status: closed`),
 whose own "What shipped" table names the change in its own words:
 
@@ -386,7 +392,8 @@ FallbackFormLayout.cs(103,24):     error CS0051  parameter type 'FormLayout' ...
 WorkItemDetailProjector.cs(44,42): error CS0051  parameter type 'FormLayout' ... 'WorkItemDetailProjector.Project'
 ```
 
-`WorkItemDetailProjector.Project` takes a `FormLayout` **by value** and is the entire public
+`WorkItemDetailProjector.Project` exposes a `FormLayout` **in its public signature** and is the
+entire public
 projection entry point — the one `samples/Twig.DetailHost/Program.cs` calls as an external
 consumer. Demoting the layout records therefore forces demoting `WorkItemDetailProjector`,
 `FallbackFormLayout`, and transitively the whole `WorkItemDetailDocument` family, which
@@ -431,17 +438,65 @@ promoter: publicising `ProcessRule` alone does **not** compile — its construct
 `RuleCondition`, `RuleAction` and `RuleCustomization`, so the whole family moves together or
 not at all (six `CS0051`s, measured).
 
-### The enforcement point
+### The enforcement point, and what it does NOT claim
 
-`tests/Twig.Domain.Tests/Architecture/PublicProjectionBoundaryTests.cs`. Prose did not hold
-here — the coupling between the two rulings was written in neither, and the compiler's
-complaint about it reads like a local mistake rather than a boundary being reversed. The test
-pins the five records as public, pins `Project`'s first parameter as `FormLayout` (so the
-justification cannot go stale silently), and pins the rule types as internal.
+`tests/Twig.Domain.Tests/Architecture/PublicProjectionBoundaryTests.cs`.
 
-Both arms were verified by mutation rather than assumed:
+🔴 **Stated precisely, because overstating a guard is how it earns undeserved trust.** A
+demotion was already caught twice before this file existed, and both are earlier and louder:
 
-- Promoting the rule family → the three `ProcessRuleStaysInternalPerDecision9` cases fail **by
-  name**, and the `PublicAPI` analyzer independently rejects it with `RS0016` on every
-  member — the compile-level proof that re-publicising is caught.
-- Demoting `FormLayout` → the three `CS0050`/`CS0051` errors above.
+| Reversal | Caught by | Measured |
+|---|---|---|
+| **Partial** — the five layout records alone | the **compiler** | 3 × `CS0050`/`CS0051` in Twig.Domain; the assembly never builds, so no test runs |
+| **Completed** — projection contract taken down too, so it compiles again | **`PublicApiAnalyzers`** (`RS0017`, `TreatWarningsAsErrors`) | **924** errors, one per manifest entry that would no longer be public |
+
+So the visibility assertions are a **named failure in front of a cryptic one**, not the only
+line of defence. What genuinely earns its place, and what no analyzer duplicates, is
+`TheProjectionEntryPoint_ExposesFormLayoutInItsPublicSignature`: nothing else notices if
+`Project` stops taking a `FormLayout`, at which point the records would be public for no
+surviving reason and every other assertion would keep passing while the rationale expired.
+
+**One real hole was found in review and closed.** The first version pinned only the five
+layout records. Reflection reports a `public static` method on an `internal` type as public,
+so demoting `WorkItemDetailProjector` itself would have kept the whole file green while
+deleting the boundary it exists to protect. The projection types are now pinned too —
+verified by mutation: demoting the projector fails `TheProjectionBoundaryIsPublic` **by
+name**, where the first version passed.
+
+Guards verified by mutation rather than assumed:
+
+- Promote the rule family → the five `RuleTypesStayInternalPerDecision9` cases fail **by
+  name**; `RS0016` fires independently on every member.
+- Demote `WorkItemDetailProjector` → `TheProjectionBoundaryIsPublic` fails **by name**.
+- Add a sixth public `Layout*` record → `TheLayoutSurfaceHasNotGrownUnnoticed` fails and
+  **names the intruder**, so the inventory cannot silently narrow.
+- Demote `FormLayout` → the three `CS0050`/`CS0051` errors above (compiler, not this file).
+
+`IsVisible` is used rather than `IsPublic` throughout: `IsPublic` reports `false` for a
+**public nested** type, which is externally reachable — so a future refactor that nested one
+of these would break the positive arm spuriously and, worse, stop the negative arm firing at
+all.
+
+### 🔴 Found while verifying this card: the sample host's self-check never runs in CI
+
+Ticket 0003 built `samples/Twig.DetailHost` with a `CheckAcceptanceFloor` that returns exit 1
+on any miss, precisely so *"the sample cannot decay into a demo that prints something
+pleasant"*. That guarantee is **not currently enforced anywhere**:
+
+```bash
+grep -c "DetailHost\|PROBE\|samples" tools/run-tests.sh .github/workflows/ci.yml
+# tools/run-tests.sh:0
+# .github/workflows/ci.yml:0
+```
+
+The project is in `Twig.slnx`, so CI **compiles** it — which is what catches a visibility
+regression, and is the property this ruling actually leans on. But nothing ever **runs** it,
+so the acceptance floor it carries is dead weight: the fixture could stop exercising all three
+field states tomorrow and no check would notice.
+
+**Pre-existing, not introduced by AB#253**, and deliberately not fixed here — this card had no
+business widening into CI configuration. Recorded so the claim above is not read as stronger
+than it is: *the boundary compiles in CI; it was run by hand once, during this card*
+(`PROBE OK`, exit 0, under `DOTNET_ROLL_FORWARD=Major` because the sample targets `net10.0`
+GA and no GA runtime is installed on this box). **Worth its own work item** to add a
+`dotnet run --project samples/Twig.DetailHost` step.

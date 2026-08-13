@@ -28,9 +28,14 @@
 #     tools/run-tests.sh Cli             # one suite by short name
 #     tools/run-tests.sh Cli Domain      # several
 #     tools/run-tests.sh --pre-push      # the four suites, THEN CI's own commands
-#     tools/run-tests.sh --selftest      # prove the wide reconciler can fail AND pass
+#     tools/run-tests.sh --selftest      # prove the guards can fail AND pass
 #
 # EXIT CODE: 0 only if every suite is a genuine, unaborted pass.
+#
+# A USAGE ERROR IS ALSO A VERDICT (AB#352). An unknown option or suite name
+# exits 2 AND prints `TWIG-VERDICT OVERALL: FAILED (... — nothing ran)` to
+# stdout, so the grep AGENTS.md mandates cannot come back empty — empty output
+# contains no FAILED and therefore reads as a pass.
 #
 # WHY --pre-push EXISTS (AB#248, closing AB#246's admission)
 #
@@ -57,11 +62,45 @@
 # ============================================================================
 set -uo pipefail
 
+# ----------------------------------------------------------------------------
+# fatal <reason> — the ONLY supported way for this script to die early. (AB#352)
+#
+# Every early `exit` used to leave stdout verdict-free, which turns the grep
+# AGENTS.md mandates in bold —
+#
+#     tools/run-tests.sh --typo | grep TWIG-VERDICT
+#
+# — into EMPTY output. Empty contains no "FAILED", so a caller asking "did
+# anything fail?" the documented way sees nothing wrong: the same
+# looks-green-while-saying-nothing class the whole script exists to abolish,
+# reintroduced by the script itself.
+#
+# So a usage error is reported in the SAME verdict vocabulary as a test failure
+# —`TWIG-VERDICT OVERALL: FAILED (<reason>)` — rather than in a second, invented
+# one. Two properties are load-bearing:
+#
+#   * it goes to STDOUT, because the documented grep only sees stdout;
+#   * the reason ends in "nothing ran", so a reader does not go hunting for a
+#     broken test that does not exist.
+#
+# The human-facing diagnostic still goes to stderr, unchanged.
+#
+# NOTE: `--help` deliberately does NOT route through here. It exits 0 having
+# done exactly what was asked, so there is no failure to report; emitting a
+# FAILED verdict for a successful help request would be a false RED, which
+# corrodes the verdict's meaning just as surely as a false green.
+# ----------------------------------------------------------------------------
+fatal() {
+  echo "run-tests: $1" >&2
+  echo "TWIG-VERDICT OVERALL: FAILED ($1 — nothing ran)"
+  exit 2
+}
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT" || exit 2
+cd "$REPO_ROOT" || fatal "cannot cd to repo root '$REPO_ROOT'"
 
 LOG_DIR="${TWIG_TEST_LOG_DIR:-$REPO_ROOT/artifacts/test-logs}"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" || fatal "cannot create log directory '$LOG_DIR'"
 
 # BinaryLauncherTests spawns a child binary that cannot resolve the SQLite native
 # lib under a user-local SDK, killing the host mid-run. Environmental, passes in CI.
@@ -94,8 +133,7 @@ for arg in "$@"; do
       exit 0
       ;;
     -*)
-      echo "run-tests: unknown option '$arg'" >&2
-      exit 2
+      fatal "unknown option '$arg'"
       ;;
     # An array, not a space-joined string: an unquoted re-split would also
     # GLOB-expand, so `run-tests.sh 'C*'` would match paths in the repo root
@@ -105,6 +143,17 @@ for arg in "$@"; do
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
 SUITES="${*:-$ALL_SUITES}"
+
+# Validate every suite name BEFORE running any of them. (AB#352)
+#
+# 🔴 This check used to live inside the run loop, which made `run-tests.sh Cli
+# Domian` run the Cli suite for ~70 s and only THEN die on the typo — throwing
+# away Cli's verdict line, and making any "nothing ran" wording a lie. Hoisting
+# it here restores the property the message claims: a usage error costs nothing
+# and runs nothing.
+for suite in $SUITES; do
+  [ -n "$(suite_project "$suite")" ] || fatal "unknown suite '$suite' (known: $ALL_SUITES)"
+done
 
 OVERALL=0
 VERDICT_LINES=""
@@ -195,11 +244,16 @@ reconcile() {
 }
 
 # ----------------------------------------------------------------------------
-# --selftest: prove the reconciler can FAIL and PASS, without paying for a build.
+# --selftest: prove the guards can FAIL and PASS, without paying for a build.
 #
-# Two negative arms and one positive arm, deliberately. Asserting only that a
-# guard rejects bad input cannot distinguish a working guard from one that
-# always fails.
+# Ten arms in two groups. Arms 1-6 drive reconcile() in-process over synthetic
+# logs; arms 7-10 (AB#352) re-invoke this script as a subprocess to cover the
+# usage-error exits, which are a control-flow property no in-process call can
+# observe.
+#
+# Both groups carry negative AND positive arms, deliberately. Asserting only
+# that a guard rejects bad input cannot distinguish a working guard from one
+# that always fails.
 # ----------------------------------------------------------------------------
 selftest() {
   local tmp rc=0
@@ -216,9 +270,9 @@ Passed!  - Failed: 0, Passed: 1487, Skipped: 0, Total: 1487, Duration: 9 s
 EOF
   reconcile "$tmp/missing.log" 1
   if [ "$verdict" = "FAILED" ]; then
-    echo "selftest 1/6 PASS: missing assembly under --no-build reconciles as FAILED ($reason)"
+    echo "selftest 1/10 PASS: missing assembly under --no-build reconciles as FAILED ($reason)"
   else
-    echo "selftest 1/6 FAIL: missing assembly reconciled as $verdict — the trap is not caught" >&2
+    echo "selftest 1/10 FAIL: missing assembly reconciled as $verdict — the trap is not caught" >&2
     rc=1
   fi
 
@@ -227,9 +281,9 @@ EOF
   # still hold the line.
   reconcile "$tmp/missing.log" 0
   if [ "$verdict" = "FAILED" ]; then
-    echo "selftest 2/6 PASS: invalid-argument marker holds even at exit 0 ($reason)"
+    echo "selftest 2/10 PASS: invalid-argument marker holds even at exit 0 ($reason)"
   else
-    echo "selftest 2/6 FAIL: invalid-argument marker not independently checked" >&2
+    echo "selftest 2/10 FAIL: invalid-argument marker not independently checked" >&2
     rc=1
   fi
 
@@ -241,9 +295,9 @@ Test Run Aborted.
 EOF
   reconcile "$tmp/aborted.log" 0
   if [ "$verdict" = "FAILED" ]; then
-    echo "selftest 3/6 PASS: aborted run reconciles as FAILED ($reason)"
+    echo "selftest 3/10 PASS: aborted run reconciles as FAILED ($reason)"
   else
-    echo "selftest 3/6 FAIL: aborted run reconciled as $verdict" >&2
+    echo "selftest 3/10 FAIL: aborted run reconciled as $verdict" >&2
     rc=1
   fi
 
@@ -256,9 +310,9 @@ Passed!  - Failed: 0, Passed: 67, Skipped: 0, Total: 67, Duration: 2 s - Twig.Tu
 EOF
   reconcile "$tmp/clean.log" 0 1
   if [ "$verdict" = "PASSED" ] && [ "$reason" = "148 tests across 2 assemblies" ]; then
-    echo "selftest 4/6 PASS: multi-assembly counts are summed, not last-wins ($reason)"
+    echo "selftest 4/10 PASS: multi-assembly counts are summed, not last-wins ($reason)"
   else
-    echo "selftest 4/6 FAIL: clean run reconciled as $verdict ($reason); expected 148 across 2" >&2
+    echo "selftest 4/10 FAIL: clean run reconciled as $verdict ($reason); expected 148 across 2" >&2
     rc=1
   fi
 
@@ -270,9 +324,9 @@ Passed!  - Failed: 0, Passed: 3198, Skipped: 0, Total: 3198, Duration: 1 m 12 s
 EOF
   reconcile "$tmp/single.log" 0
   if [ "$verdict" = "PASSED" ] && [ "$reason" = "3198 tests" ]; then
-    echo "selftest 5/6 PASS: single-assembly verdict text unchanged ($reason)"
+    echo "selftest 5/10 PASS: single-assembly verdict text unchanged ($reason)"
   else
-    echo "selftest 5/6 FAIL: single-assembly reason is '$reason', expected '3198 tests'" >&2
+    echo "selftest 5/10 FAIL: single-assembly reason is '$reason', expected '3198 tests'" >&2
     rc=1
   fi
 
@@ -282,9 +336,76 @@ EOF
   : >"$tmp/empty.log"
   reconcile "$tmp/empty.log" 0 1
   if [ "$verdict" = "FAILED" ]; then
-    echo "selftest 6/6 PASS: count-free wide run reconciles as FAILED ($reason)"
+    echo "selftest 6/10 PASS: count-free wide run reconciles as FAILED ($reason)"
   else
-    echo "selftest 6/6 FAIL: count-free wide run reconciled as $verdict" >&2
+    echo "selftest 6/10 FAIL: count-free wide run reconciled as $verdict" >&2
+    rc=1
+  fi
+
+  # ------------------------------------------------------------------------
+  # Arms 7-9 — the usage-error paths. (AB#352)
+  #
+  # These are the only arms that re-invoke THIS SCRIPT as a subprocess, and
+  # they have to: the defect was never in reconcile(), it was in control flow
+  # that exited before any verdict was printed. An in-process check of a helper
+  # cannot observe "the process died with verdict-free stdout", so testing the
+  # unit here would reproduce the original mistake one level down.
+  #
+  # 🔴 Each arm greps STDOUT ONLY (2>/dev/null), reproducing the documented
+  # recipe exactly. The old code did print a diagnostic — on stderr, where the
+  # documented grep never sees it. An arm that captured 2>&1 would pass against
+  # the unfixed script and prove nothing.
+  #
+  # The exit code is asserted too, but it is NOT the load-bearing assertion:
+  # the unfixed script already exited 2. Only the stdout verdict is new.
+  #
+  # 🔴 The `! grep '──>'` assertion is load-bearing for arm 9 and was ADDED
+  # after mutation testing. Without it, moving the suite-name validation back
+  # INSIDE the run loop — which makes `Cli Domian` run Cli for ~70 s before
+  # dying, discarding Cli's verdict and making "nothing ran" a lie — left the
+  # arm GREEN. `──>` is the per-suite banner, so its absence is direct evidence
+  # that no suite was started, rather than an inference from the wording.
+  # ------------------------------------------------------------------------
+  local self="${BASH_SOURCE[0]}" out code n=7
+  local desc argv expect_frag
+  local -a argv_words
+  while IFS='|' read -r argv expect_frag desc; do
+    [ -n "$argv" ] || continue
+    # Split deliberately: arm 9 passes TWO arguments. An explicit `read -ra`
+    # into an array says so, rather than relying on an unquoted expansion that
+    # would also glob-expand against the repo root.
+    read -ra argv_words <<<"$argv"
+    out="$(TWIG_TEST_LOG_DIR="$tmp/logs" bash "$self" "${argv_words[@]}" 2>/dev/null)"
+    code=$?
+    if [ "$code" -ne 0 ] \
+       && printf '%s' "$out" | grep -q 'TWIG-VERDICT OVERALL: FAILED' \
+       && printf '%s' "$out" | grep -qF "$expect_frag" \
+       && printf '%s' "$out" | grep -q 'nothing ran' \
+       && ! printf '%s' "$out" | grep -q '──>'; then
+      echo "selftest $n/10 PASS: $desc"
+    else
+      echo "selftest $n/10 FAIL: $desc — exit $code, stdout: ${out:-<empty>}" >&2
+      rc=1
+    fi
+    n=$((n + 1))
+  done <<'EOF'
+--typo|unknown option '--typo'|unknown option emits a FAILED verdict on stdout
+Domian|unknown suite 'Domian'|unknown suite emits a FAILED verdict on stdout
+Cli Domian|unknown suite 'Domian'|a typo beside a valid suite is caught before anything runs
+EOF
+
+  # Arm 10 — the guard must not be always-FAILED. `--help` succeeds, so it must
+  # print NO failure verdict at all. Without this arm, a `fatal` wired into the
+  # help path (or into the top of main) would satisfy arms 7-9 while making the
+  # script useless, and nothing would notice.
+  out="$(bash "$self" --help 2>/dev/null)"
+  code=$?
+  if [ "$code" -eq 0 ] \
+     && ! printf '%s' "$out" | grep -q 'TWIG-VERDICT' \
+     && printf '%s' "$out" | grep -q 'pre-push'; then
+    echo "selftest 10/10 PASS: --help succeeds without emitting a failure verdict"
+  else
+    echo "selftest 10/10 FAIL: --help exit $code / verdict-bearing output — the usage guard is always-FAILED" >&2
     rc=1
   fi
 
@@ -303,10 +424,6 @@ fi
 
 for suite in $SUITES; do
   project="$(suite_project "$suite")"
-  if [ -z "$project" ]; then
-    echo "run-tests: unknown suite '$suite' (known: $ALL_SUITES)" >&2
-    exit 2
-  fi
 
   log="$LOG_DIR/$suite.log"
   echo "──> $suite"

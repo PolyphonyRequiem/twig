@@ -104,6 +104,22 @@ tools/run-tests.sh Cli | grep TWIG-VERDICT
 2941 here, 3018 in the #311 sections, 3191 in the next section — and the suite grows.
 Treat the *shape* of each line as the guidance, never the number.)
 
+🔴 **A usage error is a verdict too, and that is what makes the grep safe (AB#352).**
+The script used to hard-exit on an unrecognised option or a mistyped suite name
+*without printing any verdict at all*, so the mandated grep came back **empty** — and
+empty output contains no `FAILED`, so a caller asking "did anything fail?" the
+documented way saw nothing wrong. The rule pointed at the one hole in the instrument
+built to close it. Every early exit now emits, on **stdout**:
+
+```bash
+tools/run-tests.sh Domian | grep TWIG-VERDICT
+# TWIG-VERDICT OVERALL: FAILED (unknown suite 'Domian' (known: Cli Infrastructure Mcp Domain) — nothing ran)
+```
+
+`nothing ran` is deliberate: it distinguishes a usage error from a broken test, so
+nobody goes hunting for a failure that does not exist. The diagnostic still goes to
+stderr as well; the verdict is on stdout because that is all the documented grep sees.
+
 If you must invoke `dotnet test` directly, capture the exit code and include
 `Aborted` in the grep — `grep -E "Passed!|Failed!"` alone matches the false-green
 summary line an aborted run prints:
@@ -196,8 +212,9 @@ If you run the wide command by hand instead, you are back to judging it by its e
 run it returned five matches, every one of them a green `Passed!` line, and nothing else.
 It does not come back empty — it comes back *green*, which is worse. Prefer the flag.
 
-The reconciler's own guards are self-tested — four negative arms and two positive, so
-neither an always-FAILED guard nor an always-PASSED one could get through:
+The script's own guards are self-tested — negative and positive arms on both the log
+reconciler and the usage-error exits, so neither an always-FAILED guard nor an
+always-PASSED one could get through:
 
 ```bash
 tools/run-tests.sh --selftest

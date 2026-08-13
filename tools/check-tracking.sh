@@ -162,7 +162,7 @@ selftest() {
     trap 'rm -rf "$tmp"' RETURN
 
     # --- negative: a dangling forward link must be rejected -----------------
-    note "selftest 1/3: dangling work item id must FAIL"
+    note "selftest 1/6: dangling work item id must FAIL"
     cat >"$tmp/9999-dangling.md" <<'EOF'
 ---
 id: 9999
@@ -183,7 +183,7 @@ EOF
     # Work item 139 exists but its description names a GitHub issue, not a
     # wayfinder ticket. This is the case prose cannot catch and the whole
     # reason the backward check exists.
-    note "selftest 2/3: existing work item that does NOT name the ticket back must FAIL"
+    note "selftest 2/6: existing work item that does NOT name the ticket back must FAIL"
     cat >"$tmp/9998-oneway.md" <<'EOF'
 ---
 id: 9998
@@ -203,7 +203,7 @@ EOF
     # --- positive: a genuine two-way link must PASS -------------------------
     # Without this arm the checker could be unconditionally-failing and the
     # two tests above would still look green.
-    note "selftest 3/3: a genuine two-way link must PASS"
+    note "selftest 3/6: a genuine two-way link must PASS"
     local probe_id
     probe_id="$(twig new --type Task \
         --title "selftest probe — safe to delete" \
@@ -239,6 +239,54 @@ EOF
         fi
     fi
 
+    # --- arms 4-6: the usage-error exits (AB#352) ---------------------------
+    # These re-invoke the script as a subprocess, because the defect they cover
+    # is control flow that exits before any verdict is printed — something no
+    # in-process call to check_ticket can observe.
+    #
+    # 🔴 Arm 5 covers a false GREEN, not merely a missing verdict: an unknown
+    # option fell through to the ticket-id filter, matched nothing, and exited
+    # 0 with "no declared links to check".
+    # 🔴 Arm 4 asserts the guard's DISTINCT message, not just "BROKEN". Mutation
+    # testing showed the two guards MASK EACH OTHER: with the option check
+    # removed, `--no-such-option` falls through to the ticket-id filter, matches
+    # nothing, and the empty-result guard reports BROKEN anyway — so a
+    # message-blind arm passed against a dead guard. Same failure mode
+    # AGENTS.md records for ConflictFixture's paired guards.
+    local self="${BASH_SOURCE[0]}" out code
+    note "selftest 4/6: an unknown option must FAIL with a verdict line"
+    out="$(bash "$self" --no-such-option 2>&1)"; code=$?
+    if [[ "$code" -ne 0 ]] && grep -q "unknown option '--no-such-option'" <<<"$out" \
+       && grep -q 'TWIG-TRACKING: BROKEN' <<<"$out" \
+       && grep -q 'nothing was checked' <<<"$out"; then
+        note "  ok: rejected with a verdict."
+    else
+        note "  FAILED: exit $code, output: ${out:-<empty>}"
+        rc=1
+    fi
+
+    note "selftest 5/6: a ticket id that matches nothing must FAIL, not report success"
+    out="$(bash "$self" 99999999 2>&1)"; code=$?
+    if [[ "$code" -ne 0 ]] && grep -q 'TWIG-TRACKING: BROKEN' <<<"$out" \
+       && grep -q 'nothing was checked' <<<"$out"; then
+        note "  ok: rejected with a verdict."
+    else
+        note "  FAILED: exit $code, output: ${out:-<empty>}"
+        rc=1
+    fi
+
+    # Arm 6 is the positive counterweight to 4 and 5. Without it, a guard that
+    # rejected EVERY invocation would satisfy both and make the script useless.
+    note "selftest 6/6: a real sweep must still succeed and check something"
+    out="$(bash "$self" 2>&1)"; code=$?
+    if [[ "$code" -eq 0 ]] && grep -q 'TWIG-TRACKING: OK' <<<"$out"; then
+        note "  ok: real sweep passes."
+    else
+        note "  FAILED: real sweep exit $code — the usage guards are always-BROKEN."
+        note "$out"
+        rc=1
+    fi
+
     note ""
     if [[ "$rc" -eq 0 ]]; then
         note "SELFTEST PASSED: the checker rejects broken links and accepts real ones."
@@ -250,7 +298,14 @@ EOF
 
 main() {
     if ! command -v twig >/dev/null 2>&1; then
+        # Emit the verdict token, not just prose (AB#352). This script's output
+        # uses TWIG-TRACKING as its verdict vocabulary, and a reader grepping
+        # for it got EMPTY output on this path — which contains no BROKEN and so
+        # reads as "nothing wrong" rather than "nothing was checked". Same class
+        # as run-tests.sh's verdict-free early exits, and the same fix: a usage
+        # or environment failure is reported in the verdict vocabulary.
         note "twig is not on PATH — cannot verify board links."
+        note "TWIG-TRACKING: BROKEN (twig not on PATH — nothing was checked)"
         exit 2
     fi
 
@@ -260,6 +315,17 @@ main() {
     fi
 
     local wanted="${1:-}"
+
+    # An unknown option used to fall through to the ticket-id filter, match no
+    # ticket, and exit 0 with "no declared links to check" (AB#352). That is a
+    # false GREEN, not merely a missing verdict: `check-tracking.sh --dry-run`
+    # reported success having checked nothing. Reject anything option-shaped.
+    if [[ "$wanted" == -* ]]; then
+        note "unknown option '$wanted'"
+        note "TWIG-TRACKING: BROKEN (unknown option '$wanted' — nothing was checked)"
+        exit 2
+    fi
+
     local dir file
     for dir in "${TICKET_DIRS[@]}"; do
         [[ -d "$dir" ]] || continue
@@ -274,6 +340,14 @@ main() {
 
     note ""
     if [[ "$check_count" -eq 0 ]]; then
+        # Asking for a SPECIFIC ticket and checking nothing is a failed request,
+        # not a clean bill of health (AB#352). `check-tracking.sh 1007` on a
+        # mistyped id used to exit 0 — indistinguishable from "1007's links are
+        # fine". Only the unfiltered sweep may legitimately find nothing.
+        if [[ -n "$wanted" ]]; then
+            note "TWIG-TRACKING: BROKEN (no ticket '$wanted' with declared links — nothing was checked)"
+            exit 2
+        fi
         note "TWIG-TRACKING: no declared links to check."
         exit 0
     fi

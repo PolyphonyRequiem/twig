@@ -161,6 +161,21 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
     return;
 }
 
+// AB#79: the check above only inspects args[0], so a known GROUP prefix let any compound
+// verb through — `twig link bogus 5` printed top-level usage and exited 0, and `twig seed
+// bogus` did not even print usage, it created a seed titled "bogus". Every rc == 0 check,
+// `set -e`, and `&&` chain read those as success; #77 lost 13 link edges that way. Sits
+// beside the unknown-command guard rather than inside IsKnownCommand because that predicate
+// is also the source of truth for help rendering, and a subcommand typo is a usage error
+// rather than an unknown command.
+var subcommandError = SubcommandGuard.Validate(args);
+if (subcommandError is not null)
+{
+    Console.Error.WriteLine(subcommandError);
+    Environment.ExitCode = SubcommandGuard.UsageExitCode;
+    return;
+}
+
 // AB#350: collapse repeated --field / --set into the single JSON-array form the
 // argument binder actually supports. ConsoleAppFramework's generated parser
 // ASSIGNS rather than appends on each occurrence, so without this only the last
@@ -1441,11 +1456,18 @@ internal static class GroupedHelp
     ];
 
     /// <summary>
-    /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized
-    /// command name. All compound sub-command prefixes (e.g. <c>nav</c>, <c>seed</c>,
-    /// <c>link</c>, <c>workspace</c>, <c>area</c>) are already top-level entries
-    /// in <see cref="KnownCommands"/>, so checking <c>args[0]</c> is sufficient.
+    /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized command name.
+    /// Checks <c>args[0]</c> only, which is sufficient for its one job — deciding whether to
+    /// print "Unknown command" — because every compound prefix is also a top-level entry.
     /// </summary>
+    /// <remarks>
+    /// 🔴 AB#79: that sufficiency is the whole trap. It answers "is this a known GROUP",
+    /// not "is this a known COMMAND", so <c>twig link bogus 5</c> passes and exits 0 having
+    /// done nothing. This predicate is deliberately NOT the place to fix that — it is also the
+    /// source of truth for help rendering, and an unknown subcommand is a usage error rather
+    /// than an unknown command. <see cref="SubcommandGuard"/> owns the compound case and runs
+    /// immediately after this check in <c>Program.cs</c>.
+    /// </remarks>
     public static bool IsKnownCommand(string[] args)
         => args.Length > 0 && KnownCommands.Contains(args[0]);
 

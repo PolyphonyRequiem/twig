@@ -270,4 +270,63 @@ public class ConflictResolverTests
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.Parent");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  Revision-equality short-circuit — PINNED AS INTENDED BEHAVIOUR
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Pins the revision-equality short-circuit as DELIBERATE, not a defect.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Resolve</c> returns <c>NoConflict</c> on <c>local.Revision == remote.Revision</c>
+    /// before comparing a single field. Read cold, that looks like a bug: the two items below
+    /// disagree on three separate fields and the resolver reports no conflict. It is not a bug —
+    /// equal revisions mean the two sides are the same version of the item, so any value
+    /// divergence is local edits against a still-current base, which is not a conflict.
+    /// </para>
+    /// <para>
+    /// This arm exists so that reading is available to whoever finds the short-circuit next.
+    /// Without it, a well-meaning change that "fixes" the early return would turn every
+    /// unsynced local edit into a phantom conflict, and no existing test would catch it —
+    /// every other arm in this file diverges the revisions and so never exercises the branch.
+    /// </para>
+    /// <para>
+    /// The mirror hazard is the fixture that lands here BY ACCIDENT. A freshly constructed
+    /// <c>WorkItem</c> has <c>Revision = 0</c> on both sides, so a conflict test that forgets
+    /// to advance the remote revision short-circuits here and passes while proving nothing.
+    /// <c>Twig.TestKit.ConflictFixture.Diverged</c> exists to make that unconstructable;
+    /// <c>ConflictFixture.SameRevision</c> names the intentional case, as used below.
+    /// </para>
+    /// <para>
+    /// 🔴 <c>ThreeWayMerge.Resolve</c> carries the identical short-circuit and has no
+    /// equivalent arm. See the extension points in <c>ConflictFixture</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Resolve_MatchingRevisions_ShortCircuits_EvenWithDivergedFields()
+    {
+        var (local, remote) = ConflictFixture.SameRevision(
+            new WorkItem { Id = 1, Type = WorkItemType.Task, Title = "Local Title", State = "Active", AssignedTo = "alice" },
+            new WorkItem { Id = 1, Type = WorkItemType.Task, Title = "Remote Title", State = "Resolved", AssignedTo = "bob" });
+
+        local.SetField("System.Description", "Local value");
+        remote.SetField("System.Description", "Remote value");
+
+        // Precondition, asserted rather than assumed: the revisions really are equal, and the
+        // values really do diverge. If either stopped holding, this arm would still pass while
+        // testing nothing — which is the exact failure mode it was written to prevent.
+        local.Revision.ShouldBe(remote.Revision);
+        local.Title.ShouldNotBe(remote.Title);
+        local.State.ShouldNotBe(remote.State);
+
+        var result = ConflictResolver.Resolve(local, remote);
+
+        Assert.True(
+            result is NoConflict,
+            $"Equal revisions must short-circuit to NoConflict regardless of field divergence, but got {result}. " +
+            "If this arm now fails, the short-circuit was removed or reordered — that is a behaviour change, " +
+            "not a test defect. Every unsynced local edit becomes a phantom conflict without it.");
+    }
+
 }

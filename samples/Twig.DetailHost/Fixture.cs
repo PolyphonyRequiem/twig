@@ -70,6 +70,39 @@ internal static class Fixture
     internal static WorkItemTypeAppearance Appearance { get; } =
         new("User Story", "#009CCC", "story");
 
+    /// <summary>
+    /// The item's type, which an editing host must supply alongside the sink.
+    /// </summary>
+    /// <remarks>
+    /// Parsed rather than hand-constructed because <c>WorkItemType</c>'s constructor is
+    /// private — a consumer gets one the same way any caller does.
+    /// </remarks>
+    internal static WorkItemType Type { get; } = WorkItemType.Parse(Snapshot.TypeName).Value;
+
+    /// <summary>
+    /// What the shared review queue can see on the remote item, for the collision arm.
+    /// </summary>
+    /// <remarks>
+    /// The remote value differs from what the fixture snapshot carries — 0006 §8's
+    /// "fixtures must not degrade into the happy path": a conflict arm whose remote value
+    /// matched the local one would report a collision nobody could observe.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string?> RemoteValues { get; } =
+        new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+            ["Contoso.Compliance.ReviewTicket"] = "SEC-4471-REOPENED",
+        };
+
+    /// <summary>The revision the host read the item at.</summary>
+    internal const int ReadRevision = 12;
+
+    /// <summary>
+    /// Where the shared queue's item actually is — deliberately ahead of
+    /// <see cref="ReadRevision"/>, so the conflict branch is genuinely reachable.
+    /// </summary>
+    internal const int AdvancedRemoteRevision = 14;
+
     internal static FormLayout Layout { get; } = new(
         WorkItemTypeReferenceName: "Microsoft.VSTS.WorkItemTypes.UserStory",
         ProcessId: "adcc42ab-9882-485e-a3ed-7678f01f66bc",

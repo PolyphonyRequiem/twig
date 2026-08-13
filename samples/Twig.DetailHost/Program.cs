@@ -62,6 +62,7 @@ internal static class Program
         Console.WriteLine(pane.Render());
 
         var failures = CheckAcceptanceFloor(document);
+        failures.AddRange(CheckTwoSinkDifference(document));
         Console.WriteLine();
         if (failures.Count > 0)
         {
@@ -70,8 +71,154 @@ internal static class Program
             return 1;
         }
 
-        Console.WriteLine("PROBE OK: all three field states, a non-custom page, and a contribution control exercised.");
+        Console.WriteLine(
+            "PROBE OK: all three field states, a non-custom page, and a contribution control exercised, " +
+            "and the editable control set demonstrably followed the sink.");
         return 0;
+    }
+
+    /// <summary>
+    /// Wayfinder 0005 §7 / 0006 §6 M4: proves the change sink is a real seam by loading the
+    /// SAME document twice with two different sinks and showing the editable control set moved.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Why this is stronger than asserting the two declarations are unequal.</b> Two
+    /// unequal <c>HashSet</c>s prove only that someone typed different strings. What the seam
+    /// claims is that the <i>host's rendered editable surface</i> is a consequence of which
+    /// sink was supplied — so the check below names specific controls and asserts their
+    /// editability FLIPPED between the two loads, in both directions, on one unchanged
+    /// document.
+    /// </para>
+    /// <para>
+    /// The document is projected once and reused deliberately: it is the same object both
+    /// times, which is what makes "the sink caused it" the only available explanation.
+    /// <c>WorkItemDetailProjector.Project</c> was never told a sink exists.
+    /// </para>
+    /// </remarks>
+    private static List<string> CheckTwoSinkDifference(WorkItemDetailDocument document)
+    {
+        var failures = new List<string>();
+
+        var sinkA = new TwigTuiSinkA();
+        var sinkB = new ReviewQueueSink(
+            Fixture.ReadRevision, Fixture.AdvancedRemoteRevision, Fixture.RemoteValues);
+
+        var capabilityA = new EditCapability(sinkA, Fixture.Type);
+        var capabilityB = new EditCapability(sinkB, Fixture.Type);
+
+        var paneA = new HostPane(width: 76, height: 22);
+        paneA.Load(document, Fixture.Appearance, capabilityA);
+
+        var paneB = new HostPane(width: 76, height: 22);
+        paneB.Load(document, Fixture.Appearance, capabilityB);
+
+        Console.WriteLine();
+        Console.WriteLine("=== the SAME document under sink A (twig's staging store) ===");
+        Console.WriteLine(paneA.Render());
+        Console.WriteLine();
+        Console.WriteLine("=== the SAME document under sink B (this host's review queue) ===");
+        Console.WriteLine(paneB.Render());
+
+        // 1. The declarations differ at all. Necessary, nowhere near sufficient.
+        if (sinkA.PersistableFieldRefs.SetEquals(sinkB.PersistableFieldRefs))
+        {
+            failures.Add(
+                "two-sink difference lost: sink B declares the SAME field set as sink A " +
+                $"({string.Join(", ", sinkB.PersistableFieldRefs.Order())}) — a second sink that " +
+                "declares what the first one does proves the interface compiles, not that the seam " +
+                "carries the decision");
+        }
+
+        // 2. Each control that flipped, named. This is the observable consequence: the pane
+        //    rendered the same document differently BECAUSE the sink changed.
+        (string ControlId, string Reason)[] mustFlip =
+        [
+            ("System.Title",
+                "sink A's staging store can push it; a review queue holds verdicts, not titles"),
+            ("System.AssignedTo",
+                "a review queue has no authority to reassign an item"),
+            ("System.Description",
+                "the reviewed content itself — the queue persists it, the staging store cannot"),
+            ("Contoso.Compliance.ReviewTicket",
+                "a process-specific compliance field only the review host knows about"),
+        ];
+
+        foreach (var (controlId, reason) in mustFlip)
+        {
+            var inA = paneA.IsEditable(controlId);
+            var inB = paneB.IsEditable(controlId);
+            if (inA == inB)
+            {
+                failures.Add(
+                    $"control '{controlId}' rendered editable={inA} under BOTH sinks — its editability " +
+                    $"was supposed to flip when the sink changed ({reason}); the editable control set " +
+                    "is no longer a consequence of the sink");
+            }
+        }
+
+        // 3. The two panes' editable sets must be disjoint, which is what a genuinely
+        //    different-in-kind field set means here, not merely "one field longer".
+        if (paneA.EditableControlIds.Overlaps(paneB.EditableControlIds))
+        {
+            failures.Add(
+                "the two sinks' rendered editable control sets overlap on " +
+                $"[{string.Join(", ", paneA.EditableControlIds.Where(paneB.IsEditable).Order())}] — " +
+                "sink B was supposed to differ in KIND from sink A, not by degree");
+        }
+
+        // 4. Neither pane may make everything typable. If it did, the pane would be reading
+        //    the server's read-only flag (or nothing at all) rather than the sink.
+        var fieldControlIds = document.Pages
+            .SelectMany(page => page.AllGroups)
+            .SelectMany(group => group.Controls)
+            .Where(control => control is { Visible: true, IsContribution: false })
+            .Select(control => control.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (label, pane) in new[] { ("A", paneA), ("B", paneB) })
+        {
+            if (fieldControlIds.SetEquals(pane.EditableControlIds))
+            {
+                failures.Add(
+                    $"sink {label} made EVERY visible field control editable — editability stopped " +
+                    "being sink-declared and is tracking the layout instead");
+            }
+        }
+
+        // 5. A read-only host still needs no sink: the same document, loaded with no
+        //    capability, makes nothing typable. The projection never learned a sink exists.
+        var readOnlyPane = new HostPane(width: 76, height: 22);
+        readOnlyPane.Load(document, Fixture.Appearance);
+        if (readOnlyPane.EditableControlIds.Count != 0)
+        {
+            failures.Add(
+                "a pane loaded with NO capability still rendered editable controls — a read-only " +
+                "host is supposed to need no store and no sink");
+        }
+
+        // 6. The sink's own contract, both directions: a declared field is accepted, an
+        //    undeclared one is REFUSED rather than silently dropped.
+        var accepted = sinkB.SubmitAsync(
+            new FieldEdit("System.Description", "before", "after")).GetAwaiter().GetResult();
+        if (accepted is not Conflicted)
+        {
+            failures.Add(
+                "sink B did not report Conflicted for a declared field written against a stale " +
+                $"revision (read {Fixture.ReadRevision}, remote {Fixture.AdvancedRemoteRevision}) — " +
+                "the collision arm has degraded into the happy path");
+        }
+
+        var refused = sinkB.SubmitAsync(
+            new FieldEdit("System.Title", "before", "after")).GetAwaiter().GetResult();
+        if (refused is not Refused)
+        {
+            failures.Add(
+                "sink B accepted a write to 'System.Title', which it never declared — a sink that " +
+                "takes an undeclared field is the silent-loss failure this contract exists to prevent");
+        }
+
+        return failures;
     }
 
     /// <summary>

@@ -1,52 +1,4 @@
 #nullable enable
-~override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.Equals(object obj) -> bool
-~override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.ToString() -> string
-const Twig.Infrastructure.Content.HtmlFieldFormatter.MarkdownFormat = "markdown" -> string!
-const Twig.Infrastructure.Content.HtmlFieldFormatter.RawFormat = "raw" -> string!
-override Twig.Infrastructure.Ado.StateTransitionResult.Equals(object? obj) -> bool
-override Twig.Infrastructure.Ado.StateTransitionResult.GetHashCode() -> int
-override Twig.Infrastructure.Ado.StateTransitionResult.ToString() -> string!
-override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.GetHashCode() -> int
-override Twig.Infrastructure.GitHub.CompanionUpdateResult.Equals(object? obj) -> bool
-override Twig.Infrastructure.GitHub.CompanionUpdateResult.GetHashCode() -> int
-override Twig.Infrastructure.GitHub.CompanionUpdateResult.ToString() -> string!
-override Twig.Infrastructure.GitHub.UpdateResult.Equals(object? obj) -> bool
-override Twig.Infrastructure.GitHub.UpdateResult.GetHashCode() -> int
-override Twig.Infrastructure.GitHub.UpdateResult.ToString() -> string!
-static Twig.Infrastructure.Ado.AdoErrorClassifier.IsTransitionError(string? message) -> bool
-static Twig.Infrastructure.Ado.AutoPushNotesHelper.PushAndClearAsync(int workItemId, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IAdoWorkItemService! adoService) -> System.Threading.Tasks.Task!
-static Twig.Infrastructure.Ado.ConflictRetryHelper.PatchWithRetryAsync(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, int itemId, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, int expectedRevision, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!
-static Twig.Infrastructure.Ado.StateTransitionExecutor.ExecuteAsync(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Aggregates.WorkItem! item, string! targetState, Twig.Domain.Aggregates.TypeConfig! typeConfig, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Ado.StateTransitionResult!>!
-static Twig.Infrastructure.Ado.StateTransitionResult.Failure(System.Collections.Generic.IReadOnlyList<string!>! path, string! finalState, int finalRevision, string! errorMessage) -> Twig.Infrastructure.Ado.StateTransitionResult!
-static Twig.Infrastructure.Ado.StateTransitionResult.operator !=(Twig.Infrastructure.Ado.StateTransitionResult? left, Twig.Infrastructure.Ado.StateTransitionResult? right) -> bool
-static Twig.Infrastructure.Ado.StateTransitionResult.operator ==(Twig.Infrastructure.Ado.StateTransitionResult? left, Twig.Infrastructure.Ado.StateTransitionResult? right) -> bool
-static Twig.Infrastructure.Ado.StateTransitionResult.Success(System.Collections.Generic.IReadOnlyList<string!>! path, string! finalState, int finalRevision) -> Twig.Infrastructure.Ado.StateTransitionResult!
-static Twig.Infrastructure.Config.GlobalProfilePaths.GetMetadataPath(string! org, string! process) -> string!
-static Twig.Infrastructure.Config.GlobalProfilePaths.GetProfileDir(string! org, string! process) -> string!
-static Twig.Infrastructure.Config.GlobalProfilePaths.GetStatusFieldsPath(string! org, string! process) -> string!
-static Twig.Infrastructure.Config.TwigConfiguration.Load(string! path) -> Twig.Infrastructure.Config.TwigConfiguration!
-static Twig.Infrastructure.Config.TwigConfiguration.LoadAsync(string! path, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Config.TwigConfiguration!>!
-static Twig.Infrastructure.Config.TwigPaths.BuildPaths(string! twigDir, Twig.Infrastructure.Config.TwigConfiguration! config, string? startDir = null) -> Twig.Infrastructure.Config.TwigPaths!
-static Twig.Infrastructure.Config.TwigPaths.ForContext(string! twigDir, string! org, string! project, string? startDir = null) -> Twig.Infrastructure.Config.TwigPaths!
-static Twig.Infrastructure.Config.TwigPaths.GetContextDbPath(string! twigDir, string! org, string! project) -> string!
-static Twig.Infrastructure.Config.TwigPaths.GetLegacyDbPath(string! twigDir) -> string!
-static Twig.Infrastructure.Config.TwigPaths.SanitizePathSegment(string? name) -> string!
-static Twig.Infrastructure.Config.WorkspaceDiscovery.FindTwigDir(string? startDir = null) -> string?
-static Twig.Infrastructure.Config.WorkspaceDiscovery.IsWorkspaceDirectory(string! twigDirPath) -> bool
-static Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.operator !=(Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult left, Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult right) -> bool
-static Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.operator ==(Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult left, Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult right) -> bool
-static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveAsync(string! fieldRefName, string! value, string? format, Twig.Domain.Interfaces.IFieldDefinitionStore! fieldDefStore, System.Action<string!>? onMissingFieldDef = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult>!
-static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveComment(string! text, string? format) -> Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult
-static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveForcedMarkdownDefault(string! value, string? format) -> Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult
-static Twig.Infrastructure.Content.HtmlFieldFormatter.ValidateFormat(string? format) -> string?
-static Twig.Infrastructure.DependencyInjection.NetworkServiceModule.AddTwigNetworkServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration! config, string? resolvedGitProject = null, string? resolvedRepository = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static Twig.Infrastructure.GitHub.CompanionUpdateResult.operator !=(Twig.Infrastructure.GitHub.CompanionUpdateResult? left, Twig.Infrastructure.GitHub.CompanionUpdateResult? right) -> bool
-static Twig.Infrastructure.GitHub.CompanionUpdateResult.operator ==(Twig.Infrastructure.GitHub.CompanionUpdateResult? left, Twig.Infrastructure.GitHub.CompanionUpdateResult? right) -> bool
-static Twig.Infrastructure.GitHub.SelfUpdater.CleanupOldBinary() -> void
-static Twig.Infrastructure.GitHub.UpdateResult.operator !=(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
-static Twig.Infrastructure.GitHub.UpdateResult.operator ==(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
-static Twig.Infrastructure.TwigServiceRegistration.AddConnectionServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration? preloadedConfig = null, string? twigDir = null, string? startDir = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static Twig.Infrastructure.TwigServiceRegistration.AddTwigInfrastructure(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration! config, string? twigDir = null, string? startDir = null, string? resolvedGitProject = null, string? resolvedRepository = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 Twig.Infrastructure.Ado.AdoErrorClassifier
 Twig.Infrastructure.Ado.AutoPushNotesHelper
 Twig.Infrastructure.Ado.ConflictRetryHelper
@@ -61,8 +13,8 @@ Twig.Infrastructure.Ado.Exceptions.AdoConflictException.ServerRevision.get -> in
 Twig.Infrastructure.Ado.Exceptions.AdoDuplicateRelationException
 Twig.Infrastructure.Ado.Exceptions.AdoDuplicateRelationException.AdoDuplicateRelationException(string? detail = null) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoException
-Twig.Infrastructure.Ado.Exceptions.AdoException.AdoException(string! message, System.Exception! inner) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoException.AdoException(string! message) -> void
+Twig.Infrastructure.Ado.Exceptions.AdoException.AdoException(string! message, System.Exception! inner) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
 Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException.AdoNotFoundException(int? id) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException.WorkItemId.get -> int?
@@ -72,8 +24,8 @@ Twig.Infrastructure.Ado.Exceptions.AdoRateLimitException
 Twig.Infrastructure.Ado.Exceptions.AdoRateLimitException.AdoRateLimitException(System.TimeSpan retryAfter) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoRateLimitException.RetryAfter.get -> System.TimeSpan
 Twig.Infrastructure.Ado.Exceptions.AdoServerException
-Twig.Infrastructure.Ado.Exceptions.AdoServerException.AdoServerException(int statusCode, string! message) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoServerException.AdoServerException(int statusCode) -> void
+Twig.Infrastructure.Ado.Exceptions.AdoServerException.AdoServerException(int statusCode, string! message) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoServerException.StatusCode.get -> int
 Twig.Infrastructure.Ado.Exceptions.AdoUnexpectedResponseException
 Twig.Infrastructure.Ado.Exceptions.AdoUnexpectedResponseException.AdoUnexpectedResponseException(int statusCode, string! contentType, string! requestUrl, string! bodySnippet) -> void
@@ -107,12 +59,17 @@ Twig.Infrastructure.Config.AreaPathEntry.Path.set -> void
 Twig.Infrastructure.Config.AreaPathEntry.SemanticsLabel.get -> string!
 Twig.Infrastructure.Config.AreasConfig
 Twig.Infrastructure.Config.AreasConfig.AreasConfig() -> void
-Twig.Infrastructure.Config.AreasConfig.Mode.get -> string!
+Twig.Infrastructure.Config.AreasConfig.EffectiveMode.get -> string!
+Twig.Infrastructure.Config.AreasConfig.Mode.get -> string?
 Twig.Infrastructure.Config.AreasConfig.Mode.set -> void
 Twig.Infrastructure.Config.AuthConfig
 Twig.Infrastructure.Config.AuthConfig.AuthConfig() -> void
 Twig.Infrastructure.Config.AuthConfig.Method.get -> string!
 Twig.Infrastructure.Config.AuthConfig.Method.set -> void
+Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Repo = 1 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Unknown = 0 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.User = 2 -> Twig.Infrastructure.Config.ConfigScope
 Twig.Infrastructure.Config.DefaultsConfig
 Twig.Infrastructure.Config.DefaultsConfig.AreaPath.get -> string?
 Twig.Infrastructure.Config.DefaultsConfig.AreaPath.set -> void
@@ -121,6 +78,10 @@ Twig.Infrastructure.Config.DefaultsConfig.AreaPathEntries.set -> void
 Twig.Infrastructure.Config.DefaultsConfig.AreaPaths.get -> System.Collections.Generic.List<string!>?
 Twig.Infrastructure.Config.DefaultsConfig.AreaPaths.set -> void
 Twig.Infrastructure.Config.DefaultsConfig.DefaultsConfig() -> void
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.get -> bool
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.set -> void
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.get -> bool
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.set -> void
 Twig.Infrastructure.Config.DefaultsConfig.IterationPath.get -> string?
 Twig.Infrastructure.Config.DefaultsConfig.IterationPath.set -> void
 Twig.Infrastructure.Config.DefaultsConfig.Mode.get -> string!
@@ -200,13 +161,19 @@ Twig.Infrastructure.Config.TwigConfiguration.GetGitProject() -> string!
 Twig.Infrastructure.Config.TwigConfiguration.GetValue(string! dotPath) -> (string? Value, bool Found)
 Twig.Infrastructure.Config.TwigConfiguration.Git.get -> Twig.Infrastructure.Config.GitConfig!
 Twig.Infrastructure.Config.TwigConfiguration.Git.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.IsLegacyMode.get -> bool
 Twig.Infrastructure.Config.TwigConfiguration.Organization.get -> string!
 Twig.Infrastructure.Config.TwigConfiguration.Organization.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.ProcessTemplate.get -> string!
 Twig.Infrastructure.Config.TwigConfiguration.ProcessTemplate.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.Project.get -> string!
 Twig.Infrastructure.Config.TwigConfiguration.Project.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.RepoCoords.get -> Twig.Infrastructure.Config.TwigRepoConfig!
+Twig.Infrastructure.Config.TwigConfiguration.RepoCoords.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.SaveAsync(string! path, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveRepoAsync(string! repoPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveUserAsync(string! userPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Config.TwigConfiguration.Seed.get -> Twig.Infrastructure.Config.SeedConfig!
 Twig.Infrastructure.Config.TwigConfiguration.Seed.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.SetValue(string! dotPath, string! value) -> bool
@@ -219,6 +186,8 @@ Twig.Infrastructure.Config.TwigConfiguration.TypeAppearances.get -> System.Colle
 Twig.Infrastructure.Config.TwigConfiguration.TypeAppearances.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.User.get -> Twig.Infrastructure.Config.UserConfig!
 Twig.Infrastructure.Config.TwigConfiguration.User.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.UserPrefs.get -> Twig.Infrastructure.Config.TwigUserConfig!
+Twig.Infrastructure.Config.TwigConfiguration.UserPrefs.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.Workspace.get -> Twig.Infrastructure.Config.WorkspaceConfig!
 Twig.Infrastructure.Config.TwigConfiguration.Workspace.set -> void
 Twig.Infrastructure.Config.TwigConfigurationException
@@ -226,11 +195,45 @@ Twig.Infrastructure.Config.TwigConfigurationException.TwigConfigurationException
 Twig.Infrastructure.Config.TwigPaths
 Twig.Infrastructure.Config.TwigPaths.ConfigPath.get -> string!
 Twig.Infrastructure.Config.TwigPaths.DbPath.get -> string!
+Twig.Infrastructure.Config.TwigPaths.RepoConfigPath.get -> string!
+Twig.Infrastructure.Config.TwigPaths.RepoRoot.get -> string!
 Twig.Infrastructure.Config.TwigPaths.StartDir.get -> string!
 Twig.Infrastructure.Config.TwigPaths.StatusFieldsPath.get -> string!
 Twig.Infrastructure.Config.TwigPaths.TrackingFilePath.get -> string!
 Twig.Infrastructure.Config.TwigPaths.TwigDir.get -> string!
 Twig.Infrastructure.Config.TwigPaths.TwigPaths(string! twigDir, string! configPath, string! dbPath, string? startDir = null) -> void
+Twig.Infrastructure.Config.TwigRepoConfig
+Twig.Infrastructure.Config.TwigRepoConfig.Areas.get -> Twig.Infrastructure.Config.AreasConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Areas.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Defaults.get -> Twig.Infrastructure.Config.DefaultsConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Defaults.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Git.get -> Twig.Infrastructure.Config.GitConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Git.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Organization.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Organization.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.ProcessTemplate.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.ProcessTemplate.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Project.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Project.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Seed.get -> Twig.Infrastructure.Config.SeedConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Seed.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Team.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Team.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.TwigRepoConfig() -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Workspace.get -> Twig.Infrastructure.Config.WorkspaceConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Workspace.set -> void
+Twig.Infrastructure.Config.TwigUserConfig
+Twig.Infrastructure.Config.TwigUserConfig.Auth.get -> Twig.Infrastructure.Config.AuthConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Auth.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.Display.get -> Twig.Infrastructure.Config.DisplayConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Display.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.Tracking.get -> Twig.Infrastructure.Config.TrackingConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Tracking.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.TwigUserConfig() -> void
+Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.get -> System.Collections.Generic.List<Twig.Infrastructure.Config.TypeAppearanceConfig!>?
+Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.User.get -> Twig.Infrastructure.Config.UserConfig!
+Twig.Infrastructure.Config.TwigUserConfig.User.set -> void
 Twig.Infrastructure.Config.TypeAppearanceConfig
 Twig.Infrastructure.Config.TypeAppearanceConfig.Color.get -> string!
 Twig.Infrastructure.Config.TypeAppearanceConfig.Color.set -> void
@@ -254,8 +257,8 @@ Twig.Infrastructure.Config.WorkspaceConfig.WorkspaceConfig() -> void
 Twig.Infrastructure.Config.WorkspaceDiscovery
 Twig.Infrastructure.Config.WorkspaceNotFoundException
 Twig.Infrastructure.Config.WorkspaceNotFoundException.WorkspaceNotFoundException() -> void
-Twig.Infrastructure.Config.WorkspaceNotFoundException.WorkspaceNotFoundException(string! message, System.Exception! innerException) -> void
 Twig.Infrastructure.Config.WorkspaceNotFoundException.WorkspaceNotFoundException(string! message) -> void
+Twig.Infrastructure.Config.WorkspaceNotFoundException.WorkspaceNotFoundException(string! message, System.Exception! innerException) -> void
 Twig.Infrastructure.Content.HtmlFieldFormatter
 Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult
 Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.Deconstruct(out string! EffectiveValue, out bool IsHtml) -> void
@@ -309,6 +312,17 @@ Twig.Infrastructure.Persistence.FileTrackingRepository.RemoveExcludedAsync(int w
 Twig.Infrastructure.Persistence.FileTrackingRepository.RemoveTrackedAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.FileTrackingRepository.RemoveTrackedBatchAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.FileTrackingRepository.UpsertTrackedAsync(int workItemId, Twig.Domain.Enums.TrackingMode mode, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository
+Twig.Infrastructure.Persistence.SqliteBenchRepository.AddSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.CreateAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.DeleteAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.Bench!>!>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetByNameAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetCurrentAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.GetOrCreateDefaultAsync(System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! initialSelectors, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.RemoveSelectorAsync(long benchId, Twig.Domain.ValueObjects.BenchSelector! selector, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.SetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.SqliteBenchRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
 Twig.Infrastructure.Persistence.SqliteCacheStore
 Twig.Infrastructure.Persistence.SqliteCacheStore.Dispose() -> void
 Twig.Infrastructure.Persistence.SqliteCacheStore.GetConnection() -> Microsoft.Data.Sqlite.SqliteConnection!
@@ -326,6 +340,10 @@ Twig.Infrastructure.Persistence.SqliteFieldDefinitionStore.GetAllAsync(System.Th
 Twig.Infrastructure.Persistence.SqliteFieldDefinitionStore.GetByReferenceNameAsync(string! referenceName, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.FieldDefinition?>!
 Twig.Infrastructure.Persistence.SqliteFieldDefinitionStore.SaveBatchAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldDefinition!>! definitions, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteFieldDefinitionStore.SqliteFieldDefinitionStore(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+Twig.Infrastructure.Persistence.SqliteIterationCalendar
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.GetCurrentIterationsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.SaveAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TeamIteration!>! iterations, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.SqliteIterationCalendar(Twig.Infrastructure.Persistence.SqliteCacheStore! store, System.Func<System.DateTimeOffset>? clock = null) -> void
 Twig.Infrastructure.Persistence.SqliteNavigationHistoryStore
 Twig.Infrastructure.Persistence.SqliteNavigationHistoryStore.ClearAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteNavigationHistoryStore.GetHistoryAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.NavigationHistoryEntry!>! Entries, int? CursorEntryId)>!
@@ -339,10 +357,11 @@ Twig.Infrastructure.Persistence.SqlitePendingChangeStore.AddChangesBatchAsync(in
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.ClearAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.ClearChangesAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.ClearChangesByTypeAsync(int workItemId, string! changeType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetChangesAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Common.PendingChangeRecord!>!>!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetChangeSummaryAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(int Notes, int FieldEdits)>!
+Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetChangesAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Common.PendingChangeRecord!>!>!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetDirtyItemIdsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<int>!>!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetTotalPendingChangeCountAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+Twig.Infrastructure.Persistence.SqlitePendingChangeStore.RemapWorkItemIdAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.SqlitePendingChangeStore(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
 Twig.Infrastructure.Persistence.SqliteProcessTypeStore
 Twig.Infrastructure.Persistence.SqliteProcessTypeStore.GetAllAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.ProcessTypeRecord!>!>!
@@ -352,10 +371,17 @@ Twig.Infrastructure.Persistence.SqliteProcessTypeStore.SaveAsync(Twig.Domain.Agg
 Twig.Infrastructure.Persistence.SqliteProcessTypeStore.SaveProcessConfigurationDataAsync(Twig.Domain.ValueObjects.ProcessConfigurationData! config, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteProcessTypeStore.SqliteProcessTypeStore(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
 Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository
-Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<(int OldId, int NewId)>!>!
-Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdAsync(int oldId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
-Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.RecordMappingAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.SqlitePublishIdMapRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetAllMappingsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PublishMapping>!>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.GetNewIdByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.RecordMappingAsync(Twig.Domain.ValueObjects.StagedIdentity identity, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePublishIdMapRepository.SqlitePublishIdMapRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store, Twig.Domain.Interfaces.IStagedIdentityRegistry! registry) -> void
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository.CompleteIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, int publishedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository.GetIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.PublishIntent?>!
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository.GetOpenIntentsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PublishIntent!>!>!
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository.RecordIntentAsync(Twig.Domain.ValueObjects.StagedIdentity identity, string! title, string! typeName, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.PublishIntent!>!
+Twig.Infrastructure.Persistence.SqlitePublishIntentRepository.SqlitePublishIntentRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.AddLinkAsync(Twig.Domain.ValueObjects.SeedLink link, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.DeleteLinksForItemAsync(int itemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
@@ -364,17 +390,12 @@ Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.GetLinksForItemAsync(in
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.RemapIdAsync(int oldId, int newId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.RemoveLinkAsync(int sourceId, int targetId, string! linkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Persistence.SqliteSeedLinkRepository.SqliteSeedLinkRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
-Twig.Infrastructure.Persistence.SqliteTrackingRepository
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.AddExcludedAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.ClearAllExcludedAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.GetAllExcludedAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ExcludedItem!>!>!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.GetAllTrackedAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.TrackedItem!>!>!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.GetTrackedByWorkItemIdAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.TrackedItem?>!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.RemoveExcludedAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.RemoveTrackedAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.RemoveTrackedBatchAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.SqliteTrackingRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
-Twig.Infrastructure.Persistence.SqliteTrackingRepository.UpsertTrackedAsync(int workItemId, Twig.Domain.Enums.TrackingMode mode, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.FindAliasAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedAlias?>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.FindByAliasAsync(Twig.Domain.ValueObjects.StagedAlias alias, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedIdentity?>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.MintAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.StagedSeedIdentity>!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.RetireAsync(Twig.Domain.ValueObjects.StagedIdentity identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqliteStagedIdentityRegistry.SqliteStagedIdentityRegistry(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
 Twig.Infrastructure.Persistence.SqliteUnitOfWork
 Twig.Infrastructure.Persistence.SqliteUnitOfWork.BeginAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.ITransaction!>!
 Twig.Infrastructure.Persistence.SqliteUnitOfWork.CommitAsync(Twig.Domain.Interfaces.ITransaction! tx, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
@@ -400,7 +421,6 @@ Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetByIterationsAsync(Sy
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetCacheStatisticsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ReadModels.CacheStatistics!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetChildrenAsync(int parentId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetDirtyItemsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
-Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetMinSeedIdAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int?>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetOrphanParentIdsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<int>!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetParentChainAsync(int id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.GetRootItemsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
@@ -427,4 +447,88 @@ Twig.Infrastructure.Services.Mutation.AdoMutationProvider
 Twig.Infrastructure.Services.Mutation.AdoMutationProvider.AdoMutationProvider(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore) -> void
 Twig.Infrastructure.Services.Mutation.AdoMutationProvider.ChangeStateAsync(int itemId, Twig.Domain.ValueObjects.FieldChange stateChange, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.MutationResult!>!
 Twig.Infrastructure.Services.Mutation.AdoMutationProvider.UpdateFieldAsync(int itemId, Twig.Domain.ValueObjects.FieldChange change, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.MutationResult!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.BenchWorkflow(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors, Twig.Domain.Services.Workspace.CurrentBenchResolver! currentBench) -> void
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.CreateAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.DeleteAsync(string! name, string? confirmedName = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.ListAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchListing!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.SwitchAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+Twig.Infrastructure.Services.Mutation.DeleteWorkflow
+Twig.Infrastructure.Services.Mutation.DeleteWorkflow.DeleteWorkflow(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! linkRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.DeleteWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! freshItem, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.DeleteOutcome!>!
+Twig.Infrastructure.Services.Mutation.DeleteWorkflow.PrepareAsync(int id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.DeletePreparation!>!
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow.DiscardWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.DiscardOutcome!>!
+Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow
+Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! local, Twig.Domain.Aggregates.WorkItem! remote, string! field, string! effectiveValue, bool isHtml, bool append, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.FieldUpdateOutcome!>!
+Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow.FieldUpdateWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.NoteWorkflow
+Twig.Infrastructure.Services.Mutation.NoteWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, string! noteText, bool isHtml, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.NoteOutcome!>!
+Twig.Infrastructure.Services.Mutation.NoteWorkflow.NoteWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.PatchWorkflow
+Twig.Infrastructure.Services.Mutation.PatchWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, Twig.Domain.Aggregates.WorkItem? remote, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PatchOutcome!>!
+Twig.Infrastructure.Services.Mutation.PatchWorkflow.PatchWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.PinWorkflow
+Twig.Infrastructure.Services.Mutation.PinWorkflow.PinAsync(int workItemId, bool includeSubtree, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
+Twig.Infrastructure.Services.Mutation.PinWorkflow.PinWorkflow(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors, Twig.Domain.Services.Workspace.CurrentBenchResolver? currentBench = null) -> void
+Twig.Infrastructure.Services.Mutation.PinWorkflow.UnpinAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
+Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow
+Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, string! stateName, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.StateTransitionOutcome!>!
+Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow.StateTransitionWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IProcessConfigurationProvider! processConfigProvider, Twig.Domain.Services.Navigation.ParentStatePropagationService? parentPropagation = null, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow.Validate(Twig.Domain.Aggregates.WorkItem! item, string! stateName) -> Twig.Domain.Services.Mutation.StateTransitionOutcome?
 Twig.Infrastructure.TwigServiceRegistration
+const Twig.Infrastructure.Config.WorkspaceDiscovery.RepoManifestFileName = "twig.json" -> string!
+const Twig.Infrastructure.Content.HtmlFieldFormatter.MarkdownFormat = "markdown" -> string!
+const Twig.Infrastructure.Content.HtmlFieldFormatter.RawFormat = "raw" -> string!
+override Twig.Infrastructure.Ado.StateTransitionResult.Equals(object? obj) -> bool
+override Twig.Infrastructure.Ado.StateTransitionResult.GetHashCode() -> int
+override Twig.Infrastructure.Ado.StateTransitionResult.ToString() -> string!
+override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.GetHashCode() -> int
+override Twig.Infrastructure.GitHub.CompanionUpdateResult.Equals(object? obj) -> bool
+override Twig.Infrastructure.GitHub.CompanionUpdateResult.GetHashCode() -> int
+override Twig.Infrastructure.GitHub.CompanionUpdateResult.ToString() -> string!
+override Twig.Infrastructure.GitHub.UpdateResult.Equals(object? obj) -> bool
+override Twig.Infrastructure.GitHub.UpdateResult.GetHashCode() -> int
+override Twig.Infrastructure.GitHub.UpdateResult.ToString() -> string!
+static Twig.Infrastructure.Ado.AdoErrorClassifier.IsTransitionError(string? message) -> bool
+static Twig.Infrastructure.Ado.AutoPushNotesHelper.PushAndClearAsync(int workItemId, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IAdoWorkItemService! adoService) -> System.Threading.Tasks.Task!
+static Twig.Infrastructure.Ado.ConflictRetryHelper.PatchWithRetryAsync(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, int itemId, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, int expectedRevision, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!
+static Twig.Infrastructure.Ado.StateTransitionExecutor.ExecuteAsync(Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Aggregates.WorkItem! item, string! targetState, Twig.Domain.Aggregates.TypeConfig! typeConfig, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Ado.StateTransitionResult!>!
+static Twig.Infrastructure.Ado.StateTransitionResult.Failure(System.Collections.Generic.IReadOnlyList<string!>! path, string! finalState, int finalRevision, string! errorMessage) -> Twig.Infrastructure.Ado.StateTransitionResult!
+static Twig.Infrastructure.Ado.StateTransitionResult.Success(System.Collections.Generic.IReadOnlyList<string!>! path, string! finalState, int finalRevision) -> Twig.Infrastructure.Ado.StateTransitionResult!
+static Twig.Infrastructure.Ado.StateTransitionResult.operator !=(Twig.Infrastructure.Ado.StateTransitionResult? left, Twig.Infrastructure.Ado.StateTransitionResult? right) -> bool
+static Twig.Infrastructure.Ado.StateTransitionResult.operator ==(Twig.Infrastructure.Ado.StateTransitionResult? left, Twig.Infrastructure.Ado.StateTransitionResult? right) -> bool
+static Twig.Infrastructure.Config.GlobalProfilePaths.GetMetadataPath(string! org, string! process) -> string!
+static Twig.Infrastructure.Config.GlobalProfilePaths.GetProfileDir(string! org, string! process) -> string!
+static Twig.Infrastructure.Config.GlobalProfilePaths.GetStatusFieldsPath(string! org, string! process) -> string!
+static Twig.Infrastructure.Config.TwigConfiguration.GetConfigScope(string! dotPath) -> Twig.Infrastructure.Config.ConfigScope
+static Twig.Infrastructure.Config.TwigConfiguration.Load(string! path) -> Twig.Infrastructure.Config.TwigConfiguration!
+static Twig.Infrastructure.Config.TwigConfiguration.LoadAsync(string! path, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Config.TwigConfiguration!>!
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplit(Twig.Infrastructure.Config.TwigPaths! paths) -> Twig.Infrastructure.Config.TwigConfiguration!
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Config.TwigConfiguration!>!
+static Twig.Infrastructure.Config.TwigPaths.BuildPaths(string! twigDir, Twig.Infrastructure.Config.TwigConfiguration! config, string? startDir = null) -> Twig.Infrastructure.Config.TwigPaths!
+static Twig.Infrastructure.Config.TwigPaths.ForContext(string! twigDir, string! org, string! project, string? startDir = null) -> Twig.Infrastructure.Config.TwigPaths!
+static Twig.Infrastructure.Config.TwigPaths.GetContextDbPath(string! twigDir, string! org, string! project) -> string!
+static Twig.Infrastructure.Config.TwigPaths.GetLegacyDbPath(string! twigDir) -> string!
+static Twig.Infrastructure.Config.TwigPaths.SanitizePathSegment(string? name) -> string!
+static Twig.Infrastructure.Config.WorkspaceDiscovery.FindTwigDir(string? startDir = null) -> string?
+static Twig.Infrastructure.Config.WorkspaceDiscovery.FindWorkspaceRoot(string? startDir = null) -> string?
+static Twig.Infrastructure.Config.WorkspaceDiscovery.IsWorkspaceDirectory(string! twigDirPath) -> bool
+static Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.operator !=(Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult left, Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult right) -> bool
+static Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.operator ==(Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult left, Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult right) -> bool
+static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveAsync(string! fieldRefName, string! value, string? format, Twig.Domain.Interfaces.IFieldDefinitionStore! fieldDefStore, System.Action<string!>? onMissingFieldDef = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult>!
+static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveComment(string! text, string? format) -> Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult
+static Twig.Infrastructure.Content.HtmlFieldFormatter.ResolveForcedMarkdownDefault(string! value, string? format) -> Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult
+static Twig.Infrastructure.Content.HtmlFieldFormatter.ValidateFormat(string? format) -> string?
+static Twig.Infrastructure.DependencyInjection.NetworkServiceModule.AddTwigNetworkServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration! config, string? resolvedGitProject = null, string? resolvedRepository = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Twig.Infrastructure.GitHub.CompanionUpdateResult.operator !=(Twig.Infrastructure.GitHub.CompanionUpdateResult? left, Twig.Infrastructure.GitHub.CompanionUpdateResult? right) -> bool
+static Twig.Infrastructure.GitHub.CompanionUpdateResult.operator ==(Twig.Infrastructure.GitHub.CompanionUpdateResult? left, Twig.Infrastructure.GitHub.CompanionUpdateResult? right) -> bool
+static Twig.Infrastructure.GitHub.SelfUpdater.CleanupOldBinary() -> void
+static Twig.Infrastructure.GitHub.UpdateResult.operator !=(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
+static Twig.Infrastructure.GitHub.UpdateResult.operator ==(Twig.Infrastructure.GitHub.UpdateResult? left, Twig.Infrastructure.GitHub.UpdateResult? right) -> bool
+static Twig.Infrastructure.TwigServiceRegistration.AddConnectionDomainServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Twig.Infrastructure.TwigServiceRegistration.AddConnectionServices(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration? preloadedConfig = null, string? twigDir = null, string? startDir = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Twig.Infrastructure.TwigServiceRegistration.AddTwigInfrastructure(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Twig.Infrastructure.Config.TwigConfiguration! config, string? twigDir = null, string? startDir = null, string? resolvedGitProject = null, string? resolvedRepository = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+~override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.Equals(object obj) -> bool
+~override Twig.Infrastructure.Content.HtmlFieldFormatter.FormatResult.ToString() -> string

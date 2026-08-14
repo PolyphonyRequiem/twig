@@ -27,7 +27,7 @@
 #     tools/run-tests.sh                 # all four suites, serially
 #     tools/run-tests.sh Cli             # one suite by short name
 #     tools/run-tests.sh Cli Domain      # several
-#     tools/run-tests.sh --pre-push      # the four suites, THEN CI's own commands
+#     tools/run-tests.sh --pre-push      # the four suites, THEN the probe, THEN CI's own commands
 #     tools/run-tests.sh --selftest      # prove the guards can fail AND pass
 #
 # EXIT CODE: 0 only if every suite is a genuine, unaborted pass.
@@ -466,6 +466,93 @@ done
 
 if [ "$PRE_PUSH" -eq 1 ]; then
   # --------------------------------------------------------------------------
+  # The external-host probe (AB#341).
+  #
+  # samples/Twig.DetailHost is the FINAL GATE of wayfinder-detail-projection
+  # ticket 0006 §10: it traces consumer → public projection → host-owned
+  # renderer from OUTSIDE Twig, and its location is load-bearing (a test project
+  # gets InternalsVisibleTo and would pass while proving nothing).
+  #
+  # 🔴 It carried a CheckAcceptanceFloor returning exit 1 on any miss, and
+  # NOTHING RAN IT. The solution builds it, so a visibility regression was
+  # caught — but the floor itself was dead weight: the fixture could stop
+  # exercising all three field states and no check would notice. A mechanism
+  # that exists, reads as protective, and is wired to nothing is the same class
+  # of defect as a green-looking aborted run, which is what this whole script
+  # exists to abolish. Hence: run it, and reconcile it like any other suite.
+  #
+  # 🔴 THE RUNTIME DECISION, MADE EXPLICITLY (AB#341 required this rather than
+  # letting it be inherited from whichever box ran first). The sample targets
+  # net10.0 GA ON PURPOSE — its csproj says so — to prove a consumer is not
+  # dragged onto the preview SDK. That is the property under test, so retargeting
+  # it to make execution easier would delete the thing being proven.
+  #
+  # We ROLL FORWARD rather than installing a GA runtime, on both paths:
+  #   * Installing net10.0 GA in CI would let the probe run on its own native
+  #     runtime — but then CI stops exercising the case that actually ships. A
+  #     real consumer on a machine with only a newer runtime is exactly who this
+  #     probe stands in for, and roll-forward IS that consumer's experience.
+  #   * It keeps CI and this script identical. A probe that needs a runtime the
+  #     dev box does not have is a probe developers stop running.
+  #   * It costs one environment variable instead of a second SDK install.
+  # The trade accepted: we do not prove the probe runs on net10.0 GA itself.
+  # global.json pins the SDK, so nothing here silently drifts onto a newer TFM.
+  #
+  # Run the built DLL rather than `dotnet run`: `dotnet run` re-evaluates the
+  # project and can rebuild, and DOTNET_ROLL_FORWARD does not apply to the
+  # launcher's own resolution the same way. The four suites above have already
+  # built the solution by this point.
+  # --------------------------------------------------------------------------
+  probe_log="$LOG_DIR/DetailHostProbe.log"
+  probe_dll="samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll"
+  echo
+  echo "──> DetailHostProbe (samples/Twig.DetailHost, the 0006 §10 external gate)"
+
+  if [ ! -f "$probe_dll" ]; then
+    # Not silently skipped. A missing probe binary is indistinguishable from a
+    # passing probe if you only look for failures, which is the trap this card
+    # is about.
+    dotnet build samples/Twig.DetailHost/Twig.DetailHost.csproj --nologo \
+      2>&1 | tr '\r' '\n' > "$probe_log"
+  fi
+
+  if [ -f "$probe_dll" ]; then
+    DOTNET_ROLL_FORWARD=Major dotnet "$probe_dll" 2>&1 | tr '\r' '\n' >> "$probe_log"
+    probe_exit=${PIPESTATUS[0]}
+  else
+    probe_exit=1
+    echo "probe binary not found at $probe_dll and the build above did not produce it" >> "$probe_log"
+  fi
+
+  # The probe is not a vstest run, so reconcile() does not apply: there is no
+  # summary line, no abort marker, no assembly count. Its contract is narrower
+  # and stronger — exit 0 AND the self-identifying success token. Both are
+  # required, because a probe that dies before printing anything also exits
+  # non-zero, while a probe whose Main is gutted to `return 0` exits clean and
+  # silent. Neither may read as a pass.
+  if [ "$probe_exit" -ne 0 ]; then
+    verdict="FAILED"
+    reason="probe exit code $probe_exit — the acceptance floor rejected the run"
+  elif ! grep -q 'PROBE OK:' "$probe_log"; then
+    verdict="FAILED"
+    reason="probe exited 0 without printing PROBE OK — a silent probe is not a pass"
+  else
+    verdict="PASSED"
+    reason="external host probe: acceptance floor, two-sink difference, transition floor"
+  fi
+
+  [ "$verdict" = "FAILED" ] && OVERALL=1
+
+  line="TWIG-VERDICT DetailHostProbe: $verdict ($reason) [log: $probe_log]"
+  VERDICT_LINES="$VERDICT_LINES$line"$'\n'
+  echo "$line"
+
+  if [ "$verdict" = "FAILED" ]; then
+    grep -E 'PROBE FAILED|^  - |error CS|You must install' "$probe_log" | head -20
+  fi
+
+  # --------------------------------------------------------------------------
+
   # CI's own three commands, in CI's own order (.github/workflows/ci.yml).
   #
   # 🔴 Chained with && on purpose. If the build fails and `dotnet test

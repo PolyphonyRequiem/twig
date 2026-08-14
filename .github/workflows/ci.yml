@@ -19,3 +19,38 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
       - run: dotnet test --no-build --settings test.runsettings
+
+      # The external-host probe (AB#341). samples/Twig.DetailHost is the final
+      # gate of wayfinder-detail-projection ticket 0006 §10 — it traces
+      # consumer → public projection → host-owned renderer from OUTSIDE Twig,
+      # and its location is load-bearing (a test project gets InternalsVisibleTo
+      # and would pass while proving nothing).
+      #
+      # It carried an acceptance floor returning exit 1 on any miss, and nothing
+      # ran it: the solution BUILDS the project, so a visibility regression was
+      # caught, but the floor itself was dead weight. A mechanism that exists,
+      # reads as protective, and is wired to nothing is the same defect class as
+      # a green-looking aborted test run.
+      #
+      # DOTNET_ROLL_FORWARD is the explicit runtime decision, not an inherited
+      # workaround. The sample targets net10.0 GA on purpose — that is the
+      # property under test (a consumer is not dragged onto the preview SDK), so
+      # retargeting it would delete what it proves. Installing a GA runtime here
+      # would let it run natively but would stop exercising the case that ships:
+      # a real consumer on a machine with only a newer runtime. Roll-forward IS
+      # that consumer's experience, and it keeps CI identical to
+      # tools/run-tests.sh --pre-push.
+      #
+      # `set -o pipefail` matters: without it the pipeline's status would be
+      # grep's, and a probe that crashed before printing would read as a pass.
+      - name: External host probe (samples/Twig.DetailHost)
+        run: |
+          set -euo pipefail
+          DOTNET_ROLL_FORWARD=Major \
+            dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll \
+            2>&1 | tee probe.log
+          # Exit 0 alone is not enough: a probe gutted to `return 0` exits clean
+          # and silent. Require the self-identifying success token too.
+          grep -q 'PROBE OK:' probe.log \
+            || { echo "::error::probe exited 0 without printing PROBE OK — a silent probe is not a pass"; exit 1; }
+

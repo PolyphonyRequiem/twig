@@ -145,6 +145,56 @@ of CI, because it runs a deliberately narrower set:
 | Assemblies | **four** — Cli, Infrastructure, Mcp, Domain | **six** — those four plus `Twig.RenderTree.Tests` and `Twig.Tui.Tests` |
 | Cli filter | `FullyQualifiedName!~BinaryLauncher` | none — `BinaryLauncherTests` runs |
 | Compiles | only the four suites and what they reference | the **whole solution**, including `tests/Twig.Benchmarks` |
+| External host probe | **only under `--pre-push`** (`TWIG-VERDICT DetailHostProbe`) | always, as its own step |
+
+### The external host probe runs now (AB#341)
+
+`samples/Twig.DetailHost` is the final gate of wayfinder-detail-projection ticket 0006 §10 —
+consumer → public projection → host-owned renderer, from **outside** Twig. Its location is
+load-bearing: `Twig.Domain` grants `InternalsVisibleTo` to every first-party test assembly, so
+a test project would pass while proving nothing about an external consumer.
+
+🔴 **It carried an acceptance floor returning exit 1 on any miss, and until AB#341 nothing
+ran it.** The solution *builds* it, so a visibility regression was still caught — but the
+floor itself was dead weight: the fixture could have stopped exercising all three field states
+and no check would have noticed. A mechanism that exists, reads as protective, and is wired to
+nothing is the same defect class as a green-looking aborted run, which is the thing this whole
+script exists to abolish. **`--pre-push` now runs it and reconciles it into the verdict**, and
+CI runs it as its own step.
+
+**Two independent guards, because exit 0 alone is not enough.** A probe that dies before
+printing anything exits non-zero; a probe gutted to `return 0` exits *clean and silent*.
+Both are checked, and each fails with its own wording:
+
+```
+TWIG-VERDICT DetailHostProbe: FAILED (probe exit code 1 — the acceptance floor rejected the run)
+TWIG-VERDICT DetailHostProbe: FAILED (probe exited 0 without printing PROBE OK — a silent probe is not a pass)
+```
+
+Both were proven by mutation: breaking the fixture produced the first, renaming the success
+token produced the second, and the restored tree goes green — so neither guard is
+always-FAILED. Note what the failing run looks like: **the other suites stay green**. It is the
+AB#350 shape again, so read `OVERALL` or read every line.
+
+🔴 **The runtime decision is explicit, not inherited: we ROLL FORWARD, we do not install a GA
+runtime.** The sample targets `net10.0` GA *on purpose* — its csproj says so — to prove a
+consumer is not dragged onto the preview SDK. That is the property under test, so **do not
+retarget it** to make execution easier; doing so deletes the thing it proves. Installing
+net10.0 GA in CI would let it run on its native runtime, but CI would then stop exercising the
+case that actually ships: a real consumer on a machine with only a newer runtime. Roll-forward
+*is* that consumer's experience, it keeps CI and the script identical, and it costs one
+environment variable instead of a second SDK install. The accepted trade: we do not prove the
+probe runs on net10.0 GA itself. `global.json` pins the SDK, so nothing drifts silently.
+
+To run it by hand:
+
+```bash
+DOTNET_ROLL_FORWARD=Major dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll
+```
+
+A bare `dotnet run` fails with *"You must install or update .NET to run this application"* on a
+box with only the preview SDK. That is environmental, not a defect.
+
 
 `test.runsettings` is **not** a difference: `Directory.Build.props` sets
 `RunSettingsFilePath`, so both paths pick it up. CI's `--settings` is CI being explicit.

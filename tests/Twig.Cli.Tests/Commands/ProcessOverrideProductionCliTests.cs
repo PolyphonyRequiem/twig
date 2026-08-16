@@ -171,6 +171,69 @@ public sealed class ProcessOverrideProductionCliTests : IDisposable
         (stdout + stderr).ShouldNotContain("is not recognized", Case.Insensitive);
     }
 
+    /// <summary>
+    /// An override invocation announces the live read on stderr.
+    /// </summary>
+    /// <remarks>
+    /// Asserts the coordinates appear, not merely that something was printed: a notice that
+    /// does not say WHICH project it is reading cannot do the job it exists for, and a bare
+    /// "did stderr get written" check passes against one.
+    /// </remarks>
+    [Fact]
+    public async Task Override_AnnouncesTheLiveRead_OnStderr()
+    {
+        await using var ado = ProcessAdoStub.Start();
+
+        var (_, _, stderr) = await RunTwigAsync(
+            "process", "--org", ado.BaseUrl, "--project", "StubProject");
+
+        stderr.ShouldContain("live", Case.Insensitive);
+        stderr.ShouldContain(ado.BaseUrl);
+        stderr.ShouldContain("StubProject");
+    }
+
+    /// <summary>
+    /// The notice goes to stderr and never to stdout.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 This is the assertion that keeps the notice from being a breaking change. stdout is
+    /// the document; a caller piping <c>-o json</c> into <c>jq</c> must receive exactly the
+    /// bytes the command would have produced without the override. Asserting only "stderr
+    /// contains the notice" would stay green against an implementation that wrote it to BOTH
+    /// streams.
+    /// </remarks>
+    [Fact]
+    public async Task TheLiveReadNotice_NeverReachesStdout()
+    {
+        await using var ado = ProcessAdoStub.Start();
+
+        var (_, stdout, stderr) = await RunTwigAsync(
+            "process", "--org", ado.BaseUrl, "--project", "StubProject", "-o", "json");
+
+        stderr.ShouldContain("live", Case.Insensitive);
+        stdout.ShouldNotContain("live from Azure DevOps");
+        stdout.ShouldNotContain("nothing is written");
+    }
+
+    /// <summary>
+    /// A NON-override invocation stays silent — the notice describes the override, not the
+    /// command.
+    /// </summary>
+    /// <remarks>
+    /// The negative control. Without it, an implementation that printed the notice
+    /// unconditionally would satisfy every positive arm above while adding noise to the
+    /// ordinary workspace path that thousands of existing invocations depend on.
+    /// </remarks>
+    [Fact]
+    public async Task WorkspaceInvocation_PrintsNoLiveReadNotice()
+    {
+        await WriteManifestAsync("ManifestOrg", "ManifestProject");
+
+        var (_, stdout, stderr) = await RunTwigAsync("process");
+
+        (stdout + stderr).ShouldNotContain("live from Azure DevOps");
+    }
+
     private IReadOnlyList<string> SnapshotTree() =>
         Directory.EnumerateFileSystemEntries(_scratchRoot, "*", SearchOption.AllDirectories)
             .Order(StringComparer.Ordinal)

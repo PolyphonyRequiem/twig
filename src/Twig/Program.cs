@@ -573,7 +573,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO; writes nothing.</param>
+    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
     /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(

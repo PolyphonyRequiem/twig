@@ -64,12 +64,14 @@ internal static class CommandExamples
             "twig process               List all work item types with state counts",
             "twig process Task          Show states, fields, and transitions for Task type",
             "twig process Bug -o json   Show Bug type details as JSON",
+            "twig process --org otherorg --project otherproj   Describe another project's process (live read, no workspace needed)",
         ],
         ["process layout"] =
         [
             "twig process layout Bug                      Show the Bug form's tabs, boxes, and fields",
             "twig process layout Bug --out layout.txt     Write the readable layout to a file",
             "twig process layout Bug -o json --out l.json  Write the machine-readable layout to a file",
+            "twig process layout Bug --org otherorg --project otherproj   Read another project's Bug form layout",
         ],
         ["process description"] =
         [

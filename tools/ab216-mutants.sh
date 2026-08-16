@@ -37,6 +37,19 @@ mkdir -p "$(dirname "$LOCKFILE")"
 exec 9>"$LOCKFILE"
 if ! flock -n 9; then
   echo "🔴 another ab216-mutants run holds the lock ($LOCKFILE) — refusing to start."
+  echo "   Two runs would mutate and restore the same files concurrently."
+  echo
+  echo "   🔴 BUT CHECK WHETHER A RUN IS ACTUALLY ALIVE BEFORE WAITING. Verified on this"
+  echo "   card: a COMPLETED run left the lock held, because child processes inherit the"
+  echo "   open fd and outlive the harness — MSBuild's reusable node daemons, and the"
+  echo "   'sleep 3600' that BuildFixtureRunProcessTests deliberately spawns as its"
+  echo "   orphan-reaping probe. flock is held until the LAST holder closes it, so a"
+  echo "   finished run can block the next one indefinitely."
+  echo
+  echo "   Diagnose, then clear:"
+  echo "     ps -eo pid,etime,args --no-headers | grep -E '[a]b216-mutants|[d]otnet test'"
+  echo "     fuser -v $LOCKFILE       # holders: sleep/MSBuild = orphans, not a live run"
+  echo "     fuser -k $LOCKFILE       # safe ONLY when the ps check above found nothing"
   exit 3
 fi
 
@@ -160,8 +173,8 @@ snapshot
 python3 - <<'PY'
 p = "src/Twig/Program.cs"
 s = open(p).read()
-docs = """    /// <param name="org">AB#216. Describe this ADO organization's process instead of the workspace's. Requires --project. Reads live from ADO and writes nothing.</param>
-    /// <param name="project">AB#216. Describe this ADO project's process instead of the workspace's. Requires --org.</param>
+docs = """    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO; writes nothing.</param>
+    /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
 """
 assert s.count(docs) == 1
 s = s.replace(docs, "")
@@ -285,8 +298,8 @@ restore
 python3 - <<'PY'
 p = "src/Twig/Program.cs"
 s = open(p).read()
-docs = """    /// <param name="org">AB#216. Read the layout from this ADO organization instead of the workspace's. Requires --project.</param>
-    /// <param name="project">AB#216. Read the layout from this ADO project instead of the workspace's. Requires --org.</param>
+docs = """    /// <param name="org">Azure DevOps organization to read the layout from instead of this workspace's. Requires --project.</param>
+    /// <param name="project">Azure DevOps project to read the layout from instead of this workspace's. Requires --org.</param>
 """
 assert s.count(docs) == 1
 s = s.replace(docs, "")

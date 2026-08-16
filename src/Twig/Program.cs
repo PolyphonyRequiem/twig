@@ -573,8 +573,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="org">AB#216. Describe this ADO organization's process instead of the workspace's. Requires --project. Reads live from ADO and writes nothing.</param>
-    /// <param name="project">AB#216. Describe this ADO project's process instead of the workspace's. Requires --org.</param>
+    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO; writes nothing.</param>
+    /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
     public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(
             services, org, project,
@@ -585,8 +585,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="type">Work item type name (e.g. Bug, Task, User Story).</param>
     /// <param name="out">Write the rendered layout to this file instead of stdout.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="org">AB#216. Read the layout from this ADO organization instead of the workspace's. Requires --project.</param>
-    /// <param name="project">AB#216. Read the layout from this ADO project instead of the workspace's. Requires --org.</param>
+    /// <param name="org">Azure DevOps organization to read the layout from instead of this workspace's. Requires --project.</param>
+    /// <param name="project">Azure DevOps project to read the layout from instead of this workspace's. Requires --org.</param>
     [Command("process layout")]
     public async Task<int> ProcessLayout([Argument] string type, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(

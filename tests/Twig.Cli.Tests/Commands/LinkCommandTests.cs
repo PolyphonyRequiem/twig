@@ -219,7 +219,7 @@ public class LinkCommandTests : IDisposable
         _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
 
         var cmd = CreateCommand();
-        var result = await cmd.ParentAsync(100, format);
+        var result = await cmd.ParentAsync(100, outputFormat: format);
 
         result.ShouldBe(0);
     }
@@ -309,7 +309,7 @@ public class LinkCommandTests : IDisposable
         _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
 
         var cmd = CreateCommand();
-        var result = await cmd.UnparentAsync(format);
+        var result = await cmd.UnparentAsync(outputFormat: format);
 
         result.ShouldBe(0);
     }
@@ -472,7 +472,7 @@ public class LinkCommandTests : IDisposable
         _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
 
         var cmd = CreateCommand();
-        var result = await cmd.ReparentAsync(200, format);
+        var result = await cmd.ReparentAsync(200, outputFormat: format);
 
         result.ShouldBe(0);
     }
@@ -999,6 +999,105 @@ public class LinkCommandTests : IDisposable
                 p["command"] == "link-predecessor" &&
                 p["exit_code"] == "0"),
             Arg.Is<Dictionary<string, double>>(m => m.ContainsKey("duration_ms")));
+    }
+
+    // ── AB#389: link parent/unparent/reparent accept an explicit target ──────────
+    //
+    // Reported symptom: `twig link parent 383 318` was rejected while
+    // `twig link parent --help` documented exactly that form. The only working path
+    // was `twig set <child>` first, which doubles the command count for batch
+    // reparenting AND mutates active-item context as a side effect of what reads
+    // like a single link operation.
+    //
+    // 🔴 The active item in each of these is set to a DIFFERENT id than the one
+    // passed, so a regression that ignores `id` and silently falls back to the
+    // active item fails on the assertion rather than passing by coincidence.
+
+    [Fact]
+    public async Task ParentAsync_WithExplicitId_ParentsThatItem_NotTheActiveOne()
+    {
+        var active = new WorkItemBuilder(42, "Active Item").InState("Active").Build();
+        var child = new WorkItemBuilder(318, "Explicit Child").InState("Active").Build();
+        var parent = new WorkItemBuilder(383, "Parent Item").InState("Active").Build();
+
+        SetActiveItem(active);
+        SetResolvable(child);
+        SetResolvable(parent);
+        SetupResyncForItem(318);
+        SetupResyncForItem(383);
+        _linkRepo.GetLinksAsync(318, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ParentAsync(383, id: 318);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(318, 383, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
+        // The active item must be untouched — that side effect is half the reported defect.
+        await _adoService.DidNotReceive().AddLinkAsync(42, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnparentAsync_WithExplicitId_UnparentsThatItem_NotTheActiveOne()
+    {
+        var active = new WorkItemBuilder(42, "Active Item").InState("Active").WithParent(999).Build();
+        var target = new WorkItemBuilder(318, "Explicit Child").InState("Active").WithParent(383).Build();
+
+        SetActiveItem(active);
+        SetResolvable(target);
+        SetupResyncForItem(318);
+        SetupResyncForItem(383);
+        _linkRepo.GetLinksAsync(318, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnparentAsync(id: 318);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).RemoveLinkAsync(318, 383, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().RemoveLinkAsync(42, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReparentAsync_WithExplicitId_ReparentsThatItem_NotTheActiveOne()
+    {
+        var active = new WorkItemBuilder(42, "Active Item").InState("Active").WithParent(999).Build();
+        var target = new WorkItemBuilder(318, "Explicit Child").InState("Active").WithParent(200).Build();
+        var newParent = new WorkItemBuilder(383, "New Parent").InState("Active").Build();
+
+        SetActiveItem(active);
+        SetResolvable(target);
+        SetResolvable(newParent);
+        SetupResyncForItem(318);
+        SetupResyncForItem(383);
+        SetupResyncForItem(200);
+        _linkRepo.GetLinksAsync(318, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ReparentAsync(383, id: 318);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).RemoveLinkAsync(318, 200, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkAsync(318, 383, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkAsync(42, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ParentAsync_WithoutId_StillUsesTheActiveItem()
+    {
+        // The default path must be unchanged: `id` is additive, not a replacement.
+        var active = new WorkItemBuilder(42, "Active Item").InState("Active").Build();
+        var parent = new WorkItemBuilder(100, "Parent Item").InState("Active").Build();
+
+        SetActiveItem(active);
+        SetResolvable(parent);
+        SetupResyncForItem(42);
+        SetupResyncForItem(100);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ParentAsync(100);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkAsync(42, 100, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
     }
 
     public void Dispose()

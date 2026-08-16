@@ -34,27 +34,40 @@ public sealed class LinkCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    /// <summary>Set the parent of the active work item.</summary>
+    /// <summary>
+    /// Set the parent of the active work item, or of <paramref name="id"/> when given.
+    /// </summary>
+    /// <remarks>
+    /// AB#389: <paramref name="id"/> was absent, so the only way to parent a NON-active
+    /// item was <c>twig set &lt;child&gt;</c> first — two commands per item, and it
+    /// mutates active-item context as a side effect of what reads like a single link
+    /// operation. The dependency verbs already took an optional <c>id</c>; this brings
+    /// the hierarchy verbs onto that same established pattern rather than inventing one.
+    /// </remarks>
     public async Task<int> ParentAsync(
         int targetId,
+        int? id = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        exitCode = await ParentCoreAsync(targetId, outputFormat, ct);
+        exitCode = await ParentCoreAsync(targetId, id, outputFormat, ct);
         TelemetryHelper.TrackCommand(telemetryClient, "link-parent", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> ParentCoreAsync(
         int targetId,
+        int? id,
         string outputFormat,
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
             return WriteActiveItemNotFoundError(fmt, errorId);
 
@@ -86,25 +99,32 @@ public sealed class LinkCommand(
         return 0;
     }
 
-    /// <summary>Remove the parent link from the active work item.</summary>
+    /// <summary>
+    /// Remove the parent link from the active work item, or from <paramref name="id"/>
+    /// when given. See <see cref="ParentAsync"/> remarks for why (AB#389).
+    /// </summary>
     public async Task<int> UnparentAsync(
+        int? id = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        exitCode = await UnparentCoreAsync(outputFormat, ct);
+        exitCode = await UnparentCoreAsync(id, outputFormat, ct);
         TelemetryHelper.TrackCommand(telemetryClient, "link-unparent", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> UnparentCoreAsync(
+        int? id,
         string outputFormat,
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
             return WriteActiveItemNotFoundError(fmt, errorId);
 
@@ -126,27 +146,34 @@ public sealed class LinkCommand(
         return 0;
     }
 
-    /// <summary>Remove the current parent and set a new one atomically.</summary>
+    /// <summary>
+    /// Remove the current parent and set a new one atomically, on the active work item
+    /// or on <paramref name="id"/> when given. See <see cref="ParentAsync"/> (AB#389).
+    /// </summary>
     public async Task<int> ReparentAsync(
         int targetId,
+        int? id = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
-        exitCode = await ReparentCoreAsync(targetId, outputFormat, ct);
+        exitCode = await ReparentCoreAsync(targetId, id, outputFormat, ct);
         TelemetryHelper.TrackCommand(telemetryClient, "link-reparent", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> ReparentCoreAsync(
         int targetId,
+        int? id,
         string outputFormat,
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
             return WriteActiveItemNotFoundError(fmt, errorId);
 

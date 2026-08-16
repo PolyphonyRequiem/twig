@@ -20,6 +20,20 @@ namespace Twig.ProcessOverrides;
 /// be invisible in a CLI that exits immediately and load-bearing in any long-lived host that
 /// later reuses this seam.
 /// </para>
+/// <para>
+/// An override invocation announces itself on <b>stderr</b> before running, because it behaves
+/// materially differently from the command's usual shape: <c>process</c> normally answers from
+/// the local cache and returns instantly, while an override always goes to the network. A user
+/// who does not know that reads a multi-second pause as a hang. Announced once, here, so both
+/// commands say it identically.
+/// </para>
+/// <para>
+/// 🔴 <b>stderr, never stdout, and it is not suppressed for machine formats.</b> stdout is the
+/// document — a caller piping <c>-o json</c> into <c>jq</c> must see exactly the same bytes
+/// whether or not the override was used, which is what keeps this notice from being a breaking
+/// change. Writing it to stdout for human format only would make the two formats disagree
+/// about what the command emits, which is the drift this file exists to prevent.
+/// </para>
 /// </remarks>
 internal static class ProcessOverrideHost
 {
@@ -56,6 +70,14 @@ internal static class ProcessOverrideHost
             return await run(workspaceServices);
 
         var userPrefs = TryGetConfig(workspaceServices)?.UserPrefs ?? new TwigUserConfig();
+
+        // Announce the live read before doing it, not after: the whole point is to explain the
+        // pause the user is about to sit through, and a notice printed afterwards explains a
+        // wait that has already ended.
+        var infoFormatter = new OutputFormatterFactory(new HumanOutputFormatter())
+            .GetFormatter(outputFormat);
+        Console.Error.WriteLine(infoFormatter.FormatInfo(
+            $"Reading {decision.Org}/{decision.Project} live from Azure DevOps (no workspace; nothing is written)."));
 
         await using var overrideServices = ProcessOverrideScope.Build(
             decision.Org!, decision.Project!, userPrefs);

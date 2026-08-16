@@ -58,9 +58,13 @@ mkdir -p "$LOGDIR"
 
 RESOLVER="src/Twig/ProcessOverrides/ProcessOverrideResolver.cs"
 SCOPE="src/Twig/ProcessOverrides/ProcessOverrideScope.cs"
+HOST="src/Twig/ProcessOverrides/ProcessOverrideHost.cs"
 PROGRAM="src/Twig/Program.cs"
 
-ALL_FILES=("$RESOLVER" "$SCOPE" "$PROGRAM")
+# 🔴 Every file ANY mutant touches must be listed here, or `restore` leaves that mutant
+# resident in the working tree — where it reads as a defect in correct code rather than as
+# harness residue, and the leave-no-trace check at the bottom cannot see it either.
+ALL_FILES=("$RESOLVER" "$SCOPE" "$HOST" "$PROGRAM")
 
 snapshot() {
   SNAPDIR="$(mktemp -d)"
@@ -173,7 +177,7 @@ snapshot
 python3 - <<'PY'
 p = "src/Twig/Program.cs"
 s = open(p).read()
-docs = """    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO; writes nothing.</param>
+docs = """    /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
     /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
 """
 assert s.count(docs) == 1
@@ -344,6 +348,45 @@ assert s.count(old2) == 1
 open(p, "w").write(s.replace(old2, new2))
 PY
 run_mutant "M8-layout-loses-its-override-flags" "Overrides_AreAcceptedByTheParser_WithNoWorkspace"
+restore
+
+# ── M9: the live-read notice goes to STDOUT instead of stderr ─────────────────
+# 🔴 The breaking-change direction, and the one a reader would call harmless. The notice is
+# still printed, still says the right thing, still names the coordinates — every "does it
+# announce itself" assertion stays green. But stdout is the DOCUMENT: a caller piping
+# `-o json` into jq now receives a line of prose before the JSON and the pipeline dies.
+# Killable only by an arm that asserts the notice is ABSENT from stdout, which is why
+# TheLiveReadNotice_NeverReachesStdout exists as its own test rather than as a second
+# assertion inside the positive one.
+python3 - <<'PY'
+p = "src/Twig/ProcessOverrides/ProcessOverrideHost.cs"
+s = open(p).read()
+old = "        Console.Error.WriteLine(infoFormatter.FormatInfo("
+new = "        Console.Out.WriteLine(infoFormatter.FormatInfo("
+assert s.count(old) == 1
+open(p, "w").write(s.replace(old, new))
+PY
+run_mutant "M9-live-read-notice-goes-to-stdout" "TheLiveReadNotice_NeverReachesStdout"
+restore
+
+# ── M10: the notice fires on EVERY invocation, override or not ────────────────
+# The noise direction. Every positive arm stays green — the override still announces itself —
+# while thousands of ordinary workspace invocations gain a line of stderr that is a lie
+# (nothing was read live). Killed by the negative control.
+python3 - <<'PY'
+p = "src/Twig/ProcessOverrides/ProcessOverrideHost.cs"
+s = open(p).read()
+old = "        if (!decision.IsOverride)\n            return await run(workspaceServices);"
+new = ("        var announce = new OutputFormatterFactory(new HumanOutputFormatter())\n"
+       "            .GetFormatter(outputFormat);\n"
+       "        Console.Error.WriteLine(announce.FormatInfo(\n"
+       "            $\"Reading {decision.Org}/{decision.Project} live from Azure DevOps (no workspace; nothing is written).\"));\n"
+       "        if (!decision.IsOverride)\n"
+       "            return await run(workspaceServices);")
+assert s.count(old) == 1
+open(p, "w").write(s.replace(old, new))
+PY
+run_mutant "M10-notice-fires-on-every-invocation" "WorkspaceInvocation_PrintsNoLiveReadNotice"
 restore
 
 echo

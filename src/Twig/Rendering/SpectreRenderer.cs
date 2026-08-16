@@ -1613,7 +1613,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         break;
 
                     default:
-                        throw new System.Diagnostics.UnreachableException($"Unhandled SyncResult: {result.GetType().Name}");
+                        throw new System.Diagnostics.UnreachableException($"Unhandled SyncResult: {result.Value?.GetType().Name}");
                 }
             });
 

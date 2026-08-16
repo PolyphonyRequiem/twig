@@ -368,7 +368,7 @@ does not rescue you — it is written at the end of a run and only describes tes
 that COMPLETED, so the in-flight one is absent rather than marked.
 
 `tools/find-hung-test.sh` closes that gap. An assembly-level xUnit hook
-(`tests/Twig.Cli.Tests/TestSupport/TestProgressTrace.cs`) appends a flushed
+(`tests/Shared/TestProgressTrace.cs`) appends a flushed
 START/END line per test to the file named by `TWIG_TEST_TRACE`; the script
 reconciles them and reports the last START with no END.
 
@@ -479,6 +479,90 @@ against the old implementation and passes against the fixed one.
 The evidence *at the boundary* — the vstest host stopping while both processes stay
 alive — remains accurate as a **symptom**; it was the fixture blocking upstream of it
 all along.
+
+### 🔴 CORRECTION (2026-08-14) — the ADO #43 fix was ONE INSTANCE, not the class
+
+**Issue #311 reproduced in CI**, on PR #397's first run — every prior capture in ~200
+attempts was on a local box. Job:
+
+    https://github.com/PolyphonyRequiem/twig/actions/runs/31848823948/job/94920542492
+
+Retrieve the log with (`gh run view --log` returns the *successful* re-run, not this job):
+
+    gh api repos/PolyphonyRequiem/twig/actions/jobs/94920542492/logs
+
+The captured shape:
+
+```
+23:02:53  Passed! ... 1998 ... Twig.Domain.Tests.dll
+23:02:55  Passed! ... 1496 ... Twig.Infrastructure.Tests.dll
+23:02:56  Passed! ...   81 ... Twig.RenderTree.Tests.dll
+23:02:57  Passed! ... 1299 ... Twig.Mcp.Tests.dll
+23:05:14  Passed! ... 3275 ... Twig.Cli.Tests.dll        <-- COMPLETED, 2m23s
+23:07:56  Aborting test run: test run timeout of 300000 milliseconds exceeded.
+23:07:56  Passed! ...    9 ... Twig.Tui.Tests.dll        <-- 9 of 85
+```
+
+🔴 **The Cli suite COMPLETED and the stall was in `Twig.Tui.Tests`, which has NO
+FIXTURES AT ALL** (`grep -rln "IClassFixture\|ICollectionFixture\|IAsyncLifetime"
+tests/Twig.Tui.Tests/` returns nothing). `BuildFixture` lives in `Twig.Cli.Tests`. The
+suite owning the fixed defect finished normally; the stall moved to an assembly with no
+fixture constructor to block in. **The ADO #43 fix is real, verified, and not in
+question — but it fixed one instance of a broader class.** Issue #311's closure on the
+strength of it was incomplete.
+
+#### Session-budget exhaustion is FALSIFIED — do not raise the timeout
+
+The tempting reading is that CI runs six assemblies in parallel under ONE shared 300 s
+session clock, where the local runs gave each suite its own, so this is budget
+exhaustion rather than a hang. That reading prescribes the *opposite* action on the
+timeout, so it had to be settled first. **The log's own timestamps kill it:**
+
+| | |
+|---|---|
+| all six hosts start within | **9 s** of each other (23:02:47→23:02:56) |
+| Tui host starts | 23:02:56.18 — **300.6 s before the abort** |
+| Cli finishes | 23:05:14 — **2m42s BEFORE the abort**, so it crowded out nothing |
+| Tui's own reported test-body time | **301 ms** for 9 tests |
+
+Tui held a full ~300 s window and spent 99.9% of it dispatching nothing. Budget
+exhaustion predicts a suite guillotined *mid-execution* with progress accumulating up to
+the cut; the opposite is observed. This is the **same signature as all three local
+captures** — tiny test-body time inside a ~300 s wall, host alive, nothing in flight.
+
+Local control: `Twig.Tui.Tests` runs **85/85 in ~500 ms** standalone on Prime-U.
+
+🔴 Red herring worth naming: the orphan `sleep` pid in that log's cleanup block is
+`BuildFixtureRunProcessTests`' deliberate `sleep 3600 &` probe, from the **completed**
+Cli suite. It is the ADO #43 regression test working, not the hang.
+
+#### The instrument set was pointed at the wrong assembly — now fixed
+
+Every instrument built for this card (`TestProgressTrace`, `find-hung-test.sh`,
+`diag-hunt.sh`, `dispatch-watch.sh`) was **assembly-scoped to Cli**, i.e. aimed at the
+suite that finished. That is now corrected:
+
+- `tests/Shared/TestProgressTrace.cs` is **link-compiled into every test assembly** by
+  `tests/Directory.Build.props` (guarded on `IsTestProject`). It is deliberately NOT
+  hosted in `Twig.TestKit`: TestKit carries no xunit reference, adding one would push
+  xunit into every consumer's package graph, and it still would not reach
+  `Twig.RenderTree.Tests`, which does not reference TestKit.
+- 🔴 **`TWIG_TEST_TRACE` now names a DIRECTORY, not a file.** Each assembly writes
+  `<assembly-name>.tsv`. This is mandatory, not cosmetic: CI's single invocation runs
+  six assemblies in **parallel processes**, and the hook's in-process lock cannot
+  serialise across process boundaries — six hosts appending to one file would interleave
+  mid-line and destroy the START/END reconciliation.
+- `find-hung-test.sh` reconciles **per assembly**, defaults to CI's wide invocation, and
+  narrows with `TWIG_311_SUITE=Cli`.
+- CI runs the trace on every PR and uploads `artifacts/trace-311/` on failure.
+
+Verified locally on the wide run: **8234 boundaries against 8234 reported tests, zero
+malformed lines, zero interleaving, zero in-flight.** With `TWIG_TEST_TRACE` unset no
+files are written and the runtime is unchanged, so the opt-in still costs nothing.
+
+**Hunt in CI, not locally.** CI reproduced on attempt 1 of 2; local rates are ~1 in 11
+under heavy load and ~1 in 129 idle. The trace now runs on every PR, so captures
+accumulate without a hunt.
 
 Reproducer, for whoever picks this up:
 

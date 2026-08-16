@@ -18,7 +18,43 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore
       - run: dotnet build --no-restore
-      - run: dotnet test --no-build --settings test.runsettings
+
+      # GitHub issue #311 instrumentation.
+      #
+      # #311 was closed on the strength of the ADO #43 BuildFixture fix. That fix is
+      # real and verified, but on 2026-08-14 the stall reproduced HERE, in CI, with
+      # the Cli suite completing normally (3275 tests) and Twig.Tui.Tests stalling at
+      # 9 of 85 — an assembly with no fixtures at all. So the fix addressed one
+      # instance of the class, not the class.
+      #
+      # CI is the only environment with a demonstrated cheap repro rate (1 hit in 2
+      # attempts, against ~1 in 11 under heavy local load and ~1 in 129 idle), so the
+      # trace runs HERE rather than being hunted locally.
+      #
+      # TWIG_TEST_TRACE names a DIRECTORY; each assembly writes <assembly>.tsv into
+      # it. Per-assembly files are mandatory, not cosmetic: this one invocation runs
+      # six assemblies in PARALLEL processes, and an in-process lock cannot serialise
+      # across process boundaries. Verified locally — 8234 boundaries, zero malformed
+      # lines, zero interleaving.
+      #
+      # Cost when the variable is unset is one null check per boundary, so this does
+      # not change what developers pay locally.
+      - name: Test (with #311 boundary trace)
+        env:
+          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
+        run: dotnet test --no-build --settings test.runsettings
+
+      # if:failure() so a captured stall is preserved. The trace is the ONLY artifact
+      # that can name the stalling assembly and whether any test was in flight — vstest
+      # prints a false-green summary and names nothing, and a TRX describes only tests
+      # that COMPLETED.
+      - name: Upload #311 trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-311-trace
+          path: artifacts/trace-311/
+          if-no-files-found: warn
 
       # The external-host probe (AB#341). samples/Twig.DetailHost is the final
       # gate of wayfinder-detail-projection ticket 0006 §10 — it traces

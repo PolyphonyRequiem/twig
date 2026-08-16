@@ -1,0 +1,29 @@
+<Project>
+
+  <!-- Inherit the repo-root Directory.Build.props (TargetFramework, Nullable, etc.). -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!--
+    GitHub issue #311 instrumentation, link-compiled into every test assembly.
+
+    Hosted as a linked SOURCE file rather than in Twig.TestKit on purpose:
+      * TestKit carries no xunit reference, and adding one would push xunit into the
+        package graph of every project that references TestKit.
+      * Twig.RenderTree.Tests does not reference TestKit at all, so a TestKit-hosted
+        hook could not reach it — and "which assembly stalled" is exactly the question
+        the 2026-08-14 CI capture raised.
+
+    Linking changes no project's dependency graph. Each assembly compiles its own copy,
+    which is also what lets the attribute name its own assembly for the per-assembly
+    trace file.
+
+    Guarded on IsTestProject so Twig.TestKit (a library, IsPackable=false, not a test
+    project) and Twig.Benchmarks (IsTestProject=false) do not pick it up — neither has
+    an xunit reference and both would fail to compile it.
+  -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\TestProgressTrace.cs"
+             Link="TestSupport\TestProgressTrace.cs" />
+  </ItemGroup>
+
+</Project>

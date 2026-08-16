@@ -27,7 +27,7 @@
 # it. This script:
 #
 #   1. Runs the Cli suite with the existing TWIG_TEST_TRACE boundary trace
-#      (tests/Twig.Cli.Tests/TestSupport/TestProgressTrace.cs). No new
+#      (tests/Shared/TestProgressTrace.cs). No new
 #      in-process instrumentation, and the trace stays opt-in.
 #   2. Watches that trace file's mtime from OUTSIDE both processes. A healthy
 #      run writes a boundary every few ms; the largest legitimate untraced gap

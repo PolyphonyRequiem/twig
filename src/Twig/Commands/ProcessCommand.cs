@@ -26,7 +26,7 @@ namespace Twig.Commands;
 /// error formatting until error rendering also moves to the seam.
 /// </remarks>
 public sealed class ProcessCommand(
-    ActiveItemResolver activeItemResolver,
+    ActiveItemResolver? activeItemResolver,
     IProcessTypeStore processTypeStore,
     IFieldDefinitionStore fieldDefinitionStore,
     OutputFormatterFactory formatterFactory,
@@ -54,11 +54,27 @@ public sealed class ProcessCommand(
     /// Executes the hidden <c>twig states</c> alias: resolves the active work item's type
     /// and shows its states (backward compat with the old StatesCommand).
     /// </summary>
+    /// <remarks>
+    /// 🔴 <b>Requires an active-item resolver, which the AB#216 <c>--org</c>/<c>--project</c>
+    /// override scope does not have.</b> "Active work item" is a property of a workspace's
+    /// context store, and an override invocation has no workspace — so the concept does not
+    /// exist there rather than being merely unavailable. The override path never routes here
+    /// (<c>states</c> takes no overrides), and the guard makes that a checked fact rather than
+    /// a NullReferenceException if a future caller wires one up.
+    /// </remarks>
     public async Task<int> ExecuteStatesAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        if (activeItemResolver is null)
+        {
+            _stderr.WriteLine(fmt.FormatError(
+                "'twig states' resolves the active work item, which requires a workspace. "
+                + "Run it from a twig workspace, or use 'twig process <type>' with --org/--project."));
+            return 1;
+        }
 
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))

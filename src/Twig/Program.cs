@@ -541,11 +541,52 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
+    /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("show-batch")]
-    public async Task<int> ShowBatch(string batch, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(batch, output, ct);
+    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        var resolved = ResolveBatch(batch, batchArg);
+
+        // Making `batch` optional retires the generated parser's own [Required] check, which is
+        // what printed help and exited 0 for a bare `twig show-batch`. That behaviour is
+        // restated here rather than letting a null reach the command as if a value were
+        // supplied — the same reason InitCommand restates its refusal above.
+        if (resolved is null)
+        {
+            Console.Error.WriteLine("error: Usage: twig show-batch <ids>, or twig show-batch --batch <ids>");
+            return 1;
+        }
+
+        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct);
+    }
+
+    /// <summary>
+    /// AB#501 — resolves <c>show-batch</c>'s ids from the named option and its positional twin,
+    /// named-wins, matching every other twin on this surface (<c>text ?? textArg</c>,
+    /// <c>org ?? orgArg</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 Extracted as a pure function DELIBERATELY, and the mutation sweep is why. With the
+    /// expression inline, mutants that dropped the positional's value or inverted the
+    /// precedence both SURVIVED: every production-CLI arm runs without a populated cache, so
+    /// the workspace refusal fires before the value is ever read and two different resolutions
+    /// produce byte-identical output. The untestability and the untestedness were one defect.
+    /// </para>
+    /// <para>
+    /// The positional is a scalar <c>string?</c>, never <c>string[]</c>: an ARRAY slot consumes
+    /// one token and comma-splits it, moving the error from the first word to the second
+    /// without fixing anything (AB#398 recorded that reverted attempt). The ids arrive as a
+    /// single comma-separated token, so scalar is both correct and the shape that works.
+    /// </para>
+    /// <para>
+    /// The named spelling is ADDED TO, never substituted — converting one regressed
+    /// <c>edit --field</c> and <c>init --org/--project</c> mid-implementation on AB#398.
+    /// </para>
+    /// </remarks>
+    internal static string? ResolveBatch(string? batch, string? batchArg) => batch ?? batchArg;
 
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     /// <param name="searchText">Free-text search across work item titles and descriptions.</param>

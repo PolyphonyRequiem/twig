@@ -7,7 +7,40 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: build-and-test (${{ matrix.rid }})
+    # AB#140 — CI used to be a single `runs-on: ubuntu-latest` job while the
+    # release workflow publishes win-x64, linux-x64 and osx-arm64. Anything
+    # platform-conditional was therefore untested until tag day, and the first
+    # execution on Windows happened DURING a release.
+    #
+    # That is not hypothetical: v0.85.0 failed two of four platform legs. One was
+    # ours — three tests hardcoded a Unix shell path and were merged with a green
+    # CI check, because the only multi-platform run lived in the release workflow.
+    #
+    # The sibling half of that incident (NuGet publishing before the platform
+    # builds had proven they could compile, burning a version string
+    # irreversibly) was already fixed in #362: the `nuget` job now `needs: build`.
+    # This is the other half — test the platforms we actually ship, on every PR.
+    #
+    # macOS is deliberately omitted for now. Windows is the platform that broke,
+    # and it has the most divergent path and process semantics; macOS costs the
+    # most CI minutes per unit of risk retired. Add osx-arm64 here if a
+    # macOS-specific defect ever escapes.
+    strategy:
+      # fail-fast: false so one platform's failure does not cancel the other's
+      # run. The point of this matrix is learning about every platform from a
+      # single push rather than discovering them one at a time across re-pushes
+      # — the same reasoning the release workflow's build matrix already carries.
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: win-x64
+            os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,11 +81,16 @@ jobs:
       # that can name the stalling assembly and whether any test was in flight — vstest
       # prints a false-green summary and names nothing, and a TRX describes only tests
       # that COMPLETED.
+      #
+      # 🔴 The artifact name MUST carry the rid. upload-artifact@v4 rejects a second
+      # upload under a name that already exists in the run, so a shared name would
+      # make whichever leg finished second fail its upload — turning a captured stall
+      # into a confusing upload error, on the exact run that finally caught the bug.
       - name: Upload #311 trace on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: twig-311-trace
+          name: twig-311-trace-${{ matrix.rid }}
           path: artifacts/trace-311/
           if-no-files-found: warn
 
@@ -79,7 +117,16 @@ jobs:
       #
       # `set -o pipefail` matters: without it the pipeline's status would be
       # grep's, and a probe that crashed before printing would read as a pass.
+      #
+      # AB#140: pinned to ONE leg rather than run per-platform. What this probe
+      # asserts — that an external consumer reaches the public projection without
+      # InternalsVisibleTo — is a property of the assembly boundary, not of the
+      # host OS, so a second platform re-proves nothing. `shell: bash` would be
+      # required on the Windows runner (the default there is pwsh), and paying
+      # that for a duplicate answer trades real risk of a shell-portability
+      # failure for no new information.
       - name: External host probe (samples/Twig.DetailHost)
+        if: matrix.rid == 'linux-x64'
         run: |
           set -euo pipefail
           DOTNET_ROLL_FORWARD=Major \
@@ -89,4 +136,3 @@ jobs:
           # and silent. Require the self-identifying success token too.
           grep -q 'PROBE OK:' probe.log \
             || { echo "::error::probe exited 0 without printing PROBE OK — a silent probe is not a pass"; exit 1; }
-

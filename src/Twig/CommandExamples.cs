@@ -172,6 +172,7 @@ internal static class CommandExamples
         ["seed chain"] =
         [
             "twig seed chain            Show the full seed chain for the active item",
+            "twig seed chain \"design api,build api\"  Create a chain from comma-separated titles",
             "twig seed chain --output json  Output the seed chain as JSON",
         ],
         ["seed validate"] =
@@ -233,7 +234,8 @@ internal static class CommandExamples
         ],
         ["note"] =
         [
-            "twig note --text \"Investigated root cause\"   Add a note to the active item",
+            "twig note \"Investigated root cause\"          Add a note to the active item",
+            "twig note --text \"Investigated root cause\"   The same, spelled with the option",
             "twig note                                    Open editor to compose a note",
         ],
         ["update"] =
@@ -251,6 +253,7 @@ internal static class CommandExamples
         [
             "twig edit                  Open the active item's description in an editor",
             "twig edit System.Title     Open the Title field for editing",
+            "twig edit --field System.Title  The same, spelled with the option",
         ],
         ["delete"] =
         [

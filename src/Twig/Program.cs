@@ -176,6 +176,18 @@ if (subcommandError is not null)
     return;
 }
 
+// AB#398: a stray extra positional reaches the generated parser as "Argument 'world' is not
+// recognized." — true, and useless, because the remedy is quoting and the message never says
+// so. Sits after SubcommandGuard because an unknown SUBCOMMAND is the better diagnosis when
+// both apply: `twig seed bogus extra` is a typo'd verb, not a quoting mistake.
+var strayPositionalError = StrayPositionalGuard.Validate(args);
+if (strayPositionalError is not null)
+{
+    Console.Error.WriteLine(strayPositionalError);
+    Environment.ExitCode = StrayPositionalGuard.UsageExitCode;
+    return;
+}
+
 // AB#350: collapse repeated --field / --set into the single JSON-array form the
 // argument binder actually supports. ConsoleAppFramework's generated parser
 // ASSIGNS rather than appends on each occurrence, so without this only the last
@@ -468,10 +480,26 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services)
 {
-    internal static string? JoinTrailingText(string? named, string[]? positional)
-        => named ?? (positional is { Length: > 0 } ? string.Join(" ", positional) : null);
+    /// <summary>
+    /// Splits <c>seed chain</c>'s comma-separated titles into the array the command takes.
+    ///
+    /// <para>
+    /// AB#398 replaced this command's <c>params string[] titles</c> with a single
+    /// <c>[Argument]</c> slot. The trailing-array shape emitted NO positional slot at all
+    /// (ConsoleAppFramework 5.7.13 ignores a <c>params</c> array declared after the
+    /// <see cref="CancellationToken"/>), so every bare word was rejected and the chain could
+    /// only ever be built interactively. A single quoted, comma-separated value is the one
+    /// multi-value spelling this argument reader supports.
+    /// </para>
+    /// </summary>
+    internal static string[] SplitSeedTitles(string? titles)
+        => string.IsNullOrWhiteSpace(titles)
+            ? []
+            : titles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>Initialize a new Twig workspace.</summary>
+    /// <param name="orgArg">Organization, positionally: twig init &lt;org&gt; &lt;project&gt;. The shipped examples document this spelling.</param>
+    /// <param name="projectArg">Project, positionally, as the second argument.</param>
     /// <param name="org">Azure DevOps organization name (e.g., contoso).</param>
     /// <param name="project">Azure DevOps project name.</param>
     /// <param name="team">Team name within the project (defaults to project default team).</param>
@@ -480,8 +508,22 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
     /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
-    public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
-        => await services.GetRequiredService<InitCommand>().ExecuteAsync(org, project, team, gitProject, force, output, sprint, area, ct);
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
+    {
+        // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
+        // document (`twig init <org> <project>`) parses alongside the named one. The generated
+        // parser's own required-argument check no longer applies, so the refusal is restated
+        // here rather than letting empty strings reach the command as if they were supplied.
+        var resolvedOrg = org ?? orgArg;
+        var resolvedProject = project ?? projectArg;
+        if (string.IsNullOrWhiteSpace(resolvedOrg) || string.IsNullOrWhiteSpace(resolvedProject))
+        {
+            Console.Error.WriteLine("error: Usage: twig init <org> <project>, or twig init --org <org> --project <project>");
+            return 1;
+        }
+
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, ct);
+    }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
     /// <param name="idOrPattern">Work item ID (e.g., 1234) or title substring to match.</param>
@@ -556,6 +598,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<ProcessCommand>().ExecuteStatesAsync(output, ct);
 
     /// <summary>Create a new work item in ADO.</summary>
+    /// <param name="typeArg">Work item type, positionally: twig new task "Write tests". The shipped examples document this spelling.</param>
+    /// <param name="titleArg">Title as the second positional argument. Quote multi-word titles.</param>
     /// <param name="title">Title for the new work item.</param>
     /// <param name="type">Work item type (e.g., Task, Bug, User Story).</param>
     /// <param name="area">Area path for the new work item.</param>
@@ -567,11 +611,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
     /// <param name="field">Set a field at creation time: fieldReferenceName=value. Repeatable. Required for types with required custom fields. Values convert Markdown only for HTML-typed fields (not affected by --format); an explicit --field System.Description overrides --description.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
-    {
-        var resolvedTitle = JoinTrailingText(title, titleParts);
-        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, format, field, output, ct);
-    }
+    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, ct);
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
@@ -779,10 +820,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="parent">Parent work item ID to link the chain under.</param>
     /// <param name="type">Work item type for each seed in the chain.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="titles">One or more seed titles to create in order.</param>
+    /// <param name="titles">Seed titles, comma-separated. Quote the value: twig seed chain "design api,build api".</param>
     [Command("seed chain")]
-    public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titles)
-        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, titles);
+    public async Task<int> SeedChain([Argument] string? titles = null, int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, SplitSeedTitles(titles));
 
     /// <summary>Validate seeds against publish rules.</summary>
     /// <param name="id">Seed ID to validate; omit to validate all seeds.</param>
@@ -878,12 +919,13 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<BatchCommand>().ExecuteAsync(state, set, note, id, ids, output, format, ct);
 
     /// <summary>Add a note to the active work item.</summary>
+    /// <param name="textArg">Note text, positionally. Quote multi-word text: twig note "hello world".</param>
     /// <param name="text">Note text to add; omit to open an editor.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="format">Convert the note text before sending. Supported: "raw" to send pre-rendered HTML or plain text unchanged; "markdown" (default) converts Markdown to HTML.</param>
-    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default, params string[] textParts)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), id, output, format, ct);
+    public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
@@ -908,10 +950,11 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id ?? workItemId, output, format, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
+    /// <param name="fieldArg">Field to edit, positionally: twig edit System.Title. The shipped examples document this spelling.</param>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
+    public async Task<int> Edit([Argument] string? fieldArg = null, string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<EditCommand>().ExecuteAsync(field ?? fieldArg, output, ct);
 
     /// <summary>Discard pending changes for a single item or all dirty items.</summary>
     /// <param name="id">Work item ID to discard changes for.</param>

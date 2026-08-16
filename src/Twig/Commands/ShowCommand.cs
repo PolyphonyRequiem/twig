@@ -3,6 +3,7 @@ using Spectre.Console.Rendering;
 using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -592,12 +593,7 @@ public sealed class ShowCommand(
 
     private static RenderNode BuildLinkRecord(WorkItemLink link)
     {
-        return new RenderNode.Record("workItemLink", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-        {
-            ["sourceId"] = RenderCell.Integer(link.SourceId),
-            ["targetId"] = RenderCell.Integer(link.TargetId),
-            ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
-        });
+        return new RenderNode.Record("workItemLink", BuildLinkCells(link));
     }
 
     /// <summary>
@@ -611,6 +607,29 @@ public sealed class ShowCommand(
     /// </summary>
     private static RenderNode BuildRelationRecord(WorkItemLink link)
     {
+        return new RenderNode.Record(null, BuildRelationCells(link));
+    }
+
+    /// <summary>
+    /// The <c>links</c> wire shape for one edge, shared by the single-item document and the
+    /// per-row <c>links</c> array of <c>show-batch</c> (ADO #154) so the two cannot drift.
+    /// </summary>
+    private static Dictionary<string, RenderCell> BuildLinkCells(WorkItemLink link)
+    {
+        return new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["sourceId"] = RenderCell.Integer(link.SourceId),
+            ["targetId"] = RenderCell.Integer(link.TargetId),
+            ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
+        };
+    }
+
+    /// <summary>
+    /// The ADO-shaped <c>relations</c> wire shape for one edge, shared by the single-item
+    /// document and the per-row <c>relations</c> array of <c>show-batch</c> (ADO #154).
+    /// </summary>
+    private static Dictionary<string, RenderCell> BuildRelationCells(WorkItemLink link)
+    {
         var friendlyName = link.LinkType ?? string.Empty;
         var adoRel = !string.IsNullOrEmpty(friendlyName) && LinkTypeMapper.TryResolve(friendlyName, out var resolved)
             ? resolved
@@ -621,13 +640,13 @@ public sealed class ShowCommand(
             ["name"] = RenderCell.String(friendlyName),
         };
 
-        return new RenderNode.Record(null, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        return new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["id"] = RenderCell.Integer(link.TargetId),
             ["rel"] = RenderCell.String(adoRel),
             ["url"] = RenderCell.String(string.Empty),
             ["attributes"] = new RenderCell(string.Empty, new RenderValue.Object(attributes)),
-        });
+        };
     }
 
     private static RenderNode BuildPullRequestRecord(PullRequestInfo pr)
@@ -655,6 +674,23 @@ public sealed class ShowCommand(
                 items.Add(item);
         }
 
+        // ADO #154: links belong to the SET, so they are read for every item found —
+        // one plural repository call, not one call per id. Best-effort: a link-store
+        // failure must degrade a batch read to items-without-edges rather than fail it,
+        // matching the single-item path above (see the try/catch at ExecuteCoreAsync).
+        IReadOnlyList<WorkItemLink> links = [];
+        if (items.Count > 0)
+        {
+            var foundIds = new List<int>(items.Count);
+            foreach (var item in items)
+                foundIds.Add(item.Id);
+
+            try { links = await linkRepo.GetLinksForSetAsync(foundIds, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { links = []; }
+        }
+
+        var graph = WorkItemGraph.Build(items, links);
+
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
         // After AB#3301 the factory always returns HumanOutputFormatter, so
@@ -664,12 +700,12 @@ public sealed class ShowCommand(
         // RenderTree → IRenderer seam.
         if (!IsMachineFormat(outputFormat) && fmt is HumanOutputFormatter humanFmt)
         {
-            foreach (var item in items)
+            foreach (var item in graph.Items)
                 Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false));
         }
         else
         {
-            RenderBatchAsTree(items, outputFormat);
+            RenderBatchAsTree(graph, outputFormat);
         }
 
         return 0;
@@ -683,11 +719,34 @@ public sealed class ShowCommand(
     /// emits one ID per row — matching the legacy
     /// <c>JsonOutputFormatter.FormatWorkItemBatch</c> wire shape.
     /// </summary>
-    private void RenderBatchAsTree(IReadOnlyList<Domain.Aggregates.WorkItem> items, string outputFormat)
+    /// <remarks>
+    /// Each row additionally carries <c>links</c> and <c>relations</c> arrays (ADO #154).
+    /// Both are ALWAYS emitted, possibly empty, for the same reason the single-item
+    /// document always emits them: a consumer must be able to iterate the key without
+    /// first testing for its presence, and missing-vs-empty ambiguity silently breaks
+    /// integrators.
+    /// </remarks>
+    private void RenderBatchAsTree(WorkItemGraph graph, string outputFormat)
     {
-        var rows = new List<RenderRow>(items.Count);
-        foreach (var item in items)
-            rows.Add(new RenderRow(null, BuildCoreCells(item)));
+        var rows = new List<RenderRow>(graph.Items.Count);
+        foreach (var item in graph.Items)
+        {
+            var cells = BuildCoreCells(item);
+            var itemLinks = graph.GetLinks(item.Id);
+
+            var linkCells = new List<RenderCell>(itemLinks.Count);
+            var relationCells = new List<RenderCell>(itemLinks.Count);
+            foreach (var link in itemLinks)
+            {
+                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
+                relationCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildRelationCells(link))));
+            }
+
+            cells["links"] = new RenderCell(string.Empty, new RenderValue.Array(linkCells));
+            cells["relations"] = new RenderCell(string.Empty, new RenderValue.Array(relationCells));
+
+            rows.Add(new RenderRow(null, cells));
+        }
 
         var table = new RenderNode.Table(Caption: null, Columns: [], Rows: rows);
         var tree = new Twig.RenderTree.RenderTree([table]);

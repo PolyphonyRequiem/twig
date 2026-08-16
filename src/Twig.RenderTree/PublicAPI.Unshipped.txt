@@ -1,1 +1,14 @@
 #nullable enable
+Twig.RenderTree.RenderValue.Array
+Twig.RenderTree.RenderValue.Array.Array(System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderCell!>! Items) -> void
+Twig.RenderTree.RenderValue.Array.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderCell!>! Items) -> void
+Twig.RenderTree.RenderValue.Array.Equals(Twig.RenderTree.RenderValue.Array? other) -> bool
+Twig.RenderTree.RenderValue.Array.Items.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderCell!>!
+Twig.RenderTree.RenderValue.Array.Items.init -> void
+override Twig.RenderTree.RenderValue.Array.<Clone>$() -> Twig.RenderTree.RenderValue.Array!
+override Twig.RenderTree.RenderValue.Array.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Array.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Array.ToString() -> string!
+override sealed Twig.RenderTree.RenderValue.Array.Equals(Twig.RenderTree.RenderValue? other) -> bool
+static Twig.RenderTree.RenderValue.Array.operator !=(Twig.RenderTree.RenderValue.Array? left, Twig.RenderTree.RenderValue.Array? right) -> bool
+static Twig.RenderTree.RenderValue.Array.operator ==(Twig.RenderTree.RenderValue.Array? left, Twig.RenderTree.RenderValue.Array? right) -> bool

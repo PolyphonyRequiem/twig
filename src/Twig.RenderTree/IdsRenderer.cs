@@ -97,6 +97,12 @@ public sealed class IdsRenderer(TextWriter output) : IRenderer
         // Descend into nested object cells so per-node `fields` blocks
         // (or any other Object-typed cell) still surface their own `id`
         // keys for shell piping.
+        //
+        // 🔴 Array cells are deliberately NOT descended into (ADO #154). An Object cell holds
+        // more of THIS row's own data; an Array cell holds OTHER entities — e.g. the per-item
+        // `relations` array of `show-batch`, whose elements carry an `id` that is the LINK
+        // TARGET's id, not this row's. Descending would interleave a row's neighbours' ids
+        // with its own and silently corrupt `-o ids` for every consumer piping it to xargs.
         foreach (var (_, c) in cells)
         {
             if (c.Value is RenderValue.Object obj)

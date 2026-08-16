@@ -353,7 +353,22 @@ public sealed class JsonRenderer : IRenderer
             case RenderValue.Object obj:
                 WriteObjectValue(writer, obj);
                 break;
+            case RenderValue.Array arr:
+                WriteArrayValue(writer, arr);
+                break;
         }
+    }
+
+    private static void WriteArrayValue(Utf8JsonWriter writer, RenderValue.Array arr)
+    {
+        writer.WriteStartArray();
+        foreach (var cell in arr.Items)
+        {
+            // Unlike an object property or a table cell, an ABSENT element is not skipped:
+            // dropping it would silently shorten the array and shift every later index.
+            WriteRenderValue(writer, cell.Value, cell.DisplayText);
+        }
+        writer.WriteEndArray();
     }
 
     private static void WriteObjectValue(Utf8JsonWriter writer, RenderValue.Object obj)

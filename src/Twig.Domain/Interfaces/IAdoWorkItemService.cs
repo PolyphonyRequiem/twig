@@ -11,6 +11,25 @@ public interface IAdoWorkItemService
 {
     Task<WorkItem> FetchAsync(int id, CancellationToken ct = default);
     Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches a SET of work items together with the non-hierarchy edges among them (ADO #154).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>This costs no additional ADO requests over <see cref="FetchBatchAsync"/>.</b> The
+    /// batch URL already carries <c>$expand=relations</c>, so the relations were always on the
+    /// wire; the batch path simply mapped them away. This overload keeps them.
+    /// </para>
+    /// <para>
+    /// Returned links carry every edge sourced from a fetched item, including edges whose target
+    /// lies outside the requested set — a consumer discovering what to fetch next needs exactly
+    /// those, and filtering them here would make that impossible.
+    /// </para>
+    /// </remarks>
+    Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+        IReadOnlyList<int> ids,
+        CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default);
     Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
     Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);

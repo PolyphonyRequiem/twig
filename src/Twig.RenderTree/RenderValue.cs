@@ -59,5 +59,22 @@ public abstract record RenderValue
     /// rendering already has a compact display projection.
     /// </remarks>
     public sealed record Object(IReadOnlyDictionary<string, RenderCell> Cells) : RenderValue;
+
+    /// <summary>
+    /// An ordered sequence of values. JSON renderers emit a JSON array whose elements
+    /// are each item's <see cref="RenderValue"/> projected recursively; human and minimal
+    /// renderers fall back to <see cref="RenderCell.DisplayText"/>; the IDs renderer does NOT
+    /// descend into it — an array holds OTHER entities, whose <c>id</c> keys are not this
+    /// row's (see <c>IdsRenderer.TryWriteId</c>).
+    /// </summary>
+    /// <remarks>
+    /// Use this where a single ROW must carry a collection — e.g. the per-item <c>links</c>
+    /// array on <c>twig show-batch</c> (ADO #154). A <see cref="RenderNode.Document"/> can
+    /// already express an array via a <see cref="RenderNode.Section"/> field, but a
+    /// <see cref="RenderRow"/> holds cells rather than nodes, and <c>show-batch</c> must keep
+    /// its single-<see cref="RenderNode.Table"/> root so its output is a top-level JSON array
+    /// at every item count — including one.
+    /// </remarks>
+    public sealed record Array(IReadOnlyList<RenderCell> Items) : RenderValue;
 }
 

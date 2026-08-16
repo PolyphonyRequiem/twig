@@ -37,6 +37,52 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
         return Task.FromResult<IReadOnlyList<WorkItemLink>>(links);
     }
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<WorkItemLink>> GetLinksForSetAsync(IReadOnlyList<int> workItemIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(workItemIds);
+
+        // Distinct first: a caller passing the same id twice must not receive its edges twice,
+        // and it keeps the parameter count at the number of DISTINCT ids rather than the input length.
+        var distinctIds = new List<int>();
+        var seen = new HashSet<int>();
+        foreach (var id in workItemIds)
+        {
+            if (seen.Add(id))
+                distinctIds.Add(id);
+        }
+
+        if (distinctIds.Count == 0)
+            return Task.FromResult<IReadOnlyList<WorkItemLink>>(Array.Empty<WorkItemLink>());
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+
+        // Parameterized IN list — the id values are bound, never interpolated. Only the
+        // placeholder names are built into the SQL text, and those are generated here.
+        var placeholders = new string[distinctIds.Count];
+        for (var i = 0; i < distinctIds.Count; i++)
+        {
+            placeholders[i] = $"@id{i.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            cmd.Parameters.AddWithValue(placeholders[i], distinctIds[i]);
+        }
+
+        cmd.CommandText =
+            $"SELECT source_id, target_id, link_type FROM work_item_links WHERE source_id IN ({string.Join(", ", placeholders)});";
+
+        var links = new List<WorkItemLink>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            links.Add(new WorkItemLink(
+                reader.GetInt32(0),
+                reader.GetInt32(1),
+                reader.GetString(2)));
+        }
+
+        return Task.FromResult<IReadOnlyList<WorkItemLink>>(links);
+    }
+
     public Task SaveLinksAsync(int workItemId, IReadOnlyList<WorkItemLink> links, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

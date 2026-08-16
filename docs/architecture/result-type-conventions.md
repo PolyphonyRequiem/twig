@@ -1,6 +1,6 @@
 # Result Type Conventions
 
-> **Status**: Living document · **Last updated**: April 2026
+> **Status**: Living document · **Last updated**: August 2026
 > **Related**: [Domain Model Critique — Item 7](domain-model-critique.md#7-result-type-proliferation)
 
 ---
@@ -16,41 +16,144 @@ pattern, provides a **decision matrix** for new code, and catalogs
 
 ## Tier 1 — Discriminated Union
 
-**Pattern**: `abstract record` with `private` constructor and `sealed record` subtypes.
+**Pattern**: the C# `union` keyword, listing **top-level sibling `sealed record`
+case types**.
 
 **When to use**: The operation has **two or more distinct outcome paths** with
-**different data shapes**. Each subtype carries exactly the data relevant to that
+**different data shapes**. Each case type carries exactly the data relevant to that
 outcome — nothing more, nothing less.
 
 ### Template
 
 ```csharp
-public abstract record OperationResult
-{
-    private OperationResult() { }
+/// <summary>The operation succeeded.</summary>
+public sealed record Succeeded(int Id);
 
-    public sealed record Success(/* success-specific data */) : OperationResult;
-    public sealed record NotFound(int Id) : OperationResult;
-    public sealed record Failed(string Reason) : OperationResult;
-}
+/// <summary>The requested item does not exist.</summary>
+public sealed record OperationNotFound(int Id);
+
+/// <summary>The operation could not be completed.</summary>
+public sealed record OperationFailed(string Reason);
+
+/// <summary>
+/// Discriminated union representing the outcome of the operation.
+/// </summary>
+public union OperationResult(Succeeded, OperationNotFound, OperationFailed);
 ```
+
+Two structural points, both load-bearing:
+
+- **The case types are declared at namespace scope, as siblings of the union** —
+  not nested inside it. A case type is therefore referred to by its bare name
+  (`OperationNotFound`), never as `OperationResult.NotFound`.
+- **The `union` declaration lists the case types by name.** That list *is* the
+  closed set; there is no base type to inherit from and no way to add a case from
+  outside the declaration.
+
+### The keyword replaces rules, it does not bend them
+
+Earlier revisions of this document specified Tier 1 as an `abstract record` with a
+`private` constructor and nested `sealed record` subtypes, and required those
+properties by hand. The `union` keyword enforces the same three properties
+**structurally**, so they are no longer rules a reviewer has to check:
+
+| Former hand-written rule | How the keyword enforces it |
+|---|---|
+| The base constructor **must** be `private`, to prevent external subtyping | There is no base type to subtype. The case list in the declaration is closed by construction. |
+| Every subtype **must** be `sealed record` | Case types are independent records that inherit from nothing, so there is no inheritance chain to seal against. |
+| Do **not** put shared properties on the base record | There is no base record, so shared members are not expressible. |
+
+The keyword is the **stronger** guarantee, not a deviation from the old rules.
+Reviewers: a `union` that does not declare a private constructor is correct — the
+absence is the point.
+
+> **Both shapes are live in this repo, and that is expected.** The keyword is the
+> convention for Tier 1, and 14 unions across 13 files use it. Older
+> `abstract record` discriminated unions remain in
+> `src/Twig.Domain/Services/Mutation/` (`PatchOutcome`, `NoteOutcome`,
+> `StateTransitionOutcome`, `DeletePreparation`, `DeleteOutcome`, `DiscardOutcome`,
+> `PinOutcome`, `FieldUpdateOutcome`, `BenchOutcome`), plus `FormLayoutResult`,
+> `RenderNode` and `RenderValue`. They are correct as written and are **not**
+> scheduled for conversion; do not treat one as a defect. Write **new** Tier 1
+> types with the keyword.
+
+### Naming: disambiguate case types at namespace scope
+
+Because case types are top-level, their names share a namespace with every other
+case type near them. Where a plain name would collide, **prefix it with its
+union's subject**. The repo already follows this:
+
+- `ActiveNoContext` (in `ActiveItemResult`) and `StatusNoContext` (in
+  `StatusResult`) — both mean "no active work item context is configured", and
+  a bare `NoContext` could only belong to one of them.
+- `SyncFailed` (in `SyncResult`) and `LinkFailed` (in `BranchLinkResult`).
+- `ActiveUnreachable` (in `ActiveItemResult`) and `StatusUnreachable` (in
+  `StatusResult`).
+
+Where no collision exists, the unqualified name is fine — `Found`,
+`FetchedFromAdo`, `SingleMatch`, `NoMatch`, `UpToDate`, `Updated`.
 
 ### Exhaustive matching
 
 Always switch on the result and throw `UnreachableException` in the `default`
 arm. This turns a forgotten case into a runtime crash rather than silent
-data loss:
+data loss.
+
+🔴 **A `union` is a struct wrapper around its current case, so
+`result.GetType().Name` returns the name of the UNION, not of the unhandled case.**
+Use `result.Value?.GetType().Name`, which is the case type's name — otherwise the
+diagnostic reads `Unhandled OperationResult: OperationResult` and names nothing:
 
 ```csharp
 var message = result switch
 {
-    OperationResult.Success s   => $"Done: {s.Id}",
-    OperationResult.NotFound nf => $"Not found: {nf.Id}",
-    OperationResult.Failed f    => $"Error: {f.Reason}",
+    Succeeded s          => $"Done: {s.Id}",
+    OperationNotFound nf => $"Not found: {nf.Id}",
+    OperationFailed f    => $"Error: {f.Reason}",
     _ => throw new UnreachableException(
-             $"Unhandled OperationResult: {result.GetType().Name}")
+             $"Unhandled OperationResult: {result.Value?.GetType().Name}")
 };
 ```
+
+Note the case patterns are bare type names. Note also that the union's own name is
+written as a **literal** in the message: that is what tells a reader which union
+was being matched, and it matters for the reuse ruling below.
+
+### Cross-union arm reuse — SANCTIONED, with a condition
+
+**Ruling**: a union **may** reuse another union's case types rather than mirroring
+them, **provided every `UnreachableException` over either union names its own
+union in the message.**
+
+The instance that raised the question is `ProcessDescriptionRenderResult`
+(`src/Twig.Mcp/Tools/ProcessDescriptionRenderResult.cs`), which reuses the three
+failure case types of `ProcessDescriptionResult`
+(`src/Twig.Domain/Services/Process/ProcessDescriptionResult.cs`) — only the success
+arm differs, because at the agent surface the answer is rendered bytes rather than
+a model.
+
+The reason to allow it: a parallel set of mirrored failure types would be free to
+**drift** from the assembler's, which is exactly the duplication this design
+already refuses for the document itself.
+
+The cost, stated plainly and accepted: the two unions are **not disjoint**. A bare
+`result is ProcessIdentityUnresolved` no longer tells a reader which union is in
+hand.
+
+The condition is what makes the reuse legible, and it is not optional:
+
+> **Every `UnreachableException` over either union names its own union in the
+> message.**
+
+At a failure — the one moment a reader most needs to know which union was being
+matched — the message supplies the half the type name cannot. Combined with
+`.Value?.GetType().Name` above, the diagnostic carries both facts: which union, and
+which case went unhandled. See `ProcessTools.DescribeFailure` and
+`ProcessDescriptionCommand`, which spell it exactly that way.
+
+Reuse case types **only** where the two unions genuinely describe the same
+outcomes, as here. Two unions that merely happen to have a similarly-named failure
+should declare their own.
 
 ### Codebase examples
 
@@ -59,27 +162,33 @@ var message = result switch
 **File**: `src/Twig.Domain/Services/Navigation/ActiveItemResult.cs`
 
 ```csharp
-public abstract record ActiveItemResult
-{
-    private ActiveItemResult() { }
+/// <summary>Active item was found in local cache.</summary>
+public sealed record Found(WorkItem WorkItem);
 
-    public sealed record Found(WorkItem WorkItem) : ActiveItemResult;
-    public sealed record NoContext : ActiveItemResult;
-    public sealed record FetchedFromAdo(WorkItem WorkItem) : ActiveItemResult;
-    public sealed record Unreachable(int Id, string Reason) : ActiveItemResult;
-}
+/// <summary>No active work item context is configured.</summary>
+public sealed record ActiveNoContext;
+
+/// <summary>Active item was fetched from Azure DevOps.</summary>
+public sealed record FetchedFromAdo(WorkItem WorkItem);
+
+/// <summary>Active item could not be reached.</summary>
+public sealed record ActiveUnreachable(int Id, string Reason);
+
+public union ActiveItemResult(Found, ActiveNoContext, FetchedFromAdo, ActiveUnreachable);
 ```
 
 Four distinct outcomes — `Found` and `FetchedFromAdo` carry a `WorkItem`;
-`Unreachable` carries an ID and reason; `NoContext` carries nothing. Consumers
-pattern-match to extract data:
+`ActiveUnreachable` carries an ID and reason; `ActiveNoContext` carries nothing.
+Consumers pattern-match on the bare case names to extract data:
 
 ```csharp
-// src/Twig.Mcp/Tools/ReadTools.cs
-if (resolveResult is ActiveItemResult.NoContext)
-    return McpResultBuilder.ToError("No active work item. Use twig_set first.");
-if (resolveResult is ActiveItemResult.Unreachable u)
-    return McpResultBuilder.ToError($"Work item #{u.Id} unreachable: {u.Reason}");
+// src/Twig.Mcp/Services/WorkItemResolver.cs
+if (resolved is ActiveNoContext)
+    return (null, await EnvelopeBuilder.ErrorAsync(
+        McpErrorCode.NoContext, "No active work item. Pass an explicit id.", ctx, ct));
+if (resolved is ActiveUnreachable u)
+    return (null, await EnvelopeBuilder.ErrorAsync(
+        McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct));
 ```
 
 #### `SyncResult`
@@ -87,39 +196,57 @@ if (resolveResult is ActiveItemResult.Unreachable u)
 **File**: `src/Twig.Domain/Services/Sync/SyncResult.cs`
 
 ```csharp
-public abstract record SyncResult
-{
-    private SyncResult() { }
+/// <summary>All items are already current — nothing to sync.</summary>
+public sealed record UpToDate;
 
-    public sealed record UpToDate : SyncResult;
-    public sealed record Updated(int ChangedCount) : SyncResult;
-    public sealed record Failed(string Reason) : SyncResult;
-    public sealed record Skipped(string Reason) : SyncResult;
-    public sealed record PartiallyUpdated(
-        int SavedCount,
-        IReadOnlyList<SyncItemFailure> Failures) : SyncResult;
-}
+/// <summary>Items were synced successfully.</summary>
+public sealed record Updated(int ChangedCount);
+
+/// <summary>Sync failed entirely.</summary>
+public sealed record SyncFailed(string Reason);
+
+/// <summary>Sync was skipped (e.g., no context).</summary>
+public sealed record Skipped(string Reason);
+
+/// <summary>Some items were saved successfully while others failed during fetch.</summary>
+public sealed record PartiallyUpdated(int SavedCount, IReadOnlyList<SyncItemFailure> Failures);
+
+/// <summary>The cache holds the item but it is older than the staleness window.</summary>
+public sealed record Stale(DateTimeOffset? LastSyncedAt);
+
+/// <summary>The item is not present in the local cache at all.</summary>
+public sealed record NotCached(int Id);
+
+public union SyncResult(UpToDate, Updated, SyncFailed, Skipped, PartiallyUpdated, Stale, NotCached);
 ```
 
-Five outcomes with varying data shapes. The renderer uses exhaustive matching
-with `UnreachableException`:
+Seven outcomes with varying data shapes. Note `SyncFailed` rather than a bare
+`Failed`, per the naming convention above. `SpectreRenderer.RenderWithSyncAsync`
+uses exhaustive matching with `UnreachableException`:
 
 ```csharp
-// src/Twig/Rendering/SpectreRenderer.cs (line 1484)
+// src/Twig/Rendering/SpectreRenderer.cs — RenderWithSyncAsync
 default:
-    throw new UnreachableException(
-        $"Unhandled SyncResult: {result.GetType().Name}");
+    throw new System.Diagnostics.UnreachableException(
+        $"Unhandled SyncResult: {result.Value?.GetType().Name}");
 ```
 
 ### Rules
 
-1. The `abstract record` constructor **must** be `private` — prevents external
-   subtyping that would break exhaustive switches.
-2. Every subtype **must** be `sealed record` — no further inheritance.
-3. Subtypes carry only the data relevant to their case. Do **not** put shared
-   properties on the base record.
-4. Every `switch` expression or statement **must** include a `default` arm that
-   throws `UnreachableException`.
+1. Declare Tier 1 types with the `union` keyword, listing the case types by name.
+   Rules that former revisions of this document imposed by hand — private
+   constructor, sealed subtypes, no shared base members — are enforced
+   **structurally** by the keyword and need no restating in code.
+2. Declare case types as **top-level sibling `sealed record`s**, not nested inside
+   the union.
+3. Case types carry only the data relevant to their case.
+4. Prefix a case type's name with its union's subject where a bare name would
+   collide at namespace scope (`ActiveNoContext` / `StatusNoContext`).
+5. Every `switch` expression or statement **must** include a `default` arm that
+   throws `UnreachableException`, and that message **must** name the union as a
+   literal and identify the case via `result.Value?.GetType().Name`.
+6. Reusing another union's case types is permitted where the outcomes are
+   genuinely the same, subject to rule 5 — see the ruling above.
 
 ---
 
@@ -248,13 +375,12 @@ public sealed class SeedPublishBatchResult
 {
     public IReadOnlyList<SeedPublishResult> Results { get; init; } = [];
     public IReadOnlyList<string> CycleErrors { get; init; } = [];
+    public IReadOnlyList<string> PreFlightErrors { get; init; } = [];
 
-    public bool HasErrors =>
-        CycleErrors.Count > 0 || Results.Any(r => r.Status == SeedPublishStatus.Error);
-    public int CreatedCount =>
-        Results.Count(r => r.Status == SeedPublishStatus.Created);
-    public int SkippedCount =>
-        Results.Count(r => r.Status == SeedPublishStatus.Skipped);
+    public bool HasErrors => CycleErrors.Count > 0 || PreFlightErrors.Count > 0
+        || Results.Any(r => r.Status is SeedPublishStatus.Error or SeedPublishStatus.ValidationFailed);
+    public int CreatedCount => Results.Count(r => r.Status == SeedPublishStatus.Created);
+    public int SkippedCount => Results.Count(r => r.Status == SeedPublishStatus.Skipped);
 }
 ```
 
@@ -299,7 +425,7 @@ with different data shapes?
   │
   ├── YES (2+ outcomes with different fields)
   │   └── Tier 1: Discriminated Union
-  │       abstract record + sealed subtypes
+  │       union keyword + top-level sibling records
   │
   └── NO
       │
@@ -396,8 +522,10 @@ logic in callers.
 ## Adding a New Result Type — Checklist
 
 1. Run through the [decision matrix](#decision-matrix) to pick a tier.
-2. If Tier 1: follow the [template](#template) with `private` constructor,
-   `sealed record` subtypes, and `UnreachableException` in all switches.
+2. If Tier 1: follow the [template](#template) — the `union` keyword with
+   top-level sibling `sealed record` case types, disambiguating prefixes where
+   names would collide, and `UnreachableException` in every switch's `default`
+   arm naming the union and reporting `result.Value?.GetType().Name`.
 3. If Tier 2: use `Result` / `Result<T>` from `Common/Result.cs` — do not
    create a new struct.
 4. If Tier 3: use `sealed class` with `init` properties; default collections

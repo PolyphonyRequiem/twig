@@ -102,7 +102,7 @@ internal static class McpResultBuilder
 
                 default:
                     throw new System.Diagnostics.UnreachableException(
-                        $"Unhandled StatusResult: {status.GetType().Name}");
+                        $"Unhandled StatusResult: {status.Value?.GetType().Name}");
             }
 
             WriteOptionalWorkspace(writer, workspace);
@@ -613,7 +613,7 @@ internal static class McpResultBuilder
             writer.WriteString("errorMessage", f.ErrorMessage);
         }),
         _ => throw new System.Diagnostics.UnreachableException(
-            $"Unhandled BranchLinkResult: {result.GetType().Name}"),
+            $"Unhandled BranchLinkResult: {result.Value?.GetType().Name}"),
     };
 
     public static CallToolResult FormatVerification(DescendantVerificationResult result, string? workspace) =>

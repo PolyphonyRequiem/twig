@@ -815,21 +815,21 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="targetId">Work item ID to set as the parent.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link parent")]
-    public async Task<int> LinkParent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, output, ct);
+    public async Task<int> LinkParent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, child ?? id, output, ct);
 
     /// <summary>Remove the parent link from the active work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link unparent")]
-    public async Task<int> LinkUnparent(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().UnparentAsync(output, ct);
+    public async Task<int> LinkUnparent([Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnparentAsync(child ?? id, output, ct);
 
     /// <summary>Remove the current parent and set a new one.</summary>
     /// <param name="targetId">Work item ID to set as the new parent.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("link reparent")]
-    public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
+    public async Task<int> LinkReparent([Argument] int targetId, [Argument] int? child = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, child ?? id, output, ct);
 
     /// <summary>Mark the active work item as blocked by another item (Predecessor link).</summary>
     /// <param name="targetId">Work item ID that must complete first (the blocker).</param>

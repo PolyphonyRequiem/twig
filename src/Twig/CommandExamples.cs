@@ -69,7 +69,7 @@ internal static class CommandExamples
         [
             "twig process layout Bug                      Show the Bug form's tabs, boxes, and fields",
             "twig process layout Bug --out layout.txt     Write the readable layout to a file",
-            "twig process layout Bug -o json --out l.json Write the machine-readable layout to a file",
+            "twig process layout Bug -o json --out l.json  Write the machine-readable layout to a file",
         ],
         ["process description"] =
         [
@@ -196,16 +196,19 @@ internal static class CommandExamples
         [
             "twig link parent 5678      Set #5678 as the parent of the active item",
             "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
+            "twig link parent 5678 --id 1234  Same, naming the child by option",
         ],
         ["link unparent"] =
         [
             "twig link unparent         Remove the parent link from the active item",
             "twig link unparent 1234    Remove the parent link from item #1234",
+            "twig link unparent --id 1234  Same, naming the item by option",
         ],
         ["link reparent"] =
         [
             "twig link reparent 5678        Move the active item under parent #5678",
             "twig link reparent 5678 1234   Move item #1234 under parent #5678",
+            "twig link reparent 5678 --id 1234  Same, naming the item by option",
         ],
         ["link predecessor"] =
         [
@@ -386,7 +389,7 @@ internal static class CommandExamples
         ["auth status"] =
         [
             "twig auth status               Inspect refresh-token store + cached ADO access token",
-            "twig auth status --output json Output token diagnostics as JSON",
+            "twig auth status --output json  Output token diagnostics as JSON",
         ],
         ["auth clear"] =
         [

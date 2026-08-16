@@ -235,28 +235,56 @@ PY
 run_mutant "M4-conflict-check-becomes-case-sensitive" "FlagsMatchingTheManifest_UseTheWorkspace"
 restore
 
-# ── M5: the override scope gains PERSISTENCE — acceptance 2 dies ───────────────
-# 🔴 The subtlest and most valuable mutant. AddConnectionServices is what registers
-# SqliteCacheStore; adding it back is exactly the "harmonise it with the workspace path"
-# edit a future maintainer would make, and it makes the override write a database.
-# Killed only by a test that asserts on the FILESYSTEM, never by one reading a success line.
+# ── M5: the override scope actually RESOLVES workspace persistence ─────────────
+# 🔴 The subtlest and most valuable mutant, and it took two attempts to make it a real one.
+#
+# The obvious mutation — add AddConnectionServices back — is an EQUIVALENT MUTANT, verified
+# by running the mutated binary: it writes nothing and the scratch dir stays empty. Two
+# independent reasons, both worth knowing:
+#   1. SqliteCacheStore is registered as a LAZY FACTORY ("created lazily on first resolution"),
+#      so registering it constructs nothing;
+#   2. this file's Ephemeral* registrations come AFTER it, and DI is last-wins, so the command
+#      still resolves the in-memory stores and the SQLite ones are never touched.
+# Registering persistence is therefore harmless; RESOLVING it is the defect. Mutating the
+# registration could never red, no matter how good the tests were.
+#
+# So the mutation moves UP to the thing that makes the branch reachable: the stores the
+# command actually resolves now come from the workspace's SQLite cache. That is exactly the
+# "harmonise the override path with the workspace path" edit a future maintainer would make,
+# and it is what acceptance 2 forbids.
+#
+# 🔴 What it actually breaks, measured rather than assumed: the mutated binary fails with
+# "No twig workspace found" instead of describing the process — SqliteCacheStore throws
+# WorkspaceNotFoundException before it can create anything. So the arm that catches this is
+# the ACCEPTANCE-1 one (the override works with no workspace), not the filesystem one. Worth
+# stating, because the natural expectation is a stray .twig/ directory, and a harness that
+# expected the wrong arm would report WRONG ARMS on a correctly-caught mutant.
+#
+# The filesystem arm (Override_WritesNothingToTheFilesystem) still earns its place: it is the
+# only thing standing between this design and a variant that resolves persistence somewhere
+# a workspace DOES exist, where the write would succeed silently.
 python3 - <<'PY'
 p = "src/Twig/ProcessOverrides/ProcessOverrideScope.cs"
 s = open(p).read()
-# 🔴 The `using` must be added too. AddConnectionServices lives in Twig.Infrastructure, which
-# this file deliberately does NOT import — omitting it made the mutant fail with CS1061 rather
-# than be caught, proving nothing. A mutant must be a VALID alternative implementation.
 anchor = "using Twig.Infrastructure.Config;"
 assert s.count(anchor) == 1
 s = s.replace(anchor, anchor + "\nusing Twig.Infrastructure;")
 old = "        services.AddSingleton(config);\n        services.AddTwigNetworkServices(config);"
 new = ("        services.AddSingleton(config);\n"
-       "        services.AddConnectionServices(config, Path.Combine(Directory.GetCurrentDirectory(), \".twig\"));\n"
-       "        services.AddTwigNetworkServices(config);")
+       "        services.AddTwigNetworkServices(config);\n"
+       "        services.AddConnectionServices(config, Path.Combine(Directory.GetCurrentDirectory(), \".twig\"));")
 assert s.count(old) == 1
-open(p, "w").write(s.replace(old, new))
+s = s.replace(old, new)
+
+# Drop the ephemeral store registrations so the SQLite ones above are what the command
+# resolves — i.e. the override now reads (and creates) a workspace database.
+import re
+start = s.index("        services.AddSingleton<IProcessTypeStore>(sp =>")
+end = s.index("        services.AddSingleton(sp => new ProcessCommand(")
+s = s[:start] + s[end:]
+open(p, "w").write(s)
 PY
-run_mutant "M5-override-scope-gains-persistence" "Override_WritesNothingToTheFilesystem"
+run_mutant "M5-override-scope-gains-persistence" "Overrides_AreAcceptedByTheParser_WithNoWorkspace"
 restore
 
 # ── M6: the two refusals swap WORDING while BOTH keep firing ──────────────────

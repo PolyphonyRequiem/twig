@@ -385,11 +385,28 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     /// </summary>
     public async Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct)
     {
+        var (items, _) = await FetchBatchWithLinksAsync(ids, ct);
+        return items;
+    }
 
+    /// <summary>
+    /// Fetches a SET of work items together with the non-hierarchy edges among them (ADO #154),
+    /// chunking into groups of ≤200 to respect the ADO batch limit.
+    /// </summary>
+    /// <remarks>
+    /// Issues exactly the same requests as <see cref="FetchBatchAsync"/> — the batch URL has
+    /// always carried <c>$expand=relations</c>, so the links come back on the existing round
+    /// trips and this overload simply stops discarding them.
+    /// </remarks>
+    public async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+        IReadOnlyList<int> ids,
+        CancellationToken ct = default)
+    {
         if (ids.Count <= MaxBatchSize)
             return await FetchBatchChunkAsync(ids, ct);
 
         var items = new List<WorkItem>(ids.Count);
+        var links = new List<WorkItemLink>();
         for (var offset = 0; offset < ids.Count; offset += MaxBatchSize)
         {
             var count = Math.Min(MaxBatchSize, ids.Count - offset);
@@ -397,14 +414,17 @@ internal sealed class AdoRestClient : IAdoWorkItemService
             for (var i = offset; i < offset + count; i++)
                 chunk.Add(ids[i]);
 
-            var chunkItems = await FetchBatchChunkAsync(chunk, ct);
+            var (chunkItems, chunkLinks) = await FetchBatchChunkAsync(chunk, ct);
             items.AddRange(chunkItems);
+            links.AddRange(chunkLinks);
         }
 
-        return items;
+        return (items, links);
     }
 
-    private async Task<IReadOnlyList<WorkItem>> FetchBatchChunkAsync(IReadOnlyList<int> ids, CancellationToken ct)
+    private async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchChunkAsync(
+        IReadOnlyList<int> ids,
+        CancellationToken ct)
     {
         var idsCsv = string.Join(',', ids);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems?ids={idsCsv}&$expand=relations&api-version={AdoApiVersions.WorkItems}";
@@ -414,17 +434,21 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoBatchWorkItemResponse, ct);
 
         if (result?.Value is null || result.Value.Count == 0)
-            return Array.Empty<WorkItem>();
+            return (Array.Empty<WorkItem>(), Array.Empty<WorkItemLink>());
 
         var lookup = await GetFieldDefLookupAsync(ct);
         var items = new List<WorkItem>(result.Value.Count);
+        var links = new List<WorkItemLink>();
         foreach (var dto in result.Value)
         {
-            var snapshot = AdoResponseMapper.MapToSnapshot(dto, lookup);
+            // MapToSnapshotWithLinks, not MapToSnapshot: the relations are already on the wire
+            // (see $expand=relations above) and the single-item mapper discarded them (ADO #154).
+            var (snapshot, itemLinks) = AdoResponseMapper.MapToSnapshotWithLinks(dto, lookup);
             items.Add(_mapper.Map(snapshot));
+            links.AddRange(itemLinks);
         }
 
-        return items;
+        return (items, links);
     }
 
     // ── Work item history (twig#241) ────────────────────────────────

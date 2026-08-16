@@ -338,4 +338,60 @@ public sealed class SyncCoordinator
             await _linkRepo.SaveLinksAsync(itemId, links, ct);
         return links;
     }
+
+    /// <summary>
+    /// Fetches a SET of work items with their non-hierarchy edges from ADO, persists both,
+    /// and returns the edges (ADO #154). Requires <see cref="IWorkItemLinkRepository"/> to be
+    /// provided via the 5-parameter constructor for the links to be persisted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Costs no additional ADO requests over a plain batch fetch — the batch URL already
+    /// expands relations.
+    /// </para>
+    /// <para>
+    /// 🔴 Link persistence is per SOURCE id and replaces that id's whole edge set, so every
+    /// requested id must be written even when it has no edges. Writing only the ids that came
+    /// back with links would leave a previously-linked item's stale edges in the cache after
+    /// its last link was removed in ADO.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<WorkItemLink>> SyncLinksForSetAsync(IReadOnlyList<int> itemIds, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
+        if (itemIds.Count == 0)
+            return Array.Empty<WorkItemLink>();
+
+        var (fetched, links) = await _adoService.FetchBatchWithLinksAsync(itemIds, ct);
+
+        foreach (var item in fetched)
+            await _protectedCacheWriter.SaveProtectedAsync(item, ct);
+
+        if (_linkRepo is not null)
+        {
+            var bySource = new Dictionary<int, List<WorkItemLink>>();
+            foreach (var link in links)
+            {
+                if (!bySource.TryGetValue(link.SourceId, out var bucket))
+                {
+                    bucket = [];
+                    bySource[link.SourceId] = bucket;
+                }
+
+                bucket.Add(link);
+            }
+
+            // Every FETCHED id is written, including those with no edges — see the remarks above.
+            foreach (var item in fetched)
+            {
+                var itemLinks = bySource.TryGetValue(item.Id, out var found)
+                    ? (IReadOnlyList<WorkItemLink>)found
+                    : Array.Empty<WorkItemLink>();
+                await _linkRepo.SaveLinksAsync(item.Id, itemLinks, ct);
+            }
+        }
+
+        return links;
+    }
 }

@@ -1,1 +1,2 @@
 #nullable enable
+Twig.Infrastructure.Persistence.SqliteWorkItemLinkRepository.GetLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!

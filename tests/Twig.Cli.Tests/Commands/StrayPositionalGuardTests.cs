@@ -139,6 +139,45 @@ public sealed class StrayPositionalGuardTests
             customMessage: "init takes org + project — two unrelated identifiers, not a phrase that "
                 + "lost its quotes. A quoting hint there would be a confidently wrong remedy.");
 
+    /// <summary>
+    /// AB#501 — <c>show-batch</c> gained an <c>[Argument]</c> slot and must NOT gain an
+    /// <see cref="StrayPositionalGuard.Arity"/> entry with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 Measured, not reasoned. With <c>["show-batch"] = 1</c> injected, this guard emits
+    /// <c>Did you mean: twig show-batch "154 140"</c> — and that spelling RUNS, exits 0, and
+    /// returns zero items, because <c>show-batch</c> splits its value on COMMAS and discards
+    /// <c>"154 140"</c> as one non-numeric segment. The hint would send a user to a silent
+    /// false green, which is the exact defect
+    /// <see cref="StrayPositionalGuard"/>'s own summary forbids porting it into.
+    /// </para>
+    /// <para>
+    /// The registry is opt-in — an absent chain is routed normally, never rejected — so
+    /// leaving <c>show-batch</c> out costs the positional spelling nothing. Verified against
+    /// the real binary: <c>twig show-batch 154,140 -o json</c> returns both items with no
+    /// entry present.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ShowBatch_IsDeliberatelyAbsent_BecauseItsPositionalIsACommaList()
+        => StrayPositionalGuard.Arity.ShouldNotContainKey("show-batch",
+            customMessage: "show-batch takes a COMMA-separated id list, not free text. The hint this "
+                + "registry would emit ('twig show-batch \"154 140\"') parses, exits 0, and returns "
+                + "nothing — a hint pointing at a silent false green.");
+
+    /// <summary>
+    /// The absent-entry decision above is only safe BECAUSE absence routes normally. Pin that,
+    /// or a future change to <see cref="StrayPositionalGuard.Validate"/> could turn the
+    /// deliberate omission into a rejection of the spelling AB#501 made legal.
+    /// </summary>
+    [Theory]
+    [InlineData("show-batch|154")]
+    [InlineData("show-batch|154,140,390")]
+    public void ShowBatchPositional_IsRoutedNormally_DespiteHavingNoArityEntry(string argv)
+        => StrayPositionalGuard.Validate(argv.Split('|')).ShouldBeNull(
+            "AB#501 made the bare id list a working spelling; this guard must never reject it.");
+
     // ---- Drift guards. Arity is hand-maintained, and a hand-maintained list is exactly how
     // the whole bench group shipped unreachable (ADO #148-150, 3,072 CLI tests green).
     // These fail the BUILD when a command's [Argument] count and the registry disagree.
@@ -249,6 +288,7 @@ public sealed class StrayPositionalGuardTests
     [InlineData("Edit", "field", "fieldArg")]
     [InlineData("Init", "org", "orgArg")]
     [InlineData("Init", "project", "projectArg")]
+    [InlineData("ShowBatch", "batch", "batchArg")]
     public void NamedOption_AndItsPositionalTwin_BothExist(string method, string named, string positional)
     {
         var parameters = typeof(TwigCommands)

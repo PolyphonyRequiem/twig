@@ -56,6 +56,15 @@ internal static class StrayPositionalGuard
     /// wrong remedy — the false-RED half of this repo's recurring defect. Only commands whose
     /// LAST positional is free text belong here.
     /// </para>
+    /// <para>
+    /// 🔴 <c>show-batch</c> is deliberately ABSENT for the same reason, established by
+    /// measurement on AB#501 rather than by reading. Its positional is a COMMA-separated id
+    /// list, so surplus bare words are not a phrase that lost its quotes: the hint this
+    /// registry would emit, <c>twig show-batch "154 140"</c>, parses and exits 0 having
+    /// returned NOTHING, because the splitter discards <c>"154 140"</c> as one non-numeric
+    /// segment. That is a hint pointing at a silent false green — precisely what the summary
+    /// above forbids. Only commands whose LAST positional is free text belong here.
+    /// </para>
     /// </summary>
     internal static readonly Dictionary<string, int> Arity = new(StringComparer.Ordinal)
     {

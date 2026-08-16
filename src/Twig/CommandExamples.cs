@@ -39,6 +39,7 @@ internal static class CommandExamples
         ],
         ["show-batch"] =
         [
+            "twig show-batch 1234,5678,9012         Batch lookup work items",
             "twig show-batch --batch 1234,5678,9012 --output json  Batch lookup as JSON array",
             "twig show-batch --batch 42             Single item batch lookup",
         ],

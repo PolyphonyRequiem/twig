@@ -350,6 +350,9 @@ public sealed class SelfUpdaterTests : IDisposable
 
         var fileSystem = Substitute.For<IFileSystem>();
 
+        // The running exe exists — this is what selects the Windows .old rename branch.
+        fileSystem.FileExists(currentExe).Returns(true);
+
         // All other FS operations work normally
         fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
             .Do(ci => Directory.CreateDirectory((string)ci[0]));
@@ -363,14 +366,17 @@ public sealed class SelfUpdaterTests : IDisposable
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, fileSystem, currentExe);
 
-        // Act — should succeed using FileMove with overwrite: true
+        // Act — should succeed: stage to .tmp, move live exe aside to .old, rename .tmp into place
         var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null);
 
         // Assert
         result.MainBinaryPath.ShouldBe(currentExe);
-        // Verify the move was called with overwrite: true
+        // AB#80: the new binary is staged to a sibling .tmp, never copied over the live target.
+        fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe + ".tmp", true);
+        fileSystem.DidNotReceive().FileCopy(Arg.Any<string>(), currentExe, Arg.Any<bool>());
+        // The Windows rename trick still moves the locked image aside first.
         fileSystem.Received().FileMove(currentExe, currentExe + ".old", true);
-        fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe, true);
+        fileSystem.Received().FileMove(currentExe + ".tmp", currentExe, true);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -849,6 +855,182 @@ public sealed class SelfUpdaterTests : IDisposable
             Arg.Is<string>(s => s.EndsWith(".tmp")),
             expectedFinalPath,
             true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#80 — the running binary must never be overwritten in place
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// AB#80 regression. Linux raises ETXTBSY on a write to a file currently being executed,
+    /// so the main binary must be copied to a sibling .tmp and renamed into place — never
+    /// FileCopy'd directly over the live target. Asserts the call sequence rather than the
+    /// live self-replace, which a unit test cannot perform.
+    /// </summary>
+    [Fact]
+    public async Task UpdateBinaryAsync_MainBinary_NeverCopiedDirectlyOverLiveTarget()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var zipBytes = CreateZipArchive((ExeName, "new-main"u8.ToArray()));
+        var fileSystem = RecordingFileSystem(out var calls);
+
+        var sut = new SelfUpdater(new FakeDownloader(zipBytes), fileSystem, currentExe);
+        await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-x64.zip", null);
+
+        // The defect: FileCopy(extracted, currentExe) — a direct overwrite of the live binary.
+        fileSystem.DidNotReceive().FileCopy(Arg.Any<string>(), currentExe, Arg.Any<bool>());
+
+        // The fix: copy to the .tmp sibling, then rename it into place.
+        fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe + ".tmp", true);
+        fileSystem.Received().FileMove(currentExe + ".tmp", currentExe, true);
+
+        // Ordering: the copy must precede the rename that commits it.
+        var copyIndex = calls.IndexOf($"copy->{currentExe}.tmp");
+        var moveIndex = calls.IndexOf($"move:{currentExe}.tmp->{currentExe}");
+        copyIndex.ShouldBeGreaterThanOrEqualTo(0);
+        moveIndex.ShouldBeGreaterThan(copyIndex);
+    }
+
+    /// <summary>
+    /// AB#80 — the .tmp sibling must stay consistent with the name
+    /// <see cref="FileLockProbe.TryRemoveStaleTemp"/> cleans, or a crashed install leaves junk
+    /// the next run no longer recognises.
+    /// </summary>
+    [Fact]
+    public async Task UpdateBinaryAsync_MainBinary_StaleTmpSiblingRemovedAndNotLeftBehind()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+        File.WriteAllText(currentExe + ".tmp", "stale-leftover");
+
+        var zipBytes = CreateZipArchive((ExeName, "new-main"u8.ToArray()));
+        var sut = new SelfUpdater(new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+
+        await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-x64.zip", null);
+
+        File.Exists(currentExe + ".tmp").ShouldBeFalse();
+        File.ReadAllBytes(currentExe).ShouldBe("new-main"u8.ToArray());
+    }
+
+    /// <summary>
+    /// AB#80 partial-failure atomicity: stage everything, then swap. Every FileCopy to a .tmp
+    /// must happen before the first FileMove that commits one, so a failure mid-copy leaves no
+    /// mixed-version install.
+    /// </summary>
+    [Fact]
+    public async Task UpdateBinaryAsync_StagesAllBinariesBeforeCommittingAny()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var zipBytes = CreateZipArchive(
+            (ExeName, "new-main"u8.ToArray()),
+            (CompanionExe, "new-companion"u8.ToArray()),
+            (CompanionExe2, "new-companion2"u8.ToArray()));
+
+        var fileSystem = RecordingFileSystem(out var calls);
+        var sut = new SelfUpdater(new FakeDownloader(zipBytes), fileSystem, currentExe);
+
+        await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-x64.zip",
+            new[] { CompanionExe, CompanionExe2 });
+
+        var stageCalls = calls.Where(c => c.StartsWith("copy->") && c.EndsWith(".tmp")).ToList();
+        var commitCalls = calls.Where(c => c.StartsWith("move:") && c.Contains(".tmp->")).ToList();
+
+        // Precondition: three binaries staged and three committed, or the ordering claim is vacuous.
+        stageCalls.Count.ShouldBe(3);
+        commitCalls.Count.ShouldBe(3);
+
+        var lastStage = calls.LastIndexOf(stageCalls[^1]);
+        var firstCommit = calls.IndexOf(commitCalls[0]);
+        firstCommit.ShouldBeGreaterThan(lastStage);
+    }
+
+    /// <summary>
+    /// AB#80 — the live reproduction, Linux only. Executes a real binary and then updates the
+    /// file it is running from. Against a direct FileCopy this fails with
+    /// "Text file busy" (ETXTBSY); against copy-to-.tmp + rename it succeeds.
+    /// </summary>
+    [Fact]
+    public async Task UpdateBinaryAsync_TargetIsCurrentlyExecuting_Succeeds()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        // A real ELF we can execute and then replace. /bin/sleep exists on every Linux/macOS box.
+        var source = File.Exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
+        if (!File.Exists(source)) return;
+
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.Copy(source, currentExe);
+        File.SetUnixFileMode(currentExe,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        using var running = System.Diagnostics.Process.Start(currentExe, "30");
+        running.ShouldNotBeNull();
+        try
+        {
+            // Precondition: the kernel really does refuse an in-place write while it executes.
+            // Without this the test could pass for the wrong reason on a platform without ETXTBSY.
+            var busy = false;
+            try { File.Copy(source, currentExe, overwrite: true); }
+            catch (IOException) { busy = true; }
+            busy.ShouldBeTrue("expected ETXTBSY on a write to the executing binary");
+
+            var newContent = File.ReadAllBytes(source);
+            var tarGz = CreateTarGzArchive((ExeName, newContent));
+            var sut = new SelfUpdater(new FakeDownloader(tarGz), new DefaultFileSystem(), currentExe);
+
+            await sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz", null);
+
+            File.ReadAllBytes(currentExe).ShouldBe(newContent);
+        }
+        finally
+        {
+            try { running!.Kill(); running.WaitForExit(5_000); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// An <see cref="IFileSystem"/> that performs real I/O while recording the copy/move calls
+    /// in order, so tests can assert the stage-then-commit sequence.
+    /// </summary>
+    private static IFileSystem RecordingFileSystem(out List<string> calls)
+    {
+        var recorded = new List<string>();
+        calls = recorded;
+        var real = new DefaultFileSystem();
+        var fs = Substitute.For<IFileSystem>();
+
+        fs.FileExists(Arg.Any<string>()).Returns(ci => real.FileExists((string)ci[0]));
+        fs.When(x => x.FileDelete(Arg.Any<string>())).Do(ci => { try { real.FileDelete((string)ci[0]); } catch { } });
+        fs.When(x => x.CreateDirectory(Arg.Any<string>())).Do(ci => real.CreateDirectory((string)ci[0]));
+        fs.When(x => x.DeleteDirectory(Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci => { try { real.DeleteDirectory((string)ci[0], (bool)ci[1]); } catch { } });
+        fs.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci => real.ExtractZipToDirectory((string)ci[0], (string)ci[1], (bool)ci[2]));
+        fs.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(ci => real.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
+        fs.FileCreate(Arg.Any<string>()).Returns(ci => real.FileCreate((string)ci[0]));
+        fs.FileOpenRead(Arg.Any<string>()).Returns(ci => real.FileOpenRead((string)ci[0]));
+        fs.When(x => x.SetUnixFileMode(Arg.Any<string>(), Arg.Any<UnixFileMode>())).Do(_ => { });
+
+        fs.When(x => x.FileCopy(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci =>
+            {
+                recorded.Add($"copy->{(string)ci[1]}");
+                real.FileCopy((string)ci[0], (string)ci[1], (bool)ci[2]);
+            });
+        fs.When(x => x.FileMove(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci =>
+            {
+                recorded.Add($"move:{(string)ci[0]}->{(string)ci[1]}");
+                real.FileMove((string)ci[0], (string)ci[1], (bool)ci[2]);
+            });
+
+        return fs;
     }
 
     // ═══════════════════════════════════════════════════════════════

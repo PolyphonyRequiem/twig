@@ -4,7 +4,21 @@ namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
 /// Downloads and applies self-update binaries from GitHub Releases.
-/// Handles platform-specific file-lock strategies (Windows rename trick vs. Unix direct overwrite).
+/// <para>
+/// Every binary — main and companion alike, on every platform — is written to a sibling
+/// <c>.tmp</c> file and then renamed into place. A running executable can never be
+/// overwritten in place: Linux raises <c>ETXTBSY</c> ("Text file busy") on a write to a
+/// file currently being executed, and Windows holds an exclusive image lock. <c>rename(2)</c>
+/// works on both because the running process keeps the old inode / image alive; the sibling
+/// <c>.tmp</c> keeps the rename on one filesystem, which matters because <c>rename(2)</c>
+/// cannot cross mount points. Windows additionally renames the live target to <c>.old</c>
+/// first, because it will not let a locked image be replaced by a rename.
+/// </para>
+/// <para>
+/// Installs are staged-then-committed: all binaries are copied to their <c>.tmp</c> siblings
+/// before any of them is renamed into place, so a failure during download/extract/copy leaves
+/// every live binary untouched rather than producing a mixed-version install.
+/// </para>
 /// Also supports companion binary extraction via <see cref="InstallCompanionsOnlyAsync"/>.
 /// </summary>
 public sealed class SelfUpdater : ICompanionInstaller
@@ -63,10 +77,14 @@ public sealed class SelfUpdater : ICompanionInstaller
             var extractedBinary = FindBinary(tempExtractDir, exeName)
                 ?? throw new InvalidOperationException($"Could not find '{exeName}' in downloaded archive.");
 
-            InstallBinaryToDir(extractedBinary, currentExe);
+            // Stage everything first, commit second: a failure while copying leaves every
+            // live binary untouched rather than producing a mixed-version install.
+            FileLockProbe.TryRemoveStaleTemp(currentExe);
+            StageBinary(extractedBinary, currentExe);
+            var staged = StageCompanions(tempExtractDir, companionExeNames, currentDir);
 
-            // Install companions
-            var companions = InstallCompanions(tempExtractDir, companionExeNames, currentDir);
+            CommitBinary(currentExe);
+            var companions = CommitCompanions(staged);
 
             return new UpdateResult(currentExe, companions);
         }
@@ -95,7 +113,7 @@ public sealed class SelfUpdater : ICompanionInstaller
         var tempExtractDir = ExtractArchive(tempArchive, archiveName);
         try
         {
-            return InstallCompanions(tempExtractDir, companionExeNames, installDir);
+            return CommitCompanions(StageCompanions(tempExtractDir, companionExeNames, installDir));
         }
         finally
         {
@@ -236,21 +254,42 @@ public sealed class SelfUpdater : ICompanionInstaller
         return _fileSystem.EnumerateFiles(directory, binaryName, SearchOption.AllDirectories).FirstOrDefault();
     }
 
-    private void InstallBinaryToDir(string extractedBinary, string targetPath)
+    /// <summary>
+    /// A binary copied to its <c>.tmp</c> sibling and awaiting the rename that commits it.
+    /// </summary>
+    private readonly record struct StagedBinary(string TargetPath);
+
+    /// <summary>
+    /// Copies <paramref name="extractedBinary"/> to <paramref name="targetPath"/> + <c>.tmp</c>.
+    /// Never writes to <paramref name="targetPath"/> itself — that file may be the executable
+    /// this process is running from, and writing to it raises <c>ETXTBSY</c> on Linux.
+    /// </summary>
+    private void StageBinary(string extractedBinary, string targetPath)
     {
-        if (OperatingSystem.IsWindows())
+        _fileSystem.FileCopy(extractedBinary, targetPath + ".tmp", overwrite: true);
+    }
+
+    /// <summary>
+    /// Renames the staged <c>.tmp</c> over <paramref name="targetPath"/> and restores the
+    /// executable bit on Unix. On Windows the live target is moved aside to <c>.old</c> first,
+    /// because a locked image cannot be replaced by a rename.
+    /// </summary>
+    private void CommitBinary(string targetPath)
+    {
+        var tempPath = targetPath + ".tmp";
+
+        if (OperatingSystem.IsWindows() && _fileSystem.FileExists(targetPath))
         {
-            // Windows file-lock strategy: rename running exe → .old, copy new exe
+            // Windows rename trick: the running exe cannot be replaced, but it can be renamed.
             var oldPath = targetPath + ".old";
             _fileSystem.FileMove(targetPath, oldPath, overwrite: true);
-            _fileSystem.FileCopy(extractedBinary, targetPath, overwrite: true);
         }
-        else
-        {
-            // Unix: direct overwrite (running binary is not locked)
-            _fileSystem.FileCopy(extractedBinary, targetPath, overwrite: true);
 
-            // chmod +x
+        _fileSystem.FileMove(tempPath, targetPath, overwrite: true);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            // chmod +x — the archive's mode bits do not survive extraction.
             _fileSystem.SetUnixFileMode(targetPath,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
@@ -258,48 +297,52 @@ public sealed class SelfUpdater : ICompanionInstaller
         }
     }
 
-    private IReadOnlyList<CompanionUpdateResult> InstallCompanions(
+    /// <summary>
+    /// Copies every companion found in <paramref name="extractDir"/> to its <c>.tmp</c> sibling
+    /// in <paramref name="installDir"/>. Companions missing from the archive are reported with
+    /// <c>Found: false</c> and carry no staged file.
+    /// </summary>
+    private List<(CompanionUpdateResult Result, StagedBinary? Staged)> StageCompanions(
         string extractDir,
         IReadOnlyList<string>? companionExeNames,
         string installDir)
     {
+        var staged = new List<(CompanionUpdateResult, StagedBinary?)>();
         if (companionExeNames is null or { Count: 0 })
-            return [];
+            return staged;
 
-        var results = new List<CompanionUpdateResult>(companionExeNames.Count);
         foreach (var companionExe in companionExeNames)
         {
             var extracted = FindBinary(extractDir, companionExe);
             if (extracted is null)
             {
-                results.Add(new CompanionUpdateResult(companionExe, Found: false, InstalledPath: null));
+                staged.Add((new CompanionUpdateResult(companionExe, Found: false, InstalledPath: null), null));
                 continue;
             }
 
             var targetPath = Path.Combine(installDir, companionExe);
-            var tempTargetPath = targetPath + ".tmp";
+            StageBinary(extracted, targetPath);
+            staged.Add((
+                new CompanionUpdateResult(companionExe, Found: true, InstalledPath: targetPath),
+                new StagedBinary(targetPath)));
+        }
 
-            // Copy to temp location first for atomic install
-            _fileSystem.FileCopy(extracted, tempTargetPath, overwrite: true);
+        return staged;
+    }
 
-            if (OperatingSystem.IsWindows() && _fileSystem.FileExists(targetPath))
-            {
-                // Windows rename trick: companion may be running (e.g. twig-mcp as MCP server)
-                var oldPath = targetPath + ".old";
-                try { _fileSystem.FileMove(targetPath, oldPath, overwrite: true); } catch { }
-            }
+    /// <summary>
+    /// Renames every staged companion into place. Called only after all staging has succeeded.
+    /// </summary>
+    private IReadOnlyList<CompanionUpdateResult> CommitCompanions(
+        List<(CompanionUpdateResult Result, StagedBinary? Staged)> staged)
+    {
+        var results = new List<CompanionUpdateResult>(staged.Count);
+        foreach (var (result, entry) in staged)
+        {
+            if (entry is { } binary)
+                CommitBinary(binary.TargetPath);
 
-            _fileSystem.FileMove(tempTargetPath, targetPath, overwrite: true);
-
-            if (!OperatingSystem.IsWindows())
-            {
-                _fileSystem.SetUnixFileMode(targetPath,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-            }
-
-            results.Add(new CompanionUpdateResult(companionExe, Found: true, InstalledPath: targetPath));
+            results.Add(result);
         }
 
         return results;

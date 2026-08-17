@@ -105,6 +105,20 @@ internal static class Fixture
     /// </summary>
     internal const int AdvancedRemoteRevision = 14;
 
+    /// <summary>
+    /// A remote revision that has NOT moved since the host read — the settled case, where the
+    /// queue accepts the write instead of reporting a collision.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>Without this the sink's accept path was unreachable from the probe.</b> Every
+    /// submit the floor made went through <see cref="AdvancedRemoteRevision"/>, so the sink
+    /// could have returned any revision it liked — or stopped queueing entirely — and nothing
+    /// would have gone red. That is the AB#341 shape: a floor that gates a behaviour it never
+    /// executes. Deliberately equal to <see cref="ReadRevision"/> rather than restating <c>12</c>,
+    /// so a fixture edit that moves the read revision cannot silently make this one stale.
+    /// </remarks>
+    internal const int SettledRemoteRevision = ReadRevision;
+
     // ═══════════════════════════════════════════════════════════════════════════
     //  0006 §8, M5: "a state with a legal and an illegal target"
     // ═══════════════════════════════════════════════════════════════════════════

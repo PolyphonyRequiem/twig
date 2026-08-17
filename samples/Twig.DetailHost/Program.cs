@@ -74,7 +74,9 @@ internal static class Program
 
         Console.WriteLine(
             "PROBE OK: all three field states, a non-custom page, and a contribution control exercised, " +
-            "the editable control set demonstrably followed the sink, and the state-transition " +
+            "the editable control set demonstrably followed the sink, the settled write reported " +
+            $"Saved(Revision = {Fixture.ReadRevision}) unchanged from the read revision, and the " +
+            "state-transition " +
             $"filter offered exactly [{string.Join(", ", Fixture.ExpectedOfferedStates)}] from " +
             $"'{Fixture.CurrentState}' while refusing '{Fixture.IllegalTarget}' at entry.");
         return 0;
@@ -338,6 +340,47 @@ internal static class Program
             failures.Add(
                 "sink B accepted a write to 'System.Title', which it never declared — a sink that " +
                 "takes an undeclared field is the silent-loss failure this contract exists to prevent");
+        }
+
+        // 7. AB#353: the SETTLED path — no collision — and what Saved.Revision means there.
+        //    A separate sink is built because the one above is deliberately stale, so arms 1-6
+        //    never once reached the accept branch.
+        var settledSink = new ReviewQueueSink(
+            Fixture.ReadRevision, Fixture.SettledRemoteRevision, Fixture.RemoteValues);
+        var settled = settledSink.SubmitAsync(
+            new FieldEdit("System.Description", "before", "after")).GetAwaiter().GetResult();
+
+        if (settled is not Saved saved)
+        {
+            failures.Add(
+                "sink B did not report Saved for a declared field written against an UNMOVED " +
+                $"revision (read {Fixture.ReadRevision}, remote {Fixture.SettledRemoteRevision}) — " +
+                $"it reported {settled.GetType().Name}, so the accept path is unreachable and every " +
+                "revision assertion below is vacuous");
+        }
+        else if (saved.Revision != Fixture.ReadRevision)
+        {
+            // 🔴 The load-bearing arm. Saved.Revision is the revision the change was BASED ON,
+            // so it must come back UNCHANGED. `_readRevision + 1` mints a server revision the
+            // sink is in no position to know, and disagrees with Sink A about what the field
+            // means — the inconsistency between the two reference implementations that Sink B
+            // exists specifically to make impossible.
+            failures.Add(
+                $"sink B reported Saved(Revision = {saved.Revision}) against a read revision of " +
+                $"{Fixture.ReadRevision} — Saved.Revision is the revision a change was BASED ON, " +
+                "never a new one the sink minted, and Sink A (twig's staging store) returns it " +
+                "unchanged; two reference sinks disagreeing about this field's meaning is exactly " +
+                "what the second implementation exists to prevent");
+        }
+
+        // Queueing must actually have happened, or the revision arm above would be asserting
+        // the revision of a write that never landed.
+        if (settledSink.Queued.Count != 1)
+        {
+            failures.Add(
+                $"sink B reported Saved but holds {settledSink.Queued.Count} queued proposal(s), " +
+                "expected exactly 1 — the accept arm is reporting success over a store that took " +
+                "nothing, so the revision check above proves nothing about a persisted change");
         }
 
         return failures;

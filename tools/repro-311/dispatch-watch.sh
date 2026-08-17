@@ -99,6 +99,9 @@ OUT_ROOT="${TWIG_TEST_LOG_DIR:-$REPO_ROOT/artifacts/test-logs}"
 SNAPSHOTS="${TWIG_311_SNAPSHOTS:-3}"
 SNAP_GAP="${TWIG_311_SNAP_GAP:-15}"
 SELFTEST="${TWIG_311_SELFTEST:-0}"
+# TWIG_311_SUITE=Cli narrows to the historical single-project run; empty (the
+# default) uses CI's wide invocation, which is where the stall reproduces.
+SUITE="${TWIG_311_SUITE:-}"
 
 if [ "$SELFTEST" = "1" ]; then
   STALL_SECS="${TWIG_311_STALL_SECS:-45}"
@@ -163,7 +166,48 @@ snapshot_side() {
 }
 
 # ---------------------------------------------------------------------------
-# watcher: runs in background; trips on a trace-file mtime gap.
+# newest_trace_mtime <trace-dir-or-file>
+#
+# TWIG_TEST_TRACE names a DIRECTORY (AB#390): each assembly writes
+# <assembly>.tsv into it, because CI's single invocation runs six assemblies in
+# parallel PROCESSES and the hook's in-process lock cannot serialise across
+# process boundaries.
+#
+# 🔴 This watcher originally passed a FILE and stat'ed that file. Against the
+# directory-mode hook the file stayed 0 bytes forever, the `[ -s ]` guard
+# skipped every iteration, and the watcher NEVER TRIPPED — a silent no-op that
+# looks exactly like a healthy run. Verified: TWIG_311_SELFTEST=1 reported
+# `tripped=0 ... SELFTEST FAILED` before this fix and passes after.
+#
+# Dispatch is alive if ANY assembly is still writing, so the freshest mtime
+# across the directory is the signal. Emits nothing when no trace exists yet.
+# ---------------------------------------------------------------------------
+newest_trace_mtime() {
+  local t="$1"
+  if [ -d "$t" ]; then
+    find "$t" -maxdepth 1 -name '*.tsv' -size +0c -printf '%T@\n' 2>/dev/null \
+      | cut -d. -f1 | sort -n | tail -1
+  elif [ -s "$t" ]; then
+    stat -c %Y "$t" 2>/dev/null
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# newest_trace_tail <trace-dir-or-file> — last boundary line actually written.
+# ---------------------------------------------------------------------------
+newest_trace_tail() {
+  local t="$1" f
+  if [ -d "$t" ]; then
+    f="$(find "$t" -maxdepth 1 -name '*.tsv' -size +0c -printf '%T@ %p\n' 2>/dev/null \
+          | sort -n | tail -1 | cut -d' ' -f2-)"
+    [ -n "$f" ] && printf '%s: %s\n' "$(basename "$f")" "$(tail -1 "$f")"
+  else
+    [ -s "$t" ] && tail -1 "$t"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# watcher: runs in background; trips on a trace mtime gap.
 # ---------------------------------------------------------------------------
 watch_dispatch() {
   local trace="$1" dest="$2" runner_pid="$3"
@@ -171,11 +215,12 @@ watch_dispatch() {
 
   while kill -0 "$runner_pid" 2>/dev/null; do
     sleep 1
-    [ -s "$trace" ] || continue
+    [ -n "$(newest_trace_mtime "$trace")" ] || continue
     [ "$tripped" = "1" ] && continue
 
     local mtime now gap forced=0
-    mtime="$(stat -c %Y "$trace" 2>/dev/null)" || continue
+    mtime="$(newest_trace_mtime "$trace")" || continue
+    [ -n "$mtime" ] || continue
     now="$(date +%s)"
     [ "$first_seen" = "0" ] && first_seen="$now"
 
@@ -198,7 +243,7 @@ watch_dispatch() {
       echo "TWIG-DISPATCH TRIP at $(date -u +%FT%T.%3NZ)"
       [ "$forced" = "1" ] && echo "  ** FORCED TRIP (self-test) — not a real dispatch gap **"
       echo "  dispatch gap: ${gap}s (threshold ${STALL_SECS}s)"
-      echo "  last trace line: $(tail -1 "$trace")"
+      echo "  last trace line: $(newest_trace_tail "$trace")"
       echo "  runner(dotnet test) pid: $runner_pid"
       echo "  vstest.console pids: ${console_pids:-<none>}"
       echo "  testhost pids: ${host_pids:-<none>}"
@@ -231,8 +276,11 @@ if [ "${1:-}" = "--selftest-detector" ]; then
   SNAPSHOTS=1; SNAP_GAP=1; FORCE_TRIP_AFTER=0
   dest="$OUT_ROOT/dispatch-detector-selftest"
   rm -rf "$dest"; mkdir -p "$dest"
-  trace="$dest/trace.tsv"
-  printf '%s\tSTART\tSelfTest.Fake\n' "$(date -u +%FT%T.%6NZ)" > "$trace"
+  trace="$dest/trace"
+  mkdir -p "$trace"
+  # Exercise the DIRECTORY shape a real run uses (AB#390) — a file-shaped
+  # fixture here would have kept passing against the broken watcher.
+  printf '%s\tSTART\tSelfTest.Fake\n' "$(date -u +%FT%T.%6NZ)" > "$trace/Twig.SelfTest.Tests.tsv"
 
   sleep $(( STALL_SECS * 3 )) &
   fake_runner=$!
@@ -255,16 +303,26 @@ overall=0
 for i in $(seq 1 "$ATTEMPTS"); do
   dest="$OUT_ROOT/dispatch-$i"
   rm -rf "$dest"; mkdir -p "$dest"
-  trace="$dest/trace.tsv"
+  trace="$dest/trace"
   log="$dest/run.log"
-  : > "$trace"
+  mkdir -p "$trace"
 
-  echo "──> attempt $i/$ATTEMPTS (stall threshold ${STALL_SECS}s)"
+  echo "──> attempt $i/$ATTEMPTS (stall threshold ${STALL_SECS}s, target ${SUITE:-solution-wide})"
   start=$(date +%s)
 
-  TWIG_TEST_TRACE="$trace" \
-    dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --nologo \
-      --filter 'FullyQualifiedName!~BinaryLauncher' 2>&1 | tr '\r' '\n' > "$log" &
+  # 🔴 Default to CI's WIDE invocation, not the Cli project (AB#390). Every
+  # instrument for #311 was assembly-scoped to Cli — the suite that COMPLETED
+  # in the CI capture — while the stall was in Twig.Tui.Tests. A watcher aimed
+  # at the passing suite faithfully reports nothing wrong forever.
+  if [ -n "$SUITE" ]; then
+    TWIG_TEST_TRACE="$trace" \
+      dotnet test "tests/Twig.$SUITE.Tests/Twig.$SUITE.Tests.csproj" --nologo \
+        --filter 'FullyQualifiedName!~BinaryLauncher' 2>&1 | tr '\r' '\n' > "$log" &
+  else
+    TWIG_TEST_TRACE="$trace" \
+      dotnet test --no-build --settings test.runsettings --nologo \
+        2>&1 | tr '\r' '\n' > "$log" &
+  fi
   pipeline_pid=$!
 
   watch_dispatch "$trace" "$dest" "$pipeline_pid" &
@@ -284,6 +342,20 @@ for i in $(seq 1 "$ATTEMPTS"); do
   [ -f "$dest/trip.txt" ] && tripped=1
 
   echo "    exit=$exit_code aborted=$aborted failed=$real_fail tripped=$tripped elapsed=${elapsed}s"
+
+  # 🔴 An empty trace directory is an APPARATUS FAULT, never a clean run
+  # (AB#390). The pre-fix watcher passed TWIG_TEST_TRACE as a file the
+  # directory-mode hook never wrote, so it silently watched nothing and every
+  # attempt banked as "clean (no repro)" — 25 loaded attempts were reported as
+  # a null result by an instrument that could not fire. Absence of trace data
+  # and absence of a stall are different facts and must not share a verdict.
+  trace_files="$(find "$trace" -maxdepth 1 -name '*.tsv' -size +0c 2>/dev/null | wc -l)"
+  if [ "$trace_files" -eq 0 ]; then
+    echo "TWIG-DISPATCH VERDICT: apparatus fault — no trace files written to $trace;" >&2
+    echo "  the boundary trace did not execute, so the watcher observed nothing." >&2
+    echo "  Check TWIG_TEST_TRACE plumbing (it names a DIRECTORY)." >&2
+    exit 2
+  fi
 
   if [ "$SELFTEST" = "1" ]; then
     if [ "$tripped" = "1" ]; then

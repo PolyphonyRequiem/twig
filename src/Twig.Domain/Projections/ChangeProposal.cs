@@ -122,7 +122,14 @@ public sealed record EditConflict(
     int RemoteRevision,
     IReadOnlyList<ConflictedField> Fields);
 
-/// <summary>The change was written; the item is now at <see cref="Revision"/>.</summary>
+/// <summary>
+/// The change was written; <see cref="Revision"/> is the server revision it was BASED ON.
+/// </summary>
+/// <remarks>
+/// Not a new revision the sink minted. A sink cannot know what revision the server will assign,
+/// and a staging or queueing sink has not written to the server at all — so this reports where
+/// the item still is. See <see cref="IChangeSink.SubmitAsync"/>.
+/// </remarks>
 public sealed record Saved(int Revision);
 
 /// <summary>The change collided with a newer remote revision after the sink's retry.</summary>

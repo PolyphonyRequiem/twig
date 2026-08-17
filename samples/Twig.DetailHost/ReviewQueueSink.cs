@@ -26,6 +26,14 @@ namespace Twig.DetailHost;
 /// review queue is shared, so this sink genuinely can, and does.</item>
 /// </list>
 /// <para>
+/// 🔴 <b>The bare <see cref="List{T}"/> below is unguarded on purpose, and must stay that
+/// way</b> (AB#353). <see cref="IChangeSink.SubmitAsync"/> states that the host serialises
+/// calls, so a sink needs no internal synchronisation; adding a lock here would contradict
+/// the contract and tax every third-party implementer reading this sample for guidance. What
+/// the contract does <i>not</i> promise is a particular thread — nothing in this type has
+/// thread affinity, so that costs it nothing.
+/// </para>
+/// <para>
 /// <b>The modelled host.</b> A duplicate-review pane (0005 §7's named first customer):
 /// reviewers record a verdict <i>about the item's content</i> into a queue. Such a host has
 /// no authority over workflow or ownership — it cannot move an item's state and cannot
@@ -117,7 +125,15 @@ internal sealed class ReviewQueueSink : IChangeSink
             else
             {
                 _queued.Add(proposal);
-                outcome = new Saved(_readRevision + 1);
+
+                // 🔴 The revision is returned UNCHANGED, never `_readRevision + 1` (AB#353).
+                // Saved.Revision means "the server revision this change was based on". Queueing
+                // a verdict writes nothing to the server, so nothing has advanced; minting a
+                // revision here would hand the host a number no server ever issued, and would
+                // disagree with Sink A (Twig.Tui.PendingChangeStoreSink) about what the field
+                // means — an inconsistency between the two reference implementations is exactly
+                // what Sink B exists to make impossible.
+                outcome = new Saved(_readRevision);
             }
         }
         else if (proposal is StateMove move)

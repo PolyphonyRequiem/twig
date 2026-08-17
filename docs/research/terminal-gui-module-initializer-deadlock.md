@@ -178,8 +178,57 @@ it is not the thing that stops the walk.
   tells consumers to do. That is a mitigation in *our* repo for a defect in
   *theirs*; the underlying bug is Terminal.Gui's and is worth reporting upstream.
 
+**Shipped** in PR #410 on `fix/524-terminalgui-initializer`, with the attribute's
+reasoning written beside it in `AssemblyAttributes.cs` and a mutation-proven guard
+(`ParallelizationPolicyTests`) so the one-line mitigation cannot silently regress.
+
+### A guard that was written and then deliberately removed
+
+Worth recording, because it went **green** and would have shipped looking like
+coverage. A second test tried to pin the mitigation's *premise* — that every test
+class in the assembly can reach Terminal.Gui, which is why the switch is
+assembly-wide rather than per-class. Three implementations were attempted, and
+each first run indicted the **detector**, not the premise:
+
+1. **Member-signature reflection** reported all five classes unreachable —
+   including the three that name Terminal.Gui in their `using` directives. These
+   tests construct those objects inside method *bodies* and expose nothing in
+   their signatures. Reflection describes shape, not what code touches.
+2. **An IL token scan** got it from 5 to 2, still missing the two transitive
+   classes: a metadata token is only meaningful at its true instruction offset,
+   and guessing offsets is unreliable in both directions.
+3. **A source-text search** finally passed — but it would pass on a class that
+   merely mentions the name in a comment, and fail on one that reaches
+   Terminal.Gui through a helper.
+
+Version 3 is an assertion pointed at the wrong surface. A guard that cannot fail
+for the right reason is worse than no guard, because its presence implies a
+coverage that does not exist — and three attempts on one assertion is the signal
+to question the approach rather than try a fourth. The premise now lives in the
+attribute's own comment and in `ab524-precondition.py`, which reads sources
+directly and is honest about being a static approximation.
+
+The guard that *remains* claims only that the attribute is present and true, and
+is mutation-proven: green restored → killed **by name** under
+`DisableTestParallelization = false` with zero compile errors → green restored,
+byte-identical to snapshot.
+
 ## Limits of this finding, stated honestly
 
+- **The splitting experiment was INCONCLUSIVE, and is recorded as such.** CI's
+  wide invocation (8375 tests traced per attempt) was run with the session
+  timeout removed, under verified heavy load (loadavg 25–47 on 20 cores,
+  per-attempt wall 98–187s against ~11s idle): **14 of 14 attempts clean**, no
+  stall reproduced. At the measured ~1-in-12 hit rate that is an ordinary
+  outcome with the bug fully present, so it refutes nothing — the experiment can
+  only speak when it *catches* a stall. The verdict rests on the capture, not on
+  this hunt.
+- **A discarded earlier version of that experiment must not be read as
+  evidence:** it ran `Twig.Tui.Tests` standalone and returned 14/14 clean at 3–4s
+  wall / 85 tests. Wrong shape — the capture comes from the wide invocation at
+  ~100s and 8375 tests, and a 3–4s run barely opens the window in which the cctor
+  can be raced. It is a valid negative control (the trace hook works, the
+  assembly is healthy alone) and nothing more.
 - The initializing thread bottoms out in `[Native Frames]`, so the *specific*
   CLR lock it waits on is inferred from (i) the managed frame directly above it
   (`RuntimeModule.GetDefinedTypes`), (ii) the documented behaviour of

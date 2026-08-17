@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AB#524 DIAGNOSTIC ONLY — NOT a repo change to test.runsettings.
+     Identical to test.runsettings except TestSessionTimeout is REMOVED, so a
+     stalled run is never killed at 300s. This is the splitting experiment:
+       completes late  => STARVATION (the reflection walk is merely slow)
+       never completes => DEADLOCK
+     Do NOT copy this into test.runsettings. Raising/removing the timeout as a
+     FIX is explicitly forbidden by AB#390's falsification of budget exhaustion. -->
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>Category!=Interactive&amp;Category!=Integration</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>

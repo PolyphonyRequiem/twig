@@ -954,12 +954,31 @@ public sealed class SelfUpdaterTests : IDisposable
     /// file it is running from. Against a direct FileCopy this fails with
     /// "Text file busy" (ETXTBSY); against copy-to-.tmp + rename it succeeds.
     /// </summary>
+    /// <remarks>
+    /// 🔴 Linux ONLY, and the guard must say so — this doc comment already claimed "Linux only"
+    /// while the guard excluded Windows alone, so the test also ran on macOS and FAILED there at
+    /// the precondition below. Darwin does not return ETXTBSY for a write to a running binary
+    /// (it enforces the reverse direction — ETXTBSY on execute of an open-for-write file), so
+    /// the kernel behaviour this reproduction depends on simply does not exist there.
+    ///
+    /// <para>
+    /// Do NOT "fix" this by relaxing the precondition to skip when the write succeeds. That
+    /// assert is the only thing stopping the test passing for the wrong reason on a platform
+    /// with no ETXTBSY, which is exactly the false green this repo keeps having to abolish.
+    /// Narrow the PLATFORM, never the assertion.
+    /// </para>
+    ///
+    /// <para>
+    /// Caught by the v0.90.0 release build, not by CI: the PR matrix covers linux-x64 and
+    /// win-x64 only (AB#140), so macOS is first exercised at release time.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task UpdateBinaryAsync_TargetIsCurrentlyExecuting_Succeeds()
     {
-        if (OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsLinux()) return;
 
-        // A real ELF we can execute and then replace. /bin/sleep exists on every Linux/macOS box.
+        // A real ELF we can execute and then replace. /bin/sleep exists on every Linux box.
         var source = File.Exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
         if (!File.Exists(source)) return;
 

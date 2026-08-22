@@ -112,6 +112,33 @@ public sealed class ShowBatchLinksTests
         twentyLinks[0].GetProperty("linkType").GetString().ShouldBe(LinkTypes.Successor);
     }
 
+    /// <summary>
+    /// AB#618: <c>commentCount</c> reaches the batch rows too. Both surfaces project through
+    /// <c>BuildCoreCells</c>, so this pins the shared helper rather than restating the
+    /// single-item contract — if someone promotes the key on the document path only, this
+    /// goes red.
+    /// </summary>
+    [Fact]
+    public async Task ShowBatch_Json_EmitsCommentCountPerItem()
+    {
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(10, "Commented")
+                .WithField("System.CommentCount", "3").Build());
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(20, "Uncommented").Build());
+        HaveLinks();
+
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,20", "json"));
+
+        ItemWithId(output, 10).GetProperty("commentCount").GetInt32().ShouldBe(3);
+
+        // Present-and-zero, never absent — same rule as links/relations above.
+        var twenty = ItemWithId(output, 20);
+        twenty.TryGetProperty("commentCount", out var commentCount).ShouldBeTrue();
+        commentCount.ValueKind.ShouldBe(JsonValueKind.Number);
+        commentCount.GetInt32().ShouldBe(0);
+    }
+
     [Fact]
     public async Task ShowBatch_Json_ItemWithNoLinks_EmitsEmptyArraysNotMissingKeys()
     {

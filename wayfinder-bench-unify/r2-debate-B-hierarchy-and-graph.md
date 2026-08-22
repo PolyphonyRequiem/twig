@@ -1,0 +1,45 @@
+# Position B (revised): Parent by composition, link by sequence
+
+**Claim.** An Execution Plan needs both edge families, because they carry different facts. The Hierarchy tree says *this is part of that*. Predecessor/Successor says *this comes after that*. These are orthogonal: two items can compose without ordering (three Specs under a Feature), and two items can be ordered without composing (a Change in repo X must land before a Change in repo Y). A model that has only one edge family must smuggle the other meaning into it, and the smuggled meaning is the one that silently drifts. The rule: **an Execution Plan parents what it is made of, and links what it sequences.**
+
+Against the proposed model specifically: the proposal says a Plan "produces or at least organizes the sequences of follow up work." That sentence contains two verbs and they want different edges. *Produces* — Specs, Decisions, Commitments — is composition; those artifacts have no independent existence, they are the Plan's substance, and they are its children. *Organizes the sequences* is not composition at all. The follow-up Changes are part of the **Feature** whose design they alter; that is what the proposal already says a Feature is ("captures actual designs as well as the changes and evidence they bear"). If the Plan also parents them, the model asserts two different compositions of the same item and the tree can only hold one. Parenting the Change to the Plan does not add sequence information; it *deletes* the true composition to store a sequence in a slot that cannot express order. That is a mirror with no compiler forcing the copies to agree.
+
+## 1. Ownership: three meanings on one edge — and only two of them are real
+
+The Hierarchy edge is asked to carry composition, rollup aggregation, and custody. Composition and rollup genuinely travel together: rollup is *defined* as summation over the composition tree, so it is not an independent meaning, it is a derived read of the same fact. Custody is the odd one out, and ADO does not implement it. Every item has its own `System.State`, its own `System.AssignedTo`, its own closure. A parent can be Done with open children; ADO neither gates nor cascades. There is no field, rule, or query in which a parent answers for a child's terminal state.
+
+So the honest answer to the owner's question is: **responsibility is item-atomic.** Composition is a relation between items; responsibility is a property *of* an item. They are not the same kind of thing, which is why one is an edge and the other is a field. Each item is indeed "out for itself at the end of the day" — not as cynicism but as mechanism: the only guard that can actually fail is an item's own state transition. A parent's Done proves nothing about its children. Treating parenthood as custody is a false green.
+
+This strengthens the rule considerably. The objection to "the Plan doesn't parent the work" is usually felt as *then nobody owns the follow-up work*. But the parent slot never carried responsibility. Nothing is lost by not putting the Plan there, because there was nothing in there to lose. Responsibility for a Change sits on the Change: its state, its assignee, its closure — identical whether its parent is the Feature or the Plan.
+
+**The honest problem: Commitment.** A Commitment's entire purpose is that someone answers to a third party for it. Item-atomic responsibility handles this *better* than hierarchy does, but only if you accept a consequence. The Commitment carries its own assignee and its own closure — good, that is exactly the promise-keeper. But if the Commitment's fulfilment depends on three Changes, item-atomic responsibility gives you **no automatic guard**: the Commitment can be closed with all three open, and ADO will not stop it. Hierarchy would not stop it either — a parent can close over open children — so this is not an argument for parenting. It is an admission that ADO has no accountability primitive at all, under any model. What the dependency graph gives you that hierarchy does not is that the Commitment's blockers are *directional and enumerable*: `Commitment ← Predecessor ← Change` is a query, and a red line on a Delivery Plan. A parent-child list is neither ordered nor causal. Closing a Commitment over open predecessors is at least a visible lie. That is weaker than a guard and I will not call it one.
+
+## 2. The one-parent constraint: the Plan gives up rollup
+
+Under this model the Feature parents the Changes, so **rollup of follow-up work does not climb to the Plan.** That is a real loss and it is the price. It is not total: the Plan still gets rollup over what it genuinely composes — its Specs, Decisions, Commitments — because those *are* its children. So a Plan has rollup over its own substance and none over its consequences.
+
+Is that viable? Yes, because a Plan's progress question is not "what percentage of story points are burned down." It is **"is the sequence advancing, and where is the frontier?"** Rollup answers the first question badly anyway (it is a sum, not an order) and the second not at all. The Plan reports progress three ways, none of which require rollup: (a) its own children's states — are the Specs written, the Decisions taken, the Commitments made; (b) the successor frontier — the set of items reachable from the Plan by Predecessor/Successor whose predecessors are all closed, which is precisely "what is executable now"; (c) a Bench holding the selector for that set, recomputed, never stored. Rollup is the wrong instrument for a Plan; losing it costs less than losing true composition.
+
+## 3. What a Delivery Plan of an Execution Plan looks like
+
+The round-one objection — that ADO cannot show a dependency graph, so a linked Plan is invisible — is false. Delivery Plans render dependency lines for Predecessor/Successor natively. Concretely: one Delivery Plan configured for the Initiatives and Work backlog levels, field criteria scoped to the area path. The Execution Plan renders as a card on the Initiatives row. Its Specs, Decisions and Commitments render beneath it as its children. The follow-up Changes render on the Work row under their Features — where they belong — and the **sequence appears as drawn lines between the cards**, in date order, across teams. The frontier is where the lines stop. You read order off the plan without opening an item. Note the limit honestly: Decisions and Findings are level-less by design and will not render at all, so the Plan's decision record is invisible on the board under this model exactly as it is under any other.
+
+## 4. The ordering hazard
+
+Yes — this dodges it entirely, and that is not a rhetorical dodge. The hazard is that same-level parenting disables backlog ordering. Under this model an Execution Plan (Initiatives) parents Specs, Commitments and Decisions, which sit at Work level or no level — never same-level. And the Plan does not parent Changes at all, so the Plan/Change relationship cannot create the condition. The team hit this hazard once; this rule makes it unreachable rather than merely unlikely.
+
+## 5. Costs
+
+- **No rollup from follow-up work to the Plan.** Stated above; real.
+- **Two edge families to maintain.** A Plan is not fully described by its children; a reader must also traverse Predecessor/Successor. Someone who only opens the tree sees an incomplete Plan.
+- **Sequence edges must be authored.** Hierarchy gets created for free by the "add child" affordance; dependency links do not. An unlinked Plan degrades to a list, and nothing detects that — twig's rule engine is an unbuilt Idea, so there is no policy check today.
+- **Cannot express "this Plan owns this work."** By design, because the parent slot never expressed ownership — but if the team wants a durable custody claim, this model has no place to put it and neither does ADO.
+- **Cannot express a Change that genuinely belongs to two compositions.** Nothing can; that is the one-parent constraint, and I accept the loss rather than resolve it by lying about which parent is true.
+
+## 6. What would falsify this
+
+Not historical data. On the proposed model's own terms:
+
+1. **If the Plan's outputs turn out not to compose it.** If a Spec produced by a Plan routinely outlives it, gets re-scoped under a Feature, and is edited long after the Plan closes, then the Plan does not *contain* its Specs — it emitted them, and Plan→Spec is production, not composition. Then the Plan has no legitimate children and Position B collapses into "link by sequence only."
+2. **If a Plan's progress question is genuinely a sum.** If the team writes down what a Plan must report and the answer is a count or a percentage over follow-up work — not a frontier — then losing rollup is disqualifying and the Plan must parent the work.
+3. **If Feature and Execution Plan are the same rank.** They are both Initiatives in the proposed model. If in practice a Feature is what an Execution Plan produces, then Feature belongs *under* the Plan, the composition I assign to the Feature is the Plan's after all, and the ordering hazard I claimed to dodge comes straight back.

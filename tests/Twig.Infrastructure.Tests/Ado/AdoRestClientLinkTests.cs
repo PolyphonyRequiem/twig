@@ -91,6 +91,67 @@ public sealed class AdoRestClientLinkTests
         handler.LastContentType!.ShouldContain("application/json-patch+json");
     }
 
+    // ── AB#620: the link COMMENT ─────────────────────────────────────
+    //
+    // The reason for a relationship lives in the relation's own attributes.comment, not in a
+    // work item comment. These assert the wire shape the card measured by hand against REST.
+
+    [Fact]
+    public async Task AddLinkWithCommentAsync_PutsCommentInRelationAttributes()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkWithCommentAsync(
+            sourceId: 619, targetId: 615,
+            adoLinkType: "System.LinkTypes.Related",
+            comment: "same root cause");
+
+        using var doc = JsonDocument.Parse(handler.LastRequestBody!);
+        var value = doc.RootElement[0].GetProperty("value");
+        value.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Related");
+        value.GetProperty("url").GetString().ShouldBe($"{OrgUrl}/_apis/wit/workitems/615");
+        value.GetProperty("attributes").GetProperty("comment").GetString().ShouldBe("same root cause");
+    }
+
+    /// <summary>
+    /// An empty <c>attributes</c> object is not the same request as no attributes at all, and
+    /// every pre-AB#620 caller now routes through this method. Emitting one would silently
+    /// change the wire shape of every existing link write.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AddLinkWithCommentAsync_NoComment_OmitsAttributesEntirely(string? comment)
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkWithCommentAsync(1, 2, "System.LinkTypes.Related", comment);
+
+        using var doc = JsonDocument.Parse(handler.LastRequestBody!);
+        doc.RootElement[0].GetProperty("value")
+            .TryGetProperty("attributes", out _).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The un-commented entry point must send BYTE-IDENTICAL JSON to the commentless path of
+    /// the new one — that equivalence is what makes routing every caller through the new method
+    /// a safe change rather than a silent request rewrite.
+    /// </summary>
+    [Fact]
+    public async Task AddLinkAsync_AndCommentlessAddLinkWithComment_SendIdenticalBodies()
+    {
+        var plainHandler = new LinkTrackingHandler();
+        await CreateClient(plainHandler).AddLinkAsync(7, 8, "System.LinkTypes.Related");
+
+        var commentHandler = new LinkTrackingHandler();
+        await CreateClient(commentHandler).AddLinkWithCommentAsync(7, 8, "System.LinkTypes.Related", comment: null);
+
+        commentHandler.LastRequestBody.ShouldBe(plainHandler.LastRequestBody);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)

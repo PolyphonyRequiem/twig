@@ -133,7 +133,9 @@ internal sealed class ToolDispatcher(
                 GetRequiredInt(args, "sourceId"),
                 GetRequiredInt(args, "targetId"),
                 GetRequiredString(args, "linkType"),
-                workspace, verbose: false, ct),
+                workspace,
+                GetString(args, "comment"),
+                verbose: false, ct),
 
             "twig_link_branch" => creationTools.LinkBranch(
                 GetRequiredInt(args, "workItemId"),

@@ -29,8 +29,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
 
         result.IsError.ShouldBeNull();
 
-        await _adoService.Received(1).AddLinkAsync(
-            100, 200, "System.LinkTypes.Related", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            100, 200, "System.LinkTypes.Related", null, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchWithLinksAsync(200, Arg.Any<CancellationToken>());
     }
@@ -46,8 +46,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         var result = await CreateCreationSut().Link(1, 2, friendly);
 
         result.IsError.ShouldBeNull();
-        await _adoService.Received(1).AddLinkAsync(
-            1, 2, expectedAdo, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            1, 2, expectedAdo, null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -59,8 +59,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         var json = ParseResult(result);
         json.GetProperty("linkType").GetString().ShouldBe("RELATED");
 
-        await _adoService.Received(1).AddLinkAsync(
-            10, 20, "System.LinkTypes.Related", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            10, 20, "System.LinkTypes.Related", null, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -79,8 +79,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         foreach (var supported in LinkTypeMapper.SupportedTypes)
             text.ShouldContain(supported);
 
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -134,7 +134,7 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
     [Fact]
     public async Task Link_AdoThrows_ReturnsError()
     {
-        _adoService.AddLinkAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _adoService.AddLinkWithCommentAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Network error"));
 
         var result = await CreateCreationSut().Link(100, 200, "related");
@@ -161,5 +161,24 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         var json = ParseResult(result);
         json.GetProperty("linked").GetBoolean().ShouldBeTrue();
         json.GetProperty("warning").GetString()!.ShouldContain("cache sync failed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#620 — the link comment
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// MCP parity here is deliberate, not automatic (CONTEXT.md §4). twig_link already accepted
+    /// "related", so the CLI gap never existed here — but the COMMENT did, and an LLM writing a
+    /// related edge has more reason than a human to record why it drew it.
+    /// </summary>
+    [Fact]
+    public async Task Link_Comment_IsPassedToAdoOnTheCreatingCall()
+    {
+        var result = await CreateCreationSut().Link(619, 615, "related", comment: "same root cause");
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            619, 615, "System.LinkTypes.Related", "same root cause", Arg.Any<CancellationToken>());
     }
 }

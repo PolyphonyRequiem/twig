@@ -411,6 +411,12 @@ public sealed class GroupedHelpTests
     [InlineData("LinkPredecessor", "link predecessor")]
     [InlineData("LinkSuccessor", "link successor")]
     [InlineData("LinkUnlink", "link unlink")]
+    // AB#620 — `twig link related 615` reported "Unknown subcommand: 'related' is not a 'link'
+    // command" and exited 1. Unlike twig#77 this was an honest refusal rather than a false
+    // green, but the write path was equally absent: twig could READ and MODEL a Related edge
+    // and not create one, so relating two items meant leaving twig for a raw REST PATCH.
+    [InlineData("LinkRelated", "link related")]
+    [InlineData("LinkUnrelate", "link unrelate")]
     public void DependencyLinkVerb_IsARegisteredCommandHandler(string methodName, string commandName)
     {
         var method = typeof(TwigCommands).GetMethod(
@@ -436,6 +442,8 @@ public sealed class GroupedHelpTests
         helpOutput.ShouldContain("link predecessor");
         helpOutput.ShouldContain("link successor");
         helpOutput.ShouldContain("link unlink");
+        helpOutput.ShouldContain("link related");
+        helpOutput.ShouldContain("link unrelate");
     }
 
     private static string CaptureHelp()

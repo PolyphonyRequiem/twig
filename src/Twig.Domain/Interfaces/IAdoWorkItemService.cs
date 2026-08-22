@@ -79,6 +79,35 @@ public interface IAdoWorkItemService
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default);
     Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds a link and records <paramref name="comment"/> in the relation's
+    /// <c>attributes.comment</c> field (AB#620).
+    /// </summary>
+    /// <remarks>
+    /// A distinctly NAMED method rather than an overload of <see cref="AddLinkAsync"/>, and the
+    /// reason is mechanical rather than stylistic: <c>AddLinkAsync</c> is shipped public API
+    /// whose last parameter is optional, and the public-API analyzers reject both ways of
+    /// extending it — RS0026 forbids a second overload that also has optional parameters, and
+    /// RS0027 forbids the shipped one keeping its optional parameter while a longer overload
+    /// exists. Widening the shipped signature in place would instead delete a shipped symbol.
+    ///
+    /// <para>
+    /// The comment is the reason for the relationship, which for a symmetric
+    /// <c>System.LinkTypes.Related</c> edge is the valuable half — an unexplained related link
+    /// is an assertion with no argument. ADO carries it on the relation itself, so it must be
+    /// set at creation; a create-then-comment pair would write a work item COMMENT instead,
+    /// which is a different thing in a different place.
+    /// </para>
+    ///
+    /// <para>
+    /// A null or whitespace <paramref name="comment"/> must emit no <c>attributes</c> object at
+    /// all, so this sends byte-identical JSON to <see cref="AddLinkAsync"/> in that case. That
+    /// is what lets callers route every add through here without changing existing requests.
+    /// </para>
+    /// </remarks>
+    Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default);
+
     Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
 
     /// <summary>

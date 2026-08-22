@@ -772,7 +772,7 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(66, 65, "System.LinkTypes.Dependency-Reverse", null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -791,7 +791,7 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync(LinkTypes.Successor, 66);
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddLinkAsync(65, 66, "System.LinkTypes.Dependency-Forward", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(65, 66, "System.LinkTypes.Dependency-Forward", null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -812,7 +812,7 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65, id: 66);
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(66, 65, "System.LinkTypes.Dependency-Reverse", null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -831,7 +831,7 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync("PREDECESSOR", 65);
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddLinkAsync(66, 65, "System.LinkTypes.Dependency-Reverse", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddLinkWithCommentAsync(66, 65, "System.LinkTypes.Dependency-Reverse", null, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -845,8 +845,8 @@ public class LinkCommandTests : IDisposable
 
         result.ShouldBe(1);
         _stderr.ToString().ShouldContain("itself");
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -857,7 +857,6 @@ public class LinkCommandTests : IDisposable
     [Theory]
     [InlineData("parent")]
     [InlineData("child")]
-    [InlineData("related")]
     [InlineData("bogus")]
     [InlineData("")]
     public async Task DependencyAsync_NonDependencyLinkType_ReturnsNonZeroAndCreatesNothing(string linkType)
@@ -869,8 +868,8 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync(linkType, 65);
 
         result.ShouldBe(1);
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -887,8 +886,8 @@ public class LinkCommandTests : IDisposable
 
         result.ShouldBe(1);
         _stderr.ToString().ShouldContain("#65");
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -901,8 +900,8 @@ public class LinkCommandTests : IDisposable
 
         result.ShouldBe(1);
         _stderr.ToString().ShouldContain("No active work item");
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -920,8 +919,8 @@ public class LinkCommandTests : IDisposable
         var result = await cmd.DependencyAsync(LinkTypes.Predecessor, 65);
 
         result.ShouldBe(0);
-        await _adoService.DidNotReceive().AddLinkAsync(
-            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
         _stdout.ToString().ShouldContain("already has");
     }
 
@@ -934,7 +933,7 @@ public class LinkCommandTests : IDisposable
         SetActiveItem(blocked);
         SetResolvable(blocker);
         _linkRepo.GetLinksAsync(66, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
-        _adoService.AddLinkAsync(66, 65, Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _adoService.AddLinkWithCommentAsync(66, 65, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("ADO said no"));
 
         var cmd = CreateCommand();
@@ -997,6 +996,253 @@ public class LinkCommandTests : IDisposable
             "CommandExecuted",
             Arg.Is<Dictionary<string, string>>(p =>
                 p["command"] == "link-predecessor" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m => m.ContainsKey("duration_ms")));
+    }
+
+    // ── AB#620: `twig link related` ─────────────────────────────────
+    //
+    // Of ADO's edge families, twig could write hierarchy, dependency and artifact links but
+    // NOT System.LinkTypes.Related — while reading and modelling it happily. Relating two
+    // items meant leaving twig for a raw REST PATCH.
+
+    [Fact]
+    public async Task RelatedAsync_Success_AddsRelatedRelation()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            619, 615, "System.LinkTypes.Related", null, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The comment is the reason for the relationship and is the half the card called
+    /// non-optional: a related link without one is an assertion with no argument. It must reach
+    /// the ADO layer from the SAME call that creates the link, never a follow-up.
+    /// </summary>
+    [Fact]
+    public async Task RelatedAsync_Comment_ReachesAdoOnTheCreatingCall()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615, comment: "both describe the same gap");
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            619, 615, "System.LinkTypes.Related", "both describe the same gap", Arg.Any<CancellationToken>());
+
+        // A work item comment is a different thing in a different place; writing one here
+        // would look like success while the LINK still carried no reason.
+        await _adoService.DidNotReceive().AddCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Related is SYMMETRIC — ADO materialises the reverse edge itself, so the item that was
+    /// not named locally also gained one. Resyncing only the named side would leave a cache
+    /// that disagrees with the board from the other item's point of view.
+    /// </summary>
+    [Fact]
+    public async Task RelatedAsync_ResyncsBothEndpoints_BecauseRelatedIsSymmetric()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.RelatedAsync(615);
+
+        await _adoService.Received(1).FetchWithLinksAsync(619, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchWithLinksAsync(615, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RelatedAsync_ExplicitId_RelatesThatItemNotTheActiveOne()
+    {
+        var active = new WorkItemBuilder(1, "Active Item").InState("Active").Build();
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(active);
+        SetResolvable(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615, id: 619);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddLinkWithCommentAsync(
+            619, 615, "System.LinkTypes.Related", null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RelatedAsync_SelfLink_ReturnsErrorAndCreatesNothing()
+    {
+        var item = new WorkItemBuilder(619, "Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(619);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("#619");
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RelatedAsync_TargetNotFound_ReturnsErrorAndCreatesNothing()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        SetActiveItem(source);
+        _workItemRepo.GetByIdAsync(615, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(615, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Not found"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("#615");
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RelatedAsync_AdoThrows_ReturnsErrorNotSuccess()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+        _adoService.AddLinkWithCommentAsync(619, 615, Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO said no"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("ADO said no");
+    }
+
+    [Fact]
+    public async Task RelatedAsync_DuplicateLink_IsNoOpAndDoesNotCallAdo()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Related) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        _stdout.ToString().ShouldContain("already has");
+    }
+
+    [Fact]
+    public async Task UnrelateAsync_RemovesRelatedRelation()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Related) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnrelateAsync(615);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).RemoveLinkAsync(619, 615, "System.LinkTypes.Related", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The card left the removal spelling to the implementer; both exist and must be the same
+    /// behaviour, not two. If these ever diverge, one of them is a false green for the user who
+    /// picked the other spelling.
+    /// </summary>
+    [Fact]
+    public async Task UnlinkDependencyAsync_Related_RemovesTheSameRelationAsUnrelate()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Related) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnlinkDependencyAsync("related", 615);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).RemoveLinkAsync(619, 615, "System.LinkTypes.Related", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// `link related` and `link predecessor` are different operations and must be
+    /// distinguishable in telemetry; a shared "link-dependency" bucket would hide which verb
+    /// the AB#620 gap was actually costing users.
+    /// </summary>
+    [Fact]
+    public async Task RelatedAsync_EmitsItsOwnTelemetryCommandName()
+    {
+        var source = new WorkItemBuilder(619, "Source Idea").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target Idea").InState("Active").Build();
+
+        SetActiveItem(source);
+        SetResolvable(target);
+        SetupResyncForItem(619);
+        SetupResyncForItem(615);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.RelatedAsync(615);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-related" &&
                 p["exit_code"] == "0"),
             Arg.Is<Dictionary<string, double>>(m => m.ContainsKey("duration_ms")));
     }

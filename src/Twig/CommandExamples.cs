@@ -224,9 +224,21 @@ internal static class CommandExamples
             "twig link successor 66          Mark the active item as blocking #66",
             "twig link successor 66 --id 65  Mark #65 as blocking #66",
         ],
+        ["link related"] =
+        [
+            "twig link related 615           Relate the active item to #615",
+            "twig link related 615 --comment \"same root cause\"  Record WHY they relate",
+            "twig link related 615 --id 619  Relate #619 to #615",
+        ],
+        ["link unrelate"] =
+        [
+            "twig link unrelate 615          Remove the related link to #615",
+            "twig link unrelate 615 --id 619  Remove #619's related link to #615",
+        ],
         ["link unlink"] =
         [
             "twig link unlink predecessor 65   Remove the predecessor link to #65",
+            "twig link unlink related 615      Remove the related link to #615",
             "twig link unlink successor 66 --id 65  Remove #65's successor link to #66",
         ],
         ["link artifact"] =

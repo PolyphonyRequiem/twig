@@ -251,20 +251,36 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.WorkItems.Select(x => x.Id).ToList();
     }
 
-    public async Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+    public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+        => AddLinkWithCommentAsync(sourceId, targetId, adoLinkType, comment: null, ct);
+
+    /// <inheritdoc />
+    public async Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
+        var relation = new System.Text.Json.Nodes.JsonObject
+        {
+            ["rel"] = System.Text.Json.Nodes.JsonValue.Create(adoLinkType),
+            ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
+        };
+
+        // Only emit `attributes` when there is a comment: an empty attributes object is not the
+        // same request, and every existing caller must keep sending exactly what it sent before.
+        if (!string.IsNullOrWhiteSpace(comment))
+        {
+            relation["attributes"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["comment"] = System.Text.Json.Nodes.JsonValue.Create(comment),
+            };
+        }
+
         var patchDoc = new List<AdoPatchOperation>
         {
             new()
             {
                 Op = "add",
                 Path = "/relations/-",
-                Value = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["rel"] = System.Text.Json.Nodes.JsonValue.Create(adoLinkType),
-                    ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
-                },
+                Value = relation,
             },
         };
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);

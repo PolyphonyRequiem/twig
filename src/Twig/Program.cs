@@ -940,8 +940,25 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
 
-    /// <summary>Remove a dependency link (predecessor or successor) from a work item.</summary>
-    /// <param name="linkType">Link type to remove: predecessor or successor.</param>
+    /// <summary>Relate the active work item to another item (symmetric Related link).</summary>
+    /// <param name="targetId">Work item ID to relate this item to.</param>
+    /// <param name="comment">-c, Why the two items are related. Recorded on the link itself.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link related")]
+    public async Task<int> LinkRelated([Argument] int targetId, string? comment = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().RelatedAsync(targetId, id, comment, output, ct);
+
+    /// <summary>Remove a Related link between the active work item and another item.</summary>
+    /// <param name="targetId">Work item ID at the other end of the link.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link unrelate")]
+    public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
+
+    /// <summary>Remove a non-hierarchy link (predecessor, successor, or related) from a work item.</summary>
+    /// <param name="linkType">Link type to remove: predecessor, successor, or related.</param>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1489,6 +1506,8 @@ internal static class GroupedHelp
         "link reparent",
         "link predecessor",
         "link successor",
+        "link related",
+        "link unrelate",
         "link unlink",
         "link artifact",
 
@@ -1646,7 +1665,9 @@ Work Items:
   link reparent <id>   Remove current parent and set a new one.
   link predecessor <id>  Mark the active item as blocked by <id>.
   link successor <id>  Mark the active item as blocking <id>.
-  link unlink <type> <id>  Remove a predecessor/successor link.
+  link related <id>    Relate the active item to <id> (symmetric).
+  link unrelate <id>   Remove the related link to <id>.
+  link unlink <type> <id>  Remove a predecessor/successor/related link.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).

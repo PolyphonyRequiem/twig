@@ -2,22 +2,36 @@
 
 ## Destination
 
-The twig ADO process is settled: which work item types exist, what each is for, which backlog
-level each sits at, which fields and form layouts each carries, the conventions governing them,
-and how each kind of team member uses twig to do their work.
+The twig ADO process is settled for Hyperbright: which work item types exist, what each is for,
+which backlog level each sits at, which fields and form layouts each carries, the conventions
+governing them, and how each kind of team member uses twig to do their work.
 
-Settled **in two layers, in order**: the generic vocabulary twig must be able to express for
-*any* customer's process, and the Hyperbright process as its first concrete instance
-(customer zero). A ruling that only makes sense for this team has not reached the destination.
+**One layer, not two.** The destination is our own `ProcessConfiguration`. There is no separate
+generic-vocabulary deliverable to write first — that reading was overturned by ticket
+[0001](tickets/0001-generic-layer-vs-instance.md).
+
+**The generic pressure is a GATE on every ruling, not a layer before them.** Every ruling on
+this map records a verdict against the governing rule:
+
+> *Would this still be right for a customer whose process we have never seen?*
+
+- **Acceptable** — only the chosen *value* is ours. "Our pull-requestable type is named
+  `Change`" is ours; a customer picking `Work Package` is served by the same mechanism. This is
+  customer zero working as intended.
+- **Defect** — the *mechanism* is ours. twig could not express another customer's choice at
+  all. The ruling names the missing mechanism.
+
+🔴 **A defect verdict does NOT block the ruling.** The gate is a ledger, not a veto. A veto
+would stall the map behind ADO #615, which is explicitly out of scope — so defects are
+recorded, the ruling stands, and the collected lines become #615's requirements list.
+
+⚠️ **Ticket [0003](tickets/0003-team-types-and-experiences.md) is evidence, not a gated
+ruling.** A description of *our* team is not the kind of claim that question can judge. Its
+output is a demand-side test — *which role is worse off if this type does not exist?* —
+applied by 0004, 0005 and 0011.
 
 The map ends at a build-ready ruling set. **Creating the types, PATCHing the process and
 writing the docs are the build that follows** — this map decides, it does not mutate the board.
-
-⚠️ **The destination is PROVISIONAL.** The wording above is the charting session's reading of
-one sentence of Daniel's, plus a scope fork he was not available to settle
-(see ticket [0001](tickets/0001-generic-layer-vs-instance.md), which exists precisely to make
-the fork cheap to overturn). Every other ticket is scoped by it. Redraw it here first if it is
-wrong; do not work around it in a ticket.
 
 ## Notes
 
@@ -180,9 +194,10 @@ Open tickets are found by reading `tickets/*.md` frontmatter (`status`, `blocked
 a list here — this snapshot is the charting session's, and it goes stale on the first
 resolution. Verified at charting: **11 tickets, no dangling `blocked_by` refs, no cycles.**
 
-Takeable now: **0001** (destination — take it first, it rescopes everything), **0002** (the red
-UNDECIDED), **0003** (team experiences). **0009 is closed** — its memo is
-`ado-process-capabilities.md`, and 0007 and 0010 are correspondingly one blocker lighter.
+Takeable now: **0002** (the red UNDECIDED) and **0003** (team experiences). **0001 is closed** —
+the destination is settled, one layer not two, with the customer-zero rule as a per-ruling gate.
+**0009 is closed** — its memo is `ado-process-capabilities.md`, and 0007 and 0010 are
+correspondingly one blocker lighter.
 
 **0002 blocks four tickets — more than any other — which is the graph agreeing with the brief
 that it is the highest-leverage question on the map.** 0004 blocks three more behind it.
@@ -190,6 +205,14 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
 ## Decisions so far
 
 <!-- one line per closed ticket; the detail lives in the ticket, never restated here -->
+
+- **[Is the destination the generic layer, the Hyperbright instance, or both in order?](tickets/0001-generic-layer-vs-instance.md)**
+  (grilling, closed 2026-08-22): **the instance — one layer, not two.** The brief's
+  customer-zero rule is an *acceptance test applied to each ruling*, not a generic layer to
+  build first. Defect = the *mechanism* is ours; acceptable = only the *value* is ours. 🔴 The
+  gate is a **ledger, not a veto** — a defect never blocks a ruling, it emits a line for ADO
+  #615. Ticket 0003 is **evidence, not a gated ruling**. Nine of ten tickets were already
+  instance questions and none was rescoped.
 
 - **[What can an ADO inherited process actually express?](tickets/0009-ado-process-capabilities.md)**
   (research, closed 2026-08-22, memo `ado-process-capabilities.md`, 552 lines): a type can be
@@ -239,7 +262,10 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
   (20,308 chars; §5 holds the five units); map #621 is `Doing` with all five design children
   Done. **Note the dependency and move on — do not create them here.**
 - **Building the declared policy engine (ADO #615).** This map may say what it must express; it
-  does not design or build it.
+  does not design or build it. Per ticket 0001, every ruling that fails the customer-zero gate
+  emits a line naming the missing mechanism, and the map **collects** those lines as #615's
+  requirements list rather than leaving them scattered per-ticket. Collecting is inside this
+  boundary; designing and building are not.
 - **Re-deriving the closed research.** Parent/child enforcement, backlog levels, process
   inheritance and audience views are answered with primary sources (see Notes).
 - **Migrating existing work items onto whatever types are ruled in.** A data migration is a

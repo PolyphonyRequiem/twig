@@ -63,6 +63,18 @@ public class FieldImportFilterTests
         FieldImportFilter.ShouldImport(refName, fieldDef).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// AB#618: <c>System.CommentCount</c> is read-only and would otherwise be dropped by the
+    /// read-only rule, leaving <c>twig show --output json</c> with no evidence a work item
+    /// carries comments at all — so a <c>twig note</c> write cannot be verified through twig.
+    /// </summary>
+    [Fact]
+    public void ShouldImport_CommentCount_ReturnsTrue()
+    {
+        var fieldDef = new FieldDefinition("System.CommentCount", "Comment Count", "integer", true);
+        FieldImportFilter.ShouldImport("System.CommentCount", fieldDef).ShouldBeTrue();
+    }
+
     [Fact]
     public void ShouldImport_DisplayWorthyReadOnly_CaseInsensitive()
     {

@@ -454,6 +454,11 @@ public sealed class ShowCommand(
             new("isSeed", new RenderNode.KeyValue("isSeed", coreCells["isSeed"])),
             new("parentId", new RenderNode.KeyValue("parentId", coreCells["parentId"])),
             new("tags", new RenderNode.KeyValue("tags", coreCells["tags"])),
+            // AB#618: ALWAYS emitted, for the same reason as `children`/`links`/`relations`
+            // below — missing-vs-zero ambiguity is what makes a `twig note` write
+            // unverifiable. A consumer must be able to tell "this item has no comments" from
+            // "twig does not report comments", and only an always-present key does that.
+            new("commentCount", new RenderNode.KeyValue("commentCount", coreCells["commentCount"])),
         };
 
         var fieldsBlock = BuildFieldsBlock(item);
@@ -544,6 +549,7 @@ public sealed class ShowCommand(
                 ? RenderCell.Integer(item.ParentId.Value)
                 : new RenderCell(string.Empty, new RenderValue.Null()),
             ["tags"] = RenderCell.String(tags ?? string.Empty),
+            ["commentCount"] = RenderCell.Integer(item.ReadCommentCount()),
         };
     }
 

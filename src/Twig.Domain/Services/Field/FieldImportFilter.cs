@@ -23,11 +23,16 @@ public static class FieldImportFilter
         "string", "integer", "double", "dateTime", "html", "plainText",
     };
 
+    // System.CommentCount is read-only and would be dropped by the read-only rule, but it is
+    // the only evidence twig carries that a work item has comments at all (AB#618). Without it
+    // `twig show --output json` cannot verify a `twig note` write — a caller must leave twig
+    // and query the ADO REST API to confirm twig's own mutation, which is the repo's named
+    // false-green class: a success message is not evidence.
     private static readonly HashSet<string> DisplayWorthyReadOnlyRefs = new(StringComparer.OrdinalIgnoreCase)
     {
         "System.CreatedDate", "System.ChangedDate", "System.CreatedBy",
         "System.ChangedBy", "System.Tags", "System.Description",
-        "System.BoardColumn", "System.BoardColumnDone",
+        "System.BoardColumn", "System.BoardColumnDone", "System.CommentCount",
     };
 
     /// <summary>

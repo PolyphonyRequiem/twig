@@ -16,3 +16,4 @@ Twig.Domain.ValueObjects.WorkItemTypeCategories
 Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.init -> void
 const Twig.Domain.ValueObjects.WorkItemTypeCategories.Hidden = "Microsoft.HiddenCategory" -> string!
+static Twig.Domain.Extensions.WorkItemExtensions.ReadCommentCount(this Twig.Domain.Aggregates.WorkItem! item) -> int

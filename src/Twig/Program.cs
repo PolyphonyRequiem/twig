@@ -663,8 +663,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
     /// <param name="field">Set a field at creation time: fieldReferenceName=value. Repeatable. Required for types with required custom fields. Values convert Markdown only for HTML-typed fields (not affected by --format); an explicit --field System.Description overrides --description.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, ct);
+    /// <param name="descriptionFile">Read the description body from a file instead of --description.</param>
+    /// <param name="descriptionStdin">Read the description body from piped standard input.</param>
+    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, string? descriptionFile = null, bool descriptionStdin = false, CancellationToken ct = default)
+        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, descriptionFile, descriptionStdin, ct);
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
@@ -993,8 +995,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="format">Convert the note text before sending. Supported: "raw" to send pre-rendered HTML or plain text unchanged; "markdown" (default) converts Markdown to HTML.</param>
-    public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, ct);
+    /// <param name="file">Read the note body from a file instead of an inline argument.</param>
+    /// <param name="stdin">Read the note body from piped standard input.</param>
+    public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>

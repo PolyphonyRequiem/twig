@@ -4,6 +4,7 @@ using ModelContextProtocol.Protocol;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
+using Twig.Domain.Extensions;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -924,6 +925,10 @@ internal static class McpResultBuilder
             writer.WriteNull("parentId");
         item.Fields.TryGetValue("System.Tags", out var tags);
         writer.WriteString("tags", tags ?? "");
+        // AB#618: ALWAYS written, never conditional. An LLM calling twig_note is exactly the
+        // caller that cannot otherwise verify its own write, and missing-vs-zero ambiguity
+        // makes "no comments" indistinguishable from "this surface does not report comments".
+        writer.WriteNumber("commentCount", item.ReadCommentCount());
 
         if (item.Fields.Count > 0)
         {

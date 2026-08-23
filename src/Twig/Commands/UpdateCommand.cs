@@ -55,15 +55,12 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        var sourceCount = (value is not null ? 1 : 0) + (filePath is not null ? 1 : 0) + (readStdin ? 1 : 0);
-        if (sourceCount == 0)
+        // AB#617: the inline/--file/--stdin resolution is shared with `twig note` and
+        // `twig new --description` so the three cannot drift apart.
+        var sourceCountCheck = (value is not null ? 1 : 0) + (filePath is not null ? 1 : 0) + (readStdin ? 1 : 0);
+        if (sourceCountCheck == 0)
         {
             _stderr.WriteLine(fmt.FormatError("No value specified. Provide inline value, --file <path>, or --stdin."));
-            return 2;
-        }
-        if (sourceCount > 1)
-        {
-            _stderr.WriteLine(fmt.FormatError("Multiple value sources. Use exactly one of: inline value, --file, or --stdin."));
             return 2;
         }
 
@@ -74,26 +71,19 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        string resolvedValue;
-        if (filePath is not null)
+        var body = await TextBodySource.ResolveAsync(
+            value, filePath, readStdin, _stdin,
+            inlineLabel: "inline value",
+            fileFlag: "--file",
+            stdinFlag: "--stdin",
+            trimTrailingNewline: format is null,
+            ct);
+        if (body.Outcome is not TextBodySource.Outcome.Resolved)
         {
-            if (!File.Exists(filePath))
-            {
-                _stderr.WriteLine(fmt.FormatError($"File not found: {filePath}"));
-                return 2;
-            }
-            resolvedValue = await File.ReadAllTextAsync(filePath, ct);
+            _stderr.WriteLine(fmt.FormatError(body.Error!));
+            return 2;
         }
-        else if (readStdin)
-        {
-            resolvedValue = await _stdin.ReadToEndAsync(ct);
-        }
-        else
-        {
-            resolvedValue = value!;
-        }
-        if (format is null && (filePath is not null || readStdin))
-            resolvedValue = resolvedValue.TrimEnd('\r', '\n');
+        var resolvedValue = body.Value!;
 
         var resolution = await HtmlFieldFormatter.ResolveAsync(
             field, resolvedValue, format, fieldDefStore,

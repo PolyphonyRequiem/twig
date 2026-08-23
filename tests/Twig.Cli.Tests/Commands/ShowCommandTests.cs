@@ -539,6 +539,59 @@ public sealed class ShowCommandTests : IDisposable
         children.GetArrayLength().ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Show_JsonFormat_EmitsCommentCountFromSystemCommentCount()
+    {
+        // AB#618: without a comment count the machine surface offers nothing to
+        // verify a `twig note` write against — a caller must leave twig and query
+        // the ADO REST API to confirm twig's own mutation. `commentCount` is
+        // promoted to the top level so it is readable without probing `fields`.
+        var item = new WorkItemBuilder(42, "Item With Comments")
+            .WithField("System.CommentCount", "2")
+            .Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("commentCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Show_JsonFormat_EmitsZeroCommentCountWhenFieldAbsent()
+    {
+        // AB#618: ALWAYS emitted, like `relations`/`links`/`children`. ADO omits
+        // System.CommentCount entirely on an item that has never been commented on,
+        // and missing-vs-zero ambiguity is exactly what makes a write unverifiable:
+        // a consumer cannot tell "no comments" from "twig does not report comments".
+        var item = new WorkItemBuilder(42, "Uncommented Item").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+        root.TryGetProperty("commentCount", out var commentCount).ShouldBeTrue();
+        commentCount.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Number);
+        commentCount.GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Show_JsonFormat_EmitsZeroCommentCountWhenFieldUnparseable()
+    {
+        // A non-numeric value must not crash the read and must not be reported as
+        // a comment count — degrade to 0 rather than propagating a malformed value.
+        var item = new WorkItemBuilder(42, "Odd Item")
+            .WithField("System.CommentCount", "not-a-number")
+            .Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("commentCount").GetInt32().ShouldBe(0);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  IDs output format — bare numeric ID
     // ═══════════════════════════════════════════════════════════════

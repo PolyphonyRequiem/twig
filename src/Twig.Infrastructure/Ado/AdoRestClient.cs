@@ -103,6 +103,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = AdoResponseMapper.MapPatchDocument(changes);
+        patchDoc.Insert(0, AdoResponseMapper.CreateRevisionTest(expectedRevision));
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
@@ -398,11 +399,11 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         CancellationToken ct = default)
     {
         // Strict CAS variant of AddLinkAsync: no fetch, no ConflictRetryHelper, no rebase.
-        // The caller's expected revision is sent verbatim as If-Match; ADO's 412 surfaces as
-        // AdoConflictException via AdoErrorHandler.
+        // ADO enforces the caller's expected revision through the leading JSON Patch test.
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
+            AdoResponseMapper.CreateRevisionTest(expectedRevision),
             new()
             {
                 Op = "add",
@@ -434,8 +435,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         // find-and-remove primitive, so we GET the relations to compute the index — but the
         // GET is used ONLY for index resolution. If the fetched revision no longer matches
         // the caller's expectation, we refuse to touch the item and surface it as a
-        // concurrency conflict; the PATCH's If-Match still carries the caller's expected
-        // revision so the server independently enforces the same invariant.
+        // concurrency conflict; the PATCH's leading JSON Patch test independently fences
+        // the same invariant against a race after the GET.
         var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(getResponse, ct);
@@ -456,6 +457,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = new List<AdoPatchOperation>
         {
+            AdoResponseMapper.CreateRevisionTest(expectedRevision),
             new()
             {
                 Op = "remove",

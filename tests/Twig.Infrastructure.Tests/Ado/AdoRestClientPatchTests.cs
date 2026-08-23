@@ -16,7 +16,7 @@ namespace Twig.Infrastructure.Tests.Ado;
 public sealed class AdoRestClientPatchTests
 {
     [Fact]
-    public async Task PatchAsync_ClearingAssignment_SendsRemoveFieldOperation()
+    public async Task PatchAsync_RevisionBoundClearAssignment_PrependsRevisionTest()
     {
         var handler = new PatchTrackingHandler();
         var client = CreateClient(handler);
@@ -27,8 +27,14 @@ public sealed class AdoRestClientPatchTests
             expectedRevision: 4);
 
         using var document = JsonDocument.Parse(handler.LastRequestBody!);
-        var operation = document.RootElement[0];
+        document.RootElement.GetArrayLength().ShouldBe(2);
 
+        var revisionTest = document.RootElement[0];
+        revisionTest.GetProperty("op").GetString().ShouldBe("test");
+        revisionTest.GetProperty("path").GetString().ShouldBe("/rev");
+        revisionTest.GetProperty("value").GetInt32().ShouldBe(4);
+
+        var operation = document.RootElement[1];
         operation.GetProperty("op").GetString().ShouldBe("remove");
         operation.GetProperty("path").GetString().ShouldBe("/fields/System.AssignedTo");
         operation.TryGetProperty("value", out _).ShouldBeFalse();

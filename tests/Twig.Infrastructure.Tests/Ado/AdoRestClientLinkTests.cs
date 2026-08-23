@@ -184,7 +184,7 @@ public sealed class AdoRestClientLinkTests
     }
 
     [Fact]
-    public async Task AddLinkAtRevisionAsync_BodyContainsAddRelationOp()
+    public async Task AddLinkAtRevisionAsync_BodyPrependsRevisionTestBeforeRelation()
     {
         var handler = new LinkTrackingHandler();
         var client = CreateClient(handler);
@@ -196,11 +196,17 @@ public sealed class AdoRestClientLinkTests
         var body = handler.LastRequestBody;
         body.ShouldNotBeNull();
         using var doc = JsonDocument.Parse(body);
-        doc.RootElement.GetArrayLength().ShouldBe(1);
-        var op = doc.RootElement[0];
-        op.GetProperty("op").GetString().ShouldBe("add");
-        op.GetProperty("path").GetString().ShouldBe("/relations/-");
-        var value = op.GetProperty("value");
+        doc.RootElement.GetArrayLength().ShouldBe(2);
+
+        var revisionTest = doc.RootElement[0];
+        revisionTest.GetProperty("op").GetString().ShouldBe("test");
+        revisionTest.GetProperty("path").GetString().ShouldBe("/rev");
+        revisionTest.GetProperty("value").GetInt32().ShouldBe(1);
+
+        var relation = doc.RootElement[1];
+        relation.GetProperty("op").GetString().ShouldBe("add");
+        relation.GetProperty("path").GetString().ShouldBe("/relations/-");
+        var value = relation.GetProperty("value");
         value.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Dependency-Forward");
         value.GetProperty("url").GetString().ShouldBe($"{OrgUrl}/_apis/wit/workitems/2");
     }

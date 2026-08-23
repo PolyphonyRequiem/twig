@@ -92,6 +92,17 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
+    /// Creates the leading JSON Patch assertion ADO uses to reject a stale work-item revision.
+    /// </summary>
+    public static AdoPatchOperation CreateRevisionTest(int expectedRevision) => new()
+    {
+        Op = "test",
+        Path = "/rev",
+        Value = JsonValue.Create(expectedRevision),
+    };
+
+
+    /// <summary>
     /// Fields that are handled explicitly in the create payload (Title, AreaPath, IterationPath)
     /// or are read-only/computed and must not be sent to ADO on create.
     /// Shared constant extracted from <see cref="Twig.Domain.Services.SeedEditorFormat"/> excluded set.

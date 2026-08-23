@@ -26,7 +26,7 @@ Initiatives : Epic, Map
 Work        : Bug, Feature, Grilling, Prototype, Research, Spec, Wayfinder Task
 Tasks       : Task
 (no level)  : Decision, Idea            <- deliberate
-(no level)  : Issue, Test Case/Plan/Suite, the four dormant Request/Response types
+(no level)  : Issue, Test Case/Plan/Suite, the four hidden Request/Response types
 ```
 
 🔴 **The behaviour reference names never change.** The Initiatives level is

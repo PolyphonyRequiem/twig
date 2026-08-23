@@ -218,7 +218,24 @@ the two: I have no inherited type with zero items to test against, so **"an inhe
 zero items can/cannot be deleted" is OPEN.** What is settled is the *practical* answer for
 Hyperbright: disable, don't delete.
 
-### 3.5 🔴 The four dormant types are NOT in the process at all — they cannot be hidden or removed — **[probe]**
+### 3.5 The four hidden types are NOT in the process at all — they cannot be hidden further or removed — **[probe]**
+
+> ⚠️ **Read this section's *relevance* with care (added 2026-08-22).** The measurements below are
+> accurate and independently re-verified. But they were gathered to answer a question that does
+> not exist: the brief framed the four as a **naming collision** for a proposed
+> `Request for Change` type, and the author corrected that as a factual error. All four sit in
+> `Microsoft.HiddenCategory` — Microsoft's *"the set of WITs that you do not want users to create
+> manually"* — so they are **tooling back ends, not namable vocabulary**, and a chooser is never
+> offered them. Nothing was ever going to route work into them by mistake. Do not cite this
+> section as an argument against a new type name. See ticket 0005.
+>
+> Two further measured facts, and neither follows from a name: **`Microsoft.BugCategory` contains
+> `Issue`, not `Bug`** (`Bug` is in `Microsoft.RequirementCategory`, and `Issue` is itself
+> hidden), and **three routes return three different type lists** — process roster 16, project
+> WIT 22, categories a third view again. Say which roster you mean.
+>
+> Filed against twig, not this map's work: **ADO #656**, **ADO #657**.
+
 
 This is the direct ticket-0005 input, and the answer is not the expected one.
 

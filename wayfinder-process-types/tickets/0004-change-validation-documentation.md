@@ -29,7 +29,8 @@ Work-level type meaning *"a unit of work that can be pull-requested into main"* 
 rules, the build that follows creates.
 
 That blockage is a reason to answer this ticket *well*, not quickly. A type created by reflex to
-unblock a handoff is how the four dormant Request/Response types got there.
+unblock a handoff is how the four hidden Request/Response types got there — tooling back ends
+that outlived their tools.
 
 ## Blocked on 0002 and 0003 — and here is why, not merely that
 

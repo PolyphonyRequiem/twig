@@ -79,8 +79,28 @@ Initiatives : Epic, Map
 Work        : Bug, Feature, Grilling, Prototype, Research, Spec, Wayfinder Task
 Tasks       : Task
 (no level)  : Decision, Idea            <- deliberate: artifacts, not backlog items
-(no level)  : Issue, Test Case/Plan/Suite, and the four dormant Request/Response types
+(no level)  : Issue, Test Case/Plan/Suite, and the four hidden Request/Response types
 ```
+
+🔴 **Say which roster you mean — three routes return three different type lists.** Measured
+2026-08-22: the **process roster** (`_apis/work/processes/{id}/workItemTypes`) returns **16**;
+the **project WIT** roster (`_apis/wit/workitemtypes`) returns **22**, because it carries the
+hidden helpers; and `_apis/wit/workitemtypecategories` is a third view again. The 16 above is
+the process roster. Quoting a count without naming its route is how this map's first draft got
+the Request/Response types wrong.
+
+⚠️ **Category membership does not follow the type name.** `Microsoft.BugCategory` contains
+**`Issue`**, not `Bug` — `Bug` sits in `Microsoft.RequirementCategory`, and `Issue` is itself
+hidden. Verified live. Never infer a category from a name.
+
+`Microsoft.HiddenCategory` holds 10 types here — `Issue`, `Code Review Request`,
+`Code Review Response`, `Shared Steps`, `Shared Parameter`, `Test Suite`, `Test Plan`,
+`Test Case`, `Feedback Response`, `Feedback Request`. Microsoft defines the category as *"the
+set of WITs that you do not want users to create manually"*: they are **tooling back ends, not
+namable vocabulary**. Already filed against twig, and **not this map's work**: **ADO #656** (no
+twig surface reports category membership) and **ADO #657** (`twig process` lists 21 types, 10
+hidden, unmarked — an omp session is working it in `/home/polyphonyrequiem/repos/twig-657`;
+**do not touch that card or worktree**).
 
 16 types total. Reference names are `Hyperbright.<Name>` for custom/inherited types and
 `Microsoft.VSTS.WorkItemTypes.*` for the stock test types — ⚠️ **read the real `referenceName`
@@ -174,14 +194,14 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
 - **[What can an ADO inherited process actually express?](tickets/0009-ado-process-capabilities.md)**
   (research, closed 2026-08-22, memo `ado-process-capabilities.md`, 552 lines): a type can be
   created with **no parent and no backlog level**, but **cannot sit at two levels**
-  (`400 VS403194`), and `inheritsFrom` a custom type is refused. 🔴 **The four dormant
-  Request/Response types cannot be hidden or removed — they are not process objects at all**,
-  only a UI-only `Microsoft.HiddenCategory` membership that places no restriction on REST (a real
-  one was created and destroyed to prove it). The Bug→Done gate is **two `makeRequired` state
-  rules, not a transition restriction**, and 🔴 **`bypassRules=true` closes a Bug with both gate
-  fields empty** — type-disabling is the only block that survives it. `Custom.VerificationMode`
-  **does** have an enforced five-item picklist; the process API returns a stub, the project WIT
-  endpoint shows it. Custom states can be added to inherited types. Rename left OPEN.
+  (`400 VS403194`), and `inheritsFrom` a custom type is refused. The Bug→Done gate is **two
+  `makeRequired` state rules, not a transition restriction**, and 🔴 **`bypassRules=true` closes
+  a Bug with both gate fields empty** — type-disabling is the only block that survives it.
+  `Custom.VerificationMode` **does** have an enforced five-item picklist; the process API returns
+  a stub, the project WIT endpoint shows it. Custom states can be added to inherited types.
+  Rename left OPEN. ⚠️ Its finding that the four hidden Request/Response types cannot be disabled
+  or removed is **true but no longer load-bearing** — they are tooling back ends never offered to
+  a chooser, so the collision it was gathered to inform does not exist.
 
 ## Not yet specified
 
@@ -189,11 +209,12 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
   `Change` needs a review/merged state, whether a `Validation` needs a failed state, and whether
   a level-less artifact needs a *superseded* state distinct from `Done` — cannot be phrased
   sharply until the type set is settled (0004, 0005, 0006).
-- ~~**The dormant Request/Response types' fate.**~~ **Closed by ticket 0009: there is no lever.**
-  They are not process objects at all — only a UI-only `Microsoft.HiddenCategory` membership at
-  project scope, which places no restriction on REST. They cannot be disabled or deleted and will
-  stay reachable forever. Ticket 0005 must now rule on collision *given that*, rather than
-  treating retirement as an available fallback.
+- ~~**The dormant Request/Response types' fate.**~~ **Void — the premise was a factual error,**
+  corrected by the author 2026-08-22 and confirmed measured. The four sit in
+  `Microsoft.HiddenCategory` (*"WITs that you do not want users to create manually"*) and are
+  **tooling back ends, not namable vocabulary** — a chooser is never offered them, so there was
+  never a collision. Ticket 0009's finding that they cannot be disabled or removed remains true
+  but is no longer relevant here. Already filed and **not this map's work**: ADO #656 and #657.
 - **Naming convention for types and fields.** `Custom.WayfinderAnswer` vs `Custom.Maturity` —
   is a domain prefix a rule? Bears on every new field, but not sharp until 0007 rules on which
   fields survive.

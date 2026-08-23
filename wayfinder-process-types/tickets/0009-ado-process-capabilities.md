@@ -1,6 +1,6 @@
 ---
 id: 0009
-title: What can an ADO inherited process actually express for types, fields, gates and dormant types?
+title: What can an ADO inherited process actually express for types, fields, gates and hidden types?
 type: research
 status: closed
 claimed_by: research-0009
@@ -97,12 +97,17 @@ The findings that change other tickets — the rest is in the memo, which is the
 2. **Backlog level** — the endpoint is `workitemtypesbehaviors/{rn}/behaviors`, POST to add and
    DELETE to remove. 🔴 **A type cannot sit at two levels** — hard `400 VS403194`.
    ⚠️ **Correction to the brief:** PATCH on this route returns **500**, not 405.
-3. 🔴 **The four dormant Request/Response types cannot be hidden or removed, because they are not
-   process objects at all.** Absent from the 16-type process list; individual GET → `VS1640142`;
-   PATCH disable → `VS402805`. They exist only at *project* scope in `Microsoft.HiddenCategory`,
-   which is a **UI-only** hide — a real `Code Review Request` was created via REST (id 655,
-   HTTP 200, destroyed after). By contrast `isDisabled` on a `Hyperbright.*` type **does** block
-   REST creates (`VS403074`). **This removes ticket 0005's fallback option entirely.**
+3. **The four hidden Request/Response types cannot be hidden further or removed, because they are
+   not process objects at all.** Absent from the 16-type process roster; individual GET →
+   `VS1640142`; PATCH disable → `VS402805`. They exist only at *project* scope in
+   `Microsoft.HiddenCategory`, which is a **UI-only** hide — a real `Code Review Request` was
+   created via REST (id 655, HTTP 200, destroyed after). By contrast `isDisabled` on a
+   `Hyperbright.*` type **does** block REST creates (`VS403074`).
+   ⚠️ **This finding is accurate but was gathered to inform a question that turned out not to
+   exist.** The ticket asked it because the brief framed the four as a naming collision for
+   `Request for Change`; the author corrected that on 2026-08-22 — they are **tooling back ends,
+   not namable vocabulary**, never offered to a chooser. Ticket 0005 is rescoped accordingly.
+   Related, already filed and **not this map's work**: **ADO #656**, **ADO #657**.
 4. **Fields** — field removal is per-type and leaves the org field and other types intact.
    ⚠️ **Correction to the brief and to this map's first draft:** `Custom.VerificationMode`
    **does** have enforced `allowedValues` — a five-item picklist. The *process* API returns a
@@ -131,7 +136,10 @@ success message is not evidence. Both held.
 
 - `map.md` — the "free text `VerificationMode`" claim corrected, and the gate recorded as
   advisory-not-inviolable.
-- Ticket 0005 — the "retire the four dormant types" fallback marked unavailable.
+- Ticket 0005 — **rescoped 2026-08-22 by an author correction, not by this ticket.** The
+  collision premise was a factual error: the four are `Microsoft.HiddenCategory` tooling back
+  ends, never offered to a chooser, so `Request for Change` is judged on its own merits. §3.5's
+  measurement stands but is no longer load-bearing.
 - Ticket 0007 — the picklist sub-question marked largely answered, and a new sub-question added:
   what a gate is worth given it is bypassable.
 

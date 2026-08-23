@@ -970,6 +970,36 @@ git show origin/main:path/to/File.cs | grep -c "YourNewSymbol"
 GitHub auto-close keywords do not chain: `Fixes #253 and #252` closes only #253.
 Repeat the keyword — `Fixes #253, fixes #252`.
 
+### An ADO close gate is a guardrail, not a guarantee — `bypassRules` walks through it
+
+Measured 2026-08-22 against the live process (`wayfinder-process-types/ado-process-capabilities.md`,
+which carries the requests and their verifying GETs).
+
+`Bug` → `Done` looks gated: `Custom.FalsificationCriteria` and `Custom.VerificationMode` must
+both be set. The mechanism is **two custom rules** — `conditionType: "when"` on `System.State`
+= `Done`, `actionType: "makeRequired"`. Note what that is: a **state** rule, not a transition
+restriction. Every transition is legal; the rule only fires on the resulting value.
+
+🔴 **`bypassRules=true` closed a Bug with BOTH gate fields empty — HTTP 200, confirmed by GET.**
+So the gate holds against a person clicking in the web UI and does **not** hold against a
+privileged automation identity. twig may be exactly such an identity.
+
+This is the false-green shape again, one layer down: the gate *reports* that a closed Bug was
+verified, and a caller who trusts it has trusted a check that something can silently walk past.
+Two consequences:
+
+- **Do not design a process rule whose value depends on being unbypassable.** Of every mechanism
+  probed, **only type-disabling** (`isDisabled` on a `Hyperbright.*` type → `VS403074`) survived
+  `bypassRules`.
+- **Do not read a set gate field as evidence the work was verified.** It is evidence someone or
+  something wrote a string. `Custom.VerificationMode` does constrain that string to five values
+  (see below), which bounds the lie but does not remove it.
+
+⚠️ **Related trap, same memo: a field can look unconstrained when it is not.**
+`Custom.VerificationMode` returns a **stub with no `allowedValues`** from the *process* API, and
+a five-item picklist from the *project WIT* API with `$expand=all`. Read the project WIT
+endpoint before concluding a field is free text — the process endpoint under-reports.
+
 ## Where work is tracked
 
 **Consolidated 2026-08-06.** Three trackers held three layers of the same work and no

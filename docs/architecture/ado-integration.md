@@ -174,10 +174,16 @@ are imported into a `WorkItem.Fields` dictionary:
 |------|--------|
 | Core field (System.Id, Title, State, …) | Exclude — stored as first-class properties |
 | No definition available | Import (safe fallback) |
-| Display-worthy read-only (CreatedDate, Tags, …) | Import |
+| Display-worthy read-only (CreatedDate, Tags, CommentCount, …) | Import |
 | Other read-only | Exclude |
 | Importable data type (string, int, double, dateTime, html, plainText) | Import |
 | Boolean | Exclude — cannot round-trip faithfully as string |
+
+`System.CommentCount` is on the display-worthy list for a specific reason (AB#618): it is
+read-only, so the read-only rule would drop it, and without it no machine-readable surface
+carries any evidence that a work item has comments at all — meaning a `twig note` write
+could not be verified through twig. Every such surface projects it as a top-level
+`commentCount`, always emitted, via `WorkItemExtensions.ReadCommentCount`.
 
 ### Process configuration sync
 

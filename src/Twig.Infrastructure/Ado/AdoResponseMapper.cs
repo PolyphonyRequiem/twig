@@ -82,9 +82,9 @@ internal static class AdoResponseMapper
         {
             operations.Add(new AdoPatchOperation
             {
-                Op = "replace",
+                Op = change.NewValue is null ? "remove" : "replace",
                 Path = $"/fields/{change.FieldName}",
-                Value = change.NewValue is not null ? JsonValue.Create(change.NewValue) : null,
+                Value = change.NewValue is null ? null : JsonValue.Create(change.NewValue),
             });
         }
 

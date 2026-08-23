@@ -119,6 +119,8 @@ public static class CommandRegistrationModule
         services.AddSingleton<BenchCommand>();
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
+        services.AddSingleton<PlanCommand>();
+        services.AddSingleton<PendingCommand>();
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -12,6 +13,51 @@ namespace Twig.Infrastructure.Tests;
 /// </summary>
 public sealed class TwigServiceRegistrationTests
 {
+    [Fact]
+    public void AddConnectionServices_ResolvesPlanJournalRepository_AsSqliteSingleton()
+    {
+        // Foundation review gap: the plan journal is the durable half of the
+        // record-intent-then-record-outcome contract. Every surface (CLI, TUI, MCP)
+        // MUST reach the same SQLite-backed implementation through the SAME production
+        // registration path — a hand-built repository here would let the container ship
+        // a different concrete than callers see, which is exactly the drift the
+        // wayfinder 0016 declarative-plan work exists to make impossible.
+        var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        var twigDir = Path.Combine(repoRoot, ".twig");
+        Directory.CreateDirectory(repoRoot);
+        File.WriteAllText(Path.Combine(repoRoot, WorkspaceDiscovery.RepoManifestFileName), "{}");
+
+        try
+        {
+            var config = new TwigConfiguration { Organization = "acme", Project = "cache" };
+            var services = new ServiceCollection();
+            services.AddConnectionServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+
+            using var provider = services.BuildServiceProvider();
+
+            var first = provider.GetRequiredService<IPlanJournalRepository>();
+            var second = provider.GetRequiredService<IPlanJournalRepository>();
+
+            first.ShouldBeOfType<SqlitePlanJournalRepository>();
+            second.ShouldBeSameAs(first);
+
+            // IPendingChangeReader is a read-only slice of IPendingChangeStore added by the
+            // interface-segregation split. It MUST resolve through the same production
+            // registration path as the store, and to the same singleton, so consumers that
+            // only need to READ pending changes cannot end up bound to a different instance
+            // than the writer surface the store owns.
+            var reader = provider.GetRequiredService<IPendingChangeReader>();
+            var store = provider.GetRequiredService<IPendingChangeStore>();
+            reader.ShouldBeSameAs(store);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public void AddConnectionServices_RepoManifestOnly_CreatesMissingContextDatabase()
     {

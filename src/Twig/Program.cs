@@ -1353,6 +1353,50 @@ public sealed class TwigCommands(IServiceProvider services)
             : ["--tool-profile", toolProfile];
         return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp", arguments: arguments));
     }
+
+    // ── Plan lifecycle (native) ───────────────────────────────────────
+
+    /// <summary>Validate a plan v1 file. No ADO mutation.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan validate")]
+    public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
+
+    /// <summary>Preview a plan: import journal, snapshot pending changes, report digest and canApply. No ADO mutation.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan preview")]
+    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
+
+    /// <summary>Apply a plan. Requires --confirm &lt;digest&gt; matching the current file digest exactly.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical plan bytes. Must match exactly.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan apply")]
+    public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+
+    /// <summary>Show journal state for a plan file. Exit 1 when no journal exists for its digest.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan status")]
+    public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
+
+    /// <summary>Describe a staged seed (identity + fingerprint) for plan authoring.</summary>
+    /// <param name="id">Negative display alias of a currently-staged seed.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan seed")]
+    public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
+
+    /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("pending")]
+    public async Task<int> Pending(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PendingCommand>().ExecuteAsync(output, ct);
 }
 
 /// <summary>
@@ -1566,6 +1610,15 @@ internal static class GroupedHelp
         "area list",
         "area sync",
 
+        // Plan lifecycle (native plan v1)
+        "plan",
+        "plan validate",
+        "plan preview",
+        "plan apply",
+        "plan status",
+        "plan seed",
+        "pending",
+
         // Group prefixes for compound commands without standalone handlers
         "link",
         // ADO #148-150. `bench` has no bare handler — every verb is `bench <verb>` — but the
@@ -1698,6 +1751,14 @@ Seeds:
   seed publish --all --link-branch <name>  Publish all and link to a branch.
   seed publish --all --link-branch <name> --repo <name>  Link to a branch in a specific repo.
   seed reconcile       Repair stale links after partial publishes.
+
+Plans:
+  plan validate --file <path>              Validate a plan v1 file. No ADO mutation.
+  plan preview --file <path>               Preview a plan: import journal, snapshot pending, report digest & canApply.
+  plan apply --file <path> --confirm <d>   Apply a plan; --confirm must match the current file digest exactly.
+  plan status --file <path>                Show journal state for a plan file.
+  plan seed --id <negative>                Describe a staged seed (identity + fingerprint) for plan authoring.
+  pending                                  List raw staged pending changes in exact staging order.
 
 System:
   config <key> [val]   Read or set a configuration value.

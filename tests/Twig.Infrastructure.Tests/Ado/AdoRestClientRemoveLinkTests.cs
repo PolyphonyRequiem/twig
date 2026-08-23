@@ -242,6 +242,119 @@ public sealed class AdoRestClientRemoveLinkTests
             () => client.RemoveLinkAsync(sourceId: 100, targetId: 200, adoLinkType: "System.LinkTypes.Related"));
     }
 
+    // ── Strict CAS: RemoveLinkAtRevisionAsync ──────────────────────
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_PatchSendsIfMatchWithExpectedRevision()
+    {
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Related", 200)], rev: 9);
+        var client = CreateClient(handler);
+
+        await client.RemoveLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 9);
+
+        handler.GetRequestCount.ShouldBe(1);
+        handler.PatchRequestCount.ShouldBe(1);
+        // If-Match on the PATCH is the caller's expected revision, not a refetched value.
+        handler.LastPatchIfMatch.ShouldBe("9");
+    }
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_ReturnsNewRevisionFromPatchResponse()
+    {
+        // Handler's PATCH response fixture returns rev=6.
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Related", 200)], rev: 5);
+        var client = CreateClient(handler);
+
+        var newRev = await client.RemoveLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 5);
+
+        newRev.ShouldBe(6);
+    }
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_FetchedRevisionMismatch_ThrowsAdoConflictBeforePatch()
+    {
+        // GET returns rev=8; caller expected 5. Strict CAS refuses to PATCH.
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Related", 200)], rev: 8);
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => client.RemoveLinkAtRevisionAsync(
+                sourceId: 100, relationType: "System.LinkTypes.Related",
+                targetId: 200, expectedRevision: 5));
+
+        handler.GetRequestCount.ShouldBe(1);
+        // No PATCH — refused before mutating.
+        handler.PatchRequestCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_RelationMissing_ThrowsAndDoesNotPatch()
+    {
+        // Relation not present on the source at the expected revision — strict remove refuses.
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Hierarchy-Reverse", 50)], rev: 3);
+        var client = CreateClient(handler);
+
+        var ex = await Should.ThrowAsync<AdoException>(
+            () => client.RemoveLinkAtRevisionAsync(
+                sourceId: 100, relationType: "System.LinkTypes.Related",
+                targetId: 200, expectedRevision: 3));
+
+        ex.ShouldNotBeOfType<AdoConflictException>();
+        handler.PatchRequestCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_PreconditionFailedOnPatch_ThrowsAdoConflictWithoutRetry()
+    {
+        // GET matches expected revision, but the PATCH is rejected 412 (someone raced us
+        // between GET and PATCH). Strict CAS surfaces without a rebase.
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Related", 200)], rev: 5)
+        {
+            PatchStatusCode = HttpStatusCode.PreconditionFailed,
+        };
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => client.RemoveLinkAtRevisionAsync(
+                sourceId: 100, relationType: "System.LinkTypes.Related",
+                targetId: 200, expectedRevision: 5));
+
+        handler.GetRequestCount.ShouldBe(1);
+        handler.PatchRequestCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task RemoveLinkAtRevisionAsync_UsesJsonPatchContentTypeAndRemoveOp()
+    {
+        var handler = new RemoveLinkTrackingHandler(
+            [
+                ("System.LinkTypes.Hierarchy-Reverse", 50),
+                ("System.LinkTypes.Related", 200),
+            ], rev: 4);
+        var client = CreateClient(handler);
+
+        await client.RemoveLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 4);
+
+        handler.LastPatchContentType.ShouldNotBeNull();
+        handler.LastPatchContentType.ShouldContain("application/json-patch+json");
+
+        var body = handler.LastPatchBody!;
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement[0].GetProperty("op").GetString().ShouldBe("remove");
+        doc.RootElement[0].GetProperty("path").GetString().ShouldBe("/relations/1");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
@@ -275,6 +388,8 @@ public sealed class AdoRestClientRemoveLinkTests
         public string? LastPatchBody { get; private set; }
         public string? LastPatchIfMatch { get; private set; }
         public string? LastPatchContentType { get; private set; }
+
+        public HttpStatusCode PatchStatusCode { get; init; } = HttpStatusCode.OK;
 
         public RemoveLinkTrackingHandler((string RelType, int TargetId)[] relations, int rev, string? urlPrefix = null)
         {
@@ -320,11 +435,19 @@ public sealed class AdoRestClientRemoveLinkTests
                 if (request.Content is not null)
                     LastPatchBody = await request.Content.ReadAsStringAsync(cancellationToken);
 
+            if (PatchStatusCode == HttpStatusCode.OK)
+            {
                 var responseJson = """{"id":100,"rev":6,"fields":{"System.WorkItemType":"Task","System.Title":"Test","System.State":"New"}}""";
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
                 };
+            }
+
+            return new HttpResponseMessage(PatchStatusCode)
+            {
+                Content = new StringContent(string.Empty, Encoding.UTF8, "application/json"),
+            };
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);

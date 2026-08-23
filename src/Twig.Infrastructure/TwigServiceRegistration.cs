@@ -95,6 +95,11 @@ public static class TwigServiceRegistration
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));
+        // IPendingChangeReader aliases the same SqlitePendingChangeStore instance so
+        // read-only consumers (plan preview, MCP status) resolve without the mutating
+        // surface. Cast is safe: SqlitePendingChangeStore implements both.
+        services.AddSingleton<IPendingChangeReader>(sp =>
+            (IPendingChangeReader)sp.GetRequiredService<IPendingChangeStore>());
         services.AddSingleton<IUnitOfWork>(sp => new SqliteUnitOfWork(sp.GetRequiredService<SqliteCacheStore>()));
 
         // Domain services
@@ -109,6 +114,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<IStagedIdentityRegistry>(sp => new SqliteStagedIdentityRegistry(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IPlanJournalRepository>(sp => new SqlitePlanJournalRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         // ITrackingService is registered in AddConnectionDomainServices, AFTER the Bench pin
         // reader/writer it now depends on (ADO #146).
@@ -386,6 +392,27 @@ public static class TwigServiceRegistration
         services.AddSingleton<WorkItemFetcher>(sp => new WorkItemFetcher(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>()));
+
+        // Shared plan-lifecycle service (twig plan native, wayfinder 0016). CLI + MCP +
+        // future TUI all route through this ONE service so validation, preview, apply,
+        // status and seed-descriptor semantics cannot drift between surfaces.
+        services.AddSingleton<Twig.Infrastructure.Plan.PlanDocumentParser>();
+        services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
+            new Twig.Infrastructure.Plan.PlanLifecycleService(
+                sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
+                sp.GetRequiredService<IPlanJournalRepository>(),
+                sp.GetRequiredService<IPendingChangeReader>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
+                sp.GetRequiredService<SeedPublishOrchestrator>(),
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<ISeedLinkRepository>(),
+                sp.GetRequiredService<IStagedIdentityRegistry>(),
+                sp.GetRequiredService<IPublishIdMapRepository>(),
+                sp.GetRequiredService<IPublishIntentRepository>(),
+                sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
+                sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
+                sp.GetRequiredService<TimeProvider>()));
 
         return services;
     }

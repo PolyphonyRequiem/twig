@@ -154,6 +154,37 @@ internal class FakeHandler : HttpMessageHandler
         _responses["/_apis/projects/"] = json;
     }
 
+    /// <summary>
+    /// Canned answer for the work item type CATEGORIES route —
+    /// <c>_apis/wit/workitemtypecategories</c> (AB#656).
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Takes category → member type names, i.e. the CATEGORY-MAJOR shape the real route
+    /// returns, so a type appearing in several categories is expressed the way ADO expresses
+    /// it. A fixture that took type → categories would pre-invert the data and the inversion
+    /// under test would never run.
+    /// <para>
+    /// Keyed on <c>/_apis/wit/workitemtypecategories</c>, which is safely distinct from
+    /// <see cref="SetWorkItemTypesResponse"/>'s <c>/_apis/wit/workitemtypes</c> — the strings
+    /// diverge at <c>workitemtype[c]</c> vs <c>workitemtype[s]</c>, so neither key is a
+    /// substring of the other URL.
+    /// </para>
+    /// </remarks>
+    public void SetWorkItemTypeCategoriesResponse(
+        params (string categoryReferenceName, string[] typeNames)[] categories)
+    {
+        var categoryJsons = categories.Select(c =>
+        {
+            var members = c.typeNames.Select(n =>
+                $"{{\"name\":\"{n}\",\"referenceName\":\"System.{n.Replace(" ", "")}\"}}");
+            return $"{{\"referenceName\":\"{c.categoryReferenceName}\"," +
+                $"\"name\":\"{c.categoryReferenceName}\"," +
+                $"\"workItemTypes\":[{string.Join(',', members)}]}}";
+        });
+        var json = $"{{\"count\":{categories.Length},\"value\":[{string.Join(',', categoryJsons)}]}}";
+        _responses["/_apis/wit/workitemtypecategories"] = json;
+    }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var url = request.RequestUri!.ToString();

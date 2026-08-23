@@ -46,6 +46,10 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoIterationListResponse))]
 [JsonSerializable(typeof(AdoIterationResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeListResponse))]
+// Work item type CATEGORY DTOs (AB#656 — hidden/system type membership)
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryListResponse))]
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryResponse))]
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryMemberResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeIconResponse))]
 [JsonSerializable(typeof(AdoWorkItemStateColor))]

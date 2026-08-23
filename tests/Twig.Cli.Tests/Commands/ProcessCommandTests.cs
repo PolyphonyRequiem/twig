@@ -174,6 +174,74 @@ public sealed class ProcessCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  AB#656 — category membership on the machine surface
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// AB#656. The machine surface must carry enough to tell a user-creatable type from one
+    /// ADO keeps for its own tooling. Both halves are asserted deliberately: an absence-only
+    /// or hidden-only assertion is the false-green class AGENTS.md names, because an empty
+    /// or all-hidden listing would satisfy it.
+    /// </summary>
+    [Fact]
+    public async Task Execute_NoArgs_JsonOutput_DistinguishesHiddenTypesFromUsableOnes()
+    {
+        SetupProcessTypes([
+            // Measured on the live Hyperbright process: 'Issue' is in HiddenCategory AND
+            // BugCategory AND RequirementCategory at once — membership is many-to-many and
+            // is not derivable from the type name.
+            new ProcessTypeRecord
+            {
+                TypeName = "Issue",
+                States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+                ValidChildTypes = [],
+                CategoryReferenceNames = [
+                    "Microsoft.HiddenCategory",
+                    "Microsoft.BugCategory",
+                    "Microsoft.RequirementCategory",
+                ],
+            },
+            // ...while 'Bug' is in RequirementCategory and NOT BugCategory, and is usable.
+            new ProcessTypeRecord
+            {
+                TypeName = "Bug",
+                States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+                ValidChildTypes = [],
+                CategoryReferenceNames = ["Microsoft.RequirementCategory"],
+            },
+        ]);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "json"));
+
+        exitCode.ShouldBe(0);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var types = doc.RootElement.GetProperty("types").EnumerateArray().ToList();
+
+        // Ordinary process types must remain represented — not silently dropped.
+        types.Count.ShouldBe(2);
+
+        var issue = types.Single(t => t.GetProperty("typeName").GetString() == "Issue");
+        var bug = types.Single(t => t.GetProperty("typeName").GetString() == "Bug");
+
+        // The hidden fact is explicit, per type, on the machine surface.
+        issue.GetProperty("isHidden").GetBoolean().ShouldBeTrue();
+        bug.GetProperty("isHidden").GetBoolean().ShouldBeFalse();
+
+        // ...and the full membership is carried, not collapsed to one category.
+        var issueCategories = issue.GetProperty("categories")
+            .EnumerateArray().Select(c => c.GetString()).ToList();
+        issueCategories.ShouldContain("Microsoft.HiddenCategory");
+        issueCategories.ShouldContain("Microsoft.BugCategory");
+        issueCategories.ShouldContain("Microsoft.RequirementCategory");
+
+        var bugCategories = bug.GetProperty("categories")
+            .EnumerateArray().Select(c => c.GetString()).ToList();
+        bugCategories.ShouldBe(["Microsoft.RequirementCategory"]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  process <type> — type detail mode
     // ═══════════════════════════════════════════════════════════════
 

@@ -132,11 +132,27 @@ Two shapes fall straight out of that matrix and are ticketed rather than assumed
    the shape of accreted drift, and it is exactly the kind of thing a new type inherits by
    copying its nearest neighbour. Also in ticket 0007.
 
-**The Bug→Done close gate** is `Custom.FalsificationCriteria` (html, free text) **and**
-`Custom.VerificationMode` (string). `VerificationMode` has **no `allowedValues` in the API** —
-the board's convention is *"Validation proven to catch failure"* or *"Developer attested"*, and
-a convention with no server-side enumeration is a convention that will drift. Which types need
-which gates is ticket 0007.
+**The Bug→Done close gate** is `Custom.FalsificationCriteria` (html) **and**
+`Custom.VerificationMode` (string). The mechanism is pinned by ticket 0009's memo: **two custom
+process rules**, `conditionType: "when"` on `System.State` = `Done` with
+`actionType: "makeRequired"`. It is a **state** rule, not a transition restriction — every
+transition is legal.
+
+⚠️ **CORRECTION to the brief, and to this map's own first draft.** `Custom.VerificationMode`
+**does** have enforced `allowedValues` — a five-item picklist
+(`Not verified yet`, `Developer attested`, `Owner attested`, `Validation accepted`,
+`Validation proven to catch failure`). The *process* API returns a stub with no values, which is
+what produced the "free text" reading; the **project WIT** endpoint with `$expand=all` shows the
+picklist. Independently re-verified this session against
+`.../Twig/_apis/wit/workitemtypes/Bug/fields/Custom.VerificationMode?$expand=all`. **Read the
+project WIT endpoint, not the process endpoint, before concluding a field is unconstrained.**
+
+🔴 **But the gate is advisory, not inviolable.** Ticket 0009 measured `bypassRules=true` closing
+a Bug with **both gate fields empty** — HTTP 200, confirmed by GET. Process rules do not survive
+a privileged automation identity, and twig may be exactly such an identity. **Type-disabling was
+the only mechanism found that `bypassRules` cannot walk through.** Any design in 0007 or 0008
+that treats a `makeRequired` rule as a hard gate is wrong. Which types need which gates is
+ticket 0007.
 
 ## The frontier as charted
 
@@ -145,7 +161,8 @@ a list here — this snapshot is the charting session's, and it goes stale on th
 resolution. Verified at charting: **11 tickets, no dangling `blocked_by` refs, no cycles.**
 
 Takeable now: **0001** (destination — take it first, it rescopes everything), **0002** (the red
-UNDECIDED), **0003** (team experiences), **0009** (research, AFK, parallelisable).
+UNDECIDED), **0003** (team experiences). **0009 is closed** — its memo is
+`ado-process-capabilities.md`, and 0007 and 0010 are correspondingly one blocker lighter.
 
 **0002 blocks four tickets — more than any other — which is the graph agreeing with the brief
 that it is the highest-leverage question on the map.** 0004 blocks three more behind it.
@@ -154,7 +171,17 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
 
 <!-- one line per closed ticket; the detail lives in the ticket, never restated here -->
 
-_None yet — this map was charted on 2026-08-22 and hand-resolves nothing._
+- **[What can an ADO inherited process actually express?](tickets/0009-ado-process-capabilities.md)**
+  (research, closed 2026-08-22, memo `ado-process-capabilities.md`, 552 lines): a type can be
+  created with **no parent and no backlog level**, but **cannot sit at two levels**
+  (`400 VS403194`), and `inheritsFrom` a custom type is refused. 🔴 **The four dormant
+  Request/Response types cannot be hidden or removed — they are not process objects at all**,
+  only a UI-only `Microsoft.HiddenCategory` membership that places no restriction on REST (a real
+  one was created and destroyed to prove it). The Bug→Done gate is **two `makeRequired` state
+  rules, not a transition restriction**, and 🔴 **`bypassRules=true` closes a Bug with both gate
+  fields empty** — type-disabling is the only block that survives it. `Custom.VerificationMode`
+  **does** have an enforced five-item picklist; the process API returns a stub, the project WIT
+  endpoint shows it. Custom states can be added to inherited types. Rename left OPEN.
 
 ## Not yet specified
 
@@ -162,11 +189,11 @@ _None yet — this map was charted on 2026-08-22 and hand-resolves nothing._
   `Change` needs a review/merged state, whether a `Validation` needs a failed state, and whether
   a level-less artifact needs a *superseded* state distinct from `Done` — cannot be phrased
   sharply until the type set is settled (0004, 0005, 0006).
-- **The dormant Request/Response types' fate.** `Code Review Request`/`Response` and
-  `Feedback Request`/`Response` measure zero items, are reachable, and *"would accept a write
-  without erroring"*. Ticket 0005 must answer the collision question to make progress; whether
-  they can additionally be hidden or removed is a separate, narrower question that
-  research ticket 0009 exists to make answerable.
+- ~~**The dormant Request/Response types' fate.**~~ **Closed by ticket 0009: there is no lever.**
+  They are not process objects at all — only a UI-only `Microsoft.HiddenCategory` membership at
+  project scope, which places no restriction on REST. They cannot be disabled or deleted and will
+  stay reachable forever. Ticket 0005 must now rule on collision *given that*, rather than
+  treating retirement as an available fallback.
 - **Naming convention for types and fields.** `Custom.WayfinderAnswer` vs `Custom.Maturity` —
   is a domain prefix a rule? Bears on every new field, but not sharp until 0007 rules on which
   fields survive.

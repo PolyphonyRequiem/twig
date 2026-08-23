@@ -2,8 +2,8 @@
 id: 0009
 title: What can an ADO inherited process actually express for types, fields, gates and dormant types?
 type: research
-status: open
-claimed_by:
+status: closed
+claimed_by: research-0009
 blocked_by: []
 ---
 
@@ -81,9 +81,62 @@ has produced a `copyFrom` probe returning **`201 Created` that silently did noth
 and inherited types use the `Hyperbright.` form, the test types use
 `Microsoft.VSTS.WorkItemTypes.*`.
 
-## Output
+## Answer
 
-A memo in this map's directory (`ado-process-capabilities.md`), primary-source with citations,
-each claim marked **documented** or **probed live** — and for probed claims, the verifying GET.
-State refusals as explicitly as permissions: a "cannot" that later turns out to be "did not try
-the right call" is worse than an open question.
+**Resolved 2026-08-22.** The memo is `../ado-process-capabilities.md` (552 lines), primary-source,
+every claim marked **documented** (with a learn.microsoft.com URL) or **probed live** (with the
+exact request and its independent verifying GET). Probes ran against `PolyphonyRequiem/Sandbox`;
+everything created was cleaned up. All six question areas are answered; §8 lists the residual
+gaps honestly rather than padding them.
+
+The findings that change other tickets — the rest is in the memo, which is the artifact:
+
+1. **Type creation** — a type can be created from scratch with **no parent and no backlog
+   level**. `inheritsFrom` a *custom* type is refused (`404 VS402805`), the type-level mirror of
+   the settled no-multi-level-inheritance finding. Colour is bare 6-hex; icon is a closed enum.
+2. **Backlog level** — the endpoint is `workitemtypesbehaviors/{rn}/behaviors`, POST to add and
+   DELETE to remove. 🔴 **A type cannot sit at two levels** — hard `400 VS403194`.
+   ⚠️ **Correction to the brief:** PATCH on this route returns **500**, not 405.
+3. 🔴 **The four dormant Request/Response types cannot be hidden or removed, because they are not
+   process objects at all.** Absent from the 16-type process list; individual GET → `VS1640142`;
+   PATCH disable → `VS402805`. They exist only at *project* scope in `Microsoft.HiddenCategory`,
+   which is a **UI-only** hide — a real `Code Review Request` was created via REST (id 655,
+   HTTP 200, destroyed after). By contrast `isDisabled` on a `Hyperbright.*` type **does** block
+   REST creates (`VS403074`). **This removes ticket 0005's fallback option entirely.**
+4. **Fields** — field removal is per-type and leaves the org field and other types intact.
+   ⚠️ **Correction to the brief and to this map's first draft:** `Custom.VerificationMode`
+   **does** have enforced `allowedValues` — a five-item picklist. The *process* API returns a
+   stub, which is what produced the "free text" reading; the **project WIT** endpoint with
+   `$expand=all` shows the values.
+5. **The gate mechanism, pinned** — two custom rules, `conditionType: "when"` on `System.State`
+   = `Done`, `actionType: "makeRequired"`. A **state** rule, not a transition restriction; every
+   transition is legal. 🔴 **The most consequential finding on this ticket:
+   `bypassRules=true` closed a Bug with both gate fields empty — HTTP 200, verified by GET.**
+   Process rules are advisory against a privileged identity. **Type-disabling is the only
+   mechanism found that `bypassRules` cannot walk through.**
+6. **States** — a custom state can be added to an **inherited** type (probed on Task), sitting
+   alongside `system`-marked originals; deleted and verified back to three. Two states may share
+   one category.
+
+**Left OPEN, stated as such:** renaming a custom type was not probed (§3.6). The memo says what
+is known — `referenceName` is fixed at creation and never tracks a later rename — and does not
+guess at the rest.
+
+**Verification of the verifier.** The two most consequential claims — the picklist and the
+dormant types' absence from the process — were **independently re-checked against the API by the
+parent session**, not taken on the subagent's report, per this repo's rule that a write's own
+success message is not evidence. Both held.
+
+## Consequences already applied
+
+- `map.md` — the "free text `VerificationMode`" claim corrected, and the gate recorded as
+  advisory-not-inviolable.
+- Ticket 0005 — the "retire the four dormant types" fallback marked unavailable.
+- Ticket 0007 — the picklist sub-question marked largely answered, and a new sub-question added:
+  what a gate is worth given it is bypassable.
+
+## Do not
+
+- Do not re-probe what the memo marks **probed live**; it carries the verifying GET.
+- Do not treat §3.6 (rename) as answered.
+

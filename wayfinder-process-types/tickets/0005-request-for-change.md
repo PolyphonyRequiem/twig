@@ -30,6 +30,21 @@ five plausible targets, four of which silently swallow the write. `AGENTS.md`
 §*The false-green class* is the house doctrine on exactly this defect — a surface that accepts
 input and reports nothing wrong.
 
+🔴 **Ticket 0009 has since measured that the dormant types are worse than dormant, and the
+"hide or remove them" option does not exist.** They are **not process objects at all** — absent
+from the 16-type process list (independently re-verified this session), individual GET returns
+`VS1640142`, and a PATCH to disable returns `VS402805`. They live only at *project* scope in
+`Microsoft.HiddenCategory`, which hides them from the UI New menu and from backlogs and places
+**no restriction whatsoever on the REST API**: 0009 created a real `Code Review Request`
+(id 655, HTTP 200, destroyed afterwards). By contrast `isDisabled` on a `Hyperbright.*` type
+genuinely does block REST creates with `VS403074`.
+
+**So this ticket's fallback — "retire the four so the collision goes away" — is not available.**
+ADO offers no lever. Whatever is ruled here must survive the four staying reachable forever.
+That strengthens the case for not adding a fifth similarly-named type, and it makes the
+"how is a user or agent prevented from choosing a dormant one" question the *whole* question
+rather than a detail.
+
 ## Blocked on 0002 and 0004 — and why
 
 - **0004** may already answer it. If `Change` is ruled in, "request for a change" might be a

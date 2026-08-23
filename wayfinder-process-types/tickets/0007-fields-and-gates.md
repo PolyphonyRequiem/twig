@@ -73,7 +73,18 @@ free-text choice is part of this ticket.
 - The three-Maturity question.
 - Which types gate on what, and at which transition. `Bug` → `Done` is the only measured gate;
   a `Change`, a `Validation` or a `Decision` may want one.
-- Whether `VerificationMode` gets an enforced picklist or stays free text — with the argument.
+- Whether `VerificationMode` gets an enforced picklist or stays free text — ⚠️ **the premise was
+  wrong and this sub-question is largely answered.** It already **has** a five-item enforced
+  picklist (`Not verified yet`, `Developer attested`, `Owner attested`, `Validation accepted`,
+  `Validation proven to catch failure`). The *process* API returns a stub; the **project WIT**
+  endpoint with `$expand=all` shows the values. What remains open is whether those five are the
+  right five, and whether other gate fields need the same treatment.
+- 🔴 **What a gate is worth, given it is bypassable.** 0009 measured `bypassRules=true` closing a
+  Bug with **both gate fields empty** (HTTP 200, verified by GET). A `makeRequired` rule is a
+  *state* rule, not a transition restriction, and it does not survive a privileged automation
+  identity — which twig may be. **Do not design a gate whose value depends on being
+  unbypassable.** Type-disabling was the only mechanism found that `bypassRules` cannot walk
+  through. Decide whether gates here are guardrails (fine) or guarantees (not available).
 - 🔴 **Generic-layer check (per the map's governing rule):** would this field set be right for a
   customer whose process we have never seen, or is it Hyperbright-specific? Ticket 0001 decides
   how much that binds; this ticket must not dodge the question either way.

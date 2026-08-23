@@ -67,15 +67,11 @@ public sealed class McpToolCatalogTests
             McpToolProfile.Full,
             exposeWorkspaceOverride: true);
 
-        // 41 before wayfinder 0021 removed twig_set, twig_parent, and twig_children as
-        // consequences of the explicit-context rule. 39 since twig_process_description
-        // (AB#241).
-        result.Tools.Count.ShouldBe(39);
-        // Budget raised from 37_000 for the 41st tool (twig_history, twig#241), and again for
-        // twig_process_description (AB#241) — whose description is deliberately long because an
-        // agent picks between it and the cache-only twig_process on the description alone, and
-        // the cost difference between them is a live half-megabyte fetch.
-        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(39_000);
+        // 45 since wayfinder 0022 added the plan lifecycle surface (twig_plan_validate,
+        // twig_plan_preview, twig_plan_apply, twig_plan_status, twig_plan_seed) plus
+        // twig_pending. Budget raised proportionally for six additional per-tool descriptions.
+        result.Tools.Count.ShouldBe(45);
+        GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(46_000);
 
         var workspaceCount = 0;
         foreach (var tool in result.Tools)
@@ -85,7 +81,7 @@ public sealed class McpToolCatalogTests
             if (properties.TryGetProperty("workspace", out _)) workspaceCount++;
         }
 
-        workspaceCount.ShouldBe(38);
+        workspaceCount.ShouldBe(44);
     }
 
     [Fact]
@@ -217,7 +213,8 @@ public sealed class McpToolCatalogTests
             .WithTools<AdminTools>()
             .WithTools<TrackingTools>()
             .WithTools<BatchTools>()
-            .WithTools<SeedTools>();
+            .WithTools<SeedTools>()
+            .WithTools<PlanTools>();
 
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<McpServerOptions>>().Value;

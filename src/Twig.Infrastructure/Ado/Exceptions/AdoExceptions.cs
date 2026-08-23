@@ -97,6 +97,29 @@ public sealed class AdoDuplicateRelationException : AdoException
         : base(detail ?? "A relation with the same target already exists.") { }
 }
 
+/// <summary>
+/// Strict-CAS relation not found — the item's relations set did not contain the exact
+/// (relation type, target) the caller asked to remove at the expected revision.
+/// Determinate: no retry or readback will change the answer, because the plan named the
+/// exact edge and the fetched relations at that revision showed no such entry.
+/// </summary>
+public sealed class AdoRelationNotFoundException : AdoException
+{
+    public int SourceId { get; }
+    public string RelationType { get; }
+    public int TargetId { get; }
+    public int ExpectedRevision { get; }
+
+    public AdoRelationNotFoundException(int sourceId, string relationType, int targetId, int expectedRevision)
+        : base($"Relation '{relationType}' -> {targetId} not present on work item #{sourceId} at revision {expectedRevision}.")
+    {
+        SourceId = sourceId;
+        RelationType = relationType;
+        TargetId = targetId;
+        ExpectedRevision = expectedRevision;
+    }
+}
+
 /// <summary>5xx — Transient server error.</summary>
 public sealed class AdoServerException : AdoException
 {

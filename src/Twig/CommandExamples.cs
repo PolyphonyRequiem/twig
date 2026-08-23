@@ -453,6 +453,36 @@ internal static class CommandExamples
             "twig ohmyposh init         Output the oh-my-posh segment JSON for twig context",
             "twig ohmyposh init --output json  Same, explicitly requesting JSON output",
         ],
+        ["plan validate"] =
+        [
+            "twig plan validate --file plan.json    Validate a plan v1 file. No ADO calls.",
+            "twig plan validate --file plan.json --output json    Validate and emit issues/digest as JSON.",
+        ],
+        ["plan preview"] =
+        [
+            "twig plan preview --file plan.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
+            "twig plan preview --file plan.json --output json    Emit machine preview for scripts.",
+        ],
+        ["plan apply"] =
+        [
+            "twig plan apply --file plan.json --confirm <digest>    Apply the plan; the digest MUST match.",
+            "twig plan apply --file plan.json --confirm <digest> --output json    Emit per-operation journal outcomes as JSON.",
+        ],
+        ["plan status"] =
+        [
+            "twig plan status --file plan.json      Show journal state for the plan's digest.",
+            "twig plan status --file plan.json --output json    Emit the journal snapshot as JSON.",
+        ],
+        ["plan seed"] =
+        [
+            "twig plan seed --id -42                Describe staged seed -42 (identity + fingerprint) for plan authoring.",
+            "twig plan seed --id -42 --output json  Emit descriptor as JSON to paste into a plan file.",
+        ],
+        ["pending"] =
+        [
+            "twig pending                           List raw staged pending changes in exact staging order.",
+            "twig pending --output json             Emit the raw pending rows as JSON — values preserved verbatim.",
+        ],
     };
 
     /// <summary>

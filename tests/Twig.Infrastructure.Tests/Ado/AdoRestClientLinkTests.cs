@@ -5,6 +5,7 @@ using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Ado.Exceptions;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -152,6 +153,85 @@ public sealed class AdoRestClientLinkTests
         commentHandler.LastRequestBody.ShouldBe(plainHandler.LastRequestBody);
     }
 
+    // ── Strict CAS: AddLinkAtRevisionAsync ─────────────────────────
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_SendsIfMatchWithExpectedRevision()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 7);
+
+        handler.RequestCount.ShouldBe(1);
+        handler.LastMethod.ShouldBe("PATCH");
+        handler.LastIfMatch.ShouldBe("7");
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_SendsExactlyOneRequest_NoGetOrRetry()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 1, relationType: "System.LinkTypes.Related",
+            targetId: 2, expectedRevision: 3);
+
+        handler.RequestCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_BodyContainsAddRelationOp()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 1, relationType: "System.LinkTypes.Dependency-Forward",
+            targetId: 2, expectedRevision: 1);
+
+        var body = handler.LastRequestBody;
+        body.ShouldNotBeNull();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetArrayLength().ShouldBe(1);
+        var op = doc.RootElement[0];
+        op.GetProperty("op").GetString().ShouldBe("add");
+        op.GetProperty("path").GetString().ShouldBe("/relations/-");
+        var value = op.GetProperty("value");
+        value.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Dependency-Forward");
+        value.GetProperty("url").GetString().ShouldBe($"{OrgUrl}/_apis/wit/workitems/2");
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_ReturnsNewRevisionFromResponse()
+    {
+        var handler = new LinkTrackingHandler { ResponseRev = 42 };
+        var client = CreateClient(handler);
+
+        var newRev = await client.AddLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 41);
+
+        newRev.ShouldBe(42);
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_PreconditionFailed_ThrowsAdoConflictWithoutRetry()
+    {
+        var handler = new LinkTrackingHandler { StatusCode = HttpStatusCode.PreconditionFailed };
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => client.AddLinkAtRevisionAsync(
+                sourceId: 100, relationType: "System.LinkTypes.Related",
+                targetId: 200, expectedRevision: 5));
+
+        handler.RequestCount.ShouldBe(1);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
@@ -180,6 +260,10 @@ public sealed class AdoRestClientLinkTests
         public string? LastMethod { get; private set; }
         public string? LastRequestBody { get; private set; }
         public string? LastContentType { get; private set; }
+        public string? LastIfMatch { get; private set; }
+
+        public HttpStatusCode StatusCode { get; init; } = HttpStatusCode.OK;
+        public int ResponseRev { get; init; } = 2;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -190,14 +274,25 @@ public sealed class AdoRestClientLinkTests
             LastMethod = request.Method.Method;
             LastContentType = request.Content?.Headers.ContentType?.ToString();
 
+            if (request.Headers.TryGetValues("If-Match", out var ifMatch))
+                LastIfMatch = ifMatch.FirstOrDefault();
+
             if (request.Content is not null)
                 LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
 
-            // PATCH returns the updated work item
-            var responseJson = """{"id":1,"rev":2,"fields":{"System.WorkItemType":"Task","System.Title":"Test","System.State":"New"}}""";
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            if (StatusCode == HttpStatusCode.OK)
             {
-                Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
+                // PATCH returns the updated work item
+                var responseJson = $"{{\"id\":1,\"rev\":{ResponseRev},\"fields\":{{\"System.WorkItemType\":\"Task\",\"System.Title\":\"Test\",\"System.State\":\"New\"}}}}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
+                };
+            }
+
+            return new HttpResponseMessage(StatusCode)
+            {
+                Content = new StringContent(string.Empty, Encoding.UTF8, "application/json"),
             };
         }
     }

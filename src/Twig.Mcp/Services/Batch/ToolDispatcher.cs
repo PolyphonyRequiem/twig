@@ -20,7 +20,8 @@ internal sealed class ToolDispatcher(
     TrackingTools trackingTools,
     AdminTools adminTools,
     ProcessTools processTools,
-    SeedTools seedTools) : IToolDispatcher
+    SeedTools seedTools,
+    PlanTools planTools) : IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
@@ -87,7 +88,7 @@ internal sealed class ToolDispatcher(
 
             "twig_delete" => mutationTools.Delete(
                 GetRequiredInt(args, "id"),
-                GetBool(args, "confirmed"),
+                GetStrictBool(args, "confirmed"),
                 workspace, verbose: false, ct),
 
             "twig_discard" => mutationTools.Discard(
@@ -265,6 +266,32 @@ internal sealed class ToolDispatcher(
                 GetString(args, "type"),
                 workspace, verbose: false, ct),
 
+            // Plan tools
+            "twig_plan_validate" => planTools.PlanValidate(
+                GetRequiredString(args, "file"),
+                workspace, verbose: false, ct),
+
+            "twig_plan_preview" => planTools.PlanPreview(
+                GetRequiredString(args, "file"),
+                workspace, verbose: false, ct),
+
+            "twig_plan_apply" => planTools.PlanApply(
+                GetRequiredString(args, "file"),
+                GetStrictBool(args, "confirmed"),
+                GetRequiredString(args, "confirmedDigest"),
+                workspace, verbose: false, ct),
+
+            "twig_plan_status" => planTools.PlanStatus(
+                GetRequiredString(args, "file"),
+                workspace, verbose: false, ct),
+
+            "twig_plan_seed" => planTools.PlanSeed(
+                GetRequiredInt(args, "id"),
+                workspace, verbose: false, ct),
+
+            "twig_pending" => planTools.Pending(
+                workspace, verbose: false, ct),
+
             _ => throw new UnreachableException(
                 $"Cataloged tool '{toolName}' has no batch dispatcher case.")
         };
@@ -302,6 +329,35 @@ internal sealed class ToolDispatcher(
             long l => l != 0,
             _ => defaultValue
         };
+    }
+
+    /// <summary>
+    /// Strict variant of <see cref="GetBool"/> for two-phase confirmation switches
+    /// (<c>confirmed</c>). The batch surface makes the same guarantee the tool schema
+    /// pins down: the value MUST be a literal JSON boolean. A string like <c>"true"</c>
+    /// or an integer <c>1</c> is refused so a caller cannot accidentally coerce past
+    /// a destructive prompt.
+    /// </summary>
+    /// <remarks>
+    /// Missing or explicit <see langword="null"/> collapses to <paramref name="defaultValue"/>
+    /// — the absent case is "not confirmed", handled by the tool method's own
+    /// confirmation-required branch. Every present-but-not-bool value throws so the
+    /// batch executor records a step failure instead of silently proceeding as if the
+    /// caller had opted in.
+    /// </remarks>
+    internal static bool GetStrictBool(
+        IReadOnlyDictionary<string, object?> args,
+        string key,
+        bool defaultValue = false)
+    {
+        if (!args.TryGetValue(key, out var value) || value is null)
+            return defaultValue;
+
+        if (value is bool b) return b;
+
+        throw new ArgumentException(
+            $"Argument '{key}' must be a literal JSON boolean (true or false); " +
+            $"got {value.GetType().Name} '{value}'.");
     }
 
     internal static int GetInt(IReadOnlyDictionary<string, object?> args, string key, int defaultValue = 0)

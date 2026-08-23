@@ -42,7 +42,8 @@ public sealed class ToolDispatcherTests
             new TrackingTools(resolver),
             new AdminTools(resolver),
             new ProcessTools(resolver),
-            new SeedTools(resolver, new SeedFactory()));
+            new SeedTools(resolver, new SeedFactory()),
+            new PlanTools(resolver));
     }
 
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs) =>
@@ -326,6 +327,59 @@ public sealed class ToolDispatcherTests
     }
 
     [Fact]
+    public void GetStrictBool_TrueLiteral_ReturnsTrue()
+    {
+        ToolDispatcher.GetStrictBool(Args(("k", true)), "k").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GetStrictBool_FalseLiteral_ReturnsFalse()
+    {
+        ToolDispatcher.GetStrictBool(Args(("k", false)), "k").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void GetStrictBool_Missing_ReturnsDefault()
+    {
+        ToolDispatcher.GetStrictBool(Args(), "k").ShouldBeFalse();
+        ToolDispatcher.GetStrictBool(Args(), "k", defaultValue: true).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GetStrictBool_Null_ReturnsDefault()
+    {
+        ToolDispatcher.GetStrictBool(Args(("k", (object?)null)), "k").ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("false")]
+    [InlineData("True")]
+    [InlineData("")]
+    public void GetStrictBool_StringValue_Throws(string s)
+    {
+        Should.Throw<ArgumentException>(() =>
+            ToolDispatcher.GetStrictBool(Args(("k", s)), "k"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(-1)]
+    public void GetStrictBool_IntValue_Throws(int i)
+    {
+        Should.Throw<ArgumentException>(() =>
+            ToolDispatcher.GetStrictBool(Args(("k", i)), "k"));
+    }
+
+    [Fact]
+    public void GetStrictBool_LongValue_Throws()
+    {
+        Should.Throw<ArgumentException>(() =>
+            ToolDispatcher.GetStrictBool(Args(("k", (long)1)), "k"));
+    }
+
+    [Fact]
     public void GetInt_IntValue_ReturnsValue()
     {
         var args = Args(("key", 42));
@@ -592,6 +646,102 @@ public sealed class ToolDispatcherTests
     {
         var result = await _dispatcher.DispatchAsync(
             "twig_query", Args(("top", "10")), null, CancellationToken.None);
+
+        result.IsError.ShouldBe(true);
+        GetText(result).ShouldNotContain("Unknown tool");
+    }
+
+    // ── Plan lifecycle dispatch ────────────────────────────────────
+
+    [Theory]
+    [InlineData("twig_plan_validate")]
+    [InlineData("twig_plan_preview")]
+    [InlineData("twig_plan_status")]
+    public async Task DispatchAsync_PlanFileTools_RequireFile(string toolName)
+    {
+        var missing = await Should.ThrowAsync<ArgumentException>(async () =>
+            await _dispatcher.DispatchAsync(toolName, Args(), null, CancellationToken.None));
+        missing.Message.ShouldContain("file");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_TwigPlanApply_MissingConfirmedDigest_Throws()
+    {
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await _dispatcher.DispatchAsync(
+                "twig_plan_apply",
+                Args(("file", "plan.json"), ("confirmed", true)),
+                null,
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DispatchAsync_TwigPlanApply_ConfirmedFalse_ReturnsConfirmationRequired()
+    {
+        // Reaches the tool method because 'confirmed' has a default; the method itself refuses.
+        var result = await _dispatcher.DispatchAsync(
+            "twig_plan_apply",
+            Args(("file", "plan.json"), ("confirmed", false), ("confirmedDigest", new string('a', 64))),
+            null,
+            CancellationToken.None);
+
+        result.IsError.ShouldBe(true);
+        GetText(result).ShouldContain("confirmed:true");
+    }
+
+    [Theory]
+    [InlineData("true")]     // string that looks like a bool — must NOT coerce
+    [InlineData("True")]
+    [InlineData(1)]          // int/long that looks like a bool — must NOT coerce
+    [InlineData((long)1)]
+    public async Task DispatchAsync_TwigPlanApply_ConfirmedNonBool_ThrowsWithoutCoercing(object confirmed)
+    {
+        // 🔴 The batch surface pins 'confirmed' to a literal JSON boolean, matching the
+        //   tool schema. A string "true" or an int 1 MUST NOT slip past the destructive
+        //   confirmation — a caller has to send true (the JSON literal) explicitly.
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await _dispatcher.DispatchAsync(
+                "twig_plan_apply",
+                Args(
+                    ("file", "plan.json"),
+                    ("confirmed", confirmed),
+                    ("confirmedDigest", new string('a', 64))),
+                null,
+                CancellationToken.None));
+        ex.Message.ShouldContain("confirmed");
+        ex.Message.ShouldContain("boolean");
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData(1)]
+    [InlineData((long)1)]
+    public async Task DispatchAsync_TwigDelete_ConfirmedNonBool_ThrowsWithoutCoercing(object confirmed)
+    {
+        var ex = await Should.ThrowAsync<ArgumentException>(async () =>
+            await _dispatcher.DispatchAsync(
+                "twig_delete",
+                Args(("id", 5), ("confirmed", confirmed)),
+                null,
+                CancellationToken.None));
+        ex.Message.ShouldContain("confirmed");
+        ex.Message.ShouldContain("boolean");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_TwigPlanSeed_RequiresId()
+    {
+        await Should.ThrowAsync<ArgumentException>(async () =>
+            await _dispatcher.DispatchAsync(
+                "twig_plan_seed", Args(), null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DispatchAsync_TwigPending_NoRequiredArgs_ReachesResolver()
+    {
+        // Empty registry means the workspace resolver refuses — but the dispatcher case is hit.
+        var result = await _dispatcher.DispatchAsync(
+            "twig_pending", Args(), null, CancellationToken.None);
 
         result.IsError.ShouldBe(true);
         GetText(result).ShouldNotContain("Unknown tool");

@@ -36,10 +36,26 @@ internal sealed class EnvelopeBuilder
     /// <param name="verbose">When <c>true</c>, includes contextual hints in the response.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A <see cref="CallToolResult"/> containing the envelope JSON.</returns>
-    public static async Task<CallToolResult> SuccessAsync(
+    public static Task<CallToolResult> SuccessAsync(
         ConnectionScope? ctx,
         Action<Utf8JsonWriter> writeData,
         bool verbose,
+        CancellationToken ct) =>
+        PayloadAsync(ctx, writeData, verbose, isError: false, ct);
+
+    /// <summary>
+    /// Builds a payload envelope with the same shape as <see cref="SuccessAsync"/>
+    /// (<c>success:true</c>, tool-populated <c>data</c>, context, hints) but marks the
+    /// transport-level <see cref="CallToolResult.IsError"/> flag when <paramref name="isError"/>
+    /// is <c>true</c>. Direct clients still read the full payload; a
+    /// <see cref="Twig.Mcp.Services.Batch.BatchExecutionEngine"/> sequence sees the error
+    /// flag and stops.
+    /// </summary>
+    public static async Task<CallToolResult> PayloadAsync(
+        ConnectionScope? ctx,
+        Action<Utf8JsonWriter> writeData,
+        bool verbose,
+        bool isError,
         CancellationToken ct)
     {
         var context = ctx is not null
@@ -50,7 +66,7 @@ internal sealed class EnvelopeBuilder
             ? await McpHintProvider.GetHintsAsync(ctx, ct)
             : [];
 
-        return BuildEnvelopeJson(context, writeData, hints);
+        return BuildEnvelopeJson(context, writeData, hints, isError);
     }
 
     /// <summary>
@@ -206,7 +222,8 @@ internal sealed class EnvelopeBuilder
     private static CallToolResult BuildEnvelopeJson(
         McpContext context,
         Action<Utf8JsonWriter> writeData,
-        IReadOnlyList<string> hints)
+        IReadOnlyList<string> hints,
+        bool isError)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -224,7 +241,9 @@ internal sealed class EnvelopeBuilder
         writer.WriteEndObject();
         writer.Flush();
 
-        return McpResultBuilder.ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+        var result = McpResultBuilder.ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+        if (isError) result.IsError = true;
+        return result;
     }
 
     private static CallToolResult BuildEnvelopeJsonFromRaw(

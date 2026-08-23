@@ -17,6 +17,7 @@ public sealed class McpToolMetadataTests
         typeof(NavigationTools),
         typeof(ProcessTools),
         typeof(ReadTools),
+        typeof(PlanTools),
         typeof(SeedTools),
         typeof(TrackingTools),
         typeof(WorkspaceTools),
@@ -33,7 +34,10 @@ public sealed class McpToolMetadataTests
 
         // 40 before wayfinder 0021 removed twig_set, twig_parent, and twig_children.
         // 38 since twig_process_description (AB#241) added the named-type agent surface.
-        parameters.Count.ShouldBe(38);
+        // 44 since wayfinder 0022 added the plan lifecycle surface (twig_plan_validate,
+        // twig_plan_preview, twig_plan_apply, twig_plan_status, twig_plan_seed) plus
+        // twig_pending.
+        parameters.Count.ShouldBe(44);
         McpToolDescriptions.WorkspaceOverride.ShouldContain("Omit");
         McpToolDescriptions.WorkspaceOverride.ShouldContain("repo-local");
 

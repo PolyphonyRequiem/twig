@@ -3,7 +3,7 @@ id: 0002
 title: How do the board's wayfinder-named types relate to the repo's wayfinder/ markdown?
 type: grilling
 status: open
-claimed_by:
+claimed_by: daniel
 blocked_by: []
 tracked_in: [675]
 ---
@@ -99,3 +99,88 @@ board-or-markdown question. What it settles:
 a `TF401320 Required, InvalidEmpty` rule error, hit live on #676 and #683. The PATCH failed
 **atomically**: state stayed `To do` and the answer field stayed empty, so there was no
 half-written item. That is a real gate on the wayfinder types, which 0007 should account for.
+
+## Partial answer 2 — recorded 2026-08-22, ticket STAYS OPEN
+
+Grilled with Daniel. **One of the four open items above is now settled; the headline question is
+not, and is explicitly parked.** Recorded here rather than closed, because closing 0002 on the
+strength of a field ruling would unblock 0004, 0005, 0006 and 0011 onto an answer that does not
+exist — the false-green shape `AGENTS.md` §*The false-green class* documents.
+
+### SETTLED: the four wayfinder ticket types are a designed set, and their field cluster is intentional
+
+The disjoint cluster is **real, not drift**. This closes open item 4 above.
+
+`Wayfinder Task`, `Prototype`, `Research` and `Grilling` are **exactly** the four ticket types
+the `wayfinder` skill defines (`research`, `prototype`, `grilling`, `task`). They carry
+`Custom.MaturityNote`, `Custom.WayfinderAnswer` and `Custom.WayfinderDecisionMaturity` and
+nothing else does. That is not a pattern inferred from a matrix — it is **a spec that was
+implemented, and the fields are the implementation**. The three fields all describe *how well a
+question was answered*, which is the only thing all four types have in common and is meaningless
+on anything that is not a question in flight.
+
+Consequences ruled here:
+
+- **`Wayfinder Task` is settled** — it is one of the four, and it rides with them. One of the
+  brief's four "completely unsettled" types, closed without needing its own ruling.
+- **`Map` belongs with this set as its CONTAINER**, not with `Decision`/`Spec`/`Idea`. It carries
+  `Custom.WayfinderDestination` and `Custom.WayfinderDecisionsSoFar`, which are container fields
+  matching the skill's map body. ⚠️ An earlier draft of this ruling grouped `Map` with the
+  artifacts on the strength of one shared field (`Custom.ClosingStatement`) and called it a
+  possible third kind. **That was thin evidence and is withdrawn** — do not revive it.
+- **`Custom.MaturityNote` gating `Grilling`→`Done` and `Research`→`Done` is COHERENT BY DESIGN**,
+  not an accident of configuration: a question type cannot close without saying how well it was
+  answered. The same gate would be incoherent on a `Decision`, which is not "answered". Ticket
+  0007 should treat this gate as intended and ask which *other* types need one — not whether this
+  one should exist. (It remains advisory, not inviolable: `bypassRules` walks through it.)
+- **A new type must declare whether it is a wayfinder ticket type**, and that determines its
+  fields. Copying the nearest neighbour's field set is no longer acceptable — that is the
+  mechanism by which the three near-homonyms spread. Binds tickets 0004 and 0011; `Finding`
+  (0011) in particular reads as a standing statement, not a question, so it should NOT inherit
+  this cluster by proximity to `Research`.
+
+🔴 **What this ruling explicitly does NOT say.** `Decision`, `Spec` and `Idea` are **three
+separate open questions**, not a second cluster. An earlier draft grouped them together; they
+share a field cluster only in the trivial sense that things which *stand* need to record whether
+they still stand. They are not related to each other, and none of them is settled here.
+
+### PARKED: the headline question, pending Daniel's mirroring system
+
+**Daniel is building a new system for handling the mirroring.** Until it exists, these stay open
+and this ticket cannot close:
+
+1. **Which written authority yields** — `docs/agents/issue-tracker.md` ("does not model the map
+   as a tracker item") versus last session's mirroring.
+2. **What the board item is FOR** if the markdown is authoritative — audience, scheduling,
+   visibility, or cross-repo reach.
+3. **`Decision`, `Spec`, `Idea`** — board-only, markdown-only, or both, ruled individually.
+
+**Measured this session, and it sharpens item 1 — the doc is the MAJORITY practice, not the
+outlier.** Four map dirs in this repo, 47 tickets. `tracked_in` appears on 15: all 11 in
+`wayfinder-process-types` (last session's mirroring) and 4 in `wayfinder-1.0`. `wayfinder/`
+(23 tickets) and `wayfinder-detail-projection/` (6) carry **zero**. So
+`docs/agents/issue-tracker.md` describes 29 of 47 tickets accurately, and it is last session's
+map that is the exception. ⚠️ **Do not read the mirroring as established convention** — it is
+one map old.
+
+**Also measured, and it bears on item 3:** board-only `Decision`s already exist and cite no
+markdown at all — #353 (IChangeSink contract, Done), #633 (Execution Plan parenting), #671
+(reserve-before-prune, Done), and `Spec` #687 — each carrying its full ruling in the description
+while `docs/specs/` exists in the repo. **`AGENTS.md` §*Where work is tracked*'s "decisions live
+in the repo" is already false in practice.** That is evidence for whichever way item 1 is ruled;
+it is not itself a ruling.
+
+### Customer-zero gate verdict (per ticket 0001)
+
+> *Would this still be right for a customer whose process we have never seen?*
+
+**ACCEPTABLE — no defect line for ADO #615.** Only the *values* are ours: the four type names,
+and the three field names. The mechanism the ruling relies on is "a type set defined by a
+workflow, carrying a field cluster that workflow needs" — any customer can express that with
+their own workflow, their own type names and their own fields. Nothing here requires twig to
+know the word *wayfinder*.
+
+⚠️ The **parked** questions are not gated, because they are not yet rulings. Whatever settles
+the markdown/board relationship will need its own verdict, and it is the more likely place for a
+defect to surface — a mirroring mechanism that only works for this repo's file layout would be
+one.

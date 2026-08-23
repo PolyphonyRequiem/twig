@@ -15,6 +15,14 @@ A prior session agreed **Change**, **Validation** and **Documentation** as Work-
 `Request for Change` (0005) is on the table and the board/markdown mapping (0002) is being
 settled?
 
+🔴 **Constraint inherited from ticket [0002](0002-board-types-vs-wayfinder-markdown.md)'s partial
+answer 2 (2026-08-22): each new type must DECLARE whether it is a wayfinder ticket type, and that
+determines its fields.** `Change`, `Validation` and `Documentation` are all schedulable work, not
+questions in flight, so **none of them should carry** `MaturityNote`/`WayfinderAnswer`/
+`WayfinderDecisionMaturity` — that cluster belongs to the `wayfinder` skill's four ticket types
+and describes *how well a question was answered*. Choose their fields deliberately; do not copy
+the nearest neighbour's set.
+
 ## Why this exists
 
 @session:twig/20260821_175214_910f0c agreed these three plus `Finding` (ticket 0011). The

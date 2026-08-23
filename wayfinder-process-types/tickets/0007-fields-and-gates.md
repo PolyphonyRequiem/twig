@@ -37,6 +37,28 @@ Custom.WayfinderDestination        Map
 Custom.WayfinderExecutionMode      Wayfinder Task, Prototype, Task, Feature, Research, Bug
 ```
 
+🔴 **PARTIALLY PRE-EMPTED by ticket [0002](0002-board-types-vs-wayfinder-markdown.md)'s partial
+answer 2 (2026-08-22) — read it before working this ticket.** One of the two things below is
+already ruled, and this ticket inherits the frame rather than a blank sheet:
+
+- **The wayfinder cluster is REAL, not drift.** `MaturityNote`/`WayfinderAnswer`/
+  `WayfinderDecisionMaturity` sit on `Wayfinder Task`/`Prototype`/`Research`/`Grilling` because
+  those are **exactly** the `wayfinder` skill's four ticket types, and the three fields describe
+  *how well a question was answered*. That is a spec that was implemented. `Map` joins them as
+  their **container** (`WayfinderDestination`, `WayfinderDecisionsSoFar`). **Do not re-open
+  whether this cluster belongs.**
+- **`Custom.MaturityNote` gating `Grilling`→`Done` and `Research`→`Done` is COHERENT BY DESIGN**,
+  not accreted configuration: a question type cannot close without saying how well it was
+  answered. The same gate would be incoherent on a `Decision`, which is not *answered*.
+- **So this ticket's gate question narrows to: which OTHER types need a close gate, and of what
+  kind** — not whether the existing wayfinder gate should exist. ⚠️ Note the gate is advisory:
+  `bypassRules=true` walks through a `makeRequired` rule (ticket 0009).
+- **A new type must DECLARE whether it is a wayfinder ticket type**, and that determines its
+  fields. Copying the nearest neighbour's field set is no longer acceptable.
+
+**Still fully open here:** item 2 below (the three near-homonyms), and whether the *schedulable*
+cluster is equally designed or genuinely accreted — 0002 ruled only on the wayfinder side.
+
 Two things fall out of that matrix, and neither should be assumed to be design:
 
 1. **A clean two-cluster split.** `Maturity`/`PriorityBand`/`FalsificationCriteria`/

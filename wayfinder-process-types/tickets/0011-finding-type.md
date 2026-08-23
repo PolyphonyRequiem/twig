@@ -14,6 +14,16 @@ A prior session agreed **Finding** as a level-less artifact type alongside `Deci
 `Idea`. It was never created. Is it still wanted — and what is it for that `Decision`, `Idea`,
 `Research` and a `Bug` do not already cover?
 
+🔴 **Constraint inherited from ticket [0002](0002-board-types-vs-wayfinder-markdown.md)'s partial
+answer 2 (2026-08-22): if `Finding` is ruled in, it must DECLARE whether it is a wayfinder ticket
+type, and that determines its fields.** The four wayfinder ticket types
+(`Wayfinder Task`/`Prototype`/`Research`/`Grilling`) carry `MaturityNote`/`WayfinderAnswer`/
+`WayfinderDecisionMaturity` because those fields describe *how well a question was answered* —
+that cluster is designed, not incidental. **A `Finding` reads as a standing statement, not a
+question in flight, so it should NOT inherit that cluster by proximity to `Research`.** Copying
+the nearest neighbour's field set is exactly the mechanism by which the three `Maturity`
+near-homonyms spread.
+
 ## Why this exists
 
 @session:twig/20260821_175214_910f0c agreed it as the fourth of the four missing types. Unlike

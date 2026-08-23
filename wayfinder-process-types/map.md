@@ -166,8 +166,12 @@ Two shapes fall straight out of that matrix and are ticketed rather than assumed
    `VerificationMode` sit on the *schedulable* types; `MaturityNote`/`WayfinderAnswer`/
    `WayfinderDecisionMaturity` sit on exactly the four *wayfinder* types. The clusters are
    almost disjoint — `WayfinderExecutionMode` and `TerminalOutcome` are the only crossers.
-   That is either the type taxonomy already asserting itself in the fields, or drift. See
-   ticket [0007](tickets/0007-fields-and-gates.md).
+   ✅ **RULED 2026-08-22 (ticket [0002](tickets/0002-board-types-vs-wayfinder-markdown.md),
+   partial answer 2): the wayfinder cluster is REAL, not drift.** Those four types are exactly
+   the `wayfinder` skill's four ticket types, and the three fields describe *how well a question
+   was answered* — a spec that was implemented. `Map` joins them as their **container**. Ticket
+   [0007](tickets/0007-fields-and-gates.md) inherits this frame rather than a blank sheet, and
+   should ask which *other* types need a close gate — not whether this one belongs.
 2. 🔴 **Three near-homonyms — `Maturity`, `MaturityNote`, `WayfinderDecisionMaturity` — with
    no type carrying more than one.** Three names for one concept split across two clusters is
    the shape of accreted drift, and it is exactly the kind of thing a new type inherits by
@@ -209,6 +213,14 @@ correspondingly one blocker lighter.
 **0002 blocks four tickets — more than any other — which is the graph agreeing with the brief
 that it is the highest-leverage question on the map.** 0004 blocks three more behind it.
 
+⚠️ **0002 is PARTIALLY ANSWERED and remains OPEN, so 0004, 0005, 0006 and 0011 stay blocked.**
+Its *field* question is ruled (the wayfinder cluster is real — see the matrix note above); its
+**headline** question — board, markdown, or both — is **parked pending the new mirroring system
+Daniel is building**, and `Decision`, `Spec` and `Idea` remain three separate open questions. It
+carries two partial-answer sections; read both before picking it up. It was deliberately not
+closed: unblocking four tickets onto an answer that does not exist is the false-green shape
+`AGENTS.md` documents.
+
 ## Decisions so far
 
 <!-- one line per closed ticket; the detail lives in the ticket, never restated here -->
@@ -234,6 +246,14 @@ that it is the highest-leverage question on the map.** 0004 blocks three more be
   a chooser, so the collision it was gathered to inform does not exist.
 
 ## Not yet specified
+
+- **The mirroring system.** Daniel is building a new system for handling markdown→board
+  mirroring (stated 2026-08-22 while grilling 0002). Ticket 0002's headline question is parked
+  on it, and the shape of that system decides what a board item *is for* — so the per-type
+  rulings for `Decision`, `Spec` and `Idea` cannot be phrased sharply until it exists. Not
+  ticketable yet: the system is not designed, so there is no question to put. ⚠️ When it lands,
+  it will also need its own customer-zero verdict — a mirroring mechanism that only works for
+  this repo's file layout would be a **defect** line for ADO #615.
 
 - **States beyond `To do / Doing / Done`.** Every measured type has the same three. Whether a
   `Change` needs a review/merged state, whether a `Validation` needs a failed state, and whether

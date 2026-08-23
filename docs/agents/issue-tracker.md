@@ -150,16 +150,22 @@ by hand — `Feedback Request` cannot even be customised, as ADO rejects the att
 in use. Do not route work into them, and do not treat their names as taken when choosing names
 for new types: they are not part of the visible vocabulary at all.
 
-🔴 **Category membership does NOT follow the type's name, and no twig command reports it**
-(ADO #656). Measured on this board: `Microsoft.BugCategory` contains **`Issue`**, not `Bug`;
-`Bug` lives in `Microsoft.RequirementCategory`; and `Issue` is itself hidden. Read categories
-from the API rather than inferring them — `twig process` reads the process roster, which has no
-notion of a category, so twig currently shows hidden types as though they were ordinary ones:
+🔴 **Category membership does NOT follow the type's name.** Measured on this board:
+`Microsoft.BugCategory` contains **`Issue`**, not `Bug`; `Bug` lives in
+`Microsoft.RequirementCategory`; and `Issue` is itself hidden. Never infer a category from a
+name.
+
+`twig process` **omits hidden types by default** (AB#657) and marks them when you ask for them,
+so the default listing is the vocabulary you can actually use — 12 types here, not 21:
 
 ```bash
-curl -s -H "Authorization: Bearer $TOK" \
-  "https://dev.azure.com/PolyphonyRequiem/Twig/_apis/wit/workitemtypecategories?api-version=7.1"
+twig process                    # usable types only
+twig process --include-hidden   # all types, hidden ones marked [hidden — ADO tooling type]
+twig process --output json      # carries isHidden and categories per type
 ```
+
+Naming a hidden type still describes it (`twig process "Code Review Request"`): the type is
+omitted from the *list*, never made unreachable.
 
 ⚠️ **Three different routes return three different type lists.** The process roster
 (`_apis/work/processes/{id}/workItemTypes`) is the process's own set; the project-scoped

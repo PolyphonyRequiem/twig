@@ -40,13 +40,19 @@ public sealed class ProcessCommand(
     /// When <paramref name="typeName"/> is null, lists all types.
     /// When provided, shows details for that specific type.
     /// </summary>
+    /// <param name="includeHidden">
+    /// Include types ADO keeps for its own tooling (AB#657). Off by default — see
+    /// <see cref="ExecuteListAsync"/> for why the default is exclusion rather than marking.
+    /// Ignored when <paramref name="typeName"/> is given: naming a type always describes it.
+    /// </param>
     public async Task<int> ExecuteAsync(
         string? typeName = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
+        bool includeHidden = false,
         CancellationToken ct = default)
     {
         return typeName is null
-            ? await ExecuteListAsync(outputFormat, ct)
+            ? await ExecuteListAsync(outputFormat, includeHidden, ct)
             : await ExecuteTypeDetailAsync(typeName, outputFormat, ct);
     }
 
@@ -88,7 +94,30 @@ public sealed class ProcessCommand(
         return await ExecuteTypeDetailAsync(item.Type.Value, outputFormat, ct);
     }
 
-    private async Task<int> ExecuteListAsync(string outputFormat, CancellationToken ct)
+    /// <summary>
+    /// Lists process types, excluding ADO's own tooling types unless
+    /// <paramref name="includeHidden"/> (AB#657).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Exclusion is the default, and marking alone was not enough.</b> AB#656 added the
+    /// <c>[hidden]</c> marker, which stopped a hidden type reading as usable vocabulary. It did
+    /// not stop nine of this board's twenty-one types padding the default output — so the list a
+    /// caller reads to learn the process was nearly half machinery they must never create.
+    /// </para>
+    /// <para>
+    /// Membership comes from <c>Microsoft.HiddenCategory</c> via
+    /// <see cref="ProcessTypeRecord.IsHidden"/>, never from a list of type names. A name list is
+    /// a per-board allowlist for a generic property: it rots when a process changes and is wrong
+    /// for a customer process we have never seen.
+    /// </para>
+    /// <para>
+    /// The empty-store error is deliberately raised BEFORE filtering, so "run twig sync" still
+    /// means an empty cache. A process whose every type is hidden reports an empty list at exit
+    /// 0 instead — that is a true answer to "which types can I use", not a failure.
+    /// </para>
+    /// </remarks>
+    private async Task<int> ExecuteListAsync(string outputFormat, bool includeHidden, CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var types = await processTypeStore.GetAllAsync(ct);
@@ -99,7 +128,11 @@ public sealed class ProcessCommand(
             return 1;
         }
 
-        var tree = BuildTypesListTree(types);
+        var visible = includeHidden
+            ? types
+            : types.Where(t => !t.IsHidden).ToList();
+
+        var tree = BuildTypesListTree(visible);
         rendererFactory.GetRenderer(outputFormat).Render(tree);
 
         // Human output is a sequence of unterminated lines from the renderer;

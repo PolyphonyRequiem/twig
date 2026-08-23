@@ -755,8 +755,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     /// Consults the process-rule gate for a <see cref="BatchOperation"/>: overlays the
     /// batch's fields on the cached source aggregate and returns a refusal message iff an
     /// enabled makeRequired rule that fires under the resulting state names a field whose
-    /// effective value would be empty. Non-batch kinds and a missing local source both
-    /// return <c>null</c> (no policy — the wire's own strict-CAS still owns those paths).
+    /// effective value would be empty, OR iff the cached source is not at the batch's
+    /// expected revision (a stale source would evaluate rules on the wrong snapshot).
+    /// Non-batch kinds and a missing local source both return <c>null</c> (no policy — the
+    /// wire's own strict-CAS still owns those paths).
     /// See <see cref="PlanProcessRuleGate"/> for the class-level rationale, AB#673.
     /// </summary>
     private async Task<string?> EvaluateProcessRuleGateAsync(

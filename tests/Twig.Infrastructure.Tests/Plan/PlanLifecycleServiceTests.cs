@@ -1319,6 +1319,266 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenCachedSourceRevisionDrifts()
+    {
+        // AB#673 review finding: the gate's rule evaluation reads from the cached source's
+        // snapshot, so a source that is not at the batch's expected revision would
+        // false-permit or false-refuse. The wire strict-CAS PATCH would then 412 anyway;
+        // surfacing a coherent client-side refusal spares the wire and is clearer.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        // Cached source is at rev 5, batch expects 3 — drift.
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "drifted",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.MarkSynced(5);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error.ShouldNotBeNull();
+        row.Error!.ShouldContain("revision");
+        row.Error!.ShouldContain("5");
+        row.Error!.ShouldContain("3");
+
+        // The wire attempt never happened.
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(),
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_GateReadsCanonicalWorkItemPropertyWhenFieldMapMissesIt()
+    {
+        // AB#673 review finding: a WorkItem may hold System.Title/State/AssignedTo/…
+        // only in its typed properties, NOT in the Fields dictionary — the constructor
+        // accepts them directly. A Fields-only source view would treat those canonical
+        // values as empty and false-refuse a batch that never intended to change them.
+        // Here the batch transitions to Done and a rule requires System.Title; the cached
+        // source has a Title set via the typed property but does NOT mirror it into
+        // Fields. The canonical-property fallback in the gate must let the batch through.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        // Title on the typed property only. NOT mirrored into Fields — that is the point.
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "canonical-only",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        // Rule: when State = Done → makeRequired System.Title.
+        var rule = new ProcessRule(
+            Conditions: new[] { new RuleCondition("when", "System.State", "Done") },
+            Actions: new[] { new RuleAction("makeRequired", "System.Title", null) },
+            IsDisabled: false);
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(BuildWorkItem(42, rev: 4, state: "Done"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenCanonicalPropertyEmpty_AndRuleFires()
+    {
+        // Complement to the previous test: the canonical property IS the whole source of
+        // truth, and if it is empty the gate must fire. A source with Title unset (empty
+        // string default) and a "when Done → makeRequired System.Title" rule must refuse.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            // Title deliberately not set — falls to the default empty string.
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        var rule = new ProcessRule(
+            Conditions: new[] { new RuleCondition("when", "System.State", "Done") },
+            Actions: new[] { new RuleAction("makeRequired", "System.Title", null) },
+            IsDisabled: false);
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldContain("System.Title");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_WhenChanged_FiresOnNonStateField_WhenBatchChangesIt()
+    {
+        // AB#673 review finding: whenChanged on a non-state field was hard-wired to `false`
+        // — the pre-fix gate only checked "isState && from != to". A rule of the form
+        // "whenChanged Custom.Foo → makeRequired Custom.Bar" must fire when Custom.Foo's
+        // pre-batch and post-batch values differ, regardless of whether the state moves.
+        var file = WritePlan(BatchWithFields(
+            workItemId: 42, expectedRev: 3,
+            fields: new (string, string?)[]
+            {
+                ("Custom.Foo", "new-foo"),
+                // Custom.Bar deliberately absent — the rule must catch it.
+            }));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "changed-foo",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("System.State", "Doing");
+        source.UpdateField("Custom.Foo", "old-foo");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        var rule = new ProcessRule(
+            Conditions: new[] { new RuleCondition("whenChanged", "Custom.Foo", null) },
+            Actions: new[] { new RuleAction("makeRequired", "Custom.Bar", null) },
+            IsDisabled: false);
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldContain("Custom.Bar");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_WhenNotChanged_FiresOnNonStateField_WhenBatchLeavesItAlone()
+    {
+        // Symmetric to the whenChanged case: whenNotChanged on a non-state field must
+        // fire iff the pre-batch and post-batch values are equal. The pre-fix gate
+        // read "!isState || Equal(from, to)" and false-positive-fired on every non-state
+        // clause — but it also permitted the make-required target because the same clause
+        // was misclassified. Here the rule "whenNotChanged Custom.Foo → makeRequired
+        // Custom.Bar" must catch a batch that never touched Custom.Foo and leaves Bar empty.
+        var file = WritePlan(BatchWithFields(
+            workItemId: 42, expectedRev: 3,
+            fields: new (string, string?)[]
+            {
+                ("System.State", "Active"),
+                // Custom.Foo untouched, Custom.Bar absent.
+            }));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "unchanged-foo",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("System.State", "Doing");
+        source.UpdateField("Custom.Foo", "stable");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        var rule = new ProcessRule(
+            Conditions: new[] { new RuleCondition("whenNotChanged", "Custom.Foo", null) },
+            Actions: new[] { new RuleAction("makeRequired", "Custom.Bar", null) },
+            IsDisabled: false);
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldContain("Custom.Bar");
+    }
+
+    [Fact]
+    public async Task Apply_Batch_WhenWas_ReadsOldValueOfNonStateField_NotEffective()
+    {
+        // AB#673 review finding: whenWas on a non-state field compared condition.Value
+        // against the CURRENT (post-overlay) map — semantically "whenIs". The rule
+        // "whenWas Custom.Foo == 'starting' → makeRequired Custom.Bar" must consult
+        // Custom.Foo's PRE-batch value. Here the batch rewrites Custom.Foo to a new value,
+        // but its old value matches the condition — the rule must fire.
+        var file = WritePlan(BatchWithFields(
+            workItemId: 42, expectedRev: 3,
+            fields: new (string, string?)[]
+            {
+                ("Custom.Foo", "something-else"),
+                // Custom.Bar deliberately absent.
+            }));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "was-check",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("System.State", "Doing");
+        source.UpdateField("Custom.Foo", "starting");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        var rule = new ProcessRule(
+            Conditions: new[] { new RuleCondition("whenWas", "Custom.Foo", "starting") },
+            Actions: new[] { new RuleAction("makeRequired", "Custom.Bar", null) },
+            IsDisabled: false);
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldContain("Custom.Bar");
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────
 
     private string WritePlan(string source, string name = "plan.json")

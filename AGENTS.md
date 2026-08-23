@@ -1019,3 +1019,22 @@ it, then deletes it. Run `--selftest` after touching the script.
 
 Three issues (#333, #357, #359) were migrated this way. Existing commit-message ADO tags
 (`AB#nnnn`) are unaffected and remain the commit↔item link.
+
+## Agent skills
+
+### Issue tracker
+
+Work is tracked on the **ADO board `PolyphonyRequiem/Twig`** via the `twig` CLI; the GitHub
+remote is the public-record surface only, so tooling that
+infers a tracker from `git remote -v` guesses wrong. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each string equal to its name, applied as ADO **tags**
+(`System.Tags`) rather than labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at the root plus `docs/adr/`, with architectural rulings also
+recorded as wayfinder tickets under `wayfinder/` and `wayfinder-1.0/`. See
+`docs/agents/domain.md`.

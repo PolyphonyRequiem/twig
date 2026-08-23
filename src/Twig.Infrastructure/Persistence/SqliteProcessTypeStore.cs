@@ -24,7 +24,8 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id
+            SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id,
+                   category_reference_names_json
             FROM process_types
             WHERE type_name = @typeName
             """;
@@ -42,7 +43,8 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id
+            SELECT type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id,
+                   category_reference_names_json
             FROM process_types
             ORDER BY type_name
             """;
@@ -70,10 +72,18 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
                 TwigJsonContext.Default.ListString)
             : null;
 
+        var categoriesJson = record.CategoryReferenceNames.Count > 0
+            ? JsonSerializer.Serialize(
+                record.CategoryReferenceNames.ToList(),
+                TwigJsonContext.Default.ListString)
+            : null;
+
         cmd.CommandText = """
             INSERT OR REPLACE INTO process_types
-                (type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id, last_synced_at)
-            VALUES (@typeName, @statesJson, @defaultChildType, @validChildTypesJson, @colorHex, @iconId, @syncedAt)
+                (type_name, states_json, default_child_type, valid_child_types_json, color_hex, icon_id,
+                 category_reference_names_json, last_synced_at)
+            VALUES (@typeName, @statesJson, @defaultChildType, @validChildTypesJson, @colorHex, @iconId,
+                    @categoriesJson, @syncedAt)
             """;
         cmd.Parameters.AddWithValue("@typeName", record.TypeName);
         cmd.Parameters.AddWithValue("@statesJson", statesJson);
@@ -81,6 +91,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         cmd.Parameters.AddWithValue("@validChildTypesJson", (object?)childTypesJson ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@colorHex", record.ColorHex ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("@iconId", record.IconId ?? (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@categoriesJson", (object?)categoriesJson ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@syncedAt", DateTime.UtcNow.ToString("o"));
         cmd.ExecuteNonQuery();
 
@@ -95,10 +106,14 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
         var validChildTypesJson = reader.IsDBNull(3) ? null : reader.GetString(3);
         var colorHex = reader.IsDBNull(4) ? null : reader.GetString(4);
         var iconId = reader.IsDBNull(5) ? null : reader.GetString(5);
+        var categoriesJson = reader.IsDBNull(6) ? null : reader.GetString(6);
 
         var states = DeserializeStateEntries(statesJson);
         var validChildTypes = validChildTypesJson is not null
             ? DeserializeList(validChildTypesJson)
+            : (IReadOnlyList<string>)Array.Empty<string>();
+        var categories = categoriesJson is not null
+            ? DeserializeList(categoriesJson)
             : (IReadOnlyList<string>)Array.Empty<string>();
 
         return new ProcessTypeRecord
@@ -109,6 +124,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
             ValidChildTypes = validChildTypes,
             ColorHex = colorHex,
             IconId = iconId,
+            CategoryReferenceNames = categories,
         };
     }
 

@@ -89,6 +89,20 @@ internal static class AdoApiVersions
     internal const string WorkItemTypes = "7.1";
 
     /// <summary>
+    /// <c>_apis/wit/workitemtypecategories</c> — the project-scoped category list. GA
+    /// <c>7.1</c>: carries each category's <c>referenceName</c> and its member
+    /// <c>workItemTypes</c>.
+    /// <para>
+    /// 🔴 The only route that answers whether a type is one ADO reserves for its own tooling
+    /// (<c>Microsoft.HiddenCategory</c>) — AB#656. Neither type list route carries it:
+    /// <see cref="WorkItemTypes"/> exposes only <c>isDisabled</c>, and
+    /// <see cref="ProcessWorkItemTypes"/> only <c>customization</c>, which answers
+    /// authored-vs-inherited instead.
+    /// </para>
+    /// </summary>
+    internal const string WorkItemTypeCategories = "7.1";
+
+    /// <summary>
     /// <c>_apis/wit/fields</c> — the project-wide field definition list. GA <c>7.1</c>:
     /// carries <c>referenceName</c>, <c>name</c> and <c>type</c> for identity/type-aware
     /// field handling.

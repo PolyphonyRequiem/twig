@@ -703,6 +703,24 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
         });
 
+    /// <summary>
+    /// AB#656. Writes the type's category membership and the hidden fact derived from it.
+    /// </summary>
+    /// <remarks>
+    /// MCP is a third machine surface over the same <see cref="ProcessTypeRecord"/>, and an
+    /// agent is exactly the consumer that would otherwise create a work item of a type ADO
+    /// reserves for its own tooling. Both fields ship for the same reason the CLI ships both:
+    /// <c>isHidden</c> is the question, <c>categories</c> is the evidence.
+    /// </remarks>
+    private static void WriteCategoryMembership(Utf8JsonWriter writer, ProcessTypeRecord type)
+    {
+        writer.WriteBoolean("isHidden", type.IsHidden);
+        writer.WriteStartArray("categories");
+        foreach (var category in type.CategoryReferenceNames)
+            writer.WriteStringValue(category);
+        writer.WriteEndArray();
+    }
+
     public static CallToolResult FormatProcessList(IReadOnlyList<ProcessTypeRecord> types) =>
         BuildJson(writer =>
         {
@@ -721,6 +739,7 @@ internal static class McpResultBuilder
                     writer.WriteString("iconId", type.IconId);
                 else
                     writer.WriteNull("iconId");
+                WriteCategoryMembership(writer, type);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -742,6 +761,8 @@ internal static class McpResultBuilder
                 writer.WriteString("iconId", type.IconId);
             else
                 writer.WriteNull("iconId");
+
+            WriteCategoryMembership(writer, type);
 
             // States with category and color
             writer.WriteStartArray("states");

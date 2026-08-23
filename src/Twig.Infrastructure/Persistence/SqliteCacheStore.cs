@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 13;
+    internal const int SchemaVersion = 14;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -558,6 +558,11 @@ public sealed class SqliteCacheStore : IDisposable
             valid_child_types_json TEXT,
             color_hex TEXT,
             icon_id TEXT,
+            -- AB#656. Reference names of every category this type belongs to, from
+            -- _apis/wit/workitemtypecategories. A JSON array because the relation is
+            -- many-to-many; Microsoft.HiddenCategory membership is what marks a type as
+            -- ADO tooling rather than user-creatable vocabulary. NULL predates the column.
+            category_reference_names_json TEXT,
             last_synced_at TEXT NOT NULL
         );
 

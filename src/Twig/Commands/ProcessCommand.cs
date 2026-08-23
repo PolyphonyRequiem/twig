@@ -140,6 +140,13 @@ public sealed class ProcessCommand(
             new RenderColumn("childTypeCount", "Children"),
             new RenderColumn("color", "Color"),
             new RenderColumn("iconId", "Icon ID"),
+            // AB#656. isHidden is the question every consumer asks; categories is the
+            // underlying fact it derives from. Both ship, because collapsing to the boolean
+            // would discard a many-to-many membership twig has already paid to fetch, and
+            // shipping only the set would make every consumer re-encode which reference name
+            // means "hidden".
+            new RenderColumn("isHidden", "Hidden"),
+            new RenderColumn("categories", "Categories"),
         };
 
         var rows = new List<RenderRow>(types.Count);
@@ -148,7 +155,11 @@ public sealed class ProcessCommand(
         foreach (var type in types)
         {
             var colorDisplay = type.ColorHex is not null ? $" (#{type.ColorHex})" : string.Empty;
-            humanLines.Add(new RenderNode.Text($"  {type.TypeName,-20} {type.States.Count} states{colorDisplay}"));
+            // The human surface must agree with the machine one (AB#656): an unmarked hidden
+            // type reads as ordinary usable vocabulary, which is the defect.
+            var hiddenDisplay = type.IsHidden ? "  [hidden — ADO tooling type]" : string.Empty;
+            humanLines.Add(new RenderNode.Text(
+                $"  {type.TypeName,-20} {type.States.Count} states{colorDisplay}{hiddenDisplay}"));
 
             var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {
@@ -161,6 +172,10 @@ public sealed class ProcessCommand(
                 ["iconId"] = type.IconId is not null
                     ? RenderCell.String(type.IconId)
                     : new RenderCell("null", new RenderValue.Null()),
+                ["isHidden"] = RenderCell.Boolean(type.IsHidden),
+                ["categories"] = new RenderCell(
+                    string.Join(", ", type.CategoryReferenceNames),
+                    new RenderValue.Array([.. type.CategoryReferenceNames.Select(c => RenderCell.String(c))])),
             };
             rows.Add(new RenderRow(null, cells));
         }
@@ -253,6 +268,18 @@ public sealed class ProcessCommand(
             new DocumentField(
                 Key: "type",
                 Node: new RenderNode.KeyValue("type", RenderCell.String(type.TypeName)),
+                Audience: RenderAudience.MachineOnly),
+            // AB#656. The detail view answers the same question as the listing, in the same
+            // words — a consumer must not have to ask two commands to learn one fact.
+            new DocumentField(
+                Key: "isHidden",
+                Node: new RenderNode.KeyValue("isHidden", RenderCell.Boolean(type.IsHidden)),
+                Audience: RenderAudience.MachineOnly),
+            new DocumentField(
+                Key: "categories",
+                Node: new RenderNode.KeyValue("categories", new RenderCell(
+                    string.Join(", ", type.CategoryReferenceNames),
+                    new RenderValue.Array([.. type.CategoryReferenceNames.Select(c => RenderCell.String(c))]))),
                 Audience: RenderAudience.MachineOnly),
             new DocumentField(
                 Key: "states",

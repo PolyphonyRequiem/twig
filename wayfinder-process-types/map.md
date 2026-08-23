@@ -40,11 +40,18 @@ writing the docs are the build that follows** — this map decides, it does not 
 - **Governing rule (from the brief, and it binds every ticket):** *twig owns the generic systems
   for driving an ADO process; the board's process is **customer zero, not the product**.* A
   design is right when it would still be right for a customer whose process we have never seen.
-- **This map is markdown, not a board item.** Per `docs/agents/issue-tracker.md` (commit
+- **This map is markdown AND a board item.** Per `docs/agents/issue-tracker.md` (commit
   `054e780b`): map is `map.md`, tickets are `tickets/NNNN-slug.md` with frontmatter, resolution
-  is an `## Answer` in the ticket plus one line in *Decisions so far*. Scheduling a ruling means
-  creating the ADO item(s), adding `tracked_in: [<ids>]`, naming the ticket in each item's
-  description, and verifying with `tools/check-tracking.sh`.
+  is an `## Answer` in the ticket plus one line in *Decisions so far*. **The markdown is
+  authoritative.** As of 2026-08-22 the map is also mirrored onto ADO — `Map` **#674** with a
+  `Grilling`/`Research` child per ticket, each ticket carrying `tracked_in` and each board item
+  naming its source file. ⚠️ That mirroring is a *partial* answer to ticket 0002 and is recorded
+  there; it contradicts this doc's "does not model the map as a tracker item", and 0002 stays
+  open to settle which yields. Scheduling a ruling additionally means naming the ticket in the
+  item's description and verifying with `tools/check-tracking.sh`.
+- ⚠️ **`Custom.MaturityNote` is a REQUIRED close gate on `Grilling`→`Done` and
+  `Research`→`Done`** (`TF401320 Required, InvalidEmpty`, measured live on #676/#683). The PATCH
+  fails **atomically** — no half-written item. Bears on ticket 0007.
 - **Skills:** `wayfinder` (governing), `grilling` + `domain-modeling` (call both on every
   grilling ticket — this is a naming and taxonomy problem), `twig:testing-ado-workflows`,
   `twig:twig-benches` if Bench vocabulary is touched.

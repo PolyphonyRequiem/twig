@@ -5,6 +5,7 @@ type: grilling
 status: open
 claimed_by:
 blocked_by: [0004, 0009]
+tracked_in: [684]
 ---
 
 ## Question

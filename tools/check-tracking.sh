@@ -52,7 +52,17 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TICKET_DIRS=("$REPO_ROOT/wayfinder/tickets" "$REPO_ROOT/wayfinder-1.0/tickets")
+# Every wayfinder map dir in the repo. 🔴 Discovered, not hardcoded: this list
+# was a fixed two entries and silently skipped wayfinder-process-types/, so the
+# checker printed TWIG-TRACKING: OK while verifying NONE of that map's 11 links.
+# A green verdict that answers a narrower question than the one asked is the
+# false-green class AGENTS.md exists to abolish — a new map must not be able to
+# go unchecked just by existing.
+TICKET_DIRS=()
+while IFS= read -r d; do TICKET_DIRS+=("$d"); done < <(
+    find "$REPO_ROOT" -maxdepth 2 -type d -name tickets \
+        -path '*/wayfinder*' -not -path '*/node_modules/*' | sort
+)
 
 fail_count=0
 check_count=0

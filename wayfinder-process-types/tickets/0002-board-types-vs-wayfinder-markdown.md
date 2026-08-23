@@ -5,6 +5,7 @@ type: grilling
 status: open
 claimed_by:
 blocked_by: []
+tracked_in: [675]
 ---
 
 ## Question
@@ -61,3 +62,40 @@ resolving it from the type list has done the one thing the red flag forbids.
 - **Do not infer the mapping from the names.** That is the specific move the red flag forbids.
 - Do not answer 0006 (ADRs) here beyond noting the entanglement — but if the answer genuinely
   subsumes 0006, say so and rule 0006 resolved-by-this rather than leaving a zombie ticket.
+
+## Partial answer — recorded 2026-08-22, ticket stays OPEN
+
+⚠️ **One part of this question was settled as a side effect of mirroring the map, and is
+recorded here so it does not become undocumented precedent.**
+
+While resolving ticket 0001, Daniel asked for the full map to be mirrored onto ADO. That is a
+partial answer to this ticket, because deciding that wayfinder tickets get board items *is* the
+board-or-markdown question. What it settles:
+
+- **Wayfinder maps and tickets exist as BOTH** a markdown file and a board item. The board
+  carries `Map` #674 with a `Grilling`/`Research` child per ticket, matching the sibling map's
+  shape (#621/#637 and children #622, #623, #625, #638, #639).
+- **The markdown is AUTHORITATIVE; the board item is the projection.** Every mirrored item's
+  description ends by naming its source file and branch, and each ticket carries `tracked_in`.
+- **`tracked_in` is therefore NOT only for scheduled rulings** — it is the general
+  markdown→board link. This *contradicts* `docs/agents/issue-tracker.md`, which says the repo
+  "does not model the map as a tracker item" and that a ticket with no `tracked_in` is normal
+  because "most rulings were never scheduled". That doc predates the sibling map's practice.
+
+🔴 **What remains OPEN, and why this ticket is not closed:**
+
+- Whether `docs/agents/issue-tracker.md` should be amended to match practice, or whether the
+  mirroring is the drift. Two authorities now disagree in writing and one must yield.
+- The per-type rulings this ticket actually asks for: `Decision`, `Spec`, `Idea` and
+  `Wayfinder Task` were **not** settled by the mirroring — only `Map`, `Grilling` and
+  `Research` were exercised.
+- What the board item is *for* if the markdown is authoritative — audience, or scheduling, or
+  visibility.
+- Whether the disjoint field cluster (`MaturityNote`, `WayfinderAnswer`,
+  `WayfinderDecisionMaturity`) supports a real distinction or is drift.
+
+**Measured while mirroring, and relevant to the field question above:**
+`Custom.MaturityNote` is a **required close gate** on `Grilling`→`Done` and `Research`→`Done` —
+a `TF401320 Required, InvalidEmpty` rule error, hit live on #676 and #683. The PATCH failed
+**atomically**: state stayed `To do` and the answer field stayed empty, so there was no
+half-written item. That is a real gate on the wayfinder types, which 0007 should account for.

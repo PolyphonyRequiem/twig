@@ -183,6 +183,109 @@ public sealed class ProcessCommandTests : IDisposable
     /// or hidden-only assertion is the false-green class AGENTS.md names, because an empty
     /// or all-hidden listing would satisfy it.
     /// </summary>
+    /// <summary>
+    /// AB#657: hidden types must not appear in the DEFAULT listing at all. Marking them
+    /// (AB#656) stopped them reading as usable vocabulary; it did not stop them padding the
+    /// list — 9 of this board's 21 types are tooling machinery, so nearly half the default
+    /// output was noise a caller must never act on.
+    /// </summary>
+    /// <remarks>
+    /// Asserted BOTH ways deliberately. A test that only checks the hidden type is absent
+    /// passes against a listing that returns nothing at all, which is this repo's named
+    /// false-green shape: a check that cannot fail is not a check.
+    /// </remarks>
+    [Fact]
+    public async Task Execute_NoArgs_Json_OmitsHiddenTypesByDefault()
+    {
+        SetupProcessTypes([HiddenType("Code Review Request"), UsableType("Bug")]);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "json"));
+
+        exitCode.ShouldBe(0);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var names = doc.RootElement.GetProperty("types").EnumerateArray()
+            .Select(t => t.GetProperty("typeName").GetString()).ToList();
+
+        names.ShouldNotContain("Code Review Request");
+        names.ShouldContain("Bug");
+    }
+
+    [Fact]
+    public async Task Execute_NoArgs_Json_IncludeHidden_RestoresThem()
+    {
+        SetupProcessTypes([HiddenType("Code Review Request"), UsableType("Bug")]);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "json", includeHidden: true));
+
+        exitCode.ShouldBe(0);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var types = doc.RootElement.GetProperty("types").EnumerateArray().ToList();
+
+        types.Count.ShouldBe(2);
+        // The opt-in restores them AND keeps the marker — an unmarked hidden type is the
+        // AB#656 defect, so --include-hidden must not regress it.
+        types.Single(t => t.GetProperty("typeName").GetString() == "Code Review Request")
+            .GetProperty("isHidden").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Execute_NoArgs_Human_OmitsHiddenTypesByDefault()
+    {
+        // The human surface must agree with the machine one; two surfaces disagreeing about
+        // whether a type is usable is worse than neither reporting it, because it looks like
+        // an answer.
+        SetupProcessTypes([HiddenType("Code Review Request"), UsableType("Bug")]);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "human"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldNotContain("Code Review Request");
+        output.ShouldContain("Bug");
+    }
+
+    /// <summary>
+    /// A hidden type is omitted from the LIST, never made unreachable. Suppressing the
+    /// listing is a default-output decision; refusing to describe a type the caller named
+    /// outright would be a different and worse defect.
+    /// </summary>
+    [Fact]
+    public async Task Execute_HiddenTypeByName_StillReturnsItsDetail()
+    {
+        var hidden = HiddenType("Code Review Request");
+        SetupProcessTypes([hidden, UsableType("Bug")]);
+        _processTypeStore.GetByNameAsync("Code Review Request", Arg.Any<CancellationToken>())
+            .Returns(hidden);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(typeName: "Code Review Request", outputFormat: "json"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("Code Review Request");
+    }
+
+    private static ProcessTypeRecord HiddenType(string name) => new()
+    {
+        TypeName = name,
+        States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+        ValidChildTypes = [],
+        CategoryReferenceNames = ["Microsoft.HiddenCategory"],
+    };
+
+    private static ProcessTypeRecord UsableType(string name) => new()
+    {
+        TypeName = name,
+        States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+        ValidChildTypes = [],
+        CategoryReferenceNames = ["Microsoft.RequirementCategory"],
+    };
+
+    /// <summary>
+    /// </summary>
     [Fact]
     public async Task Execute_NoArgs_JsonOutput_DistinguishesHiddenTypesFromUsableOnes()
     {
@@ -212,7 +315,7 @@ public sealed class ProcessCommandTests : IDisposable
         ]);
 
         var (exitCode, output) = await StdoutCapture.RunAsync(
-            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "json"));
+            () => _cmd.ExecuteAsync(typeName: null, outputFormat: "json", includeHidden: true));
 
         exitCode.ShouldBe(0);
 
@@ -220,6 +323,9 @@ public sealed class ProcessCommandTests : IDisposable
         var types = doc.RootElement.GetProperty("types").EnumerateArray().ToList();
 
         // Ordinary process types must remain represented — not silently dropped.
+        // AB#657: --include-hidden is required here. The DEFAULT listing now omits hidden
+        // types entirely; this test's subject is the per-type isHidden/categories SHAPE, so
+        // it opts in rather than asserting the default, which its sibling tests cover.
         types.Count.ShouldBe(2);
 
         var issue = types.Single(t => t.GetProperty("typeName").GetString() == "Issue");

@@ -616,10 +616,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
     /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
-    public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
+    /// <param name="includeHidden">Include types ADO reserves for its own tooling (Code Review, Feedback, Test Case and friends). Excluded by default: they cannot be created by hand.</param>
+    public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, bool includeHidden = false, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(
             services, org, project,
-            sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct),
+            sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, ct),
             output, ct);
 
     /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>

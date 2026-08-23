@@ -141,8 +141,28 @@ the process defines: `Map`, `Wayfinder Task`, `Research`, `Prototype`, `Grilling
 🔴 **How these relate to the repo's `wayfinder/` markdown is UNDECIDED.** The names line up
 suggestively, but a suggestive name is not a mapping. Ask; do not infer it from the type list.
 
-⚠️ **Some stock types are inherited but unused** — `Feedback Request`/`Response` and
-`Code Review Request`/`Response` are the back ends of two Microsoft tool features (the *Request
-Feedback* flow, and the legacy TFVC code review handshake). All four measured zero items on this
-board. They are reachable and would accept a write without erroring, so do not route work into
-them; use `Bug`, `Task`, or one of the custom types.
+🔴 **Four types are HIDDEN system machinery — they are not spare vocabulary.**
+`Code Review Request`/`Response` and `Feedback Request`/`Response` all sit in
+`Microsoft.HiddenCategory`, which Microsoft defines as *"the set of WITs that you do not want
+users to create manually"*. They are the back ends of two Microsoft tool features (the legacy
+TFVC code review handshake, and the *Request Feedback* flow) and are created by tooling, never
+by hand — `Feedback Request` cannot even be customised, as ADO rejects the attempt as already
+in use. Do not route work into them, and do not treat their names as taken when choosing names
+for new types: they are not part of the visible vocabulary at all.
+
+🔴 **Category membership does NOT follow the type's name, and no twig command reports it**
+(ADO #656). Measured on this board: `Microsoft.BugCategory` contains **`Issue`**, not `Bug`;
+`Bug` lives in `Microsoft.RequirementCategory`; and `Issue` is itself hidden. Read categories
+from the API rather than inferring them — `twig process` reads the process roster, which has no
+notion of a category, so twig currently shows hidden types as though they were ordinary ones:
+
+```bash
+curl -s -H "Authorization: Bearer $TOK" \
+  "https://dev.azure.com/PolyphonyRequiem/Twig/_apis/wit/workitemtypecategories?api-version=7.1"
+```
+
+⚠️ **Three different routes return three different type lists.** The process roster
+(`_apis/work/processes/{id}/workItemTypes`) is the process's own set; the project-scoped
+`_apis/wit/workitemtypes` reports **more**, because it includes the hidden system helpers; and
+categories come from `_apis/wit/workitemtypecategories`. Do not assume the three agree — see the
+red note in `src/Twig.Infrastructure/Ado/Dtos/AdoProcessDescriptionDtos.cs`.

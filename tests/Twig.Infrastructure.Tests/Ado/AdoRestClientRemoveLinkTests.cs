@@ -333,7 +333,7 @@ public sealed class AdoRestClientRemoveLinkTests
     }
 
     [Fact]
-    public async Task RemoveLinkAtRevisionAsync_UsesJsonPatchContentTypeAndRemoveOp()
+    public async Task RemoveLinkAtRevisionAsync_UsesRevisionTestBeforeRemoveOperation()
     {
         var handler = new RemoveLinkTrackingHandler(
             [
@@ -349,10 +349,14 @@ public sealed class AdoRestClientRemoveLinkTests
         handler.LastPatchContentType.ShouldNotBeNull();
         handler.LastPatchContentType.ShouldContain("application/json-patch+json");
 
-        var body = handler.LastPatchBody!;
-        using var doc = JsonDocument.Parse(body);
-        doc.RootElement[0].GetProperty("op").GetString().ShouldBe("remove");
-        doc.RootElement[0].GetProperty("path").GetString().ShouldBe("/relations/1");
+        using var doc = JsonDocument.Parse(handler.LastPatchBody!);
+        doc.RootElement.GetArrayLength().ShouldBe(2);
+        var revisionTest = doc.RootElement[0];
+        revisionTest.GetProperty("op").GetString().ShouldBe("test");
+        revisionTest.GetProperty("path").GetString().ShouldBe("/rev");
+        revisionTest.GetProperty("value").GetInt32().ShouldBe(4);
+        doc.RootElement[1].GetProperty("op").GetString().ShouldBe("remove");
+        doc.RootElement[1].GetProperty("path").GetString().ShouldBe("/relations/1");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

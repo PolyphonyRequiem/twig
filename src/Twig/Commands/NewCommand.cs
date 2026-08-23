@@ -28,9 +28,11 @@ public sealed class NewCommand(
     SeedFactory seedFactory,
     IStagedIdentityRegistry stagedIdentityRegistry,
     RendererFactory? rendererFactory = null,
-    ContextChangeService? contextChangeService = null)
+    ContextChangeService? contextChangeService = null,
+    TextReader? stdinReader = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    private readonly TextReader _stdin = stdinReader ?? Console.In;
     public async Task<int> ExecuteAsync(
         string? title,
         string? type = null,
@@ -43,6 +45,8 @@ public sealed class NewCommand(
         string? format = null,
         string[]? fields = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string? descriptionFile = null,
+        bool descriptionStdin = false,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
@@ -59,6 +63,24 @@ public sealed class NewCommand(
             Console.Error.WriteLine(fmt.FormatError(formatError));
             return 2;
         }
+
+        // AB#617: --description-file / --description-stdin, sharing TextBodySource with
+        // `twig update` and `twig note`. Resolved up front, before any network call, for
+        // the same reason --field is parsed up front: a bad source must never produce a
+        // partial create.
+        var descriptionBody = await TextBodySource.ResolveAsync(
+            description, descriptionFile, descriptionStdin, _stdin,
+            inlineLabel: "--description",
+            fileFlag: "--description-file",
+            stdinFlag: "--description-stdin",
+            trimTrailingNewline: format is null,
+            ct);
+        if (descriptionBody.Outcome is TextBodySource.Outcome.Ambiguous or TextBodySource.Outcome.FileNotFound)
+        {
+            Console.Error.WriteLine(fmt.FormatError(descriptionBody.Error!));
+            return 2;
+        }
+        description = descriptionBody.Value;
 
         // Parse --field key=value pairs, sharing FieldAssignment with `twig batch --set`
         // and `twig seed new --field`. Validated up front so a malformed pair fails

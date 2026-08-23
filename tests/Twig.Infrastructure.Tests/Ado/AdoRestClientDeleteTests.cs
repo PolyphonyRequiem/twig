@@ -141,6 +141,128 @@ public sealed class AdoRestClientDeleteTests
         handler.LastAuthHeader.ShouldContain("Bearer");
     }
 
+    // ── Strict CAS: DeleteAtRevisionAsync ──────────────────────────
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_SendsIfMatchWithExpectedRevision()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.NoContent);
+        var client = CreateClient(handler);
+
+        await client.DeleteAtRevisionAsync(id: 42, expectedRevision: 17);
+
+        handler.RequestCount.ShouldBe(1);
+        handler.LastMethod.ShouldBe("DELETE");
+        handler.LastIfMatch.ShouldBe("17");
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_UrlTargetsWorkItemById()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.NoContent);
+        var client = CreateClient(handler);
+
+        await client.DeleteAtRevisionAsync(id: 1234, expectedRevision: 1);
+
+        handler.LastUrl.ShouldNotBeNull();
+        handler.LastUrl.ShouldContain("/workitems/1234");
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_SendsExactlyOneRequest_NoRefetchOrRetry()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.NoContent);
+        var client = CreateClient(handler);
+
+        await client.DeleteAtRevisionAsync(id: 42, expectedRevision: 5);
+
+        // Strict CAS: exactly one HTTP call. No GET refetch, no ConflictRetryHelper.
+        handler.RequestCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_NotFound_TreatedAsIdempotentSuccess()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.NotFound);
+        var client = CreateClient(handler);
+
+        // 404 means the item is already gone — delete goal state achieved.
+        await client.DeleteAtRevisionAsync(id: 999, expectedRevision: 3);
+
+        handler.RequestCount.ShouldBe(1);
+        handler.LastIfMatch.ShouldBe("3");
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_PreconditionFailed_ThrowsAdoConflict()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.PreconditionFailed);
+        var client = CreateClient(handler);
+
+        var ex = await Should.ThrowAsync<AdoConflictException>(
+            () => client.DeleteAtRevisionAsync(id: 42, expectedRevision: 5));
+
+        // 412 must surface without retry.
+        handler.RequestCount.ShouldBe(1);
+        ex.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_SendsNoRequestBody()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.NoContent);
+        var client = CreateClient(handler);
+
+        await client.DeleteAtRevisionAsync(id: 42, expectedRevision: 1);
+
+        handler.LastRequestBody.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_Unauthorized_SurfacesAuthFailureWithoutRetry()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.Unauthorized);
+        var client = CreateClient(handler);
+
+        // Strict CAS: a 401 auth challenge is surfaced immediately — no InvalidateToken
+        // + retry loop. Even though the DELETE has no body (which would ordinarily
+        // permit a single auth retry in SendAsync), DeleteAtRevisionAsync opts out.
+        await Should.ThrowAsync<AdoAuthenticationException>(
+            () => client.DeleteAtRevisionAsync(id: 42, expectedRevision: 5));
+
+        handler.RequestCount.ShouldBe(1);
+        handler.LastIfMatch.ShouldBe("5");
+    }
+
+    [Fact]
+    public async Task DeleteAtRevisionAsync_HtmlAuthChallenge_SurfacesAuthFailureWithoutRetry()
+    {
+        // ADO sign-in redirect: HTTP 203 Non-Authoritative Information with an HTML body
+        // is the classic stale-token challenge. In strict CAS mode we must NOT retry.
+        var handler = new HtmlAuthChallengeHandler();
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoUnexpectedResponseException>(
+            () => client.DeleteAtRevisionAsync(id: 42, expectedRevision: 5));
+
+        handler.RequestCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_Unauthorized_RetriesOnceWithFreshToken()
+    {
+        // Regression guard: non-strict DeleteAsync retains the historical
+        // invalidate-and-retry-once behavior for empty-body requests. If this ever
+        // changes, the strict/non-strict split is broken.
+        var handler = new DeleteTrackingHandler(HttpStatusCode.Unauthorized);
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoAuthenticationException>(
+            () => client.DeleteAsync(42));
+
+        handler.RequestCount.ShouldBe(2);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
@@ -168,6 +290,7 @@ public sealed class AdoRestClientDeleteTests
         public string? LastMethod { get; private set; }
         public string? LastRequestBody { get; private set; }
         public string? LastAuthHeader { get; private set; }
+        public string? LastIfMatch { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -177,6 +300,9 @@ public sealed class AdoRestClientDeleteTests
             LastUrl = request.RequestUri?.ToString();
             LastMethod = request.Method.Method;
             LastAuthHeader = request.Headers.Authorization?.ToString();
+
+            if (request.Headers.TryGetValues("If-Match", out var ifMatch))
+                LastIfMatch = ifMatch.FirstOrDefault();
 
             if (request.Content is not null)
                 LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
@@ -208,6 +334,29 @@ public sealed class AdoRestClientDeleteTests
             CancellationToken cancellationToken)
         {
             throw exception;
+        }
+    }
+
+    /// <summary>
+    /// HttpMessageHandler that returns HTTP 203 Non-Authoritative Information with an
+    /// HTML body. Mirrors the ADO sign-in redirect the error handler classifies as an
+    /// auth challenge (surfaced as <see cref="AdoUnexpectedResponseException"/>).
+    /// </summary>
+    private sealed class HtmlAuthChallengeHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            var response = new HttpResponseMessage((HttpStatusCode)203)
+            {
+                Content = new StringContent(
+                    "<html><body>Sign in</body></html>", Encoding.UTF8, "text/html"),
+            };
+            return Task.FromResult(response);
         }
     }
 }

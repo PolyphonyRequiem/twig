@@ -55,6 +55,18 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IWorkItemRepository>());
         services.AddSingleton(Substitute.For<IAdoWorkItemService>());
         services.AddSingleton(Substitute.For<IPendingChangeStore>());
+        services.AddSingleton(Substitute.For<IPendingChangeReader>());
+        services.AddSingleton(Substitute.For<IPlanLifecycleService>());
+        // Wayfinder 0016. AddConnectionDomainServices below registers the shared
+        // IPlanLifecycleService via a factory that also demands IPlanJournalRepository
+        // (production: SqlitePlanJournalRepository, wired by AddConnectionServices) and
+        // IRevisionBoundAdoWorkItemService (production: the AdoRestClient cast in
+        // NetworkServiceModule). This fixture composes neither seam, so the two are
+        // substituted here alongside the other domain interfaces above — omitting them
+        // would make the plan-lifecycle factory unresolvable and this guard would
+        // report a wiring defect that does not exist in production.
+        services.AddSingleton(Substitute.For<IPlanJournalRepository>());
+        services.AddSingleton(Substitute.For<IRevisionBoundAdoWorkItemService>());
         services.AddSingleton(Substitute.For<IPendingChangeFlusher>());
         services.AddSingleton(Substitute.For<IProcessConfigurationProvider>());
         services.AddSingleton(Substitute.For<IProcessTypeStore>());

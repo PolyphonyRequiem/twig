@@ -72,6 +72,7 @@ builder.Services.AddSingleton<AdminTools>();
 builder.Services.AddSingleton<TrackingTools>();
 builder.Services.AddSingleton<BatchTools>();
 builder.Services.AddSingleton<SeedTools>();
+builder.Services.AddSingleton<PlanTools>();
 
 // Parent-process watchdog — self-terminates when the host process exits,
 // preventing orphaned twig-mcp instances on VS Code reload or CLI exit.
@@ -113,7 +114,8 @@ mcpBuilder
     .WithTools<AdminTools>()
     .WithTools<TrackingTools>()
     .WithTools<BatchTools>()
-    .WithTools<SeedTools>();
+    .WithTools<SeedTools>()
+    .WithTools<PlanTools>();
 
 await builder.Build().RunAsync();
 return 0;

@@ -303,7 +303,7 @@ public class SqliteCacheStoreTests
         // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
         string[] expectedDurable =
             ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors", "current_bench"];
+             "benches", "bench_selectors", "current_bench", "plan_journals", "plan_operations"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
@@ -542,5 +542,285 @@ public class SqliteCacheStoreTests
             var version = cmd.ExecuteScalar() as string;
             int.Parse(version!).ShouldBe(SqliteCacheStore.SchemaVersion);
         }
+    }
+
+    /// <summary>
+    /// The v6 durable migration introduces the plan journal tables (plan_journals /
+    /// plan_operations). Because the durable store is NEVER dropped (0005 §5), that migration
+    /// MUST run non-destructively against a real on-disk v5 <c>pending.db</c> — an in-memory
+    /// happy-path test that lands straight at v6 cannot catch a v6 migration that silently
+    /// drops or truncates the durable rows created under v5.
+    ///
+    /// This test builds a REAL file-backed pending.db in the shape the v1..v5 migrations
+    /// produce, seeds every durable table with at least one representative row, stamps
+    /// <c>user_version = 5</c>, then opens the production <see cref="SqliteCacheStore"/> against
+    /// the sibling mirror path and asserts every seeded row survives, that the v6 plan tables
+    /// and their indices now exist, and that <c>PRAGMA pending.user_version</c> reports the
+    /// current <see cref="SqliteCacheStore.DurableSchemaVersion"/>. It deliberately does not
+    /// invoke any DDL from <see cref="SqliteCacheStore"/> itself — running v6 by hand would
+    /// only test the DDL string, not the migration path.
+    /// </summary>
+    [Fact]
+    public void DurableStore_UpgradingFromV5_AddsPlanJournalShape_WithoutTouchingExistingRows()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"twig_v5v6_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var mirrorPath = Path.Combine(dir, "twig.db");
+        var pendingPath = Path.Combine(dir, "pending.db");
+
+        try
+        {
+            // Seed pending.db at v5 by executing the cumulative shape produced by durable
+            // migrations v1..v5. Kept verbatim, without pending.-prefixed identifiers, because
+            // pending.db is opened directly here rather than through an ATTACH.
+            using (var seed = new SqliteConnection($"Data Source={pendingPath}"))
+            {
+                seed.Open();
+                using (var ddl = seed.CreateCommand())
+                {
+                    ddl.CommandText = """
+                        CREATE TABLE pending_changes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            work_item_id INTEGER NOT NULL,
+                            change_type TEXT NOT NULL,
+                            field_name TEXT,
+                            old_value TEXT,
+                            new_value TEXT,
+                            created_at TEXT NOT NULL
+                        );
+                        CREATE INDEX idx_pending_changes_item ON pending_changes(work_item_id);
+
+                        CREATE TABLE publish_id_map (
+                            old_id INTEGER PRIMARY KEY,
+                            new_id INTEGER NOT NULL,
+                            published_at TEXT NOT NULL,
+                            staged_identity TEXT
+                        );
+                        CREATE INDEX idx_publish_id_map_staged_identity
+                            ON publish_id_map(staged_identity);
+
+                        CREATE TABLE seed_links (
+                            source_id INTEGER NOT NULL,
+                            target_id INTEGER NOT NULL,
+                            link_type TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            PRIMARY KEY (source_id, target_id, link_type)
+                        );
+                        CREATE INDEX idx_seed_links_source ON seed_links(source_id);
+                        CREATE INDEX idx_seed_links_target ON seed_links(target_id);
+
+                        CREATE TABLE staged_identities (
+                            staged_identity TEXT PRIMARY KEY,
+                            alias INTEGER NOT NULL UNIQUE,
+                            created_at TEXT NOT NULL,
+                            retired_at TEXT
+                        );
+                        CREATE INDEX idx_staged_identities_alias ON staged_identities(alias);
+
+                        CREATE TABLE publish_intents (
+                            staged_identity TEXT PRIMARY KEY,
+                            title TEXT NOT NULL,
+                            type_name TEXT NOT NULL,
+                            recorded_at TEXT NOT NULL,
+                            published_id INTEGER,
+                            completed_at TEXT
+                        );
+                        CREATE INDEX idx_publish_intents_open
+                            ON publish_intents(published_id);
+
+                        CREATE TABLE benches (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            is_default INTEGER NOT NULL DEFAULT 0,
+                            created_at TEXT NOT NULL
+                        );
+                        CREATE UNIQUE INDEX idx_benches_name ON benches(name COLLATE NOCASE);
+                        CREATE UNIQUE INDEX idx_benches_default
+                            ON benches(is_default) WHERE is_default = 1;
+
+                        CREATE TABLE bench_selectors (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            bench_id INTEGER NOT NULL REFERENCES benches(id) ON DELETE CASCADE,
+                            selector_kind TEXT NOT NULL,
+                            selector_payload TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        );
+                        CREATE INDEX idx_bench_selectors_bench
+                            ON bench_selectors(bench_id);
+                        CREATE UNIQUE INDEX idx_bench_selectors_unique
+                            ON bench_selectors(bench_id, selector_kind, selector_payload);
+
+                        CREATE TABLE current_bench (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            bench_id INTEGER REFERENCES benches(id) ON DELETE SET NULL,
+                            switched_at TEXT NOT NULL
+                        );
+
+                        PRAGMA user_version = 5;
+                        """;
+                    ddl.ExecuteNonQuery();
+                }
+
+                // One representative row per durable table. Uniform timestamp so the assertions
+                // can identify the pre-migration rows unambiguously after v6 runs.
+                using (var rows = seed.CreateCommand())
+                {
+                    rows.CommandText = """
+                        INSERT INTO pending_changes
+                            (work_item_id, change_type, field_name, old_value, new_value, created_at)
+                            VALUES (42, 'FieldEdit', 'System.Title', 'old', 'new', '2026-01-01T00:00:00Z');
+
+                        INSERT INTO staged_identities (staged_identity, alias, created_at)
+                            VALUES ('sid-v5-seed', -7, '2026-01-01T00:00:00Z');
+
+                        INSERT INTO publish_id_map (old_id, new_id, published_at, staged_identity)
+                            VALUES (-7, 1234, '2026-01-01T00:00:00Z', 'sid-v5-seed');
+
+                        INSERT INTO seed_links (source_id, target_id, link_type, created_at)
+                            VALUES (-7, -8, 'System.LinkTypes.Hierarchy-Forward', '2026-01-01T00:00:00Z');
+
+                        INSERT INTO publish_intents
+                            (staged_identity, title, type_name, recorded_at, published_id, completed_at)
+                            VALUES ('sid-v5-seed', 'v5 seed intent', 'Task', '2026-01-01T00:00:00Z', 1234, '2026-01-01T00:00:01Z');
+
+                        INSERT INTO benches (id, name, is_default, created_at)
+                            VALUES (1, 'v5 seed bench', 1, '2026-01-01T00:00:00Z');
+
+                        INSERT INTO bench_selectors
+                            (bench_id, selector_kind, selector_payload, created_at)
+                            VALUES (1, 'Pin', '{"id":42}', '2026-01-01T00:00:00Z');
+
+                        INSERT INTO current_bench (id, bench_id, switched_at)
+                            VALUES (1, 1, '2026-01-01T00:00:00Z');
+                        """;
+                    rows.ExecuteNonQuery();
+                }
+
+                using (var ver = seed.CreateCommand())
+                {
+                    ver.CommandText = "PRAGMA user_version;";
+                    Convert.ToInt32(ver.ExecuteScalar()).ShouldBe(5,
+                        "the seeded file must be at v5 before the production store opens it");
+                }
+            }
+
+            // Ensure the seed connection is fully closed and its pool released so the store
+            // opens the on-disk file we just wrote, not a pooled copy still at v5.
+            SqliteConnection.ClearAllPools();
+
+            // The production path: opening the store must migrate the sibling pending.db from
+            // v5 to DurableSchemaVersion additively, not by rebuild.
+            using var store = new SqliteCacheStore($"Data Source={mirrorPath}");
+            var conn = store.GetConnection();
+
+            using (var ver = conn.CreateCommand())
+            {
+                ver.CommandText = "PRAGMA pending.user_version;";
+                Convert.ToInt32(ver.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion,
+                    "the durable store must be stamped at the current version after upgrade");
+            }
+
+            // Every seeded row must still be present, with the exact values written pre-migration.
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.pending_changes WHERE work_item_id=42 AND field_name='System.Title' AND new_value='new';",
+                "pending_changes row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.staged_identities WHERE staged_identity='sid-v5-seed' AND alias=-7;",
+                "staged_identities row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.publish_id_map WHERE old_id=-7 AND new_id=1234 AND staged_identity='sid-v5-seed';",
+                "publish_id_map row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.seed_links WHERE source_id=-7 AND target_id=-8 AND link_type='System.LinkTypes.Hierarchy-Forward';",
+                "seed_links row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.publish_intents WHERE staged_identity='sid-v5-seed' AND published_id=1234;",
+                "publish_intents row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.benches WHERE id=1 AND is_default=1 AND name='v5 seed bench';",
+                "benches row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.bench_selectors WHERE bench_id=1 AND selector_kind='Pin' AND selector_payload='{\"id\":42}';",
+                "bench_selectors row from v5 must survive the v6 upgrade");
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.current_bench WHERE id=1 AND bench_id=1;",
+                "current_bench row from v5 must survive the v6 upgrade");
+
+            // v6 shape: plan_journals + plan_operations plus their indices exist in the durable
+            // schema. Assert the tables, then each index by name and (for the ordinal index)
+            // by its uniqueness constraint since (digest, ordinal) is the ordering key.
+            DurableTableExists(conn, "plan_journals").ShouldBeTrue(
+                "v6 must create plan_journals in the durable store");
+            DurableTableExists(conn, "plan_operations").ShouldBeTrue(
+                "v6 must create plan_operations in the durable store");
+
+            DurableIndexExists(conn, "idx_plan_journals_state").ShouldBeTrue(
+                "v6 must create the plan_journals state index");
+            DurableIndexExists(conn, "idx_plan_operations_ordinal").ShouldBeTrue(
+                "v6 must create the plan_operations ordinal index");
+            DurableIndexExists(conn, "idx_plan_operations_state").ShouldBeTrue(
+                "v6 must create the plan_operations state index");
+
+            using (var uniq = conn.CreateCommand())
+            {
+                uniq.CommandText =
+                    "SELECT \"unique\" FROM pending.pragma_index_list('plan_operations') " +
+                    "WHERE name='idx_plan_operations_ordinal';";
+                Convert.ToInt32(uniq.ExecuteScalar()).ShouldBe(1,
+                    "(digest, ordinal) is the ordering key; its index must be UNIQUE");
+            }
+
+            // Round-trip write against the new tables to prove the schema is actually usable —
+            // not just declared — and coexists with the v5-era rows still present alongside it.
+            using (var write = conn.CreateCommand())
+            {
+                write.CommandText = """
+                    INSERT INTO pending.plan_journals
+                        (digest, schema_version, organization, project, source_path,
+                         canonical_json, state, previewed_at)
+                        VALUES ('digest-v6', 1, 'org', 'proj', '/tmp/plan.yaml',
+                                '{}', 'Planned', '2026-01-01T00:00:00Z');
+                    INSERT INTO pending.plan_operations
+                        (digest, ordinal, op_id, kind, state, request_json)
+                        VALUES ('digest-v6', 0, 'op-1', 'CreateWorkItem', 'Planned', '{}');
+                    """;
+                write.ExecuteNonQuery();
+            }
+
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.plan_journals WHERE digest='digest-v6' AND state='Planned';",
+                "plan_journals row inserted after upgrade must be readable");
+            AssertOneRow(conn,
+                "SELECT COUNT(*) FROM pending.plan_operations WHERE digest='digest-v6' AND ordinal=0 AND op_id='op-1';",
+                "plan_operations row inserted after upgrade must be readable");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private static void AssertOneRow(SqliteConnection conn, string sql, string because)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(1, because);
+    }
+
+    private static bool DurableIndexExists(SqliteConnection conn, string indexName)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT name FROM pending.sqlite_master WHERE type='index' AND name=@name;";
+        cmd.Parameters.AddWithValue("@name", indexName);
+        return cmd.ExecuteScalar() is not null;
     }
 }

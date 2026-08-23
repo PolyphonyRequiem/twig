@@ -68,6 +68,21 @@ internal static class TestConnectionScope
         services.AddSingleton(unitOfWork);
         services.AddSingleton(trackingRepo ?? NSubstitute.Substitute.For<ITrackingRepository>());
 
+        // Wayfinder 0016. AddConnectionDomainServices below registers IPlanLifecycleService
+        // via a factory that also demands IPlanJournalRepository (production:
+        // SqlitePlanJournalRepository, wired by AddConnectionServices) and
+        // IRevisionBoundAdoWorkItemService (production: the AdoRestClient cast in
+        // NetworkServiceModule). IPendingChangeReader is likewise the read side of
+        // SqlitePendingChangeStore, aliased in AddConnectionServices — the substitute
+        // IPendingChangeStore above does not implement it, so the production cast would
+        // throw. This fixture composes only AddConnectionDomainServices, so those three
+        // seams have to be stood in for here alongside the other domain substitutes;
+        // omitting them would make the plan-lifecycle factory unresolvable and this guard
+        // would report a wiring defect that does not exist in production.
+        services.AddSingleton(NSubstitute.Substitute.For<IPlanJournalRepository>());
+        services.AddSingleton(NSubstitute.Substitute.For<IPendingChangeReader>());
+        services.AddSingleton(NSubstitute.Substitute.For<IRevisionBoundAdoWorkItemService>());
+
         // ITrackingService is deliberately NOT registered here any more (ADO #146). It moved
         // into AddConnectionDomainServices below, where the Bench pin reader it now depends on
         // exists. A copy here would WIN over that registration — AddSingleton is last-wins — and

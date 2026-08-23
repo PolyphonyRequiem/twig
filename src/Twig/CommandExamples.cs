@@ -251,6 +251,8 @@ internal static class CommandExamples
         [
             "twig note \"Investigated root cause\"          Add a note to the active item",
             "twig note --text \"Investigated root cause\"   The same, spelled with the option",
+            "twig note --file notes/findings.md           Read the note body from a file",
+            "cat findings.md | twig note --stdin          Read the note body from stdin",
             "twig note                                    Open editor to compose a note",
         ],
         ["update"] =

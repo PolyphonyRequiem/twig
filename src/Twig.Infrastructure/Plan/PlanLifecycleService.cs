@@ -57,6 +57,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly TimeProvider _clock;
+    private readonly PlanProcessRuleGate _ruleGate;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton — the executor
@@ -78,6 +79,37 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock)
+        : this(
+            parser, journal, pendingReader, adoService, revisionBound, seedPublish,
+            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
+            config, paths, clock, ruleProvider: null)
+    {
+    }
+
+    /// <summary>
+    /// Composition-root overload that additionally accepts the process-rule provider used
+    /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
+    /// <see cref="PlanProcessRuleGate"/> and AB#673. Left internal because
+    /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
+    /// above stays backward-compatible and delegates in with a null provider (which the
+    /// gate treats as permit-all).
+    /// </summary>
+    internal PlanLifecycleService(
+        PlanDocumentParser parser,
+        IPlanJournalRepository journal,
+        IPendingChangeReader pendingReader,
+        IAdoWorkItemService adoService,
+        IRevisionBoundAdoWorkItemService revisionBound,
+        SeedPublishOrchestrator seedPublish,
+        IWorkItemRepository workItemRepo,
+        ISeedLinkRepository seedLinkRepo,
+        IStagedIdentityRegistry stagedRegistry,
+        IPublishIdMapRepository publishIdMap,
+        IPublishIntentRepository publishIntent,
+        TwigConfiguration config,
+        TwigPaths paths,
+        TimeProvider clock,
+        IProcessRuleProvider? ruleProvider)
     {
         _parser = parser;
         _journal = journal;
@@ -92,6 +124,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         _executor = new PlanOperationExecutor(
             adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
+        _ruleGate = new PlanProcessRuleGate(ruleProvider);
     }
 
     /// <inheritdoc />
@@ -438,6 +471,18 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         if (currentState == PlanOperationState.Confirmed)
         {
+            // Runtime process-gate refusal (AB#673): if the batch would land the item in
+            // a state where an enabled makeRequired ProcessRule applies but the effective
+            // value for that field is empty, terminalise Failed BEFORE the wire attempt.
+            // Applied via the same terminal shape as any other pre-transition refusal, so
+            // the row never claims Applying and the executor is never called for this op.
+            var gateRefusal = await EvaluateProcessRuleGateAsync(opDef, ct).ConfigureAwait(false);
+            if (gateRefusal is not null)
+            {
+                return StepResult.Terminal(await MarkTerminalAsync(
+                    digest, row.OpId, gateRefusal, PlanOperationState.Failed, ct).ConfigureAwait(false));
+            }
+
             // Persist Applying BEFORE the ADO call — the transition is the durable evidence
             // that the operation was attempted.
             var moved = await _journal.TryTransitionOperationAsync(
@@ -704,6 +749,24 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         await _journal.SaveOperationErrorAsync(digest, opId, error, finalState, _clock.GetUtcNow(), ct)
             .ConfigureAwait(false);
         return finalState;
+    }
+
+    /// <summary>
+    /// Consults the process-rule gate for a <see cref="BatchOperation"/>: overlays the
+    /// batch's fields on the cached source aggregate and returns a refusal message iff an
+    /// enabled makeRequired rule that fires under the resulting state names a field whose
+    /// effective value would be empty. Non-batch kinds and a missing local source both
+    /// return <c>null</c> (no policy — the wire's own strict-CAS still owns those paths).
+    /// See <see cref="PlanProcessRuleGate"/> for the class-level rationale, AB#673.
+    /// </summary>
+    private async Task<string?> EvaluateProcessRuleGateAsync(
+        PlanOperationDefinition opDef,
+        CancellationToken ct)
+    {
+        if (opDef is not BatchOperation batch) return null;
+        var source = await _workItemRepo.GetByIdAsync(batch.WorkItemId, ct).ConfigureAwait(false);
+        if (source is null) return null;
+        return await _ruleGate.EvaluateAsync(batch, source, ct).ConfigureAwait(false);
     }
 
     // ── Path / workspace guards ────────────────────────────────────────────

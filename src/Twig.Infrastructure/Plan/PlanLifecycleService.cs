@@ -290,11 +290,15 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             var step = await StepOperationAsync(parsed.Digest, row, opDef, ct).ConfigureAwait(false);
             if (step.Busy)
             {
-                // Applying-lease held by a live winner: the row is being driven to conclusion
-                // by another actor RIGHT NOW. Do NOT read back, do NOT terminalise, and do
-                // NOT touch the header — either action would race the winner's own writes and
-                // could poison a valid apply. Return a top-level busy refusal instead; the
-                // caller retries once the winner completes (or the 5-minute lease expires).
+                // Two disjoint sources: a live Applying lease held by another actor, or
+                // (AB#673 review) a retryable precondition from the process-rule gate —
+                // the cached source revision does not match the batch and evaluating the
+                // enabled makeRequired rule set against a stale snapshot is unsafe. In
+                // BOTH cases: do NOT read back, do NOT terminalise, and do NOT touch the
+                // header. Return a top-level refusal so the caller retries — for a lease
+                // once the winner completes (or the 5-minute lease expires); for a stale
+                // cache after `twig refresh` reloads the source at the expected revision.
+                // The plan row stays Confirmed so re-apply resumes the same journal.
                 busyMessage = step.BusyMessage;
                 stopTail = true;
                 break;
@@ -432,10 +436,19 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private static readonly TimeSpan ApplyingLeaseWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Result of a single step through the per-operation pipeline. <see cref="Busy"/> signals
-    /// a live Applying lease held by another actor: the caller MUST NOT touch the row, MUST
-    /// NOT complete the header, and MUST short-circuit with a top-level busy refusal so the
-    /// operator retries once the winner completes.
+    /// Result of a single step through the per-operation pipeline. <see cref="Busy"/> is
+    /// the umbrella "do not touch the row, do not complete the header, short-circuit with a
+    /// top-level refusal" signal. Two disjoint sources produce it:
+    /// <list type="bullet">
+    /// <item>A live Applying lease held by another actor — a busy retry when the winner
+    ///   completes.</item>
+    /// <item>A retryable precondition from the process-rule gate (AB#673 review) — the
+    ///   local cache is at a different revision than the batch expects and the rule set has
+    ///   an enabled <c>makeRequired</c> candidate that would be mis-evaluated on the stale
+    ///   snapshot. The plan row stays Confirmed; a cache refresh + re-apply retries.</item>
+    /// </list>
+    /// Both surface via <see cref="Busy"/> because the top-level handling is identical: a
+    /// top-level refusal, no journal terminalisation, no header completion.
     /// </summary>
     private readonly record struct StepResult(PlanOperationState State, string? BusyMessage)
     {
@@ -444,6 +457,13 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         public static StepResult Terminal(PlanOperationState state) => new(state, null);
 
         public static StepResult Lease(string message) => new(PlanOperationState.Applying, message);
+
+        /// <summary>
+        /// Retryable precondition (AB#673): row remains at Confirmed on the caller's side
+        /// — this method never persists any state transition for a precondition.
+        /// </summary>
+        public static StepResult NeedsRefresh(string message)
+            => new(PlanOperationState.Confirmed, message);
     }
 
     /// <summary>
@@ -471,16 +491,23 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         if (currentState == PlanOperationState.Confirmed)
         {
-            // Runtime process-gate refusal (AB#673): if the batch would land the item in
-            // a state where an enabled makeRequired ProcessRule applies but the effective
-            // value for that field is empty, terminalise Failed BEFORE the wire attempt.
-            // Applied via the same terminal shape as any other pre-transition refusal, so
-            // the row never claims Applying and the executor is never called for this op.
-            var gateRefusal = await EvaluateProcessRuleGateAsync(opDef, ct).ConfigureAwait(false);
-            if (gateRefusal is not null)
+            // Runtime process-gate outcome (AB#673):
+            //   • Refused → terminal Failed BEFORE the wire attempt. The row never claims
+            //     Applying and the executor is never called for this op.
+            //   • NeedsRefresh → retryable precondition. The cached source is at a
+            //     revision the rule engine cannot honestly evaluate against; leave the row
+            //     at Confirmed, do NOT terminalise, and surface a top-level refusal so a
+            //     `twig refresh` + `twig plan apply` re-runs the same journal.
+            var gate = await EvaluateProcessRuleGateAsync(opDef, ct).ConfigureAwait(false);
+            if (gate.IsRefused)
             {
                 return StepResult.Terminal(await MarkTerminalAsync(
-                    digest, row.OpId, gateRefusal, PlanOperationState.Failed, ct).ConfigureAwait(false));
+                    digest, row.OpId, gate.Message!, PlanOperationState.Failed, ct)
+                    .ConfigureAwait(false));
+            }
+            if (gate.IsRefreshRequired)
+            {
+                return StepResult.NeedsRefresh(gate.Message!);
             }
 
             // Persist Applying BEFORE the ADO call — the transition is the durable evidence
@@ -752,22 +779,22 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <summary>
-    /// Consults the process-rule gate for a <see cref="BatchOperation"/>: overlays the
-    /// batch's fields on the cached source aggregate and returns a refusal message iff an
-    /// enabled makeRequired rule that fires under the resulting state names a field whose
-    /// effective value would be empty, OR iff the cached source is not at the batch's
-    /// expected revision (a stale source would evaluate rules on the wrong snapshot).
-    /// Non-batch kinds and a missing local source both return <c>null</c> (no policy — the
-    /// wire's own strict-CAS still owns those paths).
-    /// See <see cref="PlanProcessRuleGate"/> for the class-level rationale, AB#673.
+    /// Consults the process-rule gate for a <see cref="BatchOperation"/>. Returns
+    /// <see cref="PlanProcessRuleGateOutcome.Ok"/> for non-batch kinds and a missing local
+    /// source — no client-side policy applies to those paths and the wire's strict-CAS
+    /// still owns them. Otherwise defers to
+    /// <see cref="PlanProcessRuleGate.EvaluateAsync(BatchOperation, Twig.Domain.Aggregates.WorkItem, CancellationToken)"/>,
+    /// which distinguishes a rule refusal (terminal Failed) from a stale-cache precondition
+    /// (retryable — the caller MUST leave the row at Confirmed). See
+    /// <see cref="PlanProcessRuleGate"/> for the class-level rationale, AB#673.
     /// </summary>
-    private async Task<string?> EvaluateProcessRuleGateAsync(
+    private async Task<PlanProcessRuleGateOutcome> EvaluateProcessRuleGateAsync(
         PlanOperationDefinition opDef,
         CancellationToken ct)
     {
-        if (opDef is not BatchOperation batch) return null;
+        if (opDef is not BatchOperation batch) return PlanProcessRuleGateOutcome.Ok;
         var source = await _workItemRepo.GetByIdAsync(batch.WorkItemId, ct).ConfigureAwait(false);
-        if (source is null) return null;
+        if (source is null) return PlanProcessRuleGateOutcome.Ok;
         return await _ruleGate.EvaluateAsync(batch, source, ct).ConfigureAwait(false);
     }
 

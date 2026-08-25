@@ -402,6 +402,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
                 sp.GetRequiredService<IPlanJournalRepository>(),
                 sp.GetRequiredService<IPendingChangeReader>(),
+                sp.GetRequiredService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<IAdoWorkItemService>(),
                 sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
                 sp.GetRequiredService<SeedPublishOrchestrator>(),

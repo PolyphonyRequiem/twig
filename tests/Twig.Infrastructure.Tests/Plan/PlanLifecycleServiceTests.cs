@@ -29,6 +29,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private readonly SqliteCacheStore _store;
     private readonly SqlitePlanJournalRepository _journal;
     private readonly IPendingChangeReader _pending = Substitute.For<IPendingChangeReader>();
+    private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
@@ -103,6 +104,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             new PlanDocumentParser(),
             _journal,
             _pending,
+            _fieldDefinitions,
             _ado,
             _revisionBound,
             _seedPublish.Orchestrator,
@@ -795,7 +797,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         // internal steps.
         var boundClock = clock;
         svc = new PlanLifecycleService(
-            new PlanDocumentParser(), _journal, _pending, _ado, _revisionBound,
+            new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _ado, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
             _publishIntent, _config, _paths, boundClock);
 

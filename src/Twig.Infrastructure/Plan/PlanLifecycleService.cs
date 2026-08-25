@@ -67,14 +67,15 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanProcessRuleGate _ruleGate;
 
     /// <summary>
-    /// Constructs the service. Every dependency is a Twig-shared singleton — the executor
-    /// is created inline over the passed collaborators so callers only ever see the domain
-    /// interfaces they already own.
+    /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
+    /// created inline over those collaborators so plan readback uses the same field metadata
+    /// cache as the rest of the connection.
     /// </summary>
     public PlanLifecycleService(
         PlanDocumentParser parser,
         IPlanJournalRepository journal,
         IPendingChangeReader pendingReader,
+        IFieldDefinitionStore fieldDefinitionStore,
         IAdoWorkItemService adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
@@ -87,7 +88,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigPaths paths,
         TimeProvider clock)
         : this(
-            parser, journal, pendingReader, adoService, revisionBound, seedPublish,
+            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
             config, paths, clock, ruleProvider: null)
     {
@@ -96,15 +97,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     /// <summary>
     /// Composition-root overload that additionally accepts the process-rule provider used
     /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
-    /// <see cref="PlanProcessRuleGate"/> and AB#673. Left internal because
     /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
-    /// above stays backward-compatible and delegates in with a null provider (which the
-    /// gate treats as permit-all).
+    /// delegates in with a null provider, which the gate treats as permit-all.
     /// </summary>
     internal PlanLifecycleService(
         PlanDocumentParser parser,
         IPlanJournalRepository journal,
         IPendingChangeReader pendingReader,
+        IFieldDefinitionStore fieldDefinitionStore,
         IAdoWorkItemService adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
@@ -131,7 +131,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
-            adoService, revisionBound, seedPublish,
+            adoService, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
     }
@@ -893,6 +893,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         var outcome = await _ruleGate.EvaluateAsync(batch, source, ct).ConfigureAwait(false);
         return new GateEvaluation(outcome, snapshot);
     }
+
 
 
     private static bool TryGetCarriedPreOp(

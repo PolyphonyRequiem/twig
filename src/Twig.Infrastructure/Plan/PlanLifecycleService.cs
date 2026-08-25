@@ -1,10 +1,12 @@
 using System.Text;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+
 
 namespace Twig.Infrastructure.Plan;
 
@@ -54,8 +56,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IStagedIdentityRegistry _stagedRegistry;
     private readonly IPublishIdMapRepository _publishIdMap;
+    private readonly IRevisionBoundAdoWorkItemService _revisionBound;
+
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
+    private readonly WorkItemMapper _workItemMapper = new();
+
     private readonly TimeProvider _clock;
     private readonly PlanProcessRuleGate _ruleGate;
 
@@ -118,6 +124,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         _seedLinkRepo = seedLinkRepo;
         _stagedRegistry = stagedRegistry;
         _publishIdMap = publishIdMap;
+        _revisionBound = revisionBound;
+
         _config = config;
         _paths = paths;
         _clock = clock;
@@ -780,12 +788,11 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
     /// <summary>
     /// Consults the process-rule gate for a <see cref="BatchOperation"/>. Returns
-    /// <see cref="PlanProcessRuleGateOutcome.Ok"/> for non-batch kinds and a missing local
-    /// source — no client-side policy applies to those paths and the wire's strict-CAS
-    /// still owns them. Otherwise defers to
+    /// <see cref="PlanProcessRuleGateOutcome.Ok"/> for non-batch kinds. Otherwise fetches
+    /// the authoritative expected-revision snapshot, maps it to a work item, and defers to
     /// <see cref="PlanProcessRuleGate.EvaluateAsync(BatchOperation, Twig.Domain.Aggregates.WorkItem, CancellationToken)"/>,
-    /// which distinguishes a rule refusal (terminal Failed) from a stale-cache precondition
-    /// (retryable — the caller MUST leave the row at Confirmed). See
+    /// which distinguishes a rule refusal (terminal Failed) from a stale-cache or snapshot
+    /// load precondition (retryable — the caller MUST leave the row at Confirmed). See
     /// <see cref="PlanProcessRuleGate"/> for the class-level rationale, AB#673.
     /// </summary>
     private async Task<PlanProcessRuleGateOutcome> EvaluateProcessRuleGateAsync(
@@ -793,10 +800,27 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         CancellationToken ct)
     {
         if (opDef is not BatchOperation batch) return PlanProcessRuleGateOutcome.Ok;
-        var source = await _workItemRepo.GetByIdAsync(batch.WorkItemId, ct).ConfigureAwait(false);
-        if (source is null) return PlanProcessRuleGateOutcome.Ok;
+
+        WorkItemSnapshot snapshot;
+        try
+        {
+            snapshot = await _revisionBound.FetchAtRevisionAsync(batch.WorkItemId, batch.ExpectedRevision, ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Unable to load authoritative snapshot for work item {batch.WorkItemId} at revision {batch.ExpectedRevision}: {ex.Message}");
+        }
+
+        var source = _workItemMapper.Map(snapshot);
         return await _ruleGate.EvaluateAsync(batch, source, ct).ConfigureAwait(false);
     }
+
 
     // ── Path / workspace guards ────────────────────────────────────────────
 

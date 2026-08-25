@@ -1,3 +1,5 @@
+using Twig.Domain.ValueObjects;
+
 namespace Twig.Domain.Interfaces;
 
 /// <summary>
@@ -22,6 +24,20 @@ namespace Twig.Domain.Interfaces;
 /// </remarks>
 public interface IRevisionBoundAdoWorkItemService
 {
+    /// <summary>
+    /// Fetches a specific work item revision as the authoritative server snapshot used by
+    /// revision-bound plan validation.
+    /// </summary>
+    /// <remarks>
+    /// This is a read-only companion to the strict-CAS write methods above. It does not
+    /// consult the local cache; callers that need an exact snapshot for a planned revision
+    /// use this instead of a potentially stale repository projection.
+    /// </remarks>
+    Task<WorkItemSnapshot> FetchAtRevisionAsync(
+        int id,
+        int expectedRevision,
+        CancellationToken ct = default);
+
     /// <summary>
     /// Adds a relation link on <paramref name="sourceId"/> using strict optimistic concurrency
     /// against <paramref name="expectedRevision"/> — the PATCH begins with a <c>test</c>

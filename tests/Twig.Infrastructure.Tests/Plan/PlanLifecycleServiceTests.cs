@@ -4,6 +4,8 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
@@ -35,6 +37,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private readonly IPublishIdMapRepository _publishIdMap = Substitute.For<IPublishIdMapRepository>();
     private readonly IPublishIntentRepository _publishIntent = Substitute.For<IPublishIntentRepository>();
     private readonly IProcessRuleProvider _ruleProvider = Substitute.For<IProcessRuleProvider>();
+    private readonly WorkItemMapper _mapper = new();
+
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly FakeSeedPublish _seedPublish = new();
@@ -58,6 +62,25 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<PendingChangeDetail>>(Array.Empty<PendingChangeDetail>()));
         _publishIdMap.GetAllMappingsAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PublishMapping>>(Array.Empty<PublishMapping>()));
+        _revisionBound.FetchAtRevisionAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                var id = ci.ArgAt<int>(0);
+                var ct = ci.ArgAt<CancellationToken>(2);
+                var source = await _workItems.GetByIdAsync(id, ct);
+                return source is null
+                    ? new WorkItemSnapshot
+                    {
+                        Id = id,
+                        Revision = ci.ArgAt<int>(1),
+                        TypeName = string.Empty,
+                        Title = string.Empty,
+                        State = string.Empty,
+                        Fields = new Dictionary<string, string?>(),
+                    }
+                    : _mapper.ToSnapshot(source);
+            });
+
         // Default: the rule provider carries no rules for any type, so the runtime process
         // gate no-ops and existing tests keep the pre-AB#673 shape. Tests exercising the
         // gate override this via NSubstitute.
@@ -1707,6 +1730,126 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var row = apply.Operations.ShouldHaveSingleItem();
         row.State.ShouldBe(PlanOperationState.Failed);
         row.Error!.ShouldContain("Custom.Bar");
+    }
+
+    // ── apply: authoritative expected-revision snapshots (AB#719) ─────────
+
+    [Fact]
+    public async Task Apply_Batch_UsesAuthoritativeSnapshot_WhenCacheWouldFalseRefuse()
+    {
+        // The cache is deliberately missing Custom.Gated. The expected-revision server
+        // snapshot carries it, so the gate must permit the write. Reading the cache here
+        // would produce a false rule refusal before PatchAsync.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var staleProjection = new WorkItem
+        {
+            Id = 42,
+            Title = "cache projection",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        staleProjection.ChangeState("Doing");
+        staleProjection.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(staleProjection);
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing", ("Custom.Gated", "signed")));
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [new RuleCondition("when", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Done"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        await _ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenAuthoritativeSnapshotKnowsRequiredFieldEmpty()
+    {
+        // Absence from a complete expected-revision server snapshot is known-empty, not
+        // "Twig did not carry this field". The enabled rule must therefore refuse before
+        // the privileged PATCH.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing"));
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [new RuleCondition("when", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Failed);
+        apply.Operations[0].Error!.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_LeavesPlanRetryable_WhenAuthoritativeSnapshotIsUnavailable()
+    {
+        // No source truth means no rule decision. Preserve Confirmed so the same digest can
+        // be retried after ADO is reachable; never fall back to the filtered cache projection.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new HttpRequestException("temporary ADO failure"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        apply.Error!.ShouldContain("authoritative", Case.Insensitive);
+        await _ado.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        (await _journal.GetAsync(digest))!.Operations.ShouldHaveSingleItem()
+            .State.ShouldBe(PlanOperationState.Confirmed);
+    }
+
+    private static WorkItemSnapshot AuthoritativeSnapshot(
+        int id,
+        int revision,
+        string type,
+        string state,
+        params (string Name, string? Value)[] fields)
+    {
+        var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["System.WorkItemType"] = type,
+            ["System.Title"] = "authoritative",
+            ["System.State"] = state,
+        };
+        foreach (var (name, value) in fields)
+            values[name] = value;
+
+        return new WorkItemSnapshot
+        {
+            Id = id,
+            Revision = revision,
+            TypeName = type,
+            Title = "authoritative",
+            State = state,
+            Fields = values,
+        };
     }
 
     // ── helpers ────────────────────────────────────────────────────────────

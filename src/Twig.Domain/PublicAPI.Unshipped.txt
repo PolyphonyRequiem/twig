@@ -3,6 +3,7 @@ Twig.Domain.Interfaces.IAdoWorkItemService.FetchBatchWithLinksAsync(System.Colle
 Twig.Domain.Interfaces.IPendingChangeReader
 Twig.Domain.Interfaces.IPendingChangeReader.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.FetchAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.WorkItemSnapshot!>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.AddLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.DeleteAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.RemoveLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!

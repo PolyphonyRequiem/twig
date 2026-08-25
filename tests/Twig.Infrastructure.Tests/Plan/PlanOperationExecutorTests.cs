@@ -24,6 +24,7 @@ public sealed class PlanOperationExecutorTests
 {
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
+    private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
     private readonly ISeedLinkRepository _seedLinks = Substitute.For<ISeedLinkRepository>();
     private readonly IStagedIdentityRegistry _stagedRegistry = Substitute.For<IStagedIdentityRegistry>();
@@ -56,8 +57,16 @@ public sealed class PlanOperationExecutorTests
                 _publishInvocations.Add(seedId);
                 return Task.FromResult(_publishBehaviour(seedId));
             });
-        _executor = new PlanOperationExecutor(_ado, _revisionBound, publisher);
+        _executor = new PlanOperationExecutor(_ado, _revisionBound, _fieldDefinitions, publisher);
     }
+
+    private void StubFieldDefinition(string referenceName, string dataType)
+    {
+        _fieldDefinitions.GetByReferenceNameAsync(referenceName, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(
+                new FieldDefinition(referenceName, referenceName, dataType, IsReadOnly: false)));
+    }
+
 
     // ── batch readback: canonical fields ───────────────────────────────────
 
@@ -129,6 +138,111 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Ok.ShouldBeFalse();
         outcome.Error!.ShouldContain("cleared");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_SystemDescriptionHtml_VerifiesEquivalentAdoNormalization()
+    {
+        const string expected = "<p data-kind=\"notice\" class=\"summary\">Ready &amp; waiting<br /></p>";
+        const string actual = "<P class='summary' data-kind=notice>Ready &#38; waiting<br></P>";
+
+        StubFieldDefinition("System.Description", "HTML");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.Description"] = expected },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.Description", actual);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        await _fieldDefinitions.Received(1).GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_CustomHtmlField_VerifiesEquivalentAdoNormalization()
+    {
+        const string expected = "<a href=https://example.test/path data-level=\"1\">Verified</a>";
+        const string actual = "<A data-level='1' href=\"https://example.test/path\">Verified</A>";
+
+        StubFieldDefinition("Custom.WayfinderAnswer", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["Custom.WayfinderAnswer"] = expected },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("Custom.WayfinderAnswer", actual);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        await _fieldDefinitions.Received(1).GetByReferenceNameAsync("Custom.WayfinderAnswer", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlSemanticDifference_RemainsIndeterminate()
+    {
+        StubFieldDefinition("System.Description", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.Description"] = "<p><strong>Verified</strong></p>" },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.Description", "<p><em>Verified</em></p>");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain("System.Description");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UnknownField_RemainsOrdinal()
+    {
+        _fieldDefinitions.GetByReferenceNameAsync("System.Tags", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(null));
+        var op = new BatchOperation
+        {
+            Id = "plain", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.Tags"] = "<P>literal</P>" },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.Tags", "<p>literal</p>");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlLookingPlainText_RemainsOrdinal()
+    {
+        StubFieldDefinition("Custom.Template", "plainText");
+        var op = new BatchOperation
+        {
+            Id = "plain", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["Custom.Template"] = "<P>literal</P>" },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("Custom.Template", "<p>literal</p>");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
     }
 
     // ── link readback: friendly-relation normalization ─────────────────────

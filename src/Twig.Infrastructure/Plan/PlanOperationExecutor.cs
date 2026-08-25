@@ -28,6 +28,7 @@ internal sealed class PlanOperationExecutor
 {
     private readonly IAdoWorkItemService _adoService;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
 
     /// <summary>
@@ -37,6 +38,7 @@ internal sealed class PlanOperationExecutor
     internal PlanOperationExecutor(
         IAdoWorkItemService adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
+        IFieldDefinitionStore fieldDefinitionStore,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
         ISeedLinkRepository seedLinkRepo,
@@ -46,6 +48,7 @@ internal sealed class PlanOperationExecutor
         : this(
             adoService,
             revisionBound,
+            fieldDefinitionStore,
             new PlanSeedPublisher(
                 adoService,
                 workItemRepo,
@@ -65,10 +68,12 @@ internal sealed class PlanOperationExecutor
     internal PlanOperationExecutor(
         IAdoWorkItemService adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
+        IFieldDefinitionStore fieldDefinitionStore,
         PlanSeedPublisher seedPublisher)
     {
         _adoService = adoService;
         _revisionBound = revisionBound;
+        _fieldDefinitionStore = fieldDefinitionStore;
         _seedPublisher = seedPublisher;
     }
 
@@ -257,10 +262,28 @@ internal sealed class PlanOperationExecutor
                         $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
                 continue;
             }
-            if (!string.Equals(actual, kv.Value, StringComparison.Ordinal))
+            if (!await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false))
                 return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
         }
         return PlanReadbackOutcome.VerifiedWith(SerializeReadbackRevision(item.Revision));
+    }
+
+    private async Task<bool> ReadbackFieldMatchesAsync(
+        string? actual,
+        string referenceName,
+        string expected,
+        CancellationToken ct)
+    {
+        if (string.Equals(actual, expected, StringComparison.Ordinal))
+            return true;
+
+        var fieldDefinition = await _fieldDefinitionStore
+            .GetByReferenceNameAsync(referenceName, ct)
+            .ConfigureAwait(false);
+        return fieldDefinition is not null
+            && string.Equals(fieldDefinition.DataType, "html", StringComparison.OrdinalIgnoreCase)
+            && actual is not null
+            && HtmlStructuralComparer.AreEquivalent(expected, actual);
     }
 
     /// <summary>

@@ -678,10 +678,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
             // Lost the Applied → Verified CAS — reload and route off the persisted state
@@ -693,6 +691,32 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             digest, opId, outcome.Error ?? (outcome.Deterministic ? "failed" : "indeterminate"),
             outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
             .ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The SINGLE Applied → Verified promotion (AB#754). Persists the readback's warning
+    /// detail — server-generated normalization the refreshed read proved harmless — onto the
+    /// still-Applied row BEFORE the CAS, because <c>SaveOperationWarningAsync</c> is
+    /// Applied-gated and would be a silent no-op afterwards. All three lifecycle paths
+    /// (winning apply, indeterminate reconciliation, stale-Applying recovery) route through
+    /// here, so warning carry-through cannot drift between them any more than the comparison
+    /// policy can.
+    /// </summary>
+    private async Task<bool> PromoteAppliedToVerifiedAsync(
+        string digest,
+        string opId,
+        PlanReadbackOutcome outcome,
+        CancellationToken ct)
+    {
+        if (outcome.Warning is { } warning)
+        {
+            await _journal.SaveOperationWarningAsync(digest, opId, warning, ct).ConfigureAwait(false);
+        }
+
+        return await _journal.TryTransitionOperationAsync(
+            digest, opId,
+            PlanOperationState.Applied, PlanOperationState.Verified,
+            _clock.GetUtcNow(), ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -745,10 +769,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             if (!recorded)
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
 
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));
         }
@@ -778,10 +800,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));

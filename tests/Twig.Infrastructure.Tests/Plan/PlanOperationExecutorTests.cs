@@ -1006,6 +1006,218 @@ public sealed class PlanOperationExecutorTests
         outcome.ResultJson.ShouldBe($"{{\"identity\":\"{identity}\",\"publishedId\":4242}}");
     }
 
+    // ── AB#754: server-owned normalized fields verify with warning detail ──
+    //
+    // Every test below drives the PUBLIC readback outcome, never the private comparator,
+    // per the spec's testing decisions. The invariant under test is a pair: a proven
+    // mutation whose ONLY difference is a field ADO's own revision machinery owns must
+    // be Ok (Verified) AND must carry warning detail — and every other shape must not.
+
+    [Fact]
+    public async Task ReadbackBatch_GeneratedClosedDate_VerifiesWithWarning()
+    {
+        // The evidence case from spec #753: a terminal close lands, and ADO stamps its own
+        // ClosedDate from the server clock instead of the authored timestamp. The intended
+        // mutation (State=Done, TerminalOutcome=completed) is proven on the refreshed read,
+        // so this must be Verified-with-warning rather than a false Indeterminate.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                ["Custom.TerminalOutcome"] = "completed",
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.ChangeState("Done");
+        wi.UpdateField("Custom.TerminalOutcome", "completed");
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        outcome.Error.ShouldBeNull();
+        outcome.ResultJson.ShouldBe("{\"revision\":5}");
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain("Microsoft.VSTS.Common.ClosedDate");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UserAuthoredScalarMismatch_RemainsNonVerifiedWithoutWarning()
+    {
+        // The strictness half. A user-authored scalar that did not land is a genuine
+        // contradiction and must never be downgraded, even though the same batch also
+        // carries a server-generated field that DID normalize.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        StubFieldDefinition("Custom.TerminalOutcome", "string");
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Custom.TerminalOutcome"] = "completed",
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.UpdateField("Custom.TerminalOutcome", "abandoned");
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("Custom.TerminalOutcome");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_RequestedStateDidNotLand_IsNeverWarningVerified()
+    {
+        // Terminal-outcome coupling stays strict: a generated stamp only ever rides ALONG
+        // WITH a proven lifecycle transition. If State did not land, the normalization is
+        // not evidence of anything and the row must stay non-Verified.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.ChangeState("Doing"); // the requested transition did NOT land
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_StaleRevision_RemainsIndeterminateNotWarningVerified()
+    {
+        // An unproven readback never reaches the policy at all. The revision guard fires
+        // first, so even an all-server-generated batch stays retryable.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 5,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5); // did NOT advance past ExpectedRevision
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("revision");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UnavailableReadback_RemainsIndeterminateNotWarningVerified()
+    {
+        // A readback that could not be performed is the "unknown outcome" the spec keeps
+        // fail-closed. It must not be warning-verified on the strength of the field set.
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO unreachable"));
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UndeclaredServerGeneratedField_IsNotWarningVerified()
+    {
+        // Field-aware evidence, not a name-only ignore list: a field this process does not
+        // even declare cannot be warning-verified, so the store is genuinely consulted.
+        _fieldDefinitions
+            .GetByReferenceNameAsync("Microsoft.VSTS.Common.ClosedDate", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(null));
+        var op = new BatchOperation
+        {
+            Id = "close",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_NoNormalization_VerifiesWithNoWarning()
+    {
+        // Guards against an always-warning implementation: the clean path must stay clean,
+        // or "carries a warning" would be worthless as a signal.
+        var op = new BatchOperation
+        {
+            Id = "clean",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Done" },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.ChangeState("Done");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        outcome.Warning.ShouldBeNull();
+    }
+
     private static StagedAlias MakeAlias(int negative)
     {
         StagedAlias.TryFrom(negative, out var alias).ShouldBeTrue();

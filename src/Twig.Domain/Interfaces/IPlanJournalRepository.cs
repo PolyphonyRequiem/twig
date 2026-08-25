@@ -115,6 +115,27 @@ public interface IPlanJournalRepository
         CancellationToken ct = default);
 
     /// <summary>
+    /// Records non-fatal warning detail (AB#754) on an <see cref="PlanOperationState.Applied"/>
+    /// row, immediately before the Applied → Verified transition. Does NOT change state and
+    /// does NOT stamp any timestamp.
+    /// <para>
+    /// The Applied-only gate mirrors <see cref="SaveOperationResultAsync"/> for the same
+    /// reason: a warning is a fact about an apply that already committed. Rows in any other
+    /// state — including terminal ones — are left strictly untouched, so a rerun cannot
+    /// re-annotate a settled outcome.
+    /// </para>
+    /// <para>
+    /// Ordering contract: callers MUST invoke this BEFORE the Applied → Verified transition;
+    /// afterwards the Applied-only gate makes it a silent no-op and the detail is lost.
+    /// </para>
+    /// </summary>
+    Task SaveOperationWarningAsync(
+        string digest,
+        string opId,
+        string? warning,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Records a terminal failure for an operation and moves it to <paramref name="finalState"/>
     /// (<see cref="PlanOperationState.Failed"/> or <see cref="PlanOperationState.Indeterminate"/>).
     /// </summary>

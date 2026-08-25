@@ -391,7 +391,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
             SELECT ordinal, op_id, kind, state, request_json,
-                   started_at, applied_at, verified_at, result_json, error
+                   started_at, applied_at, verified_at, result_json, error, warning
             FROM plan_operations
             WHERE digest = @digest
             ORDER BY ordinal ASC;
@@ -414,6 +414,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 VerifiedAt = reader.IsDBNull(7) ? null : ParseTimestamp(reader.GetString(7)),
                 ResultJson = reader.IsDBNull(8) ? null : reader.GetString(8),
                 Error = reader.IsDBNull(9) ? null : reader.GetString(9),
+                Warning = reader.IsDBNull(10) ? null : reader.GetString(10),
             });
         }
         return result;
@@ -596,6 +597,39 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
 
         var changed = cmd.ExecuteNonQuery();
         return Task.FromResult(changed > 0);
+    }
+
+    /// <summary>
+    /// Applied-only warning write (AB#754). Same shape and same reasoning as
+    /// <see cref="SaveOperationResultAsync"/>: no state change, no timestamp, silent no-op on
+    /// any row that is not currently Applied. Callers write this BEFORE the Applied → Verified
+    /// CAS so a Verified row carries its warning atomically-enough for status to read it.
+    /// </summary>
+    public Task SaveOperationWarningAsync(
+        string digest,
+        string opId,
+        string? warning,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(digest);
+        ArgumentException.ThrowIfNullOrEmpty(opId);
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = """
+            UPDATE plan_operations
+            SET warning = @warning
+            WHERE digest = @digest
+              AND op_id = @opId
+              AND state = @applied;
+            """;
+        cmd.Parameters.AddWithValue("@digest", digest);
+        cmd.Parameters.AddWithValue("@opId", opId);
+        cmd.Parameters.AddWithValue("@applied", PlanOperationState.Applied.ToString());
+        cmd.Parameters.AddWithValue("@warning", (object?)warning ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
     }
 
     public Task SaveOperationErrorAsync(

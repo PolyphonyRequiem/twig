@@ -290,6 +290,12 @@ public sealed class PlanCommand(
             if (!string.IsNullOrEmpty(op.Error))
                 line += $"  ({op.Error})";
             lines.Add(new RenderNode.Text(line));
+            // AB#754: a warning rides alongside a Verified row rather than replacing its
+            // state, so it is rendered as its own indented line at Warning severity — a
+            // Verified operation must never read as failed just because ADO normalized a
+            // field it owns.
+            if (!string.IsNullOrEmpty(op.Warning))
+                lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
         }
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
@@ -326,6 +332,10 @@ public sealed class PlanCommand(
             if (!string.IsNullOrEmpty(op.Error))
                 line += $"  ({op.Error})";
             lines.Add(new RenderNode.Text(line));
+            // AB#754: same contract as apply — the warning is additive detail on a row whose
+            // state is already Verified, never a substitute for that state.
+            if (!string.IsNullOrEmpty(op.Warning))
+                lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
         }
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
@@ -492,6 +502,10 @@ public sealed class PlanCommand(
                 // want a parsed value re-parse this string.
                 ["resultJson"] = NullableStringCell(op.ResultJson),
                 ["error"] = NullableStringCell(op.Error),
+                // AB#754: non-fatal normalization detail carried alongside a Verified row.
+                // Always present so a consumer can read it without probing for the key;
+                // null means "no server-generated normalization was observed".
+                ["warning"] = NullableStringCell(op.Warning),
             };
             items.Add(new RenderCell($"[{op.Ordinal}] {op.OpId} {op.State}", new RenderValue.Object(obj)));
         }

@@ -411,3 +411,6 @@ static Twig.Domain.ValueObjects.SeedRemapIdentity.operator !=(Twig.Domain.ValueO
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator ==(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -> System.Type!
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Interfaces.IPlanJournalRepository.SaveOperationWarningAsync(string! digest, string! opId, string? warning, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void

@@ -347,6 +347,146 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
     }
 
+    // ── AB#754/755: warning-verified outcomes across all three lifecycle paths ──
+    //
+    // These assert the PUBLIC lifecycle outcome plus the persisted journal row — refreshed
+    // ADO state and journal outcome together, per Spec #753's testing decisions — rather
+    // than the executor's private comparator. AC #754(5) / #755(4) say the three paths must
+    // behave identically; that claim is only worth anything if all three are exercised.
+
+    [Fact]
+    public async Task Apply_WinningPath_ServerGeneratedNormalization_VerifiesAndPersistsWarning()
+    {
+        _fieldDefinitions
+            .GetByReferenceNameAsync("Microsoft.VSTS.Common.ClosedDate", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(
+                "Microsoft.VSTS.Common.ClosedDate", "Closed Date", "dateTime", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.State", "Done"),
+            ("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T00:00:00Z"),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        var refreshed = BuildWorkItem(42, rev: 4, state: "Done");
+        refreshed.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[0].Warning.ShouldNotBeNull();
+        apply.Operations[0].Warning!.ShouldContain("ClosedDate");
+        apply.Operations[0].Error.ShouldBeNull();
+
+        // The warning is DURABLE, not merely in the returned result object.
+        var persisted = (await _journal.GetAsync(digest))!.Operations[0];
+        persisted.State.ShouldBe(PlanOperationState.Verified);
+        persisted.Warning.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Apply_RecoveryFromApplying_HtmlNormalization_VerifiesAndPersistsWarning()
+    {
+        // Stale-Applying recovery must reach the same verdict AND record the same detail as
+        // the winning path — the recovery readback is where a second, drifting policy would
+        // hide.
+        _fieldDefinitions
+            .GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(
+                "System.Description", "Description", "html", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.Description", "<p class=\\\"x\\\">Body</p>"),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, stale);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, stale);
+
+        var refreshed = BuildWorkItem(42, rev: 4);
+        refreshed.UpdateField("System.Description", "<P class='x'>Body</P>");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[0].Warning.ShouldNotBeNull();
+        apply.Operations[0].Warning!.ShouldContain("System.Description");
+        // Recovery must not re-issue the write.
+        await _ado.DidNotReceive().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        (await _journal.GetAsync(digest))!.Operations[0].Warning.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Apply_RecoveryFromApplied_ServerGeneratedNormalization_VerifiesAndPersistsWarning()
+    {
+        // The third path: an already-Applied row finalising through readback.
+        _fieldDefinitions
+            .GetByReferenceNameAsync("Microsoft.VSTS.Common.ClosedDate", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(
+                "Microsoft.VSTS.Common.ClosedDate", "Closed Date", "dateTime", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.State", "Done"),
+            ("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T00:00:00Z"),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, DateTimeOffset.UtcNow);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, DateTimeOffset.UtcNow);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Applying, PlanOperationState.Applied, DateTimeOffset.UtcNow);
+
+        var refreshed = BuildWorkItem(42, rev: 4, state: "Done");
+        refreshed.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[0].Warning.ShouldNotBeNull();
+        (await _journal.GetAsync(digest))!.Operations[0].Warning.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Apply_GenuineScalarMismatch_StaysNonVerifiedAndRecordsNoWarning()
+    {
+        // The strict half at lifecycle level: a real contradiction must terminalise without
+        // a warning, so a reader can never mistake it for a normalized success.
+        var file = WritePlan(BatchWithFields(42, 3, [("System.State", "Done")]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(BuildWorkItem(42, rev: 4, state: "Doing"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Indeterminate);
+        apply.Operations[0].Warning.ShouldBeNull();
+        (await _journal.GetAsync(digest))!.Operations[0].Warning.ShouldBeNull();
+    }
+
     // ── crash-state recovery ────────────────────────────────────────────────
 
     [Fact]

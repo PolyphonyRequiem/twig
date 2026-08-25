@@ -66,6 +66,12 @@ internal static class PlanJsonWriter
             else writer.WriteNull("result");
             if (op.Error is not null) writer.WriteString("error", op.Error);
             else writer.WriteNull("error");
+            // AB#754: non-fatal server-generated normalization detail on a Verified row.
+            // Written unconditionally (null when absent) so an MCP caller can read it
+            // without probing, and kept distinct from "error" — a warning never means the
+            // operation failed.
+            if (op.Warning is not null) writer.WriteString("warning", op.Warning);
+            else writer.WriteNull("warning");
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

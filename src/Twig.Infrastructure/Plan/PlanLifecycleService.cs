@@ -678,10 +678,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
             // Lost the Applied → Verified CAS — reload and route off the persisted state
@@ -694,6 +692,25 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
             .ConfigureAwait(false));
     }
+
+    /// <summary>
+    /// The SINGLE Applied → Verified promotion (AB#754/755). The readback's warning detail —
+    /// server-generated or ADO-canonicalized differences the refreshed read proved harmless —
+    /// is passed INTO the conditional transition, so it lands in the same row update that
+    /// performs the CAS. There is no separate pre-CAS write to strand text on a row whose
+    /// transition is subsequently lost. All three lifecycle paths (winning apply,
+    /// indeterminate reconciliation, stale-Applying recovery) route through here, so warning
+    /// carry-through cannot drift between them any more than the comparison policy can.
+    /// </summary>
+    private Task<bool> PromoteAppliedToVerifiedAsync(
+        string digest,
+        string opId,
+        PlanReadbackOutcome outcome,
+        CancellationToken ct)
+        => _journal.TryTransitionOperationAsync(
+            digest, opId,
+            PlanOperationState.Applied, PlanOperationState.Verified,
+            _clock.GetUtcNow(), ct, outcome.Warning);
 
     /// <summary>
     /// Winning-execute path: atomic Applying → Applied (with executor's result JSON), then
@@ -745,10 +762,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             if (!recorded)
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
 
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));
         }
@@ -778,10 +793,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
-            var verified = await _journal.TryTransitionOperationAsync(
-                digest, opId,
-                PlanOperationState.Applied, PlanOperationState.Verified,
-                _clock.GetUtcNow(), ct).ConfigureAwait(false);
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+                .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));

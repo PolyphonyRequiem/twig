@@ -284,16 +284,37 @@ public sealed class PlanCommand(
                 result.Failed ? $"plan apply: failed  digest={result.Digest}" : $"plan apply: ok  digest={result.Digest}",
                 result.Failed ? Severity.Error : Severity.Success),
         };
-        foreach (var op in result.Operations)
+        AppendOperationLines(result.Operations, lines);
+        if (!string.IsNullOrEmpty(result.Error))
+            lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
+        return lines;
+    }
+
+    /// <summary>
+    /// Renders the per-operation journal rows shared by <c>plan apply</c> and
+    /// <c>plan status</c> human output. Both surfaces render an operation identically by
+    /// contract — a row that reads one way after apply must read the same way on a later
+    /// status — so they share one writer rather than two hunks that can drift.
+    /// <para>
+    /// AB#754/755: a warning is its own indented line at <see cref="Severity.Warning"/>,
+    /// never appended to the state line and never rendered as an error. It is additive
+    /// detail on a row that is already <c>Verified</c>; a Verified operation must not read
+    /// as failed merely because ADO normalized a field it owns.
+    /// </para>
+    /// </summary>
+    private static void AppendOperationLines(
+        IReadOnlyList<PlanJournalOperation> operations,
+        List<RenderNode> lines)
+    {
+        foreach (var op in operations)
         {
             var line = $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}";
             if (!string.IsNullOrEmpty(op.Error))
                 line += $"  ({op.Error})";
             lines.Add(new RenderNode.Text(line));
+            if (!string.IsNullOrEmpty(op.Warning))
+                lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
         }
-        if (!string.IsNullOrEmpty(result.Error))
-            lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
-        return lines;
     }
 
     // ── status ────────────────────────────────────────────────────────
@@ -320,13 +341,7 @@ public sealed class PlanCommand(
             new RenderNode.Text($"digest: {result.Digest ?? "(none)"}"),
             new RenderNode.Text($"state:  {result.State?.ToString() ?? "(none)"}"),
         };
-        foreach (var op in result.Operations)
-        {
-            var line = $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}";
-            if (!string.IsNullOrEmpty(op.Error))
-                line += $"  ({op.Error})";
-            lines.Add(new RenderNode.Text(line));
-        }
+        AppendOperationLines(result.Operations, lines);
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
         return lines;
@@ -492,6 +507,10 @@ public sealed class PlanCommand(
                 // want a parsed value re-parse this string.
                 ["resultJson"] = NullableStringCell(op.ResultJson),
                 ["error"] = NullableStringCell(op.Error),
+                // AB#754: non-fatal normalization detail carried alongside a Verified row.
+                // Always present so a consumer can read it without probing for the key;
+                // null means "no server-generated normalization was observed".
+                ["warning"] = NullableStringCell(op.Warning),
             };
             items.Add(new RenderCell($"[{op.Ordinal}] {op.OpId} {op.State}", new RenderValue.Object(obj)));
         }

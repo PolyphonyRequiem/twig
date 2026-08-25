@@ -289,6 +289,46 @@ public sealed class PlanCommandTests
     }
 
     [Fact]
+    public async Task Apply_VerifiedWithWarning_RendersWarningLineAndStillExitsZero()
+    {
+        // AB#754/755: the warning is rendered on its own line and the command still succeeds.
+        // A Verified operation must not read as failed, and the exit code must not move —
+        // a CI step keyed on exit status would otherwise break on a harmless normalization.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle
+            .ApplyAsync("plan.json", "abc", Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = "abc",
+                Failed = false,
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0,
+                        OpId = "op-1",
+                        Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Verified,
+                        RequestJson = "{}",
+                        Warning = "ADO canonicalized HTML field(s) after apply: System.Description.",
+                    },
+                ],
+                Error = null,
+            });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.ApplyAsync("plan.json", "abc", outputFormat: "human", ct: default);
+
+        exit.ShouldBe(0);
+        var text = stdout.ToString();
+        text.ShouldContain("Verified");
+        text.ShouldContain("warning:");
+        text.ShouldContain("System.Description");
+        stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Apply_Failure_ExitsOne_AndSurfacesError()
     {
         var stdout = new StringWriter();

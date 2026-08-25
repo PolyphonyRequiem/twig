@@ -195,6 +195,39 @@ public sealed class PlanToolsTests
     }
 
     [Fact]
+    public async Task Apply_VerifiedWithWarning_EmitsWarningWithoutMarkingTheCallAnError()
+    {
+        // AB#754/755: a normalization warning is additive detail on a landed operation. It
+        // must reach the caller AND must not flip failed/IsError — an agent that treats a
+        // warning as a failure would re-drive a mutation that already succeeded.
+        var (sut, lifecycle, _) = BuildSut();
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = ValidDigest,
+                Operations =
+                [
+                    SampleVerifiedOp() with
+                    {
+                        Warning = "ADO normalized server-generated field(s) after apply: "
+                            + "Microsoft.VSTS.Common.ClosedDate.",
+                    },
+                ],
+                Failed = false,
+            });
+
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseData(result);
+        data.GetProperty("failed").GetBoolean().ShouldBeFalse();
+        var op = data.GetProperty("operations")[0];
+        op.GetProperty("state").GetString().ShouldBe(nameof(PlanOperationState.Verified));
+        op.GetProperty("warning").GetString()!.ShouldContain("ClosedDate");
+        op.GetProperty("error").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task Apply_FailureResult_EmitsFullJournalProjectionWithFailedTrue()
     {
         var (sut, lifecycle, _) = BuildSut();
@@ -262,6 +295,9 @@ public sealed class PlanToolsTests
             appliedAt.AddSeconds(1).ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         verified.GetProperty("result").GetString().ShouldBe("{\"revision\":2}");
         verified.GetProperty("error").ValueKind.ShouldBe(JsonValueKind.Null);
+        // AB#754/755: the key is ALWAYS emitted so a caller can read it without probing;
+        // null means no normalization was observed.
+        verified.GetProperty("warning").ValueKind.ShouldBe(JsonValueKind.Null);
 
         var failed = ops[1];
         failed.GetProperty("ordinal").GetInt32().ShouldBe(1);

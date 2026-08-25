@@ -46,7 +46,7 @@ Twig.Domain.Interfaces.IPlanJournalRepository.ImportAsync(Twig.Domain.Services.P
 Twig.Domain.Interfaces.IPlanJournalRepository.SaveOperationErrorAsync(string! digest, string! opId, string! error, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IPlanJournalRepository.SaveOperationResultAsync(string! digest, string! opId, string? resultJson, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IPlanJournalRepository.TryRecordAppliedAsync(string! digest, string! opId, string? resultJson, System.DateTimeOffset appliedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
-Twig.Domain.Interfaces.IPlanJournalRepository.TryTransitionOperationAsync(string! digest, string! opId, Twig.Domain.Services.Plan.PlanOperationState fromState, Twig.Domain.Services.Plan.PlanOperationState toState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IPlanJournalRepository.TryTransitionOperationAsync(string! digest, string! opId, Twig.Domain.Services.Plan.PlanOperationState fromState, Twig.Domain.Services.Plan.PlanOperationState toState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? warning = null) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Interfaces.IWorkItemLinkRepository.GetLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!
 Twig.Domain.ReadModels.WorkItemGraph
 Twig.Domain.ReadModels.WorkItemGraph.ContainsItem(int workItemId) -> bool
@@ -411,3 +411,5 @@ static Twig.Domain.ValueObjects.SeedRemapIdentity.operator !=(Twig.Domain.ValueO
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator ==(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -> System.Type!
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void

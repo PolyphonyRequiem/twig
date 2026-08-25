@@ -52,6 +52,15 @@ public interface IPlanJournalRepository
     /// <paramref name="fromState"/> to <paramref name="toState"/>. Callers use this as their
     /// concurrency guard — a false result means another actor already advanced the row.
     /// Timestamps are stamped by kind of transition (StartedAt when entering Applying, etc.).
+    /// <para>
+    /// AB#754/755: <paramref name="warning"/> carries non-fatal normalization detail — the
+    /// server-generated or ADO-canonicalized differences a readback proved harmless — and is
+    /// written by the SAME conditional UPDATE that performs the transition. Writing it here
+    /// rather than as a preceding call is deliberate: a separate pre-CAS write can strand
+    /// warning text on a row whose transition was then lost and which another actor
+    /// terminalised as Failed/Indeterminate. Passing <c>null</c> preserves any warning already
+    /// recorded; it never erases one.
+    /// </para>
     /// </summary>
     Task<bool> TryTransitionOperationAsync(
         string digest,
@@ -59,7 +68,8 @@ public interface IPlanJournalRepository
         PlanOperationState fromState,
         PlanOperationState toState,
         DateTimeOffset timestamp,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? warning = null);
 
     /// <summary>
     /// Records the outcome of an apply attempt: writes <paramref name="resultJson"/> onto an

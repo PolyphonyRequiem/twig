@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 6;
+    internal const int DurableSchemaVersion = 7;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -528,6 +528,24 @@ public sealed class SqliteCacheStore : IDisposable
                 ON plan_operations(digest, ordinal);
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_plan_operations_state
                 ON plan_operations(state);
+            """,
+
+        // AB#754 / spec #753 — warning detail alongside a Verified plan operation.
+        //
+        // WHY A COLUMN AND NOT A STATE: `Verified` remains the SOLE landed-success state. A
+        // post-PATCH readback can now prove the intended mutation landed while ADO has
+        // rewritten a field its own revision machinery owns (ClosedDate/ClosedBy,
+        // ChangedDate/ChangedBy, StateChangeDate). That is a successful apply with a caveat,
+        // not a fourth outcome, so the caveat is a nullable column on the existing row.
+        //
+        // WHY NOT REUSE `error`: every consumer treats a non-null error as a failed operation.
+        // Writing a warning there would make a Verified row read as failed to CLI, MCP, and
+        // the header-completion scan that propagates the first row error.
+        //
+        // Additive ALTER, per this store's never-dropped contract. Existing rows get NULL,
+        // which is exactly "no normalization observed".
+        [7] = $"""
+            ALTER TABLE {DurableSchema}.plan_operations ADD COLUMN warning TEXT;
             """,
     };
 

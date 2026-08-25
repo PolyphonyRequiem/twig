@@ -248,8 +248,12 @@ internal sealed class PlanOperationExecutor
     private async Task<PlanReadbackOutcome> ReadbackBatchAsync(BatchOperation batch, CancellationToken ct)
     {
         var item = await _adoService.FetchAsync(batch.WorkItemId, ct).ConfigureAwait(false);
+        // Missing / stale / non-advanced readback stays Indeterminate and NEVER reaches the
+        // server-generated warning policy — an unproven mutation cannot be warning-verified.
         if (item.Revision <= batch.ExpectedRevision)
             return PlanReadbackOutcome.Indeterminate("Server revision did not advance past the expected revision.");
+
+        var normalizations = new List<PlanReadbackNormalization>();
         foreach (var kv in batch.Fields)
         {
             var actual = ResolveBatchField(item, kv.Key);
@@ -257,33 +261,124 @@ internal sealed class PlanOperationExecutor
             {
                 // Plan asked to clear the field; a genuine clear means absent OR empty in
                 // both the canonical property (if any) and the arbitrary Fields dictionary.
-                if (!string.IsNullOrEmpty(actual))
-                    return PlanReadbackOutcome.Indeterminate(
-                        $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
+                //
+                // 🔴 A requested CLEAR is never warning-verified, not even on a
+                // server-generated field. Spec #753 downgrades a difference only when the
+                // refreshed read PROVES the intended mutation landed — and a clear that did
+                // not take is precisely an unproven mutation, not ADO bookkeeping. Treating
+                // it as normalization would report "cleared" for a field that still holds a
+                // value, which is the false-green class this whole spec exists to abolish.
+                if (string.IsNullOrEmpty(actual))
+                    continue;
+                return PlanReadbackOutcome.Indeterminate(
+                    $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
+            }
+            var match = await ClassifyReadbackFieldAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
+            if (match == FieldMatch.Exact)
+                continue;
+            if (match == FieldMatch.NormalizedHtml)
+            {
+                // AB#755: the field's own metadata says ADO owns this markup's serialization,
+                // and the structural comparison proved the CONTENT landed. That is the same
+                // class of fact as a server-generated stamp — a landed write plus a rewrite
+                // Twig does not control — so it takes the identical warning-verified path
+                // rather than a parallel one. Materially different HTML never reaches here:
+                // HtmlStructuralComparer returns false and the ordinary strict branch below
+                // fires.
+                normalizations.Add(new PlanReadbackNormalization(
+                    kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedHtml));
                 continue;
             }
-            if (!await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false))
-                return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
+
+            // AB#754: a difference on a field ADO's own revision machinery owns is a
+            // normalization, not a contradiction — but ONLY as warning detail riding
+            // alongside a Verified outcome, and only once every user-authored field in this
+            // same batch has already compared equal (a genuine scalar mismatch below returns
+            // Indeterminate before we ever finish the loop).
+            if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
+            {
+                normalizations.Add(new PlanReadbackNormalization(
+                    kv.Key, kv.Value, actual, NormalizationKind.ServerGenerated));
+                continue;
+            }
+
+            return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
         }
-        return PlanReadbackOutcome.VerifiedWith(SerializeReadbackRevision(item.Revision));
+
+        var resultJson = SerializeReadbackRevision(item.Revision);
+        if (normalizations.Count == 0)
+            return PlanReadbackOutcome.VerifiedWith(resultJson);
+
+        // Terminal-outcome coupling. System.State and Custom.TerminalOutcome are NOT in the
+        // server-generated set, so a batch whose lifecycle transition did not land already
+        // returned Indeterminate inside the loop above — that is where the strictness lives,
+        // and a second runtime re-check here would be unreachable code masquerading as a
+        // guard. What actually protects the coupling is that the generated set can never
+        // acquire a lifecycle field; ServerGeneratedFieldPolicy asserts exactly that as a
+        // static invariant (see TerminalContractFieldsAreNeverServerGenerated), so a future
+        // addition breaks a test rather than silently downgrading a close.
+        if (!ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, normalizations))
+            return PlanReadbackOutcome.Indeterminate(
+                "Readback observed differences the normalization policy cannot explain.");
+
+        return PlanReadbackOutcome.VerifiedWithWarning(
+            resultJson, ServerGeneratedFieldPolicy.FormatWarning(normalizations));
     }
 
-    private async Task<bool> ReadbackFieldMatchesAsync(
+    /// <summary>
+    /// Field-aware server-ownership evidence. The reference name must be in the justified
+    /// server-generated set AND the process must actually declare the field (the same
+    /// <see cref="IFieldDefinitionStore"/> the html path consults), so a plan naming a field
+    /// this workspace does not have cannot be warning-verified into a false success.
+    /// </summary>
+    private async Task<bool> IsServerGeneratedFieldAsync(string referenceName, CancellationToken ct)
+    {
+        if (!ServerGeneratedFieldPolicy.IsServerGenerated(referenceName))
+            return false;
+        var definition = await _fieldDefinitionStore
+            .GetByReferenceNameAsync(referenceName, ct)
+            .ConfigureAwait(false);
+        return definition is not null;
+    }
+
+    /// <summary>
+    /// How a readback field comparison was satisfied. AB#755: an exact match and a match
+    /// that only held after ADO's HTML canonicalization are both successes, but they are
+    /// not the same fact — the latter is normalization the ledger must record as warning
+    /// detail. Returning the distinction here keeps ONE comparator: the caller decides
+    /// what to do with a normalized match, and no second comparison is performed anywhere.
+    /// </summary>
+    private enum FieldMatch
+    {
+        /// <summary>The refreshed value did not reflect the plan's intent at all.</summary>
+        None,
+        /// <summary>Byte-for-byte equal — the ordinary, warning-free path.</summary>
+        Exact,
+        /// <summary>Equal only after canonicalizing ADO-normalized HTML.</summary>
+        NormalizedHtml,
+    }
+
+    private async Task<FieldMatch> ClassifyReadbackFieldAsync(
         string? actual,
         string referenceName,
         string expected,
         CancellationToken ct)
     {
         if (string.Equals(actual, expected, StringComparison.Ordinal))
-            return true;
+            return FieldMatch.Exact;
 
         var fieldDefinition = await _fieldDefinitionStore
             .GetByReferenceNameAsync(referenceName, ct)
             .ConfigureAwait(false);
+        // Semantic comparison is opt-in by FIELD METADATA, never by value shape: only a
+        // field ADO declares as html is compared structurally. An ordinary scalar that
+        // merely looks like markup stays on the ordinal path above (AB#755).
         return fieldDefinition is not null
             && string.Equals(fieldDefinition.DataType, "html", StringComparison.OrdinalIgnoreCase)
             && actual is not null
-            && HtmlStructuralComparer.AreEquivalent(expected, actual);
+            && HtmlStructuralComparer.AreEquivalent(expected, actual)
+                ? FieldMatch.NormalizedHtml
+                : FieldMatch.None;
     }
 
     /// <summary>
@@ -480,15 +575,24 @@ internal enum PlanExecutionOutcome
 /// lifecycle threads that value into the atomic Applying → Applied record so a recovered
 /// Verified row is never left with a NULL result_json — CLI/MCP status reads the raw
 /// column and would otherwise misreport a proven-verified operation as resultless.
+/// <para>
+/// <see cref="Warning"/> (AB#754) is non-null ONLY on an <see cref="Ok"/> outcome and carries
+/// the server-generated normalization detail. It is deliberately NOT a state: <c>Verified</c>
+/// remains the sole landed-success state, and the warning rides alongside it into the journal
+/// row so CLI/MCP can render it without a fourth terminal classification.
+/// </para>
 /// </summary>
 internal readonly record struct PlanReadbackOutcome(
     bool Ok,
     bool Deterministic,
     string? Error,
-    string? ResultJson)
+    string? ResultJson,
+    string? Warning)
 {
     public static PlanReadbackOutcome VerifiedWith(string resultJson) =>
-        new(true, true, null, resultJson);
-    public static PlanReadbackOutcome Failed(string error) => new(false, true, error, null);
-    public static PlanReadbackOutcome Indeterminate(string error) => new(false, false, error, null);
+        new(true, true, null, resultJson, null);
+    public static PlanReadbackOutcome VerifiedWithWarning(string resultJson, string warning) =>
+        new(true, true, null, resultJson, warning);
+    public static PlanReadbackOutcome Failed(string error) => new(false, true, error, null, null);
+    public static PlanReadbackOutcome Indeterminate(string error) => new(false, false, error, null, null);
 }

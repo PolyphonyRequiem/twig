@@ -391,7 +391,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
             SELECT ordinal, op_id, kind, state, request_json,
-                   started_at, applied_at, verified_at, result_json, error
+                   started_at, applied_at, verified_at, result_json, error, warning
             FROM plan_operations
             WHERE digest = @digest
             ORDER BY ordinal ASC;
@@ -414,6 +414,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 VerifiedAt = reader.IsDBNull(7) ? null : ParseTimestamp(reader.GetString(7)),
                 ResultJson = reader.IsDBNull(8) ? null : reader.GetString(8),
                 Error = reader.IsDBNull(9) ? null : reader.GetString(9),
+                Warning = reader.IsDBNull(10) ? null : reader.GetString(10),
             });
         }
         return result;
@@ -470,7 +471,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         PlanOperationState fromState,
         PlanOperationState toState,
         DateTimeOffset timestamp,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? warning = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
@@ -478,12 +480,19 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
+        // AB#754/755: the warning is written by THIS statement, inside the same conditional
+        // UPDATE that performs the state transition. It is not a separate write ordered
+        // before the CAS — that shape could leave warning text stranded on a row whose CAS
+        // was then lost and which a different actor terminalised as Failed/Indeterminate.
+        // COALESCE preserves an existing warning when a caller passes null, so a transition
+        // that carries no warning never erases one an earlier transition recorded.
         cmd.CommandText = """
             UPDATE plan_operations
             SET state = @toState,
                 started_at  = CASE WHEN @toState = @applyingState THEN @timestamp ELSE started_at  END,
                 applied_at  = CASE WHEN @toState = @appliedState  THEN @timestamp ELSE applied_at  END,
-                verified_at = CASE WHEN @toState = @verifiedState THEN @timestamp ELSE verified_at END
+                verified_at = CASE WHEN @toState = @verifiedState THEN @timestamp ELSE verified_at END,
+                warning     = COALESCE(@warning, warning)
             WHERE digest = @digest
               AND op_id = @opId
               AND state = @fromState
@@ -494,6 +503,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@fromState", fromState.ToString());
         cmd.Parameters.AddWithValue("@toState", toState.ToString());
         cmd.Parameters.AddWithValue("@timestamp", FormatTimestamp(timestamp));
+        cmd.Parameters.AddWithValue("@warning", (object?)warning ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@applyingState", PlanOperationState.Applying.ToString());
         cmd.Parameters.AddWithValue("@appliedState", PlanOperationState.Applied.ToString());
         cmd.Parameters.AddWithValue("@verifiedState", PlanOperationState.Verified.ToString());

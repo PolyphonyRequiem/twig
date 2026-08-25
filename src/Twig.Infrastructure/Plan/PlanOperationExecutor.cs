@@ -253,7 +253,7 @@ internal sealed class PlanOperationExecutor
         if (item.Revision <= batch.ExpectedRevision)
             return PlanReadbackOutcome.Indeterminate("Server revision did not advance past the expected revision.");
 
-        var normalizations = new List<ServerGeneratedNormalization>();
+        var normalizations = new List<PlanReadbackNormalization>();
         foreach (var kv in batch.Fields)
         {
             var actual = ResolveBatchField(item, kv.Key);
@@ -265,14 +265,29 @@ internal sealed class PlanOperationExecutor
                     continue;
                 if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
                 {
-                    normalizations.Add(new ServerGeneratedNormalization(kv.Key, "(cleared)", actual));
+                    normalizations.Add(new PlanReadbackNormalization(
+                        kv.Key, "(cleared)", actual, NormalizationKind.ServerGenerated));
                     continue;
                 }
                 return PlanReadbackOutcome.Indeterminate(
                     $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
             }
-            if (await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false))
+            var match = await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
+            if (match == FieldMatch.Exact)
                 continue;
+            if (match == FieldMatch.NormalizedHtml)
+            {
+                // AB#755: the field's own metadata says ADO owns this markup's serialization,
+                // and the structural comparison proved the CONTENT landed. That is the same
+                // class of fact as a server-generated stamp — a landed write plus a rewrite
+                // Twig does not control — so it takes the identical warning-verified path
+                // rather than a parallel one. Materially different HTML never reaches here:
+                // HtmlStructuralComparer returns false and the ordinary strict branch below
+                // fires.
+                normalizations.Add(new PlanReadbackNormalization(
+                    kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedHtml));
+                continue;
+            }
 
             // AB#754: a difference on a field ADO's own revision machinery owns is a
             // normalization, not a contradiction — but ONLY as warning detail riding
@@ -281,7 +296,8 @@ internal sealed class PlanOperationExecutor
             // Indeterminate before we ever finish the loop).
             if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
             {
-                normalizations.Add(new ServerGeneratedNormalization(kv.Key, kv.Value, actual));
+                normalizations.Add(new PlanReadbackNormalization(
+                    kv.Key, kv.Value, actual, NormalizationKind.ServerGenerated));
                 continue;
             }
 
@@ -300,10 +316,9 @@ internal sealed class PlanOperationExecutor
             return PlanReadbackOutcome.Indeterminate(
                 "Field System.State did not reflect the expected value.");
 
-        if (!ServerGeneratedFieldPolicy.OnlyServerGeneratedDiffered(
-                batch, normalizations.Select(n => n.ReferenceName).ToList()))
+        if (!ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, normalizations))
             return PlanReadbackOutcome.Indeterminate(
-                "Readback observed differences outside the server-generated field set.");
+                "Readback observed differences the normalization policy cannot explain.");
 
         return PlanReadbackOutcome.VerifiedWithWarning(
             resultJson, ServerGeneratedFieldPolicy.FormatWarning(normalizations));
@@ -325,22 +340,44 @@ internal sealed class PlanOperationExecutor
         return definition is not null;
     }
 
-    private async Task<bool> ReadbackFieldMatchesAsync(
+    /// <summary>
+    /// How a readback field comparison was satisfied. AB#755: an exact match and a match
+    /// that only held after ADO's HTML canonicalization are both successes, but they are
+    /// not the same fact — the latter is normalization the ledger must record as warning
+    /// detail. Returning the distinction here keeps ONE comparator: the caller decides
+    /// what to do with a normalized match, and no second comparison is performed anywhere.
+    /// </summary>
+    private enum FieldMatch
+    {
+        /// <summary>The refreshed value did not reflect the plan's intent at all.</summary>
+        None,
+        /// <summary>Byte-for-byte equal — the ordinary, warning-free path.</summary>
+        Exact,
+        /// <summary>Equal only after canonicalizing ADO-normalized HTML.</summary>
+        NormalizedHtml,
+    }
+
+    private async Task<FieldMatch> ReadbackFieldMatchesAsync(
         string? actual,
         string referenceName,
         string expected,
         CancellationToken ct)
     {
         if (string.Equals(actual, expected, StringComparison.Ordinal))
-            return true;
+            return FieldMatch.Exact;
 
         var fieldDefinition = await _fieldDefinitionStore
             .GetByReferenceNameAsync(referenceName, ct)
             .ConfigureAwait(false);
+        // Semantic comparison is opt-in by FIELD METADATA, never by value shape: only a
+        // field ADO declares as html is compared structurally. An ordinary scalar that
+        // merely looks like markup stays on the ordinal path above (AB#755).
         return fieldDefinition is not null
             && string.Equals(fieldDefinition.DataType, "html", StringComparison.OrdinalIgnoreCase)
             && actual is not null
-            && HtmlStructuralComparer.AreEquivalent(expected, actual);
+            && HtmlStructuralComparer.AreEquivalent(expected, actual)
+                ? FieldMatch.NormalizedHtml
+                : FieldMatch.None;
     }
 
     /// <summary>

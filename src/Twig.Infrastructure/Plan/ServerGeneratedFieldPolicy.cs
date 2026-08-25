@@ -65,24 +65,39 @@ internal static class ServerGeneratedFieldPolicy
         => ServerGeneratedFields.Contains(referenceName);
 
     /// <summary>
-    /// True when every field of <paramref name="batch"/> that is NOT server-generated is
-    /// absent from <paramref name="normalizedFields"/> — i.e. the ONLY differences observed
-    /// were server-generated ones. This is the "the intended mutation landed" half of the
-    /// gate: it is evaluated by the caller only after every non-generated field compared
-    /// equal, so it is a defensive restatement rather than the sole guard.
+    /// True when every entry in <paramref name="normalizations"/> is a difference this policy
+    /// can actually account for on <paramref name="batch"/> — the field was requested by the
+    /// batch, and a <see cref="NormalizationKind.ServerGenerated"/> classification also holds
+    /// up against the justified set.
+    /// <para>
+    /// This is the "the intended mutation landed" half of the gate. The caller reaches it only
+    /// after every unexplained field already compared equal, so it is a defensive restatement
+    /// rather than the sole guard — but it is the restatement that would catch a future caller
+    /// recording a normalization the policy never sanctioned.
+    /// </para>
     /// </summary>
-    internal static bool OnlyServerGeneratedDiffered(
+    internal static bool OnlyExplainedDifferencesRemain(
         BatchOperation batch,
-        IReadOnlyCollection<string> normalizedFields)
+        IReadOnlyCollection<PlanReadbackNormalization> normalizations)
     {
-        foreach (var field in normalizedFields)
+        foreach (var normalization in normalizations)
         {
-            if (!IsServerGenerated(field))
+            // Every recorded normalization must name a field the plan actually asked for —
+            // a difference on a field the batch never mentioned is not this batch's business
+            // and must never be used to justify verifying it.
+            if (!batch.Fields.ContainsKey(normalization.ReferenceName))
                 return false;
-            if (!batch.Fields.ContainsKey(field))
+
+            // A ServerGenerated classification must still satisfy the justified-set test.
+            // CanonicalizedHtml carries its own evidence — the field's declared html data
+            // type plus a structural equivalence that already succeeded — so it does not.
+            if (normalization.Kind == NormalizationKind.ServerGenerated
+                && !IsServerGenerated(normalization.ReferenceName))
+            {
                 return false;
+            }
         }
-        return normalizedFields.Count > 0;
+        return normalizations.Count > 0;
     }
 
     /// <summary>
@@ -90,13 +105,41 @@ internal static class ServerGeneratedFieldPolicy
     /// Deliberately names each field and both values so the ledger records WHAT ADO rewrote,
     /// not merely that something was rewritten.
     /// </summary>
-    internal static string FormatWarning(IReadOnlyList<ServerGeneratedNormalization> normalizations)
+    internal static string FormatWarning(IReadOnlyList<PlanReadbackNormalization> normalizations)
     {
-        var parts = normalizations
-            .Select(n => $"{n.ReferenceName} (requested '{n.Expected}', server '{n.Actual ?? "(absent)"}')");
-        return "ADO normalized server-generated field(s) after apply: " + string.Join("; ", parts)
-            + ". The requested mutation is proven landed by the refreshed read; these fields are "
-            + "owned by ADO's revision machinery and cannot be authored by a plan.";
+        var serverGenerated = normalizations
+            .Where(n => n.Kind == NormalizationKind.ServerGenerated)
+            .ToList();
+        var html = normalizations
+            .Where(n => n.Kind == NormalizationKind.CanonicalizedHtml)
+            .ToList();
+
+        var segments = new List<string>(2);
+        if (serverGenerated.Count > 0)
+        {
+            var parts = serverGenerated
+                .Select(n => $"{n.ReferenceName} (requested '{n.Expected}', server '{n.Actual ?? "(absent)"}')");
+            segments.Add(
+                "ADO normalized server-generated field(s) after apply: " + string.Join("; ", parts)
+                + ". These fields are owned by ADO's revision machinery and cannot be authored "
+                + "by a plan.");
+        }
+        if (html.Count > 0)
+        {
+            // Deliberately NOT echoing both markup blobs: a description field is routinely
+            // kilobytes, and a warning that dumps two copies of it into the journal is
+            // unreadable in CLI output and useless in a log. The field name plus the
+            // equivalence claim is the actionable content; the values are one refreshed read
+            // away for anyone who wants them.
+            segments.Add(
+                "ADO canonicalized HTML field(s) after apply: "
+                + string.Join(", ", html.Select(n => n.ReferenceName))
+                + ". The markup is structurally equivalent to what the plan authored; only "
+                + "ADO's serialization differs.");
+        }
+
+        return string.Join(" ", segments)
+            + " The requested mutation is proven landed by the refreshed read.";
     }
 
     /// <summary>
@@ -134,10 +177,32 @@ internal static class ServerGeneratedFieldPolicy
 }
 
 /// <summary>
-/// One observed server-generated normalization: what the plan asked for and what the refreshed
-/// ADO read reported instead.
+/// Why a readback difference was classified as normalization rather than contradiction.
+/// <para>
+/// Both kinds are the SAME fact — the write landed and something outside Twig's control
+/// rewrote the stored form — so both take the same warning-verified path. The distinction
+/// exists only so the recorded warning names WHICH kind of rewrite happened; a reader of the
+/// journal should not have to infer that from the field name.
+/// </para>
 /// </summary>
-internal readonly record struct ServerGeneratedNormalization(
+internal enum NormalizationKind
+{
+    /// <summary>ADO's revision machinery owns the value (close/change stamps). AB#754.</summary>
+    ServerGenerated,
+
+    /// <summary>
+    /// ADO re-serialized HTML the plan authored. The CONTENT compared equal under
+    /// <see cref="HtmlStructuralComparer"/>; only the markup's serialization differs. AB#755.
+    /// </summary>
+    CanonicalizedHtml,
+}
+
+/// <summary>
+/// One observed readback normalization: what the plan asked for, what the refreshed ADO read
+/// reported instead, and which class of rewrite explains the difference.
+/// </summary>
+internal readonly record struct PlanReadbackNormalization(
     string ReferenceName,
     string Expected,
-    string? Actual);
+    string? Actual,
+    NormalizationKind Kind);

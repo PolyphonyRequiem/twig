@@ -51,6 +51,8 @@ public sealed class AdoRestClientPatchTests
 
         handler.RequestUrl.ShouldNotBeNull();
         handler.RequestUrl.ShouldContain("/workitems/645/revisions/4");
+        handler.RequestUrl.ShouldContain("$expand=all");
+
         snapshot.Revision.ShouldBe(4);
         snapshot.TypeName.ShouldBe("Task");
         snapshot.Title.ShouldBe("Test");

@@ -30,27 +30,20 @@ namespace Twig.Domain.Services.Plan;
 /// derived process, without a code change.
 /// </para>
 /// <para>
-/// 🔴 <b>Fail-open on rule-load errors.</b> A gate that flipped a plan to Failed because the
-/// rules endpoint 500'd would confuse a policy decision with a fetch error. If the provider
-/// throws (or returns nothing), the gate returns <c>null</c> and the executor proceeds — the
-/// executor's own readback still catches a wire-level 412/404. A missing local source
-/// (<see cref="IWorkItemRepository.GetByIdAsync"/> returning <c>null</c>) is handled the
-/// same way at the call site: without an aggregate to overlay we cannot honestly evaluate.
+/// 🔴 <b>Rule-load errors do not become policy decisions.</b> If the provider cannot load
+/// rules, this evaluator returns permit-all; the lifecycle separately owns authoritative
+/// snapshot availability and returns a retryable precondition before this method is called.
 /// </para>
 /// <para>
 /// 🔴 <b>Revision drift is a retryable precondition, not a rule refusal.</b> The gate
-/// evaluates rules against a specific point-in-time snapshot of the source item. If the
-/// cached source's revision does not equal <see cref="BatchOperation.ExpectedRevision"/>,
-/// the "old" values the gate would read are stale (or ahead of) the revision the strict-CAS
-/// PATCH is aimed at, and evaluating rules under that mismatch would false-refuse valid
-/// batches or false-permit invalid ones. We only surface this precondition when the rule
-/// set actually contains an enabled <c>makeRequired</c> action that could refuse — with
-/// no such candidate there is nothing for stale data to mis-evaluate, and the wire's own
-/// strict-CAS 412 owns the drift. When we do surface it, the outcome is
-/// <see cref="PlanProcessRuleGateOutcomeKind.NeedsRefresh"/>, not
-/// <see cref="PlanProcessRuleGateOutcomeKind.Refused"/>: a stale cache is transient and a
-/// refresh + re-apply must be able to retry, so the caller MUST NOT terminalise the plan
-/// row on this outcome. (AB#673 review.)
+/// evaluates rules against an authoritative point-in-time snapshot of the source item. If
+/// that snapshot's revision does not equal <see cref="BatchOperation.ExpectedRevision"/>,
+/// the old values are not the values the strict-CAS PATCH targets. Evaluating under that
+/// mismatch could false-refuse valid batches or false-permit invalid ones. We only surface
+/// this precondition when the rule set contains an enabled <c>makeRequired</c> action that
+/// could refuse; with no such candidate, the wire's strict-CAS check owns revision drift.
+/// The outcome is <see cref="PlanProcessRuleGateOutcomeKind.NeedsRefresh"/>, not
+/// <see cref="PlanProcessRuleGateOutcomeKind.Refused"/>, so callers keep the row retryable.
 /// </para>
 /// <para>
 /// 🔴 <b>Old vs new views.</b> Generic rule verbs read from two views of the item, not one:
@@ -111,7 +104,7 @@ internal sealed class PlanProcessRuleGate
     /// after <paramref name="source"/> is overlaid by <see cref="BatchOperation.Fields"/>
     /// and the target <c>System.State</c>. Returns
     /// <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/> — a retryable
-    /// precondition, NOT a refusal — when the cached source is not at the batch's expected
+    /// precondition, NOT a refusal — when the source snapshot is not at the batch's expected
     /// revision AND the rule set contains at least one enabled <c>makeRequired</c> action
     /// whose evaluation the drift would corrupt.
     /// </summary>
@@ -121,8 +114,8 @@ internal sealed class PlanProcessRuleGate
     /// at least one enabled <c>makeRequired</c> candidate. If it does not, drift is not our
     /// concern here — the wire's own strict-CAS 412 owns it, and returning
     /// <see cref="PlanProcessRuleGateOutcomeKind.NeedsRefresh"/> in that case would
-    /// short-circuit valid batches whose only "problem" is a slightly stale cache field the
-    /// rule engine would never have read.
+    /// short-circuit valid batches whose only "problem" is a stale source snapshot the rule
+    /// engine would never have read.
     /// </para>
     /// </remarks>
     public async Task<PlanProcessRuleGateOutcome> EvaluateAsync(
@@ -166,7 +159,7 @@ internal sealed class PlanProcessRuleGate
         if (source.Revision != batch.ExpectedRevision)
         {
             return PlanProcessRuleGateOutcome.RequiresRefresh(
-                $"Refusing to apply plan operation for work item {source.Id}: local cache is at "
+                $"Refusing to apply plan operation for work item {source.Id}: source snapshot is at "
                 + $"revision {source.Revision.ToString(CultureInfo.InvariantCulture)} but the batch "
                 + $"expects revision {batch.ExpectedRevision.ToString(CultureInfo.InvariantCulture)}; "
                 + "refresh the work item and re-apply the same plan.");
@@ -174,7 +167,7 @@ internal sealed class PlanProcessRuleGate
 
         var fromState = source.State ?? string.Empty;
         var toState = fromState;
-        if (batch.Fields.TryGetValue(SystemStateField, out var stateOverride)
+        if (TryGetField(batch.Fields, SystemStateField, out var stateOverride)
             && !string.IsNullOrEmpty(stateOverride))
         {
             toState = stateOverride!;
@@ -314,12 +307,29 @@ internal sealed class PlanProcessRuleGate
         if (VerbEquals(verb, "whenWas"))
             return Equal(oldValue, condition.Value);
         if (VerbEquals(verb, "whenStateChangedTo"))
-            return Equal(toState, condition.Value);
+            return !Equal(fromState, toState) && Equal(toState, condition.Value);
         if (VerbEquals(verb, "whenValueIsDefined"))
             return !string.IsNullOrEmpty(newValue);
         if (VerbEquals(verb, "whenValueIsNotDefined"))
             return string.IsNullOrEmpty(newValue);
 
+        return false;
+    }
+
+    private static bool TryGetField(
+        IReadOnlyDictionary<string, string?> fields,
+        string referenceName,
+        out string? value)
+    {
+        if (fields.TryGetValue(referenceName, out value)) return true;
+        foreach (var field in fields)
+        {
+            if (!string.Equals(field.Key, referenceName, StringComparison.OrdinalIgnoreCase)) continue;
+            value = field.Value;
+            return true;
+        }
+
+        value = null;
         return false;
     }
 

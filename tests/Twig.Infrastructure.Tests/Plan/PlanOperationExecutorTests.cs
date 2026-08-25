@@ -175,6 +175,69 @@ public sealed class PlanOperationExecutorTests
         outcome.Ok.ShouldBeTrue();
     }
 
+    // ── batch execute: determinate ADO rejection ───────────────────────────
+
+    [Fact]
+    public async Task ExecuteBatch_AdoBadRequest_IsDeterministicFailure()
+    {
+        var op = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 720,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "Unknown identity",
+                ["System.State"] = "Doing",
+            },
+        };
+        _ado.PatchAsync(720, Arg.Any<IReadOnlyList<FieldChange>>(), 2,
+                Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new AdoBadRequestException(
+                "The identity value 'Unknown identity' for field 'Assigned To' is an unknown identity."));
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Failed);
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("unknown identity");
+        await _ado.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecutePublishSeed_AdoBadRequest_RemainsIndeterminateForRecovery()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000777"));
+        var alias = MakeAlias(-77);
+        var seed = new WorkItem
+        {
+            Id = alias.Value,
+            Title = "seed",
+            Type = WorkItemType.Parse("Task").Value,
+            IsSeed = true,
+            StagedIdentity = identity,
+        };
+        seed.MarkSynced(1);
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>()).Returns((PublishIntent?)null);
+        var fingerprint = await SeedFingerprintCalculator.ComputeAsync(
+            seed, [], _stagedRegistry, _publishIdMap, CancellationToken.None);
+        var op = new PublishSeedOperation
+        {
+            Id = "S",
+            StagedIdentity = identity,
+            ExpectedFingerprint = fingerprint,
+        };
+        _publishBehaviour = _ => throw new AdoBadRequestException("post-create promotion failed");
+
+        var outcome = await _executor.ExecuteAsync(op, CancellationToken.None);
+
+        outcome.Outcome.ShouldBe(PlanExecutionOutcome.Indeterminate);
+        outcome.Error.ShouldBe("post-create promotion failed");
+    }
+
     // ── strict-CAS relation not found ──────────────────────────────────────
 
     [Fact]

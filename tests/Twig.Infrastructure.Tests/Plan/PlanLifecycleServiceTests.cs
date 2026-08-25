@@ -1732,6 +1732,79 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         row.Error!.ShouldContain("Custom.Bar");
     }
 
+    [Fact]
+    public async Task Apply_Batch_WhenStateChangedTo_DoesNotFireWithoutAStateTransition()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "already-done",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Done");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>
+            ([new ProcessRule(
+                [new RuleCondition("whenStateChangedTo", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.TransitionEvidence", null)],
+                IsDisabled: false)]));
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(BuildWorkItem(42, rev: 4, state: "Done"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RuleFieldReferences_AreCaseInsensitive()
+    {
+        var file = WritePlan(BatchWithFields(
+            workItemId: 42,
+            expectedRev: 3,
+            fields: [("system.state", "Done")]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "mixed-case-fields",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("Custom.Gated", "signed");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>
+            ([new ProcessRule(
+                [new RuleCondition("when", "system.state", "done")],
+                [new RuleAction("makeRequired", "custom.gated", null)],
+                IsDisabled: false)]));
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        var readback = BuildWorkItem(42, rev: 4, state: "Done");
+        readback.UpdateField("Custom.Gated", "signed");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+    }
+
     // ── apply: authoritative expected-revision snapshots (AB#719) ─────────
 
     [Fact]

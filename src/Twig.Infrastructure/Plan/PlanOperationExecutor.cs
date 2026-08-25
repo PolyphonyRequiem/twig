@@ -108,6 +108,14 @@ internal sealed class PlanOperationExecutor
             // asked for an impossible edit fails loudly instead of drifting to Indeterminate.
             return PlanExecutionResult.Failure(ex.Message);
         }
+        catch (AdoBadRequestException ex) when (operation is not PublishSeedOperation)
+        {
+            // ADO rejected this operation's sole request before applying it. Publish-seed
+            // is multi-step and remains indeterminate so intent/map readback can reconcile
+            // a remote item created before a later bad request.
+            return PlanExecutionResult.Failure(ex.Message);
+        }
+
         catch (AdoNotFoundException ex)
         {
             // For an operation whose plan named the item, 404 is a plan-level determinate
@@ -124,6 +132,7 @@ internal sealed class PlanOperationExecutor
             // readback can settle whether it did.
             return PlanExecutionResult.Indeterminate(ex.Message);
         }
+
     }
 
     private async Task<PlanExecutionResult> ExecuteBatchAsync(BatchOperation batch, CancellationToken ct)

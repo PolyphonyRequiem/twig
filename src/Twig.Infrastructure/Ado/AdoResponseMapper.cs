@@ -33,7 +33,6 @@ internal static class AdoResponseMapper
         IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
     {
         var fields = dto.Fields ?? new Dictionary<string, object?>();
-
         var filteredFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in fields)
         {
@@ -44,20 +43,46 @@ internal static class AdoResponseMapper
             if (value is not null) filteredFields[kvp.Key] = value;
         }
 
-        return new WorkItemSnapshot
-        {
-            Id = dto.Id,
-            Revision = dto.Rev,
-            TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
-            Title = GetStringField(fields, "System.Title") ?? string.Empty,
-            State = GetStringField(fields, "System.State") ?? string.Empty,
-            AssignedTo = ParseAssignedTo(fields),
-            IterationPath = GetStringField(fields, "System.IterationPath"),
-            AreaPath = GetStringField(fields, "System.AreaPath"),
-            ParentId = ExtractParentId(dto.Relations),
-            Fields = filteredFields,
-        };
+        return CreateSnapshot(dto, fields, filteredFields);
     }
+
+    /// <summary>
+    /// Maps a revision-specific ADO response to a complete server snapshot for runtime plan
+    /// rule evaluation. Unlike the cache projection, this preserves every non-empty field ADO
+    /// returned, including system fields excluded from local persistence.
+    /// </summary>
+    public static WorkItemSnapshot MapToAuthoritativeSnapshot(AdoWorkItemResponse dto)
+    {
+        if (dto.Fields is null || dto.Fields.Count == 0)
+            throw new InvalidOperationException(
+                $"Authoritative snapshot for work item {dto.Id} revision {dto.Rev} has no fields payload.");
+
+        var authoritativeFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in dto.Fields)
+        {
+            var value = ParseFieldValue(kvp.Value);
+            if (value is not null) authoritativeFields[kvp.Key] = value;
+        }
+
+        return CreateSnapshot(dto, dto.Fields, authoritativeFields);
+    }
+
+    private static WorkItemSnapshot CreateSnapshot(
+        AdoWorkItemResponse dto,
+        Dictionary<string, object?> fields,
+        IReadOnlyDictionary<string, string?> snapshotFields) => new()
+    {
+        Id = dto.Id,
+        Revision = dto.Rev,
+        TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
+        Title = GetStringField(fields, "System.Title") ?? string.Empty,
+        State = GetStringField(fields, "System.State") ?? string.Empty,
+        AssignedTo = ParseAssignedTo(fields),
+        IterationPath = GetStringField(fields, "System.IterationPath"),
+        AreaPath = GetStringField(fields, "System.AreaPath"),
+        ParentId = ExtractParentId(dto.Relations),
+        Fields = snapshotFields,
+    };
 
     /// <summary>
     /// Maps an ADO work item response DTO to a <see cref="WorkItemSnapshot"/> plus non-hierarchy links.

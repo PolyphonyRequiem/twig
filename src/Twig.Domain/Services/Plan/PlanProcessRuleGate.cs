@@ -30,20 +30,18 @@ namespace Twig.Domain.Services.Plan;
 /// derived process, without a code change.
 /// </para>
 /// <para>
-/// 🔴 <b>Rule-load errors do not become policy decisions.</b> If the provider cannot load
-/// rules, this evaluator returns permit-all; the lifecycle separately owns authoritative
-/// snapshot availability and returns a retryable precondition before this method is called.
+/// 🔴 <b>Authoritative input, no cache path.</b> This gate is only ever handed a
+/// <see cref="Twig.Domain.Aggregates.WorkItem"/> projected from an authoritative
+/// point-in-time server snapshot at exactly the batch's <c>expectedRevision</c> (either
+/// freshly fetched by the lifecycle or carried forward from a prior verified operation on
+/// the same work item within the same apply — AB#721). The old exploratory read from the
+/// filtered local cache projection has been retired; the lifecycle owns snapshot
+/// availability and returns a retryable precondition upstream when it cannot obtain one.
 /// </para>
 /// <para>
-/// 🔴 <b>Revision drift is a retryable precondition, not a rule refusal.</b> The gate
-/// evaluates rules against an authoritative point-in-time snapshot of the source item. If
-/// that snapshot's revision does not equal <see cref="BatchOperation.ExpectedRevision"/>,
-/// the old values are not the values the strict-CAS PATCH targets. Evaluating under that
-/// mismatch could false-refuse valid batches or false-permit invalid ones. We only surface
-/// this precondition when the rule set contains an enabled <c>makeRequired</c> action that
-/// could refuse; with no such candidate, the wire's strict-CAS check owns revision drift.
-/// The outcome is <see cref="PlanProcessRuleGateOutcomeKind.NeedsRefresh"/>, not
-/// <see cref="PlanProcessRuleGateOutcomeKind.Refused"/>, so callers keep the row retryable.
+/// 🔴 <b>Rule-load errors do not become policy decisions.</b> If the provider cannot load
+/// rules, this evaluator returns permit-all; a policy refusal on a load failure would
+/// deny valid batches for a transient reason.
 /// </para>
 /// <para>
 /// 🔴 <b>Old vs new views.</b> Generic rule verbs read from two views of the item, not one:
@@ -74,9 +72,12 @@ internal readonly record struct PlanProcessRuleGateOutcome(
 
 /// <summary>
 /// Classification of a <see cref="PlanProcessRuleGate"/> outcome. <c>Refused</c> is
-/// terminal — the plan row moves to Failed with the rule-refusal message. <c>NeedsRefresh</c>
-/// is a retryable precondition — the plan row MUST remain Confirmed so a cache refresh +
-/// re-apply drives it to conclusion.
+/// terminal — the plan row moves to Failed with the rule-refusal message.
+/// <c>NeedsRefresh</c> is a retryable precondition — the plan row MUST remain Confirmed
+/// and the caller returns a top-level busy refusal so the same digest re-applies once the
+/// upstream input is available again. The gate itself never produces
+/// <c>NeedsRefresh</c>; only the lifecycle does, when the authoritative snapshot required
+/// to evaluate a <see cref="BatchOperation"/> cannot be loaded.
 /// </summary>
 internal enum PlanProcessRuleGateOutcomeKind
 {
@@ -102,22 +103,11 @@ internal sealed class PlanProcessRuleGate
     /// may proceed. Returns <see cref="PlanProcessRuleGateOutcome.Refuse(string)"/> when an
     /// enabled <c>makeRequired</c> rule requires a field whose effective value is empty
     /// after <paramref name="source"/> is overlaid by <see cref="BatchOperation.Fields"/>
-    /// and the target <c>System.State</c>. Returns
-    /// <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/> — a retryable
-    /// precondition, NOT a refusal — when the source snapshot is not at the batch's expected
-    /// revision AND the rule set contains at least one enabled <c>makeRequired</c> action
-    /// whose evaluation the drift would corrupt.
+    /// and the target <c>System.State</c>. <paramref name="source"/> is always an
+    /// authoritative point-in-time projection at exactly <see cref="BatchOperation.ExpectedRevision"/>
+    /// — see the class remarks — so this method never surfaces a revision-drift
+    /// precondition itself.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The ordering matters: we do NOT check revision drift until we know the rule set has
-    /// at least one enabled <c>makeRequired</c> candidate. If it does not, drift is not our
-    /// concern here — the wire's own strict-CAS 412 owns it, and returning
-    /// <see cref="PlanProcessRuleGateOutcomeKind.NeedsRefresh"/> in that case would
-    /// short-circuit valid batches whose only "problem" is a stale source snapshot the rule
-    /// engine would never have read.
-    /// </para>
-    /// </remarks>
     public async Task<PlanProcessRuleGateOutcome> EvaluateAsync(
         BatchOperation batch,
         WorkItem source,
@@ -144,26 +134,15 @@ internal sealed class PlanProcessRuleGate
         }
         if (rules is null || rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
 
-        // Determine whether an enabled makeRequired action exists BEFORE consulting
-        // revision. If none does, there is no refusal path the gate can take and drift is
-        // irrelevant here — the wire's strict-CAS still owns it and we MUST NOT surface a
-        // retryable precondition that would short-circuit a valid batch.
+        // Cheap short-circuit: with no enabled makeRequired candidate in the rule set,
+        // no refusal path exists — skip the pre/post overlay build entirely.
         if (!HasEnabledMakeRequiredCandidate(rules))
             return PlanProcessRuleGateOutcome.Ok;
 
-        // Retryable precondition on revision drift: a stale source would mis-evaluate the
-        // rule (whenChanged/whenWas both compare pre-batch vs. post-batch values on the
-        // wrong snapshot). Surface it as NeedsRefresh so the caller leaves the plan row
-        // Confirmed and a cache refresh + re-apply can retry — NOT as a rule refusal that
-        // would terminalise the row Failed.
-        if (source.Revision != batch.ExpectedRevision)
-        {
-            return PlanProcessRuleGateOutcome.RequiresRefresh(
-                $"Refusing to apply plan operation for work item {source.Id}: source snapshot is at "
-                + $"revision {source.Revision.ToString(CultureInfo.InvariantCulture)} but the batch "
-                + $"expects revision {batch.ExpectedRevision.ToString(CultureInfo.InvariantCulture)}; "
-                + "refresh the work item and re-apply the same plan.");
-        }
+        // Authoritative-input invariant: PlanLifecycleService only hands us a source
+        // projected from an at-revision server snapshot equal to batch.ExpectedRevision
+        // (either freshly fetched or carried forward from a prior verified operation on
+        // the same work item — AB#721). No cached-projection drift path exists here.
 
         var fromState = source.State ?? string.Empty;
         var toState = fromState;
@@ -214,9 +193,9 @@ internal sealed class PlanProcessRuleGate
 
     /// <summary>
     /// Cheap pre-scan: does the rule set contain at least one enabled rule whose actions
-    /// include a <c>makeRequired</c> on a non-blank target field? Only such a candidate can
-    /// ever produce a refusal, so it gates the revision-drift precondition — with no
-    /// candidate we never need to trust the cache and drift is inert.
+    /// include a <c>makeRequired</c> on a non-blank target field? Only such a candidate
+    /// can ever produce a refusal, so a rule set without one skips the overlay work
+    /// entirely.
     /// </summary>
     private static bool HasEnabledMakeRequiredCandidate(IReadOnlyList<ProcessRule> rules)
     {

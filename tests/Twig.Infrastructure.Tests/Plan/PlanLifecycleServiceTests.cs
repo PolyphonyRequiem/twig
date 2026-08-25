@@ -1342,175 +1342,6 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Apply_Batch_ExposesRetryablePrecondition_WhenCachedSourceRevisionDrifts_AndRuleCandidateExists()
-    {
-        // AB#673 review finding: a revision-drift refusal must NOT terminalise the plan
-        // row. Stale cache is a transient condition and refresh + re-apply must retry.
-        // The gate surfaces it as a top-level refusal with the row left at Confirmed, and
-        // ONLY when the rule set actually contains an enabled makeRequired candidate whose
-        // evaluation the drift would corrupt.
-        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
-        var svc = BuildService();
-        var digest = (await svc.PreviewAsync(file)).Digest!;
-
-        // Cached source is at rev 5, batch expects 3 — drift.
-        var source = new WorkItem
-        {
-            Id = 42,
-            Title = "drifted",
-            Type = WorkItemType.Parse("Frobnicator").Value,
-        };
-        source.ChangeState("Doing");
-        source.MarkSynced(5);
-        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
-
-        // A makeRequired candidate MUST exist for the drift to matter — otherwise the
-        // wire's strict-CAS 412 owns the drift and the gate no-ops.
-        var rule = new ProcessRule(
-            Conditions: new[] { new RuleCondition("when", "System.State", "Done") },
-            Actions: new[] { new RuleAction("makeRequired", "Custom.Gated", null) },
-            IsDisabled: false);
-        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
-
-        var apply = await svc.ApplyAsync(file, digest);
-
-        // Top-level refusal, NOT a per-row Failed terminal.
-        apply.Failed.ShouldBeTrue();
-        apply.Error.ShouldNotBeNull();
-        apply.Error!.ShouldContain("revision");
-        apply.Error!.ShouldContain("5");
-        apply.Error!.ShouldContain("3");
-        apply.Error!.ShouldContain("refresh", Case.Insensitive);
-        apply.Operations.ShouldBeEmpty(); // top-level failure carries no per-row snapshot
-
-        // Load-bearing: the wire attempt never happened.
-        await _ado.DidNotReceive().PatchAsync(
-            Arg.Any<int>(),
-            Arg.Any<IReadOnlyList<FieldChange>>(),
-            Arg.Any<int>(),
-            Arg.Any<CancellationToken>());
-
-        // Load-bearing: the plan row is NOT terminalised. It stays at Confirmed so a
-        // refresh + re-apply can retry the same journal.
-        var journalAfter = (await _journal.GetAsync(digest))!;
-        journalAfter.State.ShouldNotBe(PlanOperationState.Failed);
-        journalAfter.Operations.ShouldHaveSingleItem()
-            .State.ShouldBe(PlanOperationState.Confirmed);
-        journalAfter.Operations[0].Error.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task Apply_Batch_RefreshingCacheThenReapplying_DrivesRowToVerified_AfterEarlierRevisionDrift()
-    {
-        // Complement: a revision-drift precondition on the FIRST apply must leave the plan
-        // row retryable. When the cache is refreshed to the expected revision and the plan
-        // is re-applied (same digest, same journal), the row walks Confirmed → Verified.
-        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
-        var svc = BuildService();
-        var digest = (await svc.PreviewAsync(file)).Digest!;
-
-        // First cached snapshot: drifted at rev 5.
-        var drifted = new WorkItem
-        {
-            Id = 42,
-            Title = "gated",
-            Type = WorkItemType.Parse("Frobnicator").Value,
-        };
-        drifted.ChangeState("Doing");
-        drifted.UpdateField("System.State", "Doing");
-        drifted.MarkSynced(5);
-        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(drifted);
-
-        // Enabled makeRequired candidate — needed for the precondition to fire.
-        var rule = new ProcessRule(
-            Conditions: new[] { new RuleCondition("when", "System.State", "Done") },
-            Actions: new[] { new RuleAction("makeRequired", "Custom.Gated", null) },
-            IsDisabled: false);
-        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { rule }));
-
-        var firstApply = await svc.ApplyAsync(file, digest);
-        firstApply.Failed.ShouldBeTrue();
-        firstApply.Error!.ShouldContain("refresh", Case.Insensitive);
-
-        // Now simulate `twig refresh`: the local cache is reloaded at the expected
-        // revision (3). The batch supplies the required field so the rule permits.
-        var refreshed = new WorkItem
-        {
-            Id = 42,
-            Title = "gated",
-            Type = WorkItemType.Parse("Frobnicator").Value,
-        };
-        refreshed.ChangeState("Doing");
-        refreshed.UpdateField("System.State", "Doing");
-        refreshed.UpdateField("Custom.Gated", "signed");
-        refreshed.MarkSynced(3);
-        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
-
-        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
-            .Returns(4);
-        var readback = BuildWorkItem(42, rev: 4, state: "Done");
-        readback.UpdateField("Custom.Gated", "signed");
-        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
-
-        var secondApply = await svc.ApplyAsync(file, digest);
-
-        secondApply.Failed.ShouldBeFalse();
-        secondApply.Operations.ShouldHaveSingleItem()
-            .State.ShouldBe(PlanOperationState.Verified);
-        await _ado.Received(1).PatchAsync(
-            42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Apply_Batch_DoesNotSurfaceRevisionPrecondition_WhenNoEnabledMakeRequiredCandidateExists()
-    {
-        // AB#673 review: the revision-drift precondition must only surface when a rule
-        // that could refuse actually exists. With no enabled makeRequired candidate the
-        // gate has no policy stake in the cached snapshot — the wire's strict-CAS PATCH
-        // owns the drift as a 412, and short-circuiting here would delay a valid batch on
-        // an irrelevant staleness.
-        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
-        var svc = BuildService();
-        var digest = (await svc.PreviewAsync(file)).Digest!;
-
-        // Cached source is drifted (rev 5 vs expected 3) but nothing in the rule set
-        // would refuse — the gate MUST NOT block the wire attempt.
-        var drifted = new WorkItem
-        {
-            Id = 42,
-            Title = "drifted-but-irrelevant",
-            Type = WorkItemType.Parse("Frobnicator").Value,
-        };
-        drifted.ChangeState("Doing");
-        drifted.MarkSynced(5);
-        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(drifted);
-
-        // Rule set has ONLY a disabled makeRequired — not a live candidate.
-        var disabled = new ProcessRule(
-            Conditions: new[] { new RuleCondition("when", "System.State", "Active") },
-            Actions: new[] { new RuleAction("makeRequired", "Custom.Gated", null) },
-            IsDisabled: true);
-        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<ProcessRule>>(new[] { disabled }));
-
-        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
-            .Returns(4);
-        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
-            .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
-
-        var apply = await svc.ApplyAsync(file, digest);
-
-        // The gate did NOT short-circuit — the wire got the batch. Whether the wire itself
-        // accepts or rejects is orthogonal; here we stubbed a success to prove the gate
-        // did not stand in the way.
-        apply.Failed.ShouldBeFalse();
-        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
-        await _ado.Received(1).PatchAsync(
-            42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task Apply_Batch_GateReadsCanonicalWorkItemPropertyWhenFieldMapMissesIt()
@@ -1898,6 +1729,247 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .State.ShouldBe(PlanOperationState.Confirmed);
     }
 
+    // ── apply: same-item authoritative snapshot carry-forward (AB#721) ────
+
+    [Fact]
+    public async Task Apply_TwoBatchesSameItem_SecondGateSeesFirstOpsFieldOverlay_WithoutRefetchingAuthoritativeSnapshot()
+    {
+        // Two batches on the same work item. The first supplies the field a rule requires
+        // when the second lands the item in the gated state. The gate must evaluate the
+        // second op against the authoritative state PRODUCED BY the first (revision moved
+        // forward, Custom.Gated overlaid) — never re-fetching a fresh snapshot at the
+        // second op's own expected revision, and never falling back to the local cache.
+        var plan = """
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 42, "expectedRevision": 3,
+                  "fields": { "Custom.Gated": "signed" } },
+                { "id": "op-2", "kind": "batch", "workItemId": 42, "expectedRevision": 4,
+                  "fields": { "System.State": "Done" } }
+              ]
+            }
+            """;
+        var file = WritePlan(plan);
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        // Fresh authoritative snapshot for op-1: no Custom.Gated yet.
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing"));
+        // Load-bearing: the second op's expected revision MUST NOT trigger a fetch — the
+        // carry-forward is the whole point of the ticket. If we ever call
+        // FetchAtRevisionAsync(42, 4, ...), the executor path is wrong.
+        _revisionBound.FetchAtRevisionAsync(42, 4, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
+            throw new InvalidOperationException(
+                "AB#721 regression: second batch fetched a fresh authoritative snapshot instead of consuming the prior op's projection."));
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [new RuleCondition("when", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 4, Arg.Any<CancellationToken>())
+            .Returns(5);
+        // Readback after op-1: server carries the overlaid Custom.Gated at rev 4.
+        // Readback after op-2: server carries Custom.Gated and State=Done at rev 5.
+        var rev4 = BuildWorkItem(42, rev: 4, state: "Doing");
+        rev4.UpdateField("Custom.Gated", "signed");
+        var rev5 = BuildWorkItem(42, rev: 5, state: "Done");
+        rev5.UpdateField("Custom.Gated", "signed");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rev4, rev5);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.Count.ShouldBe(2);
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Verified);
+
+        // Load-bearing: the gate consulted the authoritative source exactly ONCE — the
+        // first op's fresh fetch. The second op inherited the projection.
+        await _revisionBound.Received(1).FetchAtRevisionAsync(
+            42, Arg.Any<int>(), Arg.Any<CancellationToken>());
+
+        // Both writes actually landed on the wire in order.
+        await _ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+        await _ado.Received(1).PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 4, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_TwoBatchesSameItem_SecondGateRefusesUsingProjectedState_WhenFirstOpClearsRequiredField()
+    {
+        // The first op clears the gated field; the second op tries to transition to a
+        // state whose rule requires that field. The carried projection MUST see the
+        // cleared value — a refetch at the second op's expected revision would return the
+        // pre-op server snapshot (still populated) and false-permit the batch.
+        var plan = """
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 42, "expectedRevision": 3,
+                  "fields": { "Custom.Gated": null } },
+                { "id": "op-2", "kind": "batch", "workItemId": 42, "expectedRevision": 4,
+                  "fields": { "System.State": "Done" } }
+              ]
+            }
+            """;
+        var file = WritePlan(plan);
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing", ("Custom.Gated", "signed")));
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [
+                    new RuleCondition("when", "System.State", "Done"),
+                    new RuleCondition("when", "System.Rev", "4"),
+                ],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        // op-1: successful clear at rev 3 → rev 4.
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        // Readback for op-1 reflects the cleared field.
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(BuildWorkItem(42, rev: 4, state: "Doing"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations.Count.ShouldBe(2);
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Failed);
+        apply.Operations[1].Error!.ShouldContain("Custom.Gated");
+
+        // Load-bearing: op-2's wire attempt never happened — the projected post-op-1
+        // state fired the gate before PatchAsync at rev 4.
+        await _ado.DidNotReceive().PatchAsync(
+            42, Arg.Any<IReadOnlyList<FieldChange>>(), 4, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_BatchLinkBatchSameItem_LinkAdvancesCarriedRevisionWithoutRefetch()
+    {
+        var plan = """
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 42, "expectedRevision": 3,
+                  "fields": { "Custom.Gated": "signed" } },
+                { "id": "op-2", "kind": "add-link", "workItemId": 42, "expectedRevision": 4,
+                  "relation": "parent", "otherId": 99 },
+                { "id": "op-3", "kind": "batch", "workItemId": 42, "expectedRevision": 5,
+                  "fields": { "System.State": "Done" } }
+              ]
+            }
+            """;
+        var file = WritePlan(plan);
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing"));
+        _revisionBound.FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
+            throw new InvalidOperationException(
+                "AB#721 regression: post-link batch refetched instead of consuming the advanced carry."));
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>
+            ([new ProcessRule(
+                [
+                    new RuleCondition("when", "System.State", "Done"),
+                    new RuleCondition("when", "System.Rev", "5"),
+                    new RuleCondition("when", "System.Parent", "99"),
+                ],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _revisionBound.AddLinkAtRevisionAsync(
+                42, "System.LinkTypes.Hierarchy-Reverse", 99, 4, Arg.Any<CancellationToken>())
+            .Returns(5);
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        var rev4 = BuildWorkItem(42, rev: 4, state: "Doing");
+        rev4.UpdateField("Custom.Gated", "signed");
+        var rev5 = BuildWorkItem(42, rev: 5, state: "Doing").WithParentId(99);
+        rev5.UpdateField("Custom.Gated", "signed");
+        var rev6 = BuildWorkItem(42, rev: 6, state: "Done");
+        rev6.UpdateField("Custom.Gated", "signed");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rev4, rev5, rev6);
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldAllBe(operation => operation.State == PlanOperationState.Verified);
+        await _revisionBound.Received(1).FetchAtRevisionAsync(
+            42, Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_TwoBatchesDifferentItems_EachGetsItsOwnAuthoritativeFetch()
+    {
+        // Complement: the carry map is per work item id. Two batches on DIFFERENT items
+        // must each drive a fresh authoritative fetch — the first op's projection is
+        // irrelevant to the second's rule evaluation.
+        var plan = """
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-a", "kind": "batch", "workItemId": 42, "expectedRevision": 3,
+                  "fields": { "System.State": "Done" } },
+                { "id": "op-b", "kind": "batch", "workItemId": 99, "expectedRevision": 7,
+                  "fields": { "System.State": "Done" } }
+              ]
+            }
+            """;
+        var file = WritePlan(plan);
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing", ("Custom.Gated", "signed-42")));
+        _revisionBound.FetchAtRevisionAsync(99, 7, Arg.Any<CancellationToken>()).Returns(
+            AuthoritativeSnapshot(99, 7, "Frobnicator", "Doing", ("Custom.Gated", "signed-99")));
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [new RuleCondition("when", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.PatchAsync(99, Arg.Any<IReadOnlyList<FieldChange>>(), 7, Arg.Any<CancellationToken>())
+            .Returns(8);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Done"));
+        _ado.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(99, rev: 8, state: "Done"));
+
+        var apply = await svc.ApplyAsync(file, digest);
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Verified);
+
+        await _revisionBound.Received(1).FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+        await _revisionBound.Received(1).FetchAtRevisionAsync(99, 7, Arg.Any<CancellationToken>());
+    }
+
     private static WorkItemSnapshot AuthoritativeSnapshot(
         int id,
         int revision,
@@ -1910,6 +1982,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             ["System.WorkItemType"] = type,
             ["System.Title"] = "authoritative",
             ["System.State"] = state,
+            ["System.Rev"] = revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
         foreach (var (name, value) in fields)
             values[name] = value;

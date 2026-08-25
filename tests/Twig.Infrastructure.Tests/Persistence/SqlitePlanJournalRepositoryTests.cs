@@ -749,6 +749,93 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         second.ShouldBeFalse();
     }
 
+    // ─── warning persistence (AB#754/755) ───────────────────────────────────────
+
+    [Fact]
+    public async Task TryTransitionOperation_WithWarning_PersistsItInTheSameRowUpdateAsTheTransition()
+    {
+        // The warning is written BY the CAS, not before it. That is the whole point: a
+        // pre-CAS write could strand warning text on a row whose transition was then lost.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Planned, PlanOperationState.Applied, Now())).ShouldBeTrue();
+
+        var verified = await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now(),
+            default, "ADO normalized server-generated field(s) after apply: ClosedDate.");
+
+        verified.ShouldBeTrue();
+        var journal = await _repo.GetAsync(plan.Digest);
+        var op = journal!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Verified);
+        op.Warning.ShouldNotBeNull();
+        op.Warning.ShouldContain("ClosedDate");
+        // A warning must never masquerade as a failure.
+        op.Error.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task TryTransitionOperation_LostCas_DoesNotWriteTheWarning()
+    {
+        // The stranding scenario the in-CAS write exists to prevent: a caller that loses the
+        // transition must leave no trace on the row, warning included.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+
+        var changed = await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now(),
+            default, "this warning must not land");
+
+        changed.ShouldBeFalse();
+        var journal = await _repo.GetAsync(plan.Digest);
+        var op = journal!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Planned);
+        op.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task TryTransitionOperation_NullWarning_PreservesAnAlreadyRecordedWarning()
+    {
+        // COALESCE semantics: a later warning-free transition must not erase detail an
+        // earlier one recorded, or the ledger would silently lose the normalization.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Planned, PlanOperationState.Applying, Now(),
+            default, "recorded earlier")).ShouldBeTrue();
+
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applying, PlanOperationState.Applied, Now()))
+            .ShouldBeTrue();
+
+        var journal = await _repo.GetAsync(plan.Digest);
+        journal!.Operations.Single(o => o.OpId == opId).Warning.ShouldBe("recorded earlier");
+    }
+
+    [Fact]
+    public async Task GetAsync_OperationWithNoWarning_ReadsBackNull()
+    {
+        // Guards the new reader ordinal: a row that never carried a warning must read null,
+        // not an empty string or a shifted column value.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+
+        var journal = await _repo.GetAsync(plan.Digest);
+
+        foreach (var op in journal!.Operations)
+        {
+            op.Warning.ShouldBeNull();
+            // Adjacent columns must still resolve — a wrong ordinal would surface here.
+            op.Error.ShouldBeNull();
+            op.ResultJson.ShouldBeNull();
+            op.State.ShouldBe(PlanOperationState.Planned);
+        }
+    }
+
     // ─── SaveOperationResult contract (Applied-only, writes result_json only) ────
 
     [Fact]

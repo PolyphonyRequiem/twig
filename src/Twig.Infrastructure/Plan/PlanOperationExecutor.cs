@@ -261,18 +261,19 @@ internal sealed class PlanOperationExecutor
             {
                 // Plan asked to clear the field; a genuine clear means absent OR empty in
                 // both the canonical property (if any) and the arbitrary Fields dictionary.
+                //
+                // 🔴 A requested CLEAR is never warning-verified, not even on a
+                // server-generated field. Spec #753 downgrades a difference only when the
+                // refreshed read PROVES the intended mutation landed — and a clear that did
+                // not take is precisely an unproven mutation, not ADO bookkeeping. Treating
+                // it as normalization would report "cleared" for a field that still holds a
+                // value, which is the false-green class this whole spec exists to abolish.
                 if (string.IsNullOrEmpty(actual))
                     continue;
-                if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
-                {
-                    normalizations.Add(new PlanReadbackNormalization(
-                        kv.Key, "(cleared)", actual, NormalizationKind.ServerGenerated));
-                    continue;
-                }
                 return PlanReadbackOutcome.Indeterminate(
                     $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
             }
-            var match = await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
+            var match = await ClassifyReadbackFieldAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
             if (match == FieldMatch.Exact)
                 continue;
             if (match == FieldMatch.NormalizedHtml)
@@ -308,14 +309,14 @@ internal sealed class PlanOperationExecutor
         if (normalizations.Count == 0)
             return PlanReadbackOutcome.VerifiedWith(resultJson);
 
-        // Terminal-outcome coupling: warning-verification is permitted only when the batch's
-        // requested lifecycle state is itself proven on the refreshed item. Every non-generated
-        // field already matched above, so this is the explicit restatement of the spec's
-        // "required terminal values landed" condition.
-        if (!ServerGeneratedFieldPolicy.RequestedLifecycleStateLanded(batch, item))
-            return PlanReadbackOutcome.Indeterminate(
-                "Field System.State did not reflect the expected value.");
-
+        // Terminal-outcome coupling. System.State and Custom.TerminalOutcome are NOT in the
+        // server-generated set, so a batch whose lifecycle transition did not land already
+        // returned Indeterminate inside the loop above — that is where the strictness lives,
+        // and a second runtime re-check here would be unreachable code masquerading as a
+        // guard. What actually protects the coupling is that the generated set can never
+        // acquire a lifecycle field; ServerGeneratedFieldPolicy asserts exactly that as a
+        // static invariant (see TerminalContractFieldsAreNeverServerGenerated), so a future
+        // addition breaks a test rather than silently downgrading a close.
         if (!ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, normalizations))
             return PlanReadbackOutcome.Indeterminate(
                 "Readback observed differences the normalization policy cannot explain.");
@@ -357,7 +358,7 @@ internal sealed class PlanOperationExecutor
         NormalizedHtml,
     }
 
-    private async Task<FieldMatch> ReadbackFieldMatchesAsync(
+    private async Task<FieldMatch> ClassifyReadbackFieldAsync(
         string? actual,
         string referenceName,
         string expected,

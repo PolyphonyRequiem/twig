@@ -1348,6 +1348,101 @@ public sealed class PlanOperationExecutorTests
         outcome.Warning.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task ReadbackBatch_ClearOfServerGeneratedFieldThatDidNotTake_IsNotWarningVerified()
+    {
+        // A requested CLEAR is an intent that must be PROVEN, not excused. Even on a
+        // server-generated field, a value still present means the mutation did not land —
+        // reporting that as a normalized success would be the exact false green Spec #753
+        // exists to abolish.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "clear",
+            WorkItemId = 7,
+            ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Microsoft.VSTS.Common.ClosedDate"] = null,
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("cleared");
+    }
+
+    // ── AB#754: the terminal contract is protected STATICALLY ──────────────────
+
+    [Fact]
+    public void TerminalContractFieldsAreNeverServerGenerated()
+    {
+        // Spec #753 user story 7: "System.State=Done and Custom.TerminalOutcome=completed
+        // remain an atomic, strict terminal contract."
+        //
+        // That contract holds because neither field is server-generated, so a batch whose
+        // transition did not land fails strict comparison before normalization is ever
+        // considered. This test is the guard on that reasoning: adding a lifecycle field to
+        // the generated set would silently let a close be warning-verified without the
+        // transition having landed, and it must break here instead.
+        foreach (var field in ServerGeneratedFieldPolicy.TerminalContractFields)
+        {
+            ServerGeneratedFieldPolicy.IsServerGenerated(field).ShouldBeFalse(
+                $"{field} is part of the strict terminal contract and must never be " +
+                "excusable as server-generated normalization.");
+        }
+    }
+
+    [Fact]
+    public void OnlyExplainedDifferencesRemain_RejectsANormalizationTheBatchNeverRequested()
+    {
+        // Defence in depth against a future caller recording a difference on a field the
+        // plan did not ask for — that is not this batch's business and must never justify
+        // verifying it.
+        var batch = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 1,
+            ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Done" },
+        };
+        var stray = new[]
+        {
+            new PlanReadbackNormalization(
+                "Microsoft.VSTS.Common.ClosedDate", "x", "y", NormalizationKind.ServerGenerated),
+        };
+
+        ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, stray).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void OnlyExplainedDifferencesRemain_RejectsAServerGeneratedClaimOutsideTheJustifiedSet()
+    {
+        // A ServerGenerated classification must still satisfy the justified set; the kind
+        // label alone is not evidence.
+        var batch = new BatchOperation
+        {
+            Id = "b",
+            WorkItemId = 1,
+            ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["Custom.TerminalOutcome"] = "completed" },
+        };
+        var mislabelled = new[]
+        {
+            new PlanReadbackNormalization(
+                "Custom.TerminalOutcome", "completed", "abandoned", NormalizationKind.ServerGenerated),
+        };
+
+        ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, mislabelled).ShouldBeFalse();
+    }
+
     private static StagedAlias MakeAlias(int negative)
     {
         StagedAlias.TryFrom(negative, out var alias).ShouldBeTrue();

@@ -471,7 +471,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         PlanOperationState fromState,
         PlanOperationState toState,
         DateTimeOffset timestamp,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? warning = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
@@ -479,12 +480,19 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
+        // AB#754/755: the warning is written by THIS statement, inside the same conditional
+        // UPDATE that performs the state transition. It is not a separate write ordered
+        // before the CAS — that shape could leave warning text stranded on a row whose CAS
+        // was then lost and which a different actor terminalised as Failed/Indeterminate.
+        // COALESCE preserves an existing warning when a caller passes null, so a transition
+        // that carries no warning never erases one an earlier transition recorded.
         cmd.CommandText = """
             UPDATE plan_operations
             SET state = @toState,
                 started_at  = CASE WHEN @toState = @applyingState THEN @timestamp ELSE started_at  END,
                 applied_at  = CASE WHEN @toState = @appliedState  THEN @timestamp ELSE applied_at  END,
-                verified_at = CASE WHEN @toState = @verifiedState THEN @timestamp ELSE verified_at END
+                verified_at = CASE WHEN @toState = @verifiedState THEN @timestamp ELSE verified_at END,
+                warning     = COALESCE(@warning, warning)
             WHERE digest = @digest
               AND op_id = @opId
               AND state = @fromState
@@ -495,6 +503,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@fromState", fromState.ToString());
         cmd.Parameters.AddWithValue("@toState", toState.ToString());
         cmd.Parameters.AddWithValue("@timestamp", FormatTimestamp(timestamp));
+        cmd.Parameters.AddWithValue("@warning", (object?)warning ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@applyingState", PlanOperationState.Applying.ToString());
         cmd.Parameters.AddWithValue("@appliedState", PlanOperationState.Applied.ToString());
         cmd.Parameters.AddWithValue("@verifiedState", PlanOperationState.Verified.ToString());
@@ -597,39 +606,6 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
 
         var changed = cmd.ExecuteNonQuery();
         return Task.FromResult(changed > 0);
-    }
-
-    /// <summary>
-    /// Applied-only warning write (AB#754). Same shape and same reasoning as
-    /// <see cref="SaveOperationResultAsync"/>: no state change, no timestamp, silent no-op on
-    /// any row that is not currently Applied. Callers write this BEFORE the Applied → Verified
-    /// CAS so a Verified row carries its warning atomically-enough for status to read it.
-    /// </summary>
-    public Task SaveOperationWarningAsync(
-        string digest,
-        string opId,
-        string? warning,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(digest);
-        ArgumentException.ThrowIfNullOrEmpty(opId);
-
-        var conn = _store.GetConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = """
-            UPDATE plan_operations
-            SET warning = @warning
-            WHERE digest = @digest
-              AND op_id = @opId
-              AND state = @applied;
-            """;
-        cmd.Parameters.AddWithValue("@digest", digest);
-        cmd.Parameters.AddWithValue("@opId", opId);
-        cmd.Parameters.AddWithValue("@applied", PlanOperationState.Applied.ToString());
-        cmd.Parameters.AddWithValue("@warning", (object?)warning ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
-        return Task.CompletedTask;
     }
 
     public Task SaveOperationErrorAsync(

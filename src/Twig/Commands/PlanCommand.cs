@@ -284,22 +284,37 @@ public sealed class PlanCommand(
                 result.Failed ? $"plan apply: failed  digest={result.Digest}" : $"plan apply: ok  digest={result.Digest}",
                 result.Failed ? Severity.Error : Severity.Success),
         };
-        foreach (var op in result.Operations)
+        AppendOperationLines(result.Operations, lines);
+        if (!string.IsNullOrEmpty(result.Error))
+            lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
+        return lines;
+    }
+
+    /// <summary>
+    /// Renders the per-operation journal rows shared by <c>plan apply</c> and
+    /// <c>plan status</c> human output. Both surfaces render an operation identically by
+    /// contract — a row that reads one way after apply must read the same way on a later
+    /// status — so they share one writer rather than two hunks that can drift.
+    /// <para>
+    /// AB#754/755: a warning is its own indented line at <see cref="Severity.Warning"/>,
+    /// never appended to the state line and never rendered as an error. It is additive
+    /// detail on a row that is already <c>Verified</c>; a Verified operation must not read
+    /// as failed merely because ADO normalized a field it owns.
+    /// </para>
+    /// </summary>
+    private static void AppendOperationLines(
+        IReadOnlyList<PlanJournalOperation> operations,
+        List<RenderNode> lines)
+    {
+        foreach (var op in operations)
         {
             var line = $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}";
             if (!string.IsNullOrEmpty(op.Error))
                 line += $"  ({op.Error})";
             lines.Add(new RenderNode.Text(line));
-            // AB#754: a warning rides alongside a Verified row rather than replacing its
-            // state, so it is rendered as its own indented line at Warning severity — a
-            // Verified operation must never read as failed just because ADO normalized a
-            // field it owns.
             if (!string.IsNullOrEmpty(op.Warning))
                 lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
         }
-        if (!string.IsNullOrEmpty(result.Error))
-            lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
-        return lines;
     }
 
     // ── status ────────────────────────────────────────────────────────
@@ -326,17 +341,7 @@ public sealed class PlanCommand(
             new RenderNode.Text($"digest: {result.Digest ?? "(none)"}"),
             new RenderNode.Text($"state:  {result.State?.ToString() ?? "(none)"}"),
         };
-        foreach (var op in result.Operations)
-        {
-            var line = $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}";
-            if (!string.IsNullOrEmpty(op.Error))
-                line += $"  ({op.Error})";
-            lines.Add(new RenderNode.Text(line));
-            // AB#754: same contract as apply — the warning is additive detail on a row whose
-            // state is already Verified, never a substitute for that state.
-            if (!string.IsNullOrEmpty(op.Warning))
-                lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
-        }
+        AppendOperationLines(result.Operations, lines);
         if (!string.IsNullOrEmpty(result.Error))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
         return lines;

@@ -143,37 +143,24 @@ internal static class ServerGeneratedFieldPolicy
     }
 
     /// <summary>
-    /// True when <paramref name="item"/> proves the batch's requested lifecycle state landed.
-    /// A batch that did not name <c>System.State</c> trivially satisfies this — there was no
-    /// lifecycle intent to prove. A batch that DID name it must observe exactly that state on
-    /// the refreshed item.
+    /// The lifecycle/terminal-contract fields whose equality this policy must NEVER be able
+    /// to excuse. Spec #753 user story 7: "System.State=Done and Custom.TerminalOutcome=
+    /// completed remain an atomic, strict terminal contract."
+    /// <para>
+    /// Keeping the coupling honest is a STATIC property, not a runtime branch: because none
+    /// of these is server-generated, a batch whose transition did not land fails strict
+    /// comparison in the executor's field loop long before any normalization is considered.
+    /// The danger is not a missing runtime check — it is a future edit quietly adding a
+    /// lifecycle-adjacent field to <see cref="ServerGeneratedFields"/>. This set exists so
+    /// that edit breaks a test instead.
+    /// </para>
     /// </summary>
-    internal static bool RequestedLifecycleStateLanded(BatchOperation batch, WorkItem item)
-    {
-        if (!TryGetRequestedState(batch, out var requested))
-            return true;
-        if (requested is null)
-            return string.IsNullOrEmpty(item.State);
-
-        if (string.Equals(item.State, requested, StringComparison.Ordinal))
-            return true;
-        return item.Fields.TryGetValue("System.State", out var mirrored)
-            && string.Equals(mirrored, requested, StringComparison.Ordinal);
-    }
-
-    private static bool TryGetRequestedState(BatchOperation batch, out string? requested)
-    {
-        foreach (var kv in batch.Fields)
+    internal static readonly IReadOnlySet<string> TerminalContractFields =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            if (string.Equals(kv.Key, "System.State", StringComparison.OrdinalIgnoreCase))
-            {
-                requested = kv.Value;
-                return true;
-            }
-        }
-        requested = null;
-        return false;
-    }
+            "System.State",
+            "Custom.TerminalOutcome",
+        };
 }
 
 /// <summary>

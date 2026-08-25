@@ -248,8 +248,12 @@ internal sealed class PlanOperationExecutor
     private async Task<PlanReadbackOutcome> ReadbackBatchAsync(BatchOperation batch, CancellationToken ct)
     {
         var item = await _adoService.FetchAsync(batch.WorkItemId, ct).ConfigureAwait(false);
+        // Missing / stale / non-advanced readback stays Indeterminate and NEVER reaches the
+        // server-generated warning policy — an unproven mutation cannot be warning-verified.
         if (item.Revision <= batch.ExpectedRevision)
             return PlanReadbackOutcome.Indeterminate("Server revision did not advance past the expected revision.");
+
+        var normalizations = new List<ServerGeneratedNormalization>();
         foreach (var kv in batch.Fields)
         {
             var actual = ResolveBatchField(item, kv.Key);
@@ -257,15 +261,68 @@ internal sealed class PlanOperationExecutor
             {
                 // Plan asked to clear the field; a genuine clear means absent OR empty in
                 // both the canonical property (if any) and the arbitrary Fields dictionary.
-                if (!string.IsNullOrEmpty(actual))
-                    return PlanReadbackOutcome.Indeterminate(
-                        $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
+                if (string.IsNullOrEmpty(actual))
+                    continue;
+                if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
+                {
+                    normalizations.Add(new ServerGeneratedNormalization(kv.Key, "(cleared)", actual));
+                    continue;
+                }
+                return PlanReadbackOutcome.Indeterminate(
+                    $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
+            }
+            if (await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false))
+                continue;
+
+            // AB#754: a difference on a field ADO's own revision machinery owns is a
+            // normalization, not a contradiction — but ONLY as warning detail riding
+            // alongside a Verified outcome, and only once every user-authored field in this
+            // same batch has already compared equal (a genuine scalar mismatch below returns
+            // Indeterminate before we ever finish the loop).
+            if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
+            {
+                normalizations.Add(new ServerGeneratedNormalization(kv.Key, kv.Value, actual));
                 continue;
             }
-            if (!await ReadbackFieldMatchesAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false))
-                return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
+
+            return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
         }
-        return PlanReadbackOutcome.VerifiedWith(SerializeReadbackRevision(item.Revision));
+
+        var resultJson = SerializeReadbackRevision(item.Revision);
+        if (normalizations.Count == 0)
+            return PlanReadbackOutcome.VerifiedWith(resultJson);
+
+        // Terminal-outcome coupling: warning-verification is permitted only when the batch's
+        // requested lifecycle state is itself proven on the refreshed item. Every non-generated
+        // field already matched above, so this is the explicit restatement of the spec's
+        // "required terminal values landed" condition.
+        if (!ServerGeneratedFieldPolicy.RequestedLifecycleStateLanded(batch, item))
+            return PlanReadbackOutcome.Indeterminate(
+                "Field System.State did not reflect the expected value.");
+
+        if (!ServerGeneratedFieldPolicy.OnlyServerGeneratedDiffered(
+                batch, normalizations.Select(n => n.ReferenceName).ToList()))
+            return PlanReadbackOutcome.Indeterminate(
+                "Readback observed differences outside the server-generated field set.");
+
+        return PlanReadbackOutcome.VerifiedWithWarning(
+            resultJson, ServerGeneratedFieldPolicy.FormatWarning(normalizations));
+    }
+
+    /// <summary>
+    /// Field-aware server-ownership evidence. The reference name must be in the justified
+    /// server-generated set AND the process must actually declare the field (the same
+    /// <see cref="IFieldDefinitionStore"/> the html path consults), so a plan naming a field
+    /// this workspace does not have cannot be warning-verified into a false success.
+    /// </summary>
+    private async Task<bool> IsServerGeneratedFieldAsync(string referenceName, CancellationToken ct)
+    {
+        if (!ServerGeneratedFieldPolicy.IsServerGenerated(referenceName))
+            return false;
+        var definition = await _fieldDefinitionStore
+            .GetByReferenceNameAsync(referenceName, ct)
+            .ConfigureAwait(false);
+        return definition is not null;
     }
 
     private async Task<bool> ReadbackFieldMatchesAsync(
@@ -480,15 +537,24 @@ internal enum PlanExecutionOutcome
 /// lifecycle threads that value into the atomic Applying → Applied record so a recovered
 /// Verified row is never left with a NULL result_json — CLI/MCP status reads the raw
 /// column and would otherwise misreport a proven-verified operation as resultless.
+/// <para>
+/// <see cref="Warning"/> (AB#754) is non-null ONLY on an <see cref="Ok"/> outcome and carries
+/// the server-generated normalization detail. It is deliberately NOT a state: <c>Verified</c>
+/// remains the sole landed-success state, and the warning rides alongside it into the journal
+/// row so CLI/MCP can render it without a fourth terminal classification.
+/// </para>
 /// </summary>
 internal readonly record struct PlanReadbackOutcome(
     bool Ok,
     bool Deterministic,
     string? Error,
-    string? ResultJson)
+    string? ResultJson,
+    string? Warning)
 {
     public static PlanReadbackOutcome VerifiedWith(string resultJson) =>
-        new(true, true, null, resultJson);
-    public static PlanReadbackOutcome Failed(string error) => new(false, true, error, null);
-    public static PlanReadbackOutcome Indeterminate(string error) => new(false, false, error, null);
+        new(true, true, null, resultJson, null);
+    public static PlanReadbackOutcome VerifiedWithWarning(string resultJson, string warning) =>
+        new(true, true, null, resultJson, warning);
+    public static PlanReadbackOutcome Failed(string error) => new(false, true, error, null, null);
+    public static PlanReadbackOutcome Indeterminate(string error) => new(false, false, error, null, null);
 }

@@ -36,4 +36,17 @@ public sealed record PlanJournalOperation
 
     /// <summary>Failure message captured on Failed/Indeterminate.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// Non-fatal detail captured alongside a <see cref="PlanOperationState.Verified"/>
+    /// outcome (AB#754). Today this names the server-generated fields ADO rewrote after the
+    /// PATCH — the intended mutation is proven landed, but a generated timestamp or identity
+    /// field does not equal the authored value.
+    /// <para>
+    /// It is deliberately a separate column from <see cref="Error"/>: a warning never implies
+    /// a non-Verified state, and overloading <c>Error</c> would make a successful operation
+    /// read as a failed one to every consumer that tests <c>Error is not null</c>.
+    /// </para>
+    /// </summary>
+    public string? Warning { get; init; }
 }

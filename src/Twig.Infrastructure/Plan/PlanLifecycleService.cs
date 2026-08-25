@@ -575,7 +575,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 {
                     case BatchOperation completedBatch when gate.Snapshot is not null:
                         carry[completedBatch.WorkItemId] =
-                            ProjectPostBatchSnapshot(gate.Snapshot, completedBatch, newRev);
+                            _workItemMapper.ProjectFields(gate.Snapshot, completedBatch.Fields, newRev);
                         break;
                     case AddLinkOperation add when TryGetCarriedPreOp(carry, add.WorkItemId, add.ExpectedRevision, out var addPreOp):
                         carry[add.WorkItemId] = ProjectPostLinkSnapshot(addPreOp, add.Relation, add.OtherId, newRev, added: true);
@@ -894,52 +894,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         return new GateEvaluation(outcome, snapshot);
     }
 
-    /// <summary>
-    /// Projects the post-op authoritative state for a batch that reached
-    /// <see cref="PlanOperationState.Verified"/>: the pre-op snapshot with the batch's
-    /// field/state overlay applied and the revision moved to the server's reported
-    /// <paramref name="newRevision"/>. Same-item ops later in the same apply consume this
-    /// projection directly — see AB#721.
-    /// </summary>
-    private static WorkItemSnapshot ProjectPostBatchSnapshot(
-        WorkItemSnapshot preOp,
-        BatchOperation batch,
-        int newRevision)
-    {
-        var projected = new Dictionary<string, string?>(preOp.Fields, StringComparer.OrdinalIgnoreCase);
-        string? projectedTitle = preOp.Title;
-        string? projectedState = preOp.State;
-        string? projectedAssignedTo = preOp.AssignedTo;
-        string? projectedIterationPath = preOp.IterationPath;
-        string? projectedAreaPath = preOp.AreaPath;
 
-        foreach (var kv in batch.Fields)
-        {
-            projected[kv.Key] = kv.Value;
-            if (string.Equals(kv.Key, "System.Title", StringComparison.OrdinalIgnoreCase))
-                projectedTitle = kv.Value;
-            else if (string.Equals(kv.Key, "System.State", StringComparison.OrdinalIgnoreCase))
-                projectedState = kv.Value;
-            else if (string.Equals(kv.Key, "System.AssignedTo", StringComparison.OrdinalIgnoreCase))
-                projectedAssignedTo = kv.Value;
-            else if (string.Equals(kv.Key, "System.IterationPath", StringComparison.OrdinalIgnoreCase))
-                projectedIterationPath = kv.Value;
-            else if (string.Equals(kv.Key, "System.AreaPath", StringComparison.OrdinalIgnoreCase))
-                projectedAreaPath = kv.Value;
-        }
-        projected["System.Rev"] = newRevision.ToString(CultureInfo.InvariantCulture);
-
-        return preOp with
-        {
-            Revision = newRevision,
-            Title = projectedTitle ?? string.Empty,
-            State = projectedState ?? string.Empty,
-            AssignedTo = projectedAssignedTo,
-            IterationPath = projectedIterationPath,
-            AreaPath = projectedAreaPath,
-            Fields = projected,
-        };
-    }
 
     private static bool TryGetCarriedPreOp(
         IReadOnlyDictionary<int, WorkItemSnapshot> carry,

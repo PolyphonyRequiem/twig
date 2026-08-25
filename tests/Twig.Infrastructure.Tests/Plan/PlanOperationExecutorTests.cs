@@ -160,6 +160,11 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
+        // AB#755: equivalence is not enough — the normalization must be RECORDED, or the
+        // ledger silently loses the fact that ADO rewrote the markup.
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain("System.Description");
+        outcome.Warning.ShouldContain("canonicalized HTML");
         await _fieldDefinitions.Received(1).GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>());
     }
 
@@ -183,6 +188,8 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain("Custom.WayfinderAnswer");
         await _fieldDefinitions.Received(1).GetByReferenceNameAsync("Custom.WayfinderAnswer", Arg.Any<CancellationToken>());
     }
 
@@ -1215,6 +1222,129 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlAndScalarTogether_VerifiesWithBothWarningKinds()
+    {
+        // AB#755's integration point with AB#754: one batch carrying BOTH a canonicalized
+        // HTML field and a server-generated stamp must verify once, with a single warning
+        // naming both — not two mechanisms racing, and not one kind silently dropped.
+        StubFieldDefinition("System.Description", "html");
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "mixed",
+            WorkItemId = 9,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                ["System.Description"] = "<p class=\"x\">Body &amp; tail</p>",
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 9, Title = "T" };
+        wi.MarkSynced(3);
+        wi.ChangeState("Done");
+        wi.UpdateField("System.Description", "<P class='x'>Body &#38; tail</P>");
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(9, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain("System.Description");
+        outcome.Warning.ShouldContain("Microsoft.VSTS.Common.ClosedDate");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlNormalizedButScalarMismatched_RemainsNonVerified()
+    {
+        // Strictness survives the HTML extension: an equivalent description must NOT drag a
+        // genuinely contradicted scalar across the line with it.
+        StubFieldDefinition("System.Description", "html");
+        StubFieldDefinition("Custom.TerminalOutcome", "string");
+        var op = new BatchOperation
+        {
+            Id = "mixed",
+            WorkItemId = 9,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.Description"] = "<p class=\"x\">Body</p>",
+                ["Custom.TerminalOutcome"] = "completed",
+            },
+        };
+        var wi = new WorkItem { Id = 9, Title = "T" };
+        wi.MarkSynced(3);
+        wi.UpdateField("System.Description", "<P class='x'>Body</P>");
+        wi.UpdateField("Custom.TerminalOutcome", "abandoned");
+        _ado.FetchAsync(9, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("Custom.TerminalOutcome");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlNormalizedButStaleReadback_RemainsIndeterminate()
+    {
+        // The unavailable/unproven guard sits ABOVE the comparator for HTML exactly as it
+        // does for server-generated stamps: no revision advance, no warning-verify.
+        StubFieldDefinition("System.Description", "html");
+        var op = new BatchOperation
+        {
+            Id = "html",
+            WorkItemId = 9,
+            ExpectedRevision = 3,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.Description"] = "<p class=\"x\">Body</p>",
+            },
+        };
+        var wi = new WorkItem { Id = 9, Title = "T" };
+        wi.MarkSynced(3); // did NOT advance
+        wi.UpdateField("System.Description", "<P class='x'>Body</P>");
+        _ado.FetchAsync(9, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlAttributeValueChanged_RemainsNonVerified()
+    {
+        // "Structurally equivalent" must not mean "same tags": a changed ATTRIBUTE VALUE is
+        // a content change and stays a contradiction. Guards against a comparer that only
+        // compares element names.
+        StubFieldDefinition("System.Description", "html");
+        var op = new BatchOperation
+        {
+            Id = "html",
+            WorkItemId = 9,
+            ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.Description"] = "<a href=\"https://example.test/a\">Link</a>",
+            },
+        };
+        var wi = new WorkItem { Id = 9, Title = "T" };
+        wi.MarkSynced(3);
+        wi.UpdateField("System.Description", "<a href=\"https://example.test/b\">Link</a>");
+        _ado.FetchAsync(9, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
         outcome.Warning.ShouldBeNull();
     }
 

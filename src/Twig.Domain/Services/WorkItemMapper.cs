@@ -1,3 +1,4 @@
+using System.Globalization;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
@@ -76,6 +77,51 @@ public sealed class WorkItemMapper
             LastSyncedAt = item.LastSyncedAt,
             IsDirty = item.IsDirty,
             Fields = item.Fields,
+        };
+    }
+
+    /// <summary>
+    /// Projects authored field changes over an immutable snapshot and advances its revision.
+    /// Canonical fields update both their typed properties and the case-insensitive field map
+    /// so every downstream reader observes one value.
+    /// </summary>
+    internal WorkItemSnapshot ProjectFields(
+        WorkItemSnapshot source,
+        IReadOnlyDictionary<string, string?> changes,
+        int newRevision)
+    {
+        var projected = new Dictionary<string, string?>(source.Fields, StringComparer.OrdinalIgnoreCase);
+        string? title = source.Title;
+        string? state = source.State;
+        string? assignedTo = source.AssignedTo;
+        string? iterationPath = source.IterationPath;
+        string? areaPath = source.AreaPath;
+
+        foreach (var change in changes)
+        {
+            projected[change.Key] = change.Value;
+            if (string.Equals(change.Key, "System.Title", StringComparison.OrdinalIgnoreCase))
+                title = change.Value;
+            else if (string.Equals(change.Key, "System.State", StringComparison.OrdinalIgnoreCase))
+                state = change.Value;
+            else if (string.Equals(change.Key, "System.AssignedTo", StringComparison.OrdinalIgnoreCase))
+                assignedTo = change.Value;
+            else if (string.Equals(change.Key, "System.IterationPath", StringComparison.OrdinalIgnoreCase))
+                iterationPath = change.Value;
+            else if (string.Equals(change.Key, "System.AreaPath", StringComparison.OrdinalIgnoreCase))
+                areaPath = change.Value;
+        }
+        projected["System.Rev"] = newRevision.ToString(CultureInfo.InvariantCulture);
+
+        return source with
+        {
+            Revision = newRevision,
+            Title = title ?? string.Empty,
+            State = state ?? string.Empty,
+            AssignedTo = assignedTo,
+            IterationPath = iterationPath,
+            AreaPath = areaPath,
+            Fields = projected,
         };
     }
 

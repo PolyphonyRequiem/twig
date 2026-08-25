@@ -44,6 +44,31 @@ public sealed class AdoResponseMapperTests
     }
 
     [Fact]
+    public void MapToAuthoritativeSnapshot_RetainsSystemFieldsExcludedFromCacheProjection()
+    {
+        // Plan gates evaluate makeRequired rules. System.AreaId is normally omitted from the
+        // cache projection, but it is a known populated server field and must not look empty
+        // to an authoritative rule snapshot.
+        var dto = CreateWorkItemDto(id: 42, rev: 5, type: "Task", title: "Gate", state: "Doing");
+        dto.Fields!["System.AreaId"] = JsonElement(123);
+
+        var result = AdoResponseMapper.MapToAuthoritativeSnapshot(dto);
+
+        result.Fields["System.AreaId"].ShouldBe("123");
+    }
+
+    [Fact]
+    public void MapToAuthoritativeSnapshot_MissingFieldsPayload_IsUnknown()
+    {
+        var dto = new AdoWorkItemResponse { Id = 42, Rev = 5, Fields = null };
+
+        var error = Should.Throw<InvalidOperationException>(
+            () => AdoResponseMapper.MapToAuthoritativeSnapshot(dto));
+
+        error.Message.ShouldContain("no fields payload");
+    }
+
+    [Fact]
     public void MapToSnapshot_WithParentRelation_ExtractsParentId()
     {
         var dto = CreateWorkItemDto(id: 100, rev: 1, type: "Task", title: "Sub task", state: "New");

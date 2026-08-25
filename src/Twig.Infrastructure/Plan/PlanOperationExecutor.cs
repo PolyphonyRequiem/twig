@@ -108,6 +108,14 @@ internal sealed class PlanOperationExecutor
             // asked for an impossible edit fails loudly instead of drifting to Indeterminate.
             return PlanExecutionResult.Failure(ex.Message);
         }
+        catch (AdoBadRequestException ex) when (operation is not PublishSeedOperation)
+        {
+            // ADO rejected this operation's sole request before applying it. Publish-seed
+            // is multi-step and remains indeterminate so intent/map readback can reconcile
+            // a remote item created before a later bad request.
+            return PlanExecutionResult.Failure(ex.Message);
+        }
+
         catch (AdoNotFoundException ex)
         {
             // For an operation whose plan named the item, 404 is a plan-level determinate
@@ -124,6 +132,7 @@ internal sealed class PlanOperationExecutor
             // readback can settle whether it did.
             return PlanExecutionResult.Indeterminate(ex.Message);
         }
+
     }
 
     private async Task<PlanExecutionResult> ExecuteBatchAsync(BatchOperation batch, CancellationToken ct)
@@ -134,7 +143,7 @@ internal sealed class PlanOperationExecutor
 
         var newRev = await _adoService.PatchAsync(batch.WorkItemId, changes, batch.ExpectedRevision, ct)
             .ConfigureAwait(false);
-        return PlanExecutionResult.Success(SerializeRevision(newRev));
+        return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteAddLinkAsync(AddLinkOperation add, CancellationToken ct)
@@ -144,7 +153,7 @@ internal sealed class PlanOperationExecutor
 
         var newRev = await _revisionBound.AddLinkAtRevisionAsync(
             add.WorkItemId, adoRelation, add.OtherId, add.ExpectedRevision, ct).ConfigureAwait(false);
-        return PlanExecutionResult.Success(SerializeRevision(newRev));
+        return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteRemoveLinkAsync(RemoveLinkOperation remove, CancellationToken ct)
@@ -154,7 +163,7 @@ internal sealed class PlanOperationExecutor
 
         var newRev = await _revisionBound.RemoveLinkAtRevisionAsync(
             remove.WorkItemId, adoRelation, remove.OtherId, remove.ExpectedRevision, ct).ConfigureAwait(false);
-        return PlanExecutionResult.Success(SerializeRevision(newRev));
+        return PlanExecutionResult.Success(SerializeRevision(newRev), newRev);
     }
 
     private async Task<PlanExecutionResult> ExecuteDeleteAsync(DeleteOperation delete, CancellationToken ct)
@@ -399,27 +408,36 @@ internal sealed class PlanOperationExecutor
 /// Result of a single execute pass. The lifecycle service maps this into the corresponding
 /// journal transition.
 /// </summary>
+/// <remarks>
+/// <see cref="NewRevision"/> carries the server revision produced by a determinate
+/// revision-bumping success (batch, add-link, remove-link) so the lifecycle can project a
+/// post-op authoritative snapshot into the same-item carry-forward map (AB#721) without
+/// re-parsing <see cref="ResultJson"/>. It is <c>null</c> on failure, indeterminate
+/// outcomes, delete, and MappedPublish paths — those never contribute to the carry.
+/// </remarks>
 internal readonly record struct PlanExecutionResult(
     PlanExecutionOutcome Outcome,
     string? ResultJson,
     string? Error,
-    int? MappedPublishId)
+    int? MappedPublishId,
+    int? NewRevision)
 {
-    public static PlanExecutionResult Success(string resultJson)
-        => new(PlanExecutionOutcome.Applied, resultJson, null, null);
+    public static PlanExecutionResult Success(string resultJson, int? newRevision = null)
+        => new(PlanExecutionOutcome.Applied, resultJson, null, null, newRevision);
 
     public static PlanExecutionResult Failure(string error)
-        => new(PlanExecutionOutcome.Failed, null, error, null);
+        => new(PlanExecutionOutcome.Failed, null, error, null, null);
 
     public static PlanExecutionResult Indeterminate(string error)
-        => new(PlanExecutionOutcome.Indeterminate, null, error, null);
+        => new(PlanExecutionOutcome.Indeterminate, null, error, null, null);
 
     public static PlanExecutionResult MappedPublish(int newId)
         => new(
             PlanExecutionOutcome.MappedPublish,
             PlanOperationExecutor.SerializeMappedPublish(newId),
             null,
-            newId);
+            newId,
+            null);
 }
 
 internal enum PlanExecutionOutcome

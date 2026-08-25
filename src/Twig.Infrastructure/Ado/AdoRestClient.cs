@@ -67,6 +67,14 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     // ── IAdoWorkItemService ─────────────────────────────────────────
 
+    public async Task<WorkItemSnapshot> FetchAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/revisions/{expectedRevision}?$expand=all&api-version={AdoApiVersions.WorkItems}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return AdoResponseMapper.MapToAuthoritativeSnapshot(dto);
+    }
+
     public async Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";

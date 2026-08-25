@@ -40,6 +40,26 @@ public sealed class AdoRestClientPatchTests
         operation.TryGetProperty("value", out _).ShouldBeFalse();
     }
 
+
+    [Fact]
+    public async Task FetchAtRevisionAsync_UsesRevisionEndpoint_AndMapsSnapshot()
+    {
+        var handler = new RevisionFetchHandler();
+        var client = CreateClient(handler);
+
+        var snapshot = await client.FetchAtRevisionAsync(645, 4);
+
+        handler.RequestUrl.ShouldNotBeNull();
+        handler.RequestUrl.ShouldContain("/workitems/645/revisions/4");
+        handler.RequestUrl.ShouldContain("$expand=all");
+
+        snapshot.Revision.ShouldBe(4);
+        snapshot.TypeName.ShouldBe("Task");
+        snapshot.Title.ShouldBe("Test");
+        snapshot.State.ShouldBe("Doing");
+        snapshot.Fields["Custom.Gated"].ShouldBe("signed");
+    }
+
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
@@ -75,6 +95,25 @@ public sealed class AdoRestClientPatchTests
             {
                 Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
             };
+        }
+    }
+
+    private sealed class RevisionFetchHandler : HttpMessageHandler
+    {
+        public string? RequestUrl { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUrl = request.RequestUri?.ToString();
+
+            const string responseJson =
+                "{\"id\":645,\"rev\":4,\"fields\":{\"System.WorkItemType\":\"Task\",\"System.Title\":\"Test\",\"System.State\":\"Doing\",\"Custom.Gated\":\"signed\"}}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
+            });
         }
     }
 }

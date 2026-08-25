@@ -147,6 +147,32 @@ public sealed class DependentFieldReconcilerTests
     }
 
     [Fact]
+    public void GetSafeClears_WhenStateChangedToWithoutTransition_PreservesField()
+    {
+        var rules = new[]
+        {
+            new ProcessRule(
+                Conditions:
+                [
+                    new RuleCondition("$whenStateChangedTo", "System.State", "Doing"),
+                ],
+                Actions:
+                [
+                    new RuleAction("$disallowValue", "Custom.Substate", "Ready"),
+                ],
+                IsDisabled: false),
+        };
+        var fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Custom.Substate"] = "Ready",
+        };
+
+        var result = DependentFieldReconciler.GetSafeClears(rules, "Doing", "Doing", fields);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void GetSafeClears_NoDependentRules_ReturnsNoChanges()
     {
         var result = DependentFieldReconciler.GetSafeClears(

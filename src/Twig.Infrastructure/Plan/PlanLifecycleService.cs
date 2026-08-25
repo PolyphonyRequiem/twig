@@ -1,10 +1,13 @@
+using System.Globalization;
 using System.Text;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+
 
 namespace Twig.Infrastructure.Plan;
 
@@ -54,9 +57,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IStagedIdentityRegistry _stagedRegistry;
     private readonly IPublishIdMapRepository _publishIdMap;
+    private readonly IRevisionBoundAdoWorkItemService _revisionBound;
+
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
+    private readonly WorkItemMapper _workItemMapper = new();
+
     private readonly TimeProvider _clock;
+    private readonly PlanProcessRuleGate _ruleGate;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton — the executor
@@ -78,6 +86,37 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock)
+        : this(
+            parser, journal, pendingReader, adoService, revisionBound, seedPublish,
+            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
+            config, paths, clock, ruleProvider: null)
+    {
+    }
+
+    /// <summary>
+    /// Composition-root overload that additionally accepts the process-rule provider used
+    /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
+    /// <see cref="PlanProcessRuleGate"/> and AB#673. Left internal because
+    /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
+    /// above stays backward-compatible and delegates in with a null provider (which the
+    /// gate treats as permit-all).
+    /// </summary>
+    internal PlanLifecycleService(
+        PlanDocumentParser parser,
+        IPlanJournalRepository journal,
+        IPendingChangeReader pendingReader,
+        IAdoWorkItemService adoService,
+        IRevisionBoundAdoWorkItemService revisionBound,
+        SeedPublishOrchestrator seedPublish,
+        IWorkItemRepository workItemRepo,
+        ISeedLinkRepository seedLinkRepo,
+        IStagedIdentityRegistry stagedRegistry,
+        IPublishIdMapRepository publishIdMap,
+        IPublishIntentRepository publishIntent,
+        TwigConfiguration config,
+        TwigPaths paths,
+        TimeProvider clock,
+        IProcessRuleProvider? ruleProvider)
     {
         _parser = parser;
         _journal = journal;
@@ -86,12 +125,15 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         _seedLinkRepo = seedLinkRepo;
         _stagedRegistry = stagedRegistry;
         _publishIdMap = publishIdMap;
+        _revisionBound = revisionBound;
+
         _config = config;
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
             adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
+        _ruleGate = new PlanProcessRuleGate(ruleProvider);
     }
 
     /// <inheritdoc />
@@ -240,6 +282,15 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         var stopTail = false;
         string? busyMessage = null;
 
+        // AB#721 authoritative-snapshot carry-forward. Each verified same-item batch
+        // projects the post-op authoritative state (revision + fields overlaid) into this
+        // map so a subsequent gate on the same work item within THIS apply reads the
+        // effective state produced by prior verified operations — never the local cache
+        // and never a redundant `_revisionBound.FetchAtRevisionAsync` round-trip. The map
+        // is per-apply: it is discarded on completion or on any busy short-circuit, so a
+        // resumed apply reloads authoritative snapshots from scratch.
+        var carry = new Dictionary<int, WorkItemSnapshot>();
+
         foreach (var row in journal.Operations)
         {
             if (stopTail)
@@ -254,14 +305,18 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 continue;
             }
 
-            var step = await StepOperationAsync(parsed.Digest, row, opDef, ct).ConfigureAwait(false);
+            var step = await StepOperationAsync(parsed.Digest, row, opDef, carry, ct).ConfigureAwait(false);
             if (step.Busy)
             {
-                // Applying-lease held by a live winner: the row is being driven to conclusion
-                // by another actor RIGHT NOW. Do NOT read back, do NOT terminalise, and do
-                // NOT touch the header — either action would race the winner's own writes and
-                // could poison a valid apply. Return a top-level busy refusal instead; the
-                // caller retries once the winner completes (or the 5-minute lease expires).
+                // Two disjoint sources produce a busy short-circuit:
+                //   • a live Applying lease held by another actor — retry once the winner
+                //     completes (or the 5-minute lease expires);
+                //   • an authoritative-snapshot precondition from the process-rule gate —
+                //     the at-revision server snapshot required for evaluation could not
+                //     be loaded, so no rule decision can be trusted.
+                // In BOTH cases: do NOT read back, do NOT terminalise, and do NOT touch
+                // the header. Return a top-level refusal so the caller retries; the plan
+                // row stays Confirmed and re-apply resumes the same journal.
                 busyMessage = step.BusyMessage;
                 stopTail = true;
                 break;
@@ -399,10 +454,19 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private static readonly TimeSpan ApplyingLeaseWindow = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Result of a single step through the per-operation pipeline. <see cref="Busy"/> signals
-    /// a live Applying lease held by another actor: the caller MUST NOT touch the row, MUST
-    /// NOT complete the header, and MUST short-circuit with a top-level busy refusal so the
-    /// operator retries once the winner completes.
+    /// Result of a single step through the per-operation pipeline. <see cref="Busy"/> is
+    /// the umbrella "do not touch the row, do not complete the header, short-circuit with a
+    /// top-level refusal" signal. Two disjoint sources produce it:
+    /// <list type="bullet">
+    /// <item>A live Applying lease held by another actor — a busy retry when the winner
+    ///   completes.</item>
+    /// <item>An authoritative-snapshot precondition from the process-rule gate — the
+    ///   at-revision server snapshot the rule set needs to evaluate a batch could not be
+    ///   loaded (transient network failure). The plan row stays Confirmed; the caller
+    ///   re-applies the same digest once ADO is reachable.</item>
+    /// </list>
+    /// Both surface via <see cref="Busy"/> because the top-level handling is identical: a
+    /// top-level refusal, no journal terminalisation, no header completion.
     /// </summary>
     private readonly record struct StepResult(PlanOperationState State, string? BusyMessage)
     {
@@ -411,6 +475,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         public static StepResult Terminal(PlanOperationState state) => new(state, null);
 
         public static StepResult Lease(string message) => new(PlanOperationState.Applying, message);
+
+        /// <summary>
+        /// Retryable precondition (AB#673, AB#719): row remains at Confirmed on the
+        /// caller's side — this method never persists any state transition for a
+        /// precondition.
+        /// </summary>
+        public static StepResult NeedsRefresh(string message)
+            => new(PlanOperationState.Confirmed, message);
     }
 
     /// <summary>
@@ -427,6 +499,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string digest,
         PlanJournalOperation row,
         PlanOperationDefinition opDef,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         // Fast paths: already terminal.
@@ -438,6 +511,25 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         if (currentState == PlanOperationState.Confirmed)
         {
+            // Runtime process-gate outcome (AB#673, AB#719, AB#721):
+            //   • Refused → terminal Failed BEFORE the wire attempt. The row never claims
+            //     Applying and the executor is never called for this op.
+            //   • NeedsRefresh → retryable precondition. The authoritative expected-
+            //     revision snapshot required to evaluate the rule set could not be
+            //     loaded. Leave the row at Confirmed, do NOT terminalise, and surface a
+            //     top-level refusal so the caller retries the same digest.
+            var gate = await EvaluateProcessRuleGateAsync(opDef, carry, ct).ConfigureAwait(false);
+            if (gate.Outcome.IsRefused)
+            {
+                return StepResult.Terminal(await MarkTerminalAsync(
+                    digest, row.OpId, gate.Outcome.Message!, PlanOperationState.Failed, ct)
+                    .ConfigureAwait(false));
+            }
+            if (gate.Outcome.IsRefreshRequired)
+            {
+                return StepResult.NeedsRefresh(gate.Outcome.Message!);
+            }
+
             // Persist Applying BEFORE the ADO call — the transition is the durable evidence
             // that the operation was attempted.
             var moved = await _journal.TryTransitionOperationAsync(
@@ -450,7 +542,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 // route off the persisted state. If the reload observes a fresh Applying
                 // lease held by the winner, this returns busy without any readback or
                 // termination.
-                return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, ct).ConfigureAwait(false);
+                return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
             }
 
             var applyResult = await _executor.ExecuteAsync(opDef, ct).ConfigureAwait(false);
@@ -458,18 +550,43 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             // Applied / MappedPublish: atomic Applying → Applied+result. Failed: terminal
             // Failed. Indeterminate: readback while still Applying — a proven effect still
             // walks Applied+Verified via the atomic record; anything else terminalises.
-            return applyResult.Outcome switch
+            var stepResult = applyResult.Outcome switch
             {
                 PlanExecutionOutcome.Applied or PlanExecutionOutcome.MappedPublish
-                    => await RecordAppliedAndVerifyAsync(digest, row.OpId, opDef, applyResult, ct)
+                    => await RecordAppliedAndVerifyAsync(digest, row.OpId, opDef, applyResult, carry, ct)
                         .ConfigureAwait(false),
                 PlanExecutionOutcome.Failed
                     => StepResult.Terminal(await MarkTerminalAsync(
                         digest, row.OpId, applyResult.Error!, PlanOperationState.Failed, ct)
                         .ConfigureAwait(false)),
-                _ => await ResolveIndeterminateExecuteAsync(digest, row.OpId, opDef, applyResult, ct)
+                _ => await ResolveIndeterminateExecuteAsync(digest, row.OpId, opDef, applyResult, carry, ct)
                         .ConfigureAwait(false),
             };
+
+            // AB#721: only a clean Verified operation with the executor's own NewRevision
+            // may advance the carry. A verified batch projects its authored field overlay;
+            // a verified link advances an existing same-item snapshot (and parent state when
+            // applicable). Crash-recovery and indeterminate-then-readback paths deliberately
+            // do not populate because the executor never proved its own write shape landed.
+            if (stepResult.State == PlanOperationState.Verified
+                && applyResult.NewRevision is int newRev)
+            {
+                switch (opDef)
+                {
+                    case BatchOperation completedBatch when gate.Snapshot is not null:
+                        carry[completedBatch.WorkItemId] =
+                            _workItemMapper.ProjectFields(gate.Snapshot, completedBatch.Fields, newRev);
+                        break;
+                    case AddLinkOperation add when TryGetCarriedPreOp(carry, add.WorkItemId, add.ExpectedRevision, out var addPreOp):
+                        carry[add.WorkItemId] = ProjectPostLinkSnapshot(addPreOp, add.Relation, add.OtherId, newRev, added: true);
+                        break;
+                    case RemoveLinkOperation remove when TryGetCarriedPreOp(carry, remove.WorkItemId, remove.ExpectedRevision, out var removePreOp):
+                        carry[remove.WorkItemId] = ProjectPostLinkSnapshot(removePreOp, remove.Relation, remove.OtherId, newRev, added: false);
+                        break;
+                }
+            }
+
+            return stepResult;
         }
 
         if (currentState == PlanOperationState.Applying)
@@ -480,14 +597,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 return StepResult.Lease(BusyLeaseMessage(row));
 
             // Stale Applying → crash-recovery: read back BEFORE claiming Applied.
-            return await RecoverFromApplyingAsync(digest, row.OpId, opDef, ct).ConfigureAwait(false);
+            return await RecoverFromApplyingAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
         }
 
         if (currentState == PlanOperationState.Applied)
         {
             // Applied recovery is verify-only: no readback→Applied claim, just readback +
             // Applied → Verified. The atomic record already stamped applied_at and result.
-            return await FinalizeAppliedAsync(digest, row.OpId, opDef, default, ct).ConfigureAwait(false);
+            return await FinalizeAppliedAsync(digest, row.OpId, opDef, default, carry, ct).ConfigureAwait(false);
         }
 
         // Planned: prior confirmation loop should have moved this to Confirmed. Guard: treat
@@ -498,7 +615,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 digest, row.OpId,
                 PlanOperationState.Planned, PlanOperationState.Confirmed, _clock.GetUtcNow(), ct)
                 .ConfigureAwait(false);
-            return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, ct).ConfigureAwait(false);
+            return await ResumeFromObservedRowAsync(digest, row.OpId, opDef, carry, ct).ConfigureAwait(false);
         }
 
         return StepResult.Terminal(currentState);
@@ -513,6 +630,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string digest,
         string opId,
         PlanOperationDefinition opDef,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         var refreshed = await _journal.GetAsync(digest, ct).ConfigureAwait(false);
@@ -525,7 +643,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         if (refreshedRow.State == PlanOperationState.Applying && IsFreshApplyingLease(refreshedRow))
             return StepResult.Lease(BusyLeaseMessage(refreshedRow));
 
-        return await StepOperationAsync(digest, refreshedRow, opDef, ct).ConfigureAwait(false);
+        return await StepOperationAsync(digest, refreshedRow, opDef, carry, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -541,6 +659,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string digest,
         string opId,
         PlanOperationDefinition opDef,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         var outcome = await _executor.ReadbackAsync(opDef, default, ct).ConfigureAwait(false);
@@ -556,7 +675,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             {
                 // Another actor already advanced past Applying — route off the persisted
                 // state (possibly a live winner holding a lease).
-                return await ResumeFromObservedRowAsync(digest, opId, opDef, ct).ConfigureAwait(false);
+                return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
             }
 
             var verified = await _journal.TryTransitionOperationAsync(
@@ -587,6 +706,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string opId,
         PlanOperationDefinition opDef,
         PlanExecutionResult applyResult,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         var recorded = await _journal.TryRecordAppliedAsync(
@@ -595,10 +715,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         {
             // Lost the atomic Applying → Applied CAS. Reload and route off the persisted
             // state; never assume the row is where our winning-execute branch expected it.
-            return await ResumeFromObservedRowAsync(digest, opId, opDef, ct).ConfigureAwait(false);
+            return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
         }
 
-        return await FinalizeAppliedAsync(digest, opId, opDef, applyResult, ct).ConfigureAwait(false);
+        return await FinalizeAppliedAsync(digest, opId, opDef, applyResult, carry, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -612,6 +732,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string opId,
         PlanOperationDefinition opDef,
         PlanExecutionResult applyResult,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
@@ -622,7 +743,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             var recorded = await _journal.TryRecordAppliedAsync(
                 digest, opId, applyResult.ResultJson ?? outcome.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
             if (!recorded)
-                return await ResumeFromObservedRowAsync(digest, opId, opDef, ct).ConfigureAwait(false);
+                return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
 
             var verified = await _journal.TryTransitionOperationAsync(
                 digest, opId,
@@ -651,6 +772,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string opId,
         PlanOperationDefinition opDef,
         PlanExecutionResult applyResult,
+        Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
@@ -705,6 +827,120 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             .ConfigureAwait(false);
         return finalState;
     }
+
+    /// <summary>
+    /// One evaluation of the process-rule gate for a plan operation. <see cref="Snapshot"/>
+    /// is the authoritative pre-op snapshot the outcome was decided on (batch ops only) so
+    /// the lifecycle can project a post-op state into the same-item carry-forward map once
+    /// the row lands Verified.
+    /// </summary>
+    private readonly record struct GateEvaluation(
+        PlanProcessRuleGateOutcome Outcome,
+        WorkItemSnapshot? Snapshot);
+
+    /// <summary>
+    /// Consults the process-rule gate for a <see cref="BatchOperation"/>. Returns
+    /// <see cref="PlanProcessRuleGateOutcome.Ok"/> for non-batch kinds. Otherwise resolves
+    /// the authoritative expected-revision snapshot — preferring a same-item entry the
+    /// current apply has already carried forward from a prior verified operation (AB#721)
+    /// and falling back to <see cref="IRevisionBoundAdoWorkItemService.FetchAtRevisionAsync"/>
+    /// — maps it to a work item, and defers to
+    /// <see cref="PlanProcessRuleGate.EvaluateAsync(BatchOperation, Twig.Domain.Aggregates.WorkItem, CancellationToken)"/>.
+    /// A load failure surfaces as <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>
+    /// — the caller MUST leave the row at Confirmed and return a top-level busy refusal.
+    /// The gate never falls back to the filtered local cache: either the authoritative
+    /// snapshot is available (fresh or carried), or the apply is retryable.
+    /// </summary>
+    private async Task<GateEvaluation> EvaluateProcessRuleGateAsync(
+        PlanOperationDefinition opDef,
+        Dictionary<int, WorkItemSnapshot> carry,
+        CancellationToken ct)
+    {
+        if (opDef is not BatchOperation batch)
+            return new GateEvaluation(PlanProcessRuleGateOutcome.Ok, null);
+
+        // Same-item carry-forward: a snapshot projected from a prior verified operation on
+        // this work item at exactly the current batch's expected revision IS the
+        // authoritative pre-op state. Consulting the executor's own product is stronger
+        // than a fresh round-trip — no cache and no drift window.
+        if (carry.TryGetValue(batch.WorkItemId, out var carried)
+            && carried.Revision == batch.ExpectedRevision)
+        {
+            var carriedSource = _workItemMapper.Map(carried);
+            var carriedOutcome = await _ruleGate.EvaluateAsync(batch, carriedSource, ct).ConfigureAwait(false);
+            return new GateEvaluation(carriedOutcome, carried);
+        }
+
+        WorkItemSnapshot snapshot;
+        try
+        {
+            snapshot = await _revisionBound.FetchAtRevisionAsync(batch.WorkItemId, batch.ExpectedRevision, ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new GateEvaluation(
+                PlanProcessRuleGateOutcome.RequiresRefresh(
+                    $"Unable to load authoritative snapshot for work item {batch.WorkItemId} at revision {batch.ExpectedRevision}: {ex.Message}"),
+                null);
+        }
+
+        var source = _workItemMapper.Map(snapshot);
+        var outcome = await _ruleGate.EvaluateAsync(batch, source, ct).ConfigureAwait(false);
+        return new GateEvaluation(outcome, snapshot);
+    }
+
+
+    private static bool TryGetCarriedPreOp(
+        IReadOnlyDictionary<int, WorkItemSnapshot> carry,
+        int workItemId,
+        int expectedRevision,
+        out WorkItemSnapshot preOp)
+    {
+        if (carry.TryGetValue(workItemId, out var carried)
+            && carried.Revision == expectedRevision)
+        {
+            preOp = carried;
+            return true;
+        }
+
+        preOp = null!;
+        return false;
+    }
+
+    private static WorkItemSnapshot ProjectPostLinkSnapshot(
+        WorkItemSnapshot preOp,
+        string relation,
+        int otherId,
+        int newRevision,
+        bool added)
+    {
+        var projected = new Dictionary<string, string?>(preOp.Fields, StringComparer.OrdinalIgnoreCase)
+        {
+            ["System.Rev"] = newRevision.ToString(CultureInfo.InvariantCulture),
+        };
+        var parentId = preOp.ParentId;
+        if (string.Equals(relation, "parent", StringComparison.OrdinalIgnoreCase))
+        {
+            parentId = added ? otherId : null;
+            if (added)
+                projected["System.Parent"] = otherId.ToString(CultureInfo.InvariantCulture);
+            else
+                projected.Remove("System.Parent");
+        }
+
+        return preOp with
+        {
+            Revision = newRevision,
+            ParentId = parentId,
+            Fields = projected,
+        };
+    }
+
 
     // ── Path / workspace guards ────────────────────────────────────────────
 

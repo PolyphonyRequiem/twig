@@ -125,10 +125,6 @@ internal interface ISystemWorktreeRegistry
     /// are persisted so compensation reads know exactly what to project.</summary>
     Task<Result> CommitTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, string winningClaimId, string winningCasToken, CancellationToken ct = default);
 
-    /// <summary>Read the current epoch state so a compensating writer or
-    /// a losing lifecycle operation can converge ADO to the authoritative
-    /// winner. Missing row returns
-    /// <see cref="TupleEpochRow"/> with <c>Epoch = 0</c>.</summary>
 
     // ── Atomic transition + epoch commit (§9.4, AB#739) ────────────────
 

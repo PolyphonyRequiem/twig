@@ -322,6 +322,68 @@ public sealed class Ab728InitRollbackTests : IDisposable
         Directory.Exists(Path.Combine(_tempRoot, ".twig")).ShouldBeFalse();
     }
 
+    // ── §3.1: a root reached through a symlinked ancestor is still the root
+
+    [Fact]
+    public async Task Init_succeeds_when_the_worktree_root_is_reached_through_a_symlinked_ancestor()
+    {
+        var realParent = Path.Combine(_tempRoot, "real");
+        var repoRoot = Path.Combine(realParent, "repo");
+        Directory.CreateDirectory(repoRoot);
+        if (!InitCommandTestFixture.InitTempWorktree(repoRoot)) return;
+
+        // macOS reaches every temp path this way: /var is a symlink to
+        // /private/var, so the ANCESTOR is the link, not the leaf. git
+        // reports the resolved root while the runtime keeps the link path.
+        var linkParent = Path.Combine(_tempRoot, "link");
+        Directory.CreateSymbolicLink(linkParent, realParent);
+        var rootViaLink = Path.Combine(linkParent, "repo");
+
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            Path.Combine(rootViaLink, ".twig"),
+            Path.Combine(rootViaLink, ".twig", "config"),
+            Path.Combine(rootViaLink, ".twig", "cache", "twig.db"),
+            startDir: rootViaLink);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync("org", "proj");
+
+        result.ShouldBe(0);
+        File.Exists(Path.Combine(repoRoot, ".twig", WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Init_still_refuses_a_subdirectory_reached_through_a_symlinked_ancestor()
+    {
+        var realParent = Path.Combine(_tempRoot, "real");
+        var repoRoot = Path.Combine(realParent, "repo");
+        Directory.CreateDirectory(repoRoot);
+        if (!InitCommandTestFixture.InitTempWorktree(repoRoot)) return;
+        Directory.CreateDirectory(Path.Combine(repoRoot, "src"));
+
+        var linkParent = Path.Combine(_tempRoot, "link");
+        Directory.CreateSymbolicLink(linkParent, realParent);
+        var nestedViaLink = Path.Combine(linkParent, "repo", "src");
+
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            Path.Combine(nestedViaLink, ".twig"),
+            Path.Combine(nestedViaLink, ".twig", "config"),
+            Path.Combine(nestedViaLink, ".twig", "cache", "twig.db"),
+            startDir: nestedViaLink);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync("org", "proj");
+
+        // Resolving symlinks must not weaken the refusal it enables.
+        result.ShouldBe(1);
+        Directory.Exists(Path.Combine(nestedViaLink, ".twig")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(repoRoot, ".twig")).ShouldBeFalse();
+    }
+
     private async Task RunGit(params string[] args)
     {
         var psi = new ProcessStartInfo("git")

@@ -73,6 +73,28 @@ public sealed class InitCommand
         IGlobalProfileStore? globalProfileStore = null,
         IConsoleInput? consoleInput = null,
         ITelemetryClient? telemetryClient = null)
+        : this(iterationService, paths, formatterFactory, hintEngine, globalProfileStore, consoleInput, telemetryClient,
+               systemRegistry: null, profileRegistry: null)
+    {
+    }
+
+    /// <summary>
+    /// Extended test constructor: accepts the AB#728 §6.3 managed-init
+    /// seams so a fixture can opt in to end-to-end managed behavior
+    /// against real temp-path <see cref="Twig.Domain.Interfaces.ISystemWorktreeRegistry"/>
+    /// and a deterministic
+    /// <see cref="Twig.Domain.Services.Attachment.IProfileRegistrySource"/>
+    /// (an explicit selected profile identity/version + a non-empty
+    /// primary-scope allow-set). Callers that want the pre-#728 test path
+    /// omit both parameters and get the unmanaged-only behavior.
+    /// </summary>
+    internal InitCommand(IIterationService iterationService, TwigPaths paths,
+        OutputFormatterFactory formatterFactory, HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore,
+        IConsoleInput? consoleInput,
+        ITelemetryClient? telemetryClient,
+        Twig.Domain.Interfaces.ISystemWorktreeRegistry? systemRegistry,
+        Twig.Domain.Services.Attachment.IProfileRegistrySource? profileRegistry)
     {
         _iterationService = iterationService;
         _paths = paths;
@@ -81,8 +103,9 @@ public sealed class InitCommand
         _globalProfileStore = globalProfileStore;
         _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
+        _systemRegistry = systemRegistry;
+        _profileRegistry = profileRegistry;
     }
-
     public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();

@@ -820,26 +820,22 @@ internal sealed class LocalClaimService : ILocalClaimService
     /// Claim label schema (design §Human-readable label): at most 200 Unicode
     /// code points, no control characters, no embedded newlines. Null/empty
     /// is allowed — a claim without a label is not the same as an invalid
-    /// label. Returns <c>false</c> and a named reason on any violation so the
-    /// caller can surface an <c>InvalidRequest</c> without writing.
+    /// label. Counting is per code point (each <see cref="System.Text.Rune"/>
+    /// counts once) rather than per grapheme cluster; combining marks each
+    /// consume one slot toward the 200 ceiling so a long-combining sequence
+    /// cannot smuggle unbounded UTF-16 units through the schema.
     /// </summary>
     internal static bool ValidateClaimLabel(string? label, out string reason)
     {
         reason = string.Empty;
         if (label is null) return true;
         var codePoints = 0;
-        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(label);
-        while (enumerator.MoveNext())
+        foreach (var rune in label.EnumerateRunes())
         {
-            var element = (string)enumerator.Current;
-            for (var i = 0; i < element.Length; i++)
+            if (System.Text.Rune.IsControl(rune))
             {
-                var ch = element[i];
-                if (char.IsControl(ch) || ch == '\r' || ch == '\n')
-                {
-                    reason = "label must not contain control characters or newlines.";
-                    return false;
-                }
+                reason = "label must not contain control characters or newlines.";
+                return false;
             }
             codePoints++;
             if (codePoints > 200)

@@ -49,9 +49,28 @@ public class MultiContextInitTests : IDisposable
                 new("Task", "F2CB1D", "icon_clipboard"),
             });
 
+        InitCommandTestFixture.InitTempWorktree(_testDir);
+        (_systemRegistry, _profileRegistry) = InitCommandTestFixture.CreateSeams(_testDir);
+
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
+
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource _profileRegistry;
+
+    private InitCommand CreateInitCommand(
+        IIterationService iterationService,
+        TwigPaths paths,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
+        ITelemetryClient? telemetryClient = null)
+        => InitCommandTestFixture.CreateInitCommand(
+            _systemRegistry, _profileRegistry,
+            iterationService, paths, formatterFactory, hintEngine,
+            globalProfileStore, consoleInput, telemetryClient);
 
     public void Dispose()
     {
@@ -80,7 +99,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             // The one path §4.2.4 pins — regardless of the org/project passed to init.
@@ -108,7 +127,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths1 = PathsForTest();
-            var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
+            var cmd1 = CreateInitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
             (await cmd1.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             paths1.DbPath.ShouldBe(canonical);
@@ -129,13 +148,13 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             // Switching to a new binding cannot silently reuse the existing cache —
             // the second init MUST refuse without --force, so the operator is
             // forced to reinitialize (or move to a fresh worktree) explicitly.
-            var second = new InitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
+            var second = CreateInitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
             (await second.ExecuteAsync("OrgB", "ProjectB")).ShouldBe(1);
 
             // The cache file is still there — unchanged.
@@ -152,7 +171,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             // Write a distinctive marker into the OrgA cache.
@@ -168,7 +187,7 @@ public class MultiContextInitTests : IDisposable
 
             // Force reinit under new binding — same canonical path, but the
             // old data MUST NOT resurface under the new binding.
-            var second = new InitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
+            var second = CreateInitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
             (await second.ExecuteAsync("OrgB", "ProjectB", force: true)).ShouldBe(0);
 
             File.Exists(canonical).ShouldBeTrue();
@@ -203,7 +222,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue("Fresh cache DB must exist.");
@@ -232,7 +251,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
             paths.DbPath.ShouldBe(CanonicalDbPath(_twigDir),
@@ -255,7 +274,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var paths = PathsForTest();
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             (await cmd.ExecuteAsync("myorg", "myproj")).ShouldBe(0);
 
             var config = await TwigConfiguration.LoadSplitAsync(paths);

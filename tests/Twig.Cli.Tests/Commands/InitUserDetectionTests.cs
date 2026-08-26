@@ -41,10 +41,29 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<(string Path, bool IncludeChildren)>());
 
+        InitCommandTestFixture.InitTempWorktree(_testDir);
+        (_systemRegistry, _profileRegistry) = InitCommandTestFixture.CreateSeams(_testDir);
+
         _paths = new TwigPaths(_twigDir, _configPath, Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
+
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource _profileRegistry;
+
+    private InitCommand CreateInitCommand(
+        IIterationService iterationService,
+        TwigPaths paths,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
+        ITelemetryClient? telemetryClient = null)
+        => InitCommandTestFixture.CreateInitCommand(
+            _systemRegistry, _profileRegistry,
+            iterationService, paths, formatterFactory, hintEngine,
+            globalProfileStore, consoleInput, telemetryClient);
 
     public void Dispose()
     {
@@ -63,7 +82,7 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetAuthenticatedUserDisplayNameAsync(Arg.Any<CancellationToken>())
             .Returns("Alice Smith");
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
@@ -77,7 +96,7 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetAuthenticatedUserDisplayNameAsync(Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0); // Init should still succeed
@@ -91,7 +110,7 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetAuthenticatedUserDisplayNameAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("Network error"));
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0); // Init should still succeed
@@ -105,7 +124,7 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetAuthenticatedUserDisplayNameAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException("Cancelled"));
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject"));

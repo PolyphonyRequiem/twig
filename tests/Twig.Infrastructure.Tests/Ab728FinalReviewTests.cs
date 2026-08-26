@@ -234,22 +234,23 @@ public sealed class Ab728FinalReviewTests : IDisposable
         LocalClaimService.ValidateClaimLabel("tab\there", out reason).ShouldBeFalse();
         reason.ShouldContain("control");
     }
-
     [Fact]
-    public void ValidateClaimLabel_boundary_is_200_code_points()
+    public void ValidateClaimLabel_counts_runes_not_grapheme_clusters_and_not_utf16_units()
     {
-        LocalClaimService.ValidateClaimLabel(new string('a', 200), out _).ShouldBeTrue();
-        LocalClaimService.ValidateClaimLabel(new string('a', 201), out var reason).ShouldBeFalse();
-        reason.ShouldContain("200");
-    }
-
-    [Fact]
-    public void ValidateClaimLabel_counts_grapheme_clusters_not_utf16_units()
-    {
-        var pair = "\uD83D\uDE80"; // rocket emoji
+        // Rune counting: each surrogate pair (one code point) counts once,
+        // so 200 rockets are valid and 201 are rejected.
+        var pair = "\uD83D\uDE80"; // rocket emoji U+1F680
         LocalClaimService.ValidateClaimLabel(string.Concat(Enumerable.Repeat(pair, 200)), out _).ShouldBeTrue();
         LocalClaimService.ValidateClaimLabel(string.Concat(Enumerable.Repeat(pair, 201)), out _).ShouldBeFalse();
+
+        // Combining marks count too — the design forbids a grapheme-cluster
+        // rule that would let a long-combining sequence smuggle unbounded
+        // UTF-16 units through the schema. 'a' + 200 combining acutes is
+        var combined = "a" + new string('\u0301', 200);
+        LocalClaimService.ValidateClaimLabel(combined, out var comboReason).ShouldBeFalse();
+        comboReason.ShouldContain("200");
     }
+
 
     // ── Fix #4: XDG_STATE_HOME support and system tier layout ─────────
 

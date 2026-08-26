@@ -36,6 +36,15 @@ public sealed class InitCommandProductionCliTests : IDisposable
             Organization = adoServer.BaseUrl,
             Project = project,
             Auth = new AuthConfig { Method = "pat" },
+            // AB#728 §6.3: managed init requires a checked-in Policy with a
+            // fully populated SelectedProfile + non-empty PrimaryScopeTypes.
+            // Otherwise the initializer surfaces
+            // `selected-profile-unavailable` and fails fatally.
+            Policy = new PolicyConfig
+            {
+                SelectedProfile = new SelectedProfileBinding { Identity = "Test.Profile", Version = "1.0" },
+                PrimaryScopeTypes = new List<string> { "Bug", "Task" },
+            },
         };
 
         await RunGitAsync("init", "--quiet");
@@ -150,6 +159,13 @@ public sealed class InitCommandProductionCliTests : IDisposable
               "project": "{{project}}",
               "team": "{{team}}",
               "processTemplate": "Basic",
+              "policy": {
+                "selectedProfile": {
+                  "identity": "Test.Profile",
+                  "version": "1.0"
+                },
+                "primaryScopeTypes": [ "Bug", "Task" ]
+              },
               "defaults": {
                 "areaPaths": [
                   "TestProject\\CloudVault"

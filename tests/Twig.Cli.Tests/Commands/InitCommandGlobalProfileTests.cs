@@ -74,10 +74,31 @@ public class InitCommandGlobalProfileTests : IDisposable
 
         _globalProfileStore = Substitute.For<IGlobalProfileStore>();
 
+        // AB#728 §6.3: fixture root must be a real git worktree and the
+        // managed-init seams must be non-null.
+        InitCommandTestFixture.InitTempWorktree(_testDir);
+        (_systemRegistry, _profileRegistry) = InitCommandTestFixture.CreateSeams(_testDir);
+
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
+
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource _profileRegistry;
+
+    private InitCommand CreateInitCommand(
+        IIterationService iterationService,
+        TwigPaths paths,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
+        ITelemetryClient? telemetryClient = null)
+        => InitCommandTestFixture.CreateInitCommand(
+            _systemRegistry, _profileRegistry,
+            iterationService, paths, formatterFactory, hintEngine,
+            globalProfileStore, consoleInput, telemetryClient);
 
     public void Dispose()
     {
@@ -93,7 +114,7 @@ public class InitCommandGlobalProfileTests : IDisposable
     [Fact]
     public async Task Init_PersistsProcessTemplate_InConfig()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -107,7 +128,7 @@ public class InitCommandGlobalProfileTests : IDisposable
     {
         const string org = "https://dev.azure.com/org";
         const string project = "MyProject";
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, project);
 
@@ -131,7 +152,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadMetadataAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((ProfileMetadata?)null);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -157,7 +178,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadStatusFieldsAsync(org, "Agile", Arg.Any<CancellationToken>())
             .Returns(SampleStatusFieldsContent);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 
@@ -195,7 +216,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadStatusFieldsAsync(org, "Agile", Arg.Any<CancellationToken>())
             .Returns(SampleStatusFieldsContent);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 
@@ -227,7 +248,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadMetadataAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<ProfileMetadata?>(_ => throw new IOException("Disk full"));
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 
@@ -240,7 +261,7 @@ public class InitCommandGlobalProfileTests : IDisposable
     public async Task Init_NoGlobalProfileStore_SkipsSilently()
     {
         // No global profile store injected (null)
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -266,7 +287,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadStatusFieldsAsync(org, "Agile", Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 
@@ -293,7 +314,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         _globalProfileStore.LoadMetadataAsync(org, "Agile", Arg.Any<CancellationToken>())
             .Returns(metadata);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, _globalProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 
@@ -330,7 +351,7 @@ public class InitCommandGlobalProfileTests : IDisposable
             FieldCount: SampleFieldDefs.Count);
         await realProfileStore.SaveMetadataAsync(org, template, metadata);
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, realProfileStore);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, realProfileStore);
 
         var result = await cmd.ExecuteAsync(org, "MyProject");
 

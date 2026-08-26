@@ -40,8 +40,7 @@ public sealed class ShowCommand(
     TwigPaths? twigPaths = null,
     IAdoGitService? adoGitService = null,
     TreeRenderingService? treeRenderingService = null,
-    RendererFactory? rendererFactory = null,
-    IAttachmentStatusProjection? attachmentStatus = null)
+    RendererFactory? rendererFactory = null)
 {
     private readonly IContextStore? _contextStore = contextStore;
     private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
@@ -259,7 +258,7 @@ public sealed class ShowCommand(
         // `primaryScope` block (PromptStateWriter). Unattached checkouts state
         // the fact explicitly per the ticket contract; unmanaged checkouts
         // (rendering a work item outside a twig worktree) get no block at all.
-        if (!IsMachineFormat(outputFormat) && attachmentStatus is not null)
+        if (!IsMachineFormat(outputFormat) && ctx.AttachmentStatus is { } attachmentStatus)
         {
             var proj = await attachmentStatus.ReadAsync(ct);
             if (proj.FailureCode is { } failure)

@@ -17,7 +17,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -83,6 +83,19 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var lookup = await GetFieldDefLookupAsync(ct);
         var snapshot = AdoResponseMapper.MapToSnapshot(dto, lookup);
         return _mapper.Map(snapshot);
+    }
+
+    // ── IAdoAssignedIdentityReader (AB#728 §identity read seam) ─────
+
+    public async Task<string?> ReadAssignedUniqueNameAsync(int workItemId, CancellationToken ct = default)
+    {
+        // Only ask for the identity field — the raw dto carries uniqueName on
+        // the identity object even though the AssignedTo projection collapses
+        // to the display name.
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?fields=System.AssignedTo&api-version={AdoApiVersions.WorkItems}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return dto.Fields is null ? null : AdoResponseMapper.ExtractAssignedUniqueName(dto.Fields);
     }
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)

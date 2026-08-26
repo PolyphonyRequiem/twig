@@ -16,7 +16,8 @@ public sealed record CommandContext(
     HintEngine HintEngine,
     TwigConfiguration Config,
     ITelemetryClient? TelemetryClient = null,
-    TextWriter? Stderr = null)
+    TextWriter? Stderr = null,
+    IAttachmentStatusProjection? AttachmentStatus = null)
 {
     /// <summary>
     /// Returns <see cref="Stderr"/> if provided, otherwise <see cref="Console.Error"/>.

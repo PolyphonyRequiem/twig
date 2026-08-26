@@ -30,10 +30,12 @@ internal sealed class AdoClaimProjection : IAdoClaimProjection
     internal const string ClearReadbackNotEmpty = "ado-clear-readback-not-empty";
 
     private readonly IAdoWorkItemService _ado;
+    private readonly IAdoAssignedIdentityReader _identityReader;
 
-    public AdoClaimProjection(IAdoWorkItemService ado)
+    public AdoClaimProjection(IAdoWorkItemService ado, IAdoAssignedIdentityReader identityReader)
     {
         _ado = ado;
+        _identityReader = identityReader;
     }
 
     public async Task<Result> ProjectHolderAsync(string primaryScopeId, ClaimHolderDescriptor holder, CancellationToken ct = default)
@@ -48,9 +50,9 @@ internal sealed class AdoClaimProjection : IAdoClaimProjection
         try
         {
             var remote = await _ado.FetchAsync(workItemId, ct).ConfigureAwait(false);
-            var observedUpn = AdoResponseMapper.ExtractAssigneeUniqueName(remote.AssignedTo);
+            var observedUpn = await _identityReader.ReadAssignedUniqueNameAsync(workItemId, ct).ConfigureAwait(false);
 
-            if (observedUpn is not null
+            if (!string.IsNullOrEmpty(observedUpn)
                 && string.Equals(observedUpn, stableUpn, StringComparison.OrdinalIgnoreCase))
             {
                 return Result.Ok();
@@ -62,7 +64,7 @@ internal sealed class AdoClaimProjection : IAdoClaimProjection
             var verified = await _ado.FetchAsync(workItemId, ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(verified.AssignedTo))
                 return Result.Fail(ReadbackMissing);
-            var verifiedUpn = AdoResponseMapper.ExtractAssigneeUniqueName(verified.AssignedTo);
+            var verifiedUpn = await _identityReader.ReadAssignedUniqueNameAsync(workItemId, ct).ConfigureAwait(false);
             if (string.IsNullOrEmpty(verifiedUpn))
                 return Result.Fail($"{ReadbackMissingUniqueName}: observed='{verified.AssignedTo}'");
             if (!string.Equals(verifiedUpn, stableUpn, StringComparison.OrdinalIgnoreCase))

@@ -59,10 +59,6 @@ var app = ConsoleApp.Create()
         var config = TwigConfiguration.LoadSplit(probePaths);
         services.AddConnectionServices(config, twigDir, startDir);
 
-        // ITEM-138: Migrate legacy flat twig.db → nested context path.
-        // LegacyDbMigrator is internal to CLI — must be called here, not in shared registration.
-        LegacyDbMigrator.MigrateIfNeeded(twigDir, config);
-
         // Git remote auto-detection (stays in Program.cs — runtime environment probe)
         // Start in background to overlap with other DI registrations (REVIEW-6).
         var gitProject = config.GetGitProject();

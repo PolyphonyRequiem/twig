@@ -27,11 +27,11 @@ namespace Twig.Infrastructure;
 /// include <c>Twig.Tui</c>. An <c>internal</c> class would cause a compilation
 /// error in the TUI project.
 /// <para/>
-/// <b>LegacyDbMigrator exclusion</b>: <c>LegacyDbMigrator</c> is an
-/// <c>internal static class</c> in the CLI project and cannot be referenced
-/// from Infrastructure. CLI <c>Program.cs</c> must call
-/// <c>LegacyDbMigrator.MigrateIfNeeded()</c> directly after consuming
-/// <see cref="AddConnectionServices"/>.
+/// <b>Storage layout</b>: AB#736 pins one SQLite file per worktree at
+/// <c>.twig/cache/twig.db</c>. Migration from the pre-T1
+/// <c>.twig/{org}/{project}/twig.db</c> nested layout is deliberately not
+/// provided — the clean cutover requires <c>twig init --force</c> in each
+/// affected worktree; there is no in-band bridge.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -205,7 +205,8 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>()));
         services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
             new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
-                sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>()));
+                sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>(),
+                sp.GetRequiredService<Twig.Infrastructure.Ado.IAdoAssignedIdentityReader>()));
         services.AddSingleton<Twig.Domain.Services.Claims.ILocalClaimService>(sp =>
             new Twig.Infrastructure.Services.Claims.LocalClaimService(
                 sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),

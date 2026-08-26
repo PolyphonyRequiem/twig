@@ -44,8 +44,8 @@ public sealed class InitCommand
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
         IConsoleInput consoleInput,
-        ITelemetryClient? telemetryClient = null,
-        Twig.Domain.Interfaces.IManagedWorktreeInitializer? managedInitializer = null)
+        ITelemetryClient? telemetryClient,
+        Twig.Domain.Interfaces.IManagedWorktreeInitializer managedInitializer)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;

@@ -4,6 +4,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Claims;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Services.Claims;
 using Xunit;
@@ -26,10 +27,10 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_returns_ok_when_readback_matches_intended_upn()
     {
         var ado = new FakeAdo("");
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeTrue(res.Error);
-        ado.AssignedTo.ShouldContain(Upn);
+        ado.AssignedUniqueName.ShouldBe(Upn);
         ado.FetchCount.ShouldBe(2);
     }
 
@@ -37,7 +38,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_returns_ok_no_write_when_readback_already_matches_intended_upn()
     {
         var ado = new FakeAdo(Composite);
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeTrue(res.Error);
         ado.PatchCount.ShouldBe(0);
@@ -47,7 +48,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_fails_when_readback_shows_a_different_upn()
     {
         var ado = new FakeAdo("") { NormalizeWriteTo = $"Other Somebody <other@example.com>" };
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldStartWith(AdoClaimProjection.ReadbackMismatch);
@@ -57,7 +58,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_fails_when_readback_carries_no_stable_upn()
     {
         var ado = new FakeAdo("") { NormalizeWriteTo = "Bare Display" };
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldStartWith(AdoClaimProjection.ReadbackMissingUniqueName);
@@ -67,7 +68,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_fails_when_readback_shows_empty_assignment()
     {
         var ado = new FakeAdo("") { NormalizeWriteTo = "" };
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(AdoClaimProjection.ReadbackMissing);
@@ -77,7 +78,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Clear_holder_returns_ok_no_write_when_already_empty()
     {
         var ado = new FakeAdo("");
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ClearHolderAsync("42");
         res.IsSuccess.ShouldBeTrue();
         ado.PatchCount.ShouldBe(0);
@@ -87,7 +88,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Clear_holder_fails_when_readback_still_shows_an_assignee()
     {
         var ado = new FakeAdo(Composite) { RejectClear = true };
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ClearHolderAsync("42");
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldStartWith(AdoClaimProjection.ClearReadbackNotEmpty);
@@ -97,7 +98,7 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_preserves_optimistic_concurrency_conflict_signal()
     {
         var ado = new FakeAdo("") { ThrowConflict = true };
-        var proj = new AdoClaimProjection(ado);
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(AdoClaimProjection.ConflictAfterRetry);
@@ -106,7 +107,8 @@ public sealed class AdoClaimProjectionTests
     [Fact]
     public async Task Project_holder_rejects_invalid_scope_id()
     {
-        var proj = new AdoClaimProjection(new FakeAdo(""));
+        var ado = new FakeAdo("");
+        var proj = new AdoClaimProjection(ado, ado);
         (await proj.ProjectHolderAsync("not-an-int", new ClaimHolderDescriptor(Upn, Display))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
         (await proj.ProjectHolderAsync("-5", new ClaimHolderDescriptor(Upn, Display))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
         (await proj.ProjectHolderAsync("0", new ClaimHolderDescriptor(Upn, Display))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
@@ -115,22 +117,43 @@ public sealed class AdoClaimProjectionTests
     [Fact]
     public async Task Project_holder_rejects_empty_holder_identity()
     {
-        var proj = new AdoClaimProjection(new FakeAdo(""));
+        var ado = new FakeAdo("");
+        var proj = new AdoClaimProjection(ado, ado);
         var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("", Display));
         res.Error.ShouldBe(AdoClaimProjection.EmptyHolder);
     }
 
-    private sealed class FakeAdo : IAdoWorkItemService
+    private sealed class FakeAdo : IAdoWorkItemService, IAdoAssignedIdentityReader
     {
         public string AssignedTo { get; set; }
+        public string? AssignedUniqueName { get; set; }
         public int Revision { get; set; } = 1;
+        /// <summary>Simulates ADO's server-side normalization of an
+        /// AssignedTo write. When non-null, replaces the stored display +
+        /// uniqueName after every write with this composite value
+        /// (<c>"display &lt;upn&gt;"</c>, <c>"display"</c>, or <c>""</c>).</summary>
         public string? NormalizeWriteTo { get; set; }
         public bool RejectClear { get; set; }
         public bool ThrowConflict { get; set; }
         public int PatchCount { get; private set; }
         public int FetchCount { get; private set; }
+        public int IdentityReadCount { get; private set; }
 
-        public FakeAdo(string assignedTo) => AssignedTo = assignedTo;
+        public FakeAdo(string assignedTo)
+        {
+            var lt = assignedTo.LastIndexOf('<');
+            var gt = assignedTo.LastIndexOf('>');
+            if (lt >= 0 && gt > lt)
+            {
+                AssignedTo = assignedTo[..lt].TrimEnd();
+                AssignedUniqueName = assignedTo.Substring(lt + 1, gt - lt - 1).Trim();
+            }
+            else
+            {
+                AssignedTo = assignedTo;
+                AssignedUniqueName = null;
+            }
+        }
 
         public Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
         {
@@ -143,6 +166,12 @@ public sealed class AdoClaimProjectionTests
             });
         }
 
+        public Task<string?> ReadAssignedUniqueNameAsync(int workItemId, CancellationToken ct = default)
+        {
+            IdentityReadCount++;
+            return Task.FromResult(AssignedUniqueName);
+        }
+
         public Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
         {
             if (ThrowConflict) throw new AdoConflictException(expectedRevision + 1, "conflict");
@@ -151,9 +180,33 @@ public sealed class AdoClaimProjectionTests
             {
                 if (c.FieldName != "System.AssignedTo") continue;
                 if (RejectClear && c.NewValue is null) continue;
-                if (c.NewValue is null) AssignedTo = string.Empty;
-                else if (NormalizeWriteTo is not null) AssignedTo = NormalizeWriteTo;
-                else AssignedTo = c.NewValue;
+                if (c.NewValue is null)
+                {
+                    AssignedTo = string.Empty;
+                    AssignedUniqueName = null;
+                }
+                else if (NormalizeWriteTo is not null)
+                {
+                    var lt = NormalizeWriteTo.LastIndexOf('<');
+                    var gt = NormalizeWriteTo.LastIndexOf('>');
+                    if (lt >= 0 && gt > lt)
+                    {
+                        AssignedTo = NormalizeWriteTo[..lt].TrimEnd();
+                        AssignedUniqueName = NormalizeWriteTo.Substring(lt + 1, gt - lt - 1).Trim();
+                    }
+                    else
+                    {
+                        AssignedTo = NormalizeWriteTo;
+                        AssignedUniqueName = null;
+                    }
+                }
+                else
+                {
+                    // Default: ADO stores an identity object with display+uniqueName
+                    // both equal to the UPN we wrote — the canonical service-account case.
+                    AssignedTo = c.NewValue;
+                    AssignedUniqueName = c.NewValue;
+                }
             }
             Revision++;
             return Task.FromResult(Revision);

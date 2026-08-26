@@ -42,7 +42,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IGlobalProfileStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetService<ITelemetryClient>(),
-            sp.GetService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>()));
+            sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),
@@ -59,8 +59,7 @@ public static class CommandRegistrationModule
             twigPaths: sp.GetService<TwigPaths>(),
             adoGitService: sp.GetService<IAdoGitService>(),
             treeRenderingService: sp.GetService<TreeRenderingService>(),
-            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-            attachmentStatus: sp.GetService<Twig.Domain.Interfaces.IAttachmentStatusProjection>()));
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>

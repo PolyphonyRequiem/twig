@@ -1,5 +1,5 @@
-using NSubstitute;
 using Shouldly;
+using NSubstitute;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -12,8 +12,15 @@ using Xunit;
 namespace Twig.Cli.Tests.Commands;
 
 /// <summary>
-/// Integration tests for multi-context database isolation (ITEM-140).
-/// Verifies that initializing with different org/project combos preserves each context's DB.
+/// AB#736 T1 §4.2.4 contract: exactly one SQLite file per worktree at
+/// <c>.twig/cache/twig.db</c>, regardless of the currently-bound
+/// org/project. Switching org or project inside a worktree is a
+/// destructive reinitialization — twig does NOT silently re-interpret an
+/// existing cache under a new binding, does NOT keep parallel per-context
+/// caches, and does NOT migrate pre-T1 nested (<c>.twig/{org}/{project}/twig.db</c>)
+/// or flat (<c>.twig/twig.db</c>) legacy databases. Any such residue is
+/// left untouched; a fresh cache is written at the canonical path and the
+/// operator is expected to switch worktrees or explicitly reinit.
 /// </summary>
 [Collection("NonParallel")]
 public class MultiContextInitTests : IDisposable
@@ -57,253 +64,188 @@ public class MultiContextInitTests : IDisposable
         catch { /* best effort cleanup */ }
     }
 
+    private TwigPaths PathsForTest() =>
+        TwigPaths.ForContext(_twigDir, org: "unused", project: "unused", startDir: _testDir);
+
+    private static string CanonicalDbPath(string twigDir) =>
+        Path.Combine(twigDir, "cache", "twig.db");
+
+    // ── one canonical cache path ────────────────────────────────────
+
     [Fact]
-    public async Task Init_OrgA_ThenOrgB_PreservesOrgADatabase()
+    public async Task Init_WritesTheSingleCanonicalCacheDb()
     {
         var originalCwd = Directory.GetCurrentDirectory();
         Directory.SetCurrentDirectory(_testDir);
         try
         {
-            // Init with Org A
-            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmdA = new InitCommand(_iterationService, pathsA, _formatterFactory, _hintEngine);
-            var resultA = await cmdA.ExecuteAsync("OrgA", "ProjectA");
-            resultA.ShouldBe(0);
-
-            // Verify Org A's DB exists at nested path
-            var orgADbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgA", "ProjectA");
-            File.Exists(orgADbPath).ShouldBeTrue("Org A DB should exist");
-
-            // Insert test data into Org A's DB
-            using (var storeA = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = storeA.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "INSERT INTO context (key, value) VALUES ('test_marker', 'org_a_data');";
-                cmd.ExecuteNonQuery();
-            }
-
-            // Init with Org B (force since .twig/ already exists)
-            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmdB = new InitCommand(_iterationService, pathsB, _formatterFactory, _hintEngine);
-            var resultB = await cmdB.ExecuteAsync("OrgB", "ProjectB", force: true);
-            resultB.ShouldBe(0);
-
-            // Verify Org B's DB exists
-            var orgBDbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgB", "ProjectB");
-            File.Exists(orgBDbPath).ShouldBeTrue("Org B DB should exist");
-
-            // Verify Org A's DB is STILL intact
-            File.Exists(orgADbPath).ShouldBeTrue("Org A DB should still exist after Org B init");
-
-            // Verify Org A's data is still there
-            using (var storeA2 = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = storeA2.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT value FROM context WHERE key = 'test_marker';";
-                var value = cmd.ExecuteScalar() as string;
-                value.ShouldBe("org_a_data", "Org A's data should be preserved");
-            }
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
-    }
-
-    [Fact]
-    public async Task Init_SameOrg_DifferentProjects_CreatesSeparateDBs()
-    {
-        var originalCwd = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_testDir);
-        try
-        {
-            // Init with Org/ProjectA
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
-            var result1 = await cmd1.ExecuteAsync("contoso", "MyProject");
-            result1.ShouldBe(0);
-
-            // Init with same Org/different Project
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
-            var result2 = await cmd2.ExecuteAsync("contoso", "BackendService", force: true);
-            result2.ShouldBe(0);
-
-            // Both DBs should exist in separate directories
-            var osDbPath = TwigPaths.GetContextDbPath(_twigDir, "contoso", "MyProject");
-            var cvDbPath = TwigPaths.GetContextDbPath(_twigDir, "contoso", "BackendService");
-
-            File.Exists(osDbPath).ShouldBeTrue("MyProject DB should exist");
-            File.Exists(cvDbPath).ShouldBeTrue("BackendService DB should exist");
-
-            // Directories should be under the same org folder
-            Path.GetDirectoryName(Path.GetDirectoryName(osDbPath)).ShouldBe(
-                Path.GetDirectoryName(Path.GetDirectoryName(cvDbPath)),
-                "Both projects should be under same org directory");
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
-    }
-
-    [Fact]
-    public async Task Force_DeletesOnlyCurrentContextDb()
-    {
-        var originalCwd = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_testDir);
-        try
-        {
-            // Init with Org A
-            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmdA = new InitCommand(_iterationService, pathsA, _formatterFactory, _hintEngine);
-            await cmdA.ExecuteAsync("OrgA", "ProjectA");
-
-            // Insert data into Org A
-            var orgADbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgA", "ProjectA");
-            using (var store = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = store.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "INSERT INTO context (key, value) VALUES ('marker', 'preserved');";
-                cmd.ExecuteNonQuery();
-            }
-
-            // Init Org B
-            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmdB = new InitCommand(_iterationService, pathsB, _formatterFactory, _hintEngine);
-            await cmdB.ExecuteAsync("OrgB", "ProjectB", force: true);
-
-            // Force re-init Org B — should only delete Org B's DB
-            var pathsB2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmdB2 = new InitCommand(_iterationService, pathsB2, _formatterFactory, _hintEngine);
-            await cmdB2.ExecuteAsync("OrgB", "ProjectB", force: true);
-
-            // Org A's data should be intact
-            File.Exists(orgADbPath).ShouldBeTrue("Org A DB file should still exist");
-            using (var store = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = store.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT value FROM context WHERE key = 'marker';";
-                var value = cmd.ExecuteScalar() as string;
-                value.ShouldBe("preserved", "Org A data should survive Org B's --force reinit");
-            }
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
-    }
-
-    [Fact]
-    public async Task Force_ReInitOrgA_DoesNotDeleteOrgBDatabase()
-    {
-        var originalCwd = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_testDir);
-        try
-        {
-            // Init Org A, insert data
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
-            await cmd1.ExecuteAsync("OrgA", "ProjA");
-
-            var orgADbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgA", "ProjA");
-            using (var store = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = store.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "INSERT INTO context (key, value) VALUES ('active_id', '42');";
-                cmd.ExecuteNonQuery();
-            }
-
-            // Switch to Org B
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
-            await cmd2.ExecuteAsync("OrgB", "ProjB", force: true);
-
-            // Force re-init Org A — this will delete Org A's DB, but Org B's must survive
-            var paths3 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd3 = new InitCommand(_iterationService, paths3, _formatterFactory, _hintEngine);
-            await cmd3.ExecuteAsync("OrgA", "ProjA", force: true);
-
-            // Org B's DB should be untouched
-            var orgBDbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgB", "ProjB");
-            File.Exists(orgBDbPath).ShouldBeTrue("Org B DB should still exist after force re-init of Org A");
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
-    }
-
-    [Fact]
-    public async Task SwitchBackToOrgA_WithoutForce_PreservesOrgAData()
-    {
-        var originalCwd = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_testDir);
-        try
-        {
-            // Init Org A, insert data
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
-            await cmd1.ExecuteAsync("OrgA", "ProjA");
-
-            var orgADbPath = TwigPaths.GetContextDbPath(_twigDir, "OrgA", "ProjA");
-            using (var store = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = store.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "INSERT INTO context (key, value) VALUES ('active_id', '42');";
-                cmd.ExecuteNonQuery();
-            }
-
-            // Switch to Org B (force needed because .twig/ exists)
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-            var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
-            await cmd2.ExecuteAsync("OrgB", "ProjB", force: true);
-
-            // Read Org A's DB directly (no re-init) — data should be intact
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            File.Exists(orgADbPath).ShouldBeTrue("Org A DB should still exist");
-            using (var storeA = new SqliteCacheStore($"Data Source={orgADbPath}"))
-            {
-                var conn = storeA.GetConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT value FROM context WHERE key = 'active_id';";
-                var value = cmd.ExecuteScalar() as string;
-                value.ShouldBe("42", "Org A's data should be intact after switching to Org B");
-            }
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
-    }
-
-    [Fact]
-    public async Task Init_CreatesNestedDirectoryStructure()
-    {
-        var originalCwd = Directory.GetCurrentDirectory();
-        Directory.SetCurrentDirectory(_testDir);
-        try
-        {
-            var paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
+            var paths = PathsForTest();
             var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
-            await cmd.ExecuteAsync("dangreen-msft", "Twig");
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
 
-            // Verify nested directory was created
-            var contextDir = Path.Combine(_twigDir, "dangreen-msft", "Twig");
-            Directory.Exists(contextDir).ShouldBeTrue();
-            File.Exists(Path.Combine(contextDir, "twig.db")).ShouldBeTrue();
+            // The one path §4.2.4 pins — regardless of the org/project passed to init.
+            var canonical = CanonicalDbPath(_twigDir);
+            File.Exists(canonical).ShouldBeTrue("Cache DB must live at .twig/cache/twig.db");
+            paths.DbPath.ShouldBe(canonical);
+
+            // No nested org/project scoping directory is created.
+            Directory.Exists(Path.Combine(_twigDir, "OrgA")).ShouldBeFalse(
+                "T1 clean cutover forbids the pre-T1 nested layout.");
         }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
     }
+
+    [Fact]
+    public async Task Init_DifferentOrgProject_ResolvesToTheSameCacheDbPath()
+    {
+        // The path is opaque to org/project. Different bindings, same file.
+        var canonical = CanonicalDbPath(_twigDir);
+        TwigPaths.GetContextDbPath(_twigDir, "OrgA", "ProjectA").ShouldBe(canonical);
+        TwigPaths.GetContextDbPath(_twigDir, "OrgB", "ProjectB").ShouldBe(canonical);
+
+        var originalCwd = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_testDir);
+        try
+        {
+            var paths1 = PathsForTest();
+            var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
+            (await cmd1.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+
+            paths1.DbPath.ShouldBe(canonical);
+
+            var paths2 = PathsForTest();
+            paths2.DbPath.ShouldBe(canonical);
+        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
+    }
+
+    // ── switching bindings requires explicit reinit ─────────────────
+
+    [Fact]
+    public async Task Reinit_WithoutForce_IsRefused_WhenCacheAlreadyExists()
+    {
+        var originalCwd = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_testDir);
+        try
+        {
+            var paths = PathsForTest();
+            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+
+            // Switching to a new binding cannot silently reuse the existing cache —
+            // the second init MUST refuse without --force, so the operator is
+            // forced to reinitialize (or move to a fresh worktree) explicitly.
+            var second = new InitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
+            (await second.ExecuteAsync("OrgB", "ProjectB")).ShouldBe(1);
+
+            // The cache file is still there — unchanged.
+            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue();
+        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
+    }
+
+    [Fact]
+    public async Task Reinit_WithForce_DiscardsCache_ForCleanRebind()
+    {
+        var originalCwd = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_testDir);
+        try
+        {
+            var paths = PathsForTest();
+            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+
+            // Write a distinctive marker into the OrgA cache.
+            var canonical = CanonicalDbPath(_twigDir);
+            using (var store = new SqliteCacheStore($"Data Source={canonical}"))
+            {
+                var conn = store.GetConnection();
+                using var insert = conn.CreateCommand();
+                insert.CommandText = "INSERT INTO context (key, value) VALUES ('org_a_marker', 'org_a_value');";
+                insert.ExecuteNonQuery();
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            // Force reinit under new binding — same canonical path, but the
+            // old data MUST NOT resurface under the new binding.
+            var second = new InitCommand(_iterationService, PathsForTest(), _formatterFactory, _hintEngine);
+            (await second.ExecuteAsync("OrgB", "ProjectB", force: true)).ShouldBe(0);
+
+            File.Exists(canonical).ShouldBeTrue();
+            using (var store = new SqliteCacheStore($"Data Source={canonical}"))
+            {
+                var conn = store.GetConnection();
+                using var probe = conn.CreateCommand();
+                probe.CommandText = "SELECT value FROM context WHERE key = 'org_a_marker';";
+                probe.ExecuteScalar().ShouldBeNull(
+                    "--force must discard the previous cache — no OrgA data may resurface under OrgB.");
+            }
+        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
+    }
+
+    // ── fail-closed against pre-T1 legacy layouts ───────────────────
+
+    [Fact]
+    public async Task Init_LeavesPreT1FlatLegacyDbUntouched_AndWritesFreshCache()
+    {
+        // AB#736 §9 explicitly forbids in-band migration. A stray legacy
+        // .twig/twig.db from a pre-T1 install must NOT be silently moved,
+        // read, or reinterpreted; the new run writes .twig/cache/twig.db
+        // fresh and the legacy file remains exactly where it was.
+        Directory.CreateDirectory(_twigDir);
+        var legacyDbPath = Path.Combine(_twigDir, "twig.db");
+        File.WriteAllText(legacyDbPath, "legacy-residue-not-a-real-db");
+        var legacyBytes = File.ReadAllBytes(legacyDbPath);
+
+        var originalCwd = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_testDir);
+        try
+        {
+            var paths = PathsForTest();
+            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+
+            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue("Fresh cache DB must exist.");
+            File.Exists(legacyDbPath).ShouldBeTrue(
+                "Legacy .twig/twig.db must remain — the T1 clean cutover forbids in-band migration.");
+            File.ReadAllBytes(legacyDbPath).ShouldBe(legacyBytes,
+                "Legacy DB contents must be untouched.");
+        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
+    }
+
+    [Fact]
+    public async Task Init_LeavesPreT1NestedLegacyLayoutUntouched()
+    {
+        // Pre-T1 residue: .twig/{org}/{project}/twig.db written by an
+        // earlier binary. It must NOT be recognized as the cache, and the
+        // fresh init MUST NOT delete or rewrite it.
+        var nestedDir = Path.Combine(_twigDir, "OrgA", "ProjectA");
+        Directory.CreateDirectory(nestedDir);
+        var nestedDbPath = Path.Combine(nestedDir, "twig.db");
+        File.WriteAllText(nestedDbPath, "nested-legacy-residue-not-a-real-db");
+        var nestedBytes = File.ReadAllBytes(nestedDbPath);
+
+        var originalCwd = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(_testDir);
+        try
+        {
+            var paths = PathsForTest();
+            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+
+            paths.DbPath.ShouldBe(CanonicalDbPath(_twigDir),
+                "TwigPaths.DbPath is opaque to org/project — the nested layout is gone.");
+            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue();
+            File.Exists(nestedDbPath).ShouldBeTrue(
+                "Nested legacy DB must remain untouched — no in-band migration.");
+            File.ReadAllBytes(nestedDbPath).ShouldBe(nestedBytes);
+        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
+    }
+
+    // ── config persistence still works ──────────────────────────────
 
     [Fact]
     public async Task Init_UpdatesConfigWithOrgAndProject()
@@ -312,18 +254,14 @@ public class MultiContextInitTests : IDisposable
         Directory.SetCurrentDirectory(_testDir);
         try
         {
-            var configPath = Path.Combine(_twigDir, "config");
-            var paths = new TwigPaths(_twigDir, configPath, Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
+            var paths = PathsForTest();
             var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
-            await cmd.ExecuteAsync("myorg", "myproj");
+            (await cmd.ExecuteAsync("myorg", "myproj")).ShouldBe(0);
 
             var config = await TwigConfiguration.LoadSplitAsync(paths);
             config.Organization.ShouldBe("myorg");
             config.Project.ShouldBe("myproj");
         }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalCwd);
-        }
+        finally { Directory.SetCurrentDirectory(originalCwd); }
     }
 }

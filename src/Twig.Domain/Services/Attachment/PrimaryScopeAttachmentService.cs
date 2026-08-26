@@ -143,17 +143,20 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         if (!registry.IsSuccess)
             return NamedRegistryFailure(registry.Error);
 
-        var read = await _store.ReadAsync(ct).ConfigureAwait(false);
+        var read = await _store.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, read.Error);
 
-        var current = read.Value;
+        var current = read.Value.Attachment;
         if (current.PrimaryScope is null)
             return Result.Ok();
 
         // Scope-only write: MUST leave the ActiveClaim block byte-identical so
-        // AB#739's mint timestamp / opaque id survives an AB#738 detach.
-        var write = await _store.WriteAsync(current.WithoutPrimaryScope(), expectedRevision: -1, ct).ConfigureAwait(false);
+        // AB#739's mint timestamp / opaque id survives an AB#738 detach. Pass
+        // the observed revision so a peer switch/link between our read and
+        // our write surfaces as attachment-version-mismatch — a scope-only
+        // write MUST NOT clobber a concurrent claim-lifecycle write.
+        var write = await _store.WriteAsync(current.WithoutPrimaryScope(), expectedRevision: read.Value.Revision, ct).ConfigureAwait(false);
         return write.IsSuccess ? Result.Ok() : NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
     }
 
@@ -214,11 +217,11 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         if (!registry.IsSuccess)
             return NamedRegistryFailure(registry.Error);
 
-        var read = await _store.ReadAsync(ct).ConfigureAwait(false);
+        var read = await _store.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, read.Error);
 
-        var current = read.Value;
+        var current = read.Value.Attachment;
         if (!allowReplace && current.PrimaryScope is not null)
             return NamedFailure(AttachmentFailure.AlreadyAttached,
                 $"#{current.PrimaryScope.Value.WorkItemId}");
@@ -239,10 +242,14 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
             WorkItemUrl: _urlBuilder.BuildWorkItemUrl(workItem.Id),
             AttachedAt: _clock.GetUtcNow());
 
-        // Scope-only write: preserve the current ActiveClaim block untouched
-        // (§9.3 "consumers set one field without disturbing the other").
+        // Scope-only write under expected-revision CAS. The observed
+        // revision from ReadWithRevisionAsync is passed to WriteAsync so a
+        // peer that raced a switch, link, or unlink between our read and
+        // our write surfaces as attachment-version-mismatch — AB#736 §9.3
+        // "consumers set one field without disturbing the other" is
+        // realized cross-process, not just in-process.
         var next = current.WithPrimaryScope(scope);
-        var write = await _store.WriteAsync(next, expectedRevision: -1, ct).ConfigureAwait(false);
+        var write = await _store.WriteAsync(next, expectedRevision: read.Value.Revision, ct).ConfigureAwait(false);
         if (!write.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
         return write;

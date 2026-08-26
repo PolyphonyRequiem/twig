@@ -232,7 +232,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     /// re-implementing §6.3 or reaching around this store to write marker
     /// files themselves.
     /// </summary>
-    internal async Task<Result> InitializeAsync(CancellationToken ct = default)
+    public async Task<Result> InitializeAsync(CancellationToken ct = default)
     {
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
             return Result.Fail(anchorFailure);
@@ -453,6 +453,12 @@ internal static class AdoWorkItemUrlValidator
         if (uri.Scheme is not ("https" or "http"))
             return false;
 
+        // The configured organization may arrive as either a slug ("contoso")
+        // or a full URI ("https://dev.azure.com/contoso" or
+        // "https://contoso.visualstudio.com"). Normalize once so a mismatched
+        // storage-versus-config shape does not surface as a false
+        // attachment-connection-mismatch.
+        var orgSlug = OrganizationNormalizer.ToSlug(organization);
         var host = uri.Host;
         var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
 
@@ -460,7 +466,7 @@ internal static class AdoWorkItemUrlValidator
         {
             // {org}/{project}/_workitems/edit/{id}
             return segments.Length >= 2
-                && string.Equals(segments[0], organization, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(segments[0], orgSlug, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(segments[1], project, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -468,13 +474,16 @@ internal static class AdoWorkItemUrlValidator
         if (host.EndsWith(legacySuffix, StringComparison.OrdinalIgnoreCase))
         {
             var orgFromHost = host[..^legacySuffix.Length];
-            return string.Equals(orgFromHost, organization, StringComparison.OrdinalIgnoreCase)
+            return string.Equals(orgFromHost, orgSlug, StringComparison.OrdinalIgnoreCase)
                 && segments.Length >= 1
                 && string.Equals(segments[0], project, StringComparison.OrdinalIgnoreCase);
         }
         return false;
     }
 
-    public static string BuildWorkItemUrl(string organization, string project, int workItemId) =>
-        $"https://dev.azure.com/{Uri.EscapeDataString(organization)}/{Uri.EscapeDataString(project)}/_workitems/edit/{workItemId}";
+    public static string BuildWorkItemUrl(string organization, string project, int workItemId)
+    {
+        var slug = OrganizationNormalizer.ToSlug(organization);
+        return $"https://dev.azure.com/{Uri.EscapeDataString(slug)}/{Uri.EscapeDataString(project)}/_workitems/edit/{workItemId}";
+    }
 }

@@ -40,4 +40,11 @@ internal interface IPrimaryScopeAttachmentStore
     /// from the current <c>twig.json</c> (§9.3) and refuses with
     /// <c>attachment-connection-mismatch</c> otherwise.</summary>
     Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default);
+
+    /// <summary>Explicit managed-init hook: creates the §6.3 marker files
+    /// (<c>layout.json</c>, <c>worktree.json</c>, an empty
+    /// <c>attachment.json</c>) for the current worktree. Idempotent. This
+    /// is the sole route that writes marker files; write-time bootstrap is
+    /// forbidden by §7.</summary>
+    Task<Result> InitializeAsync(CancellationToken ct = default);
 }

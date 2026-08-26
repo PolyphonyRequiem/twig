@@ -84,6 +84,14 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         if (!read.IsSuccess)
             return Result.Ok(PrimaryScopeAttachmentStatus.Failed(read.Error));
 
+        // §9.5 step 5 — the system-store registry MUST verify the current
+        // fingerprint even on a read. A moved or unregistered worktree
+        // surfaces the named failure on the status surface rather than
+        // decaying to a plain "unattached" projection.
+        var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
+        if (!registry.IsSuccess)
+            return Result.Ok(PrimaryScopeAttachmentStatus.Failed(registry.Error));
+
         var attachment = read.Value;
         if (attachment.PrimaryScope is not { } scope)
             return Result.Ok(PrimaryScopeAttachmentStatus.Unattached());
@@ -133,7 +141,7 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
 
         var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
         if (!registry.IsSuccess)
-            return Result.Fail(registry.Error);
+            return NamedRegistryFailure(registry.Error);
 
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
@@ -162,6 +170,10 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
     {
         if (!_store.IsManagedWorktree())
             return NamedFailure(AttachmentFailure.NotManagedWorktree, string.Empty);
+
+        var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
+        if (!registry.IsSuccess)
+            return NamedRegistryFailure(registry.Error);
 
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
@@ -200,7 +212,7 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
 
         var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
         if (!registry.IsSuccess)
-            return Result.Fail(registry.Error);
+            return NamedRegistryFailure(registry.Error);
 
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
@@ -233,17 +245,7 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         var write = await _store.WriteAsync(next, ct).ConfigureAwait(false);
         if (!write.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
-
-        // §9.5 step 5 tail: after a successful attach, refresh the system-store
-        // row so recovery/index authorities see this worktree bound to the
-        // current connectionRef. Storage failure here is fatal — the on-disk
-        // attachment is out of sync with the registry until a retry lands.
-        var fingerprint = _fingerprint.CurrentFingerprint;
-        var upsert = await _registry.UpsertWorktreeAsync(
-            fingerprint.CanonicalJson, fingerprint.ConnectionRef, fingerprint.WorktreeRoot, ct).ConfigureAwait(false);
-        if (!upsert.IsSuccess)
-            return NamedFailure(AttachmentFailure.StorageUnavailable, upsert.Error);
-        return Result.Ok();
+        return write;
     }
 
     /// <summary>
@@ -259,13 +261,13 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         var fingerprint = _fingerprint.CurrentFingerprint;
         var row = await _registry.FindWorktreeAsync(fingerprint.CanonicalJson, ct).ConfigureAwait(false);
         if (!row.IsSuccess)
-            return NamedFailure(AttachmentFailure.StorageUnavailable, row.Error);
+            return Result.Fail(row.Error);
         if (row.Value is null)
-            return NamedFailure(AttachmentFailure.WorktreeNotRegistered, AttachmentStorageFailure.WorktreeNotRegistered);
+            return Result.Fail(AttachmentStorageFailure.WorktreeNotRegistered);
         if (row.Value.RetiredAt is not null)
-            return NamedFailure(AttachmentFailure.WorktreeRetired, AttachmentStorageFailure.WorktreeRetired);
+            return Result.Fail(AttachmentStorageFailure.WorktreeRetired);
         if (!string.Equals(row.Value.ConnectionRef, fingerprint.ConnectionRef, StringComparison.Ordinal))
-            return NamedFailure(AttachmentFailure.StorageUnavailable, AttachmentStorageFailure.AttachmentConnectionMismatch);
+            return Result.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
         return Result.Ok();
     }
 
@@ -286,6 +288,21 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         Result.Fail(string.IsNullOrEmpty(detail)
             ? code.ToString()
             : $"{code}: {detail}");
+
+    /// <summary>
+    /// Translates a raw AB#736 §8 identifier returned by
+    /// <see cref="CheckSystemRegistryAsync"/> into a mutation-side named
+    /// failure. The status-projection path passes the raw identifier straight
+    /// through so the surface renders it verbatim; mutation callers instead
+    /// route on the AB#738 <see cref="AttachmentFailure"/> enum for parity
+    /// with the other mutation refusals.
+    /// </summary>
+    private static Result NamedRegistryFailure(string storageIdentifier) => storageIdentifier switch
+    {
+        AttachmentStorageFailure.WorktreeNotRegistered => NamedFailure(AttachmentFailure.WorktreeNotRegistered, storageIdentifier),
+        AttachmentStorageFailure.WorktreeRetired => NamedFailure(AttachmentFailure.WorktreeRetired, storageIdentifier),
+        _ => NamedFailure(AttachmentFailure.StorageUnavailable, storageIdentifier),
+    };
 }
 
 /// <summary>

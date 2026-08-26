@@ -30,16 +30,24 @@ public sealed class InitCommand
     private readonly IGlobalProfileStore? _globalProfileStore;
     private readonly ITelemetryClient? _telemetryClient;
     private readonly IConsoleInput? _consoleInput;
+    private readonly Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore? _attachmentStore;
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry? _registry;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
     /// <see cref="AdoIterationService"/> with the effective init coordinates
-    /// instead of the potentially-empty config loaded at DI time.
+    /// instead of the potentially-empty config loaded at DI time. Also
+    /// accepts the AB#738 storage seams so managed init produces a valid
+    /// worktree-local layout AND registers the connection + worktree row in
+    /// the system store — the two prerequisites §9.5 makes every downstream
+    /// attach depend on.
     /// </summary>
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
         IConsoleInput consoleInput,
-        ITelemetryClient? telemetryClient = null)
+        ITelemetryClient? telemetryClient = null,
+        Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore? attachmentStore = null,
+        Twig.Domain.Interfaces.ISystemWorktreeRegistry? registry = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -49,6 +57,8 @@ public sealed class InitCommand
         _globalProfileStore = globalProfileStore;
         _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
+        _attachmentStore = attachmentStore;
+        _registry = registry;
     }
 
     /// <summary>
@@ -501,6 +511,36 @@ public sealed class InitCommand
 
         // SEC-001: Append .twig/ to .gitignore
         AppendToGitignore();
+
+        // AB#738 §9.5 — every managed init MUST produce a valid worktree-local
+        // layout (layout.json + worktree.json + empty attachment.json) AND a
+        // matching system-store row so downstream attach/switch/detach commands
+        // find both prerequisites. Both seams are optional here so unit tests
+        // that use the smaller constructor keep working; in production both are
+        // registered and both run.
+        if (_attachmentStore is not null)
+        {
+            var initLayout = await _attachmentStore.InitializeAsync(ct);
+            if (!initLayout.IsSuccess)
+                Console.WriteLine($"  ⚠ Could not initialize managed layout: {initLayout.Error}");
+        }
+        if (_registry is not null)
+        {
+            var connectionRef = Twig.Infrastructure.Config.ConnectionRefResolver.Compute(config);
+            var upsertConnection = await _registry.UpsertConnectionAsync(connectionRef, config.Organization, config.Project,
+                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team, ct);
+            if (!upsertConnection.IsSuccess)
+                Console.WriteLine($"  ⚠ Could not register connection: {upsertConnection.Error}");
+
+            var fingerprintProvider = new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(_paths, config);
+            var fingerprint = fingerprintProvider.CurrentFingerprint;
+            if (!string.IsNullOrEmpty(fingerprint.CanonicalJson))
+            {
+                var upsertWorktree = await _registry.UpsertWorktreeAsync(fingerprint.CanonicalJson, fingerprint.ConnectionRef, fingerprint.WorktreeRoot, ct);
+                if (!upsertWorktree.IsSuccess)
+                    Console.WriteLine($"  ⚠ Could not register worktree: {upsertWorktree.Error}");
+            }
+        }
 
         // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
         // Non-interactive init with no flags starts empty; interactive "Neither" also skips.

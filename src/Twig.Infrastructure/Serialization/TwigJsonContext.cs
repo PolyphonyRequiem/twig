@@ -168,6 +168,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentPrimaryScope))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
+// AB#738 policy source
+[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -189,6 +191,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(SprintEntry))]
 [JsonSerializable(typeof(List<SprintEntry>))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSourceGenerationOptions(

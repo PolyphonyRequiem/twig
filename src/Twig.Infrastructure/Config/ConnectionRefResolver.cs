@@ -16,6 +16,12 @@ internal static class ConnectionRefResolver
 {
     public static string Compute(string organization, string project)
     {
+        // Normalize the organization so a slug and a full URI collapse to the
+        // same canonical form. Two contributors — one who checked in
+        // "contoso" and one who checked in "https://dev.azure.com/contoso" —
+        // MUST agree on the same registry row, or the T1 system store treats
+        // them as distinct worktrees.
+        var orgSlug = OrganizationNormalizer.ToSlug(organization ?? string.Empty);
         // Canonical JSON with sorted keys and no whitespace, per §5.1. We use a
         // deliberate hand-rolled writer here — the source-generated context emits
         // whitespace only when explicitly asked, but "sorted keys" is not a
@@ -24,7 +30,7 @@ internal static class ConnectionRefResolver
         // input; the whole rest of Twig serializes freely.
         var payload = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
-            ["organization"] = organization ?? string.Empty,
+            ["organization"] = orgSlug,
             ["project"] = project ?? string.Empty,
         };
         using var stream = new MemoryStream();

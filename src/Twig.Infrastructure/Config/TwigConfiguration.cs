@@ -63,6 +63,7 @@ public sealed class TwigConfiguration
     public WorkspaceConfig Workspace { get => RepoCoords.Workspace; set => RepoCoords.Workspace = value; }
     public TrackingConfig Tracking { get => UserPrefs.Tracking; set => UserPrefs.Tracking = value; }
     public AreasConfig Areas { get => RepoCoords.Areas; set => RepoCoords.Areas = value; }
+    public PolicyConfig? Policy { get => RepoCoords.Policy; set => RepoCoords.Policy = value; }
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -785,6 +786,37 @@ public sealed class TwigRepoConfig
     public GitConfig Git { get; set; } = new();
     public WorkspaceConfig Workspace { get; set; } = new();
     public AreasConfig Areas { get; set; } = new();
+    /// <summary>
+    /// The <c>policy</c> block AB#736 §4.1 fixes on the checked-in
+    /// <c>twig.json</c>. Portable per-repo policy that every contributor
+    /// consumes verbatim; today its sole content is the primary-scope
+    /// allow-set consumed by AB#738. Nullable so a repo without a checked-in
+    /// policy fails closed at the eligibility gate rather than silently
+    /// permitting every type.
+    /// </summary>
+    public PolicyConfig? Policy { get; set; }
+}
+
+/// <summary>
+/// The <c>policy</c> block in the checked-in <c>twig.json</c>. Portable
+/// per-repo policy that survives every worktree init and that AB#738's
+/// eligibility gate consults through
+/// <see cref="Twig.Domain.Services.Attachment.IPrimaryScopePolicySource"/>.
+/// AB#736 §4.1 pins this as one of the two canonical policy sources; a repo
+/// that publishes a selected profile through AB#727 SHOULD prefer that path,
+/// but until it does, this checked-in shape is the fail-closed default.
+/// </summary>
+public sealed class PolicyConfig
+{
+    /// <summary>
+    /// Work-item type allow-set for primary-scope attachment (AB#738).
+    /// Comparison is case-insensitive. Values are opaque strings the active
+    /// process description defines. An empty list refuses every type; a
+    /// null <see cref="Policy"/> block fails eligibility closed with
+    /// <c>eligibility-unavailable</c> so a repo without any policy at all
+    /// never silently permits arbitrary types.
+    /// </summary>
+    public List<string>? PrimaryScopeTypes { get; set; }
 }
 
 /// <summary>
@@ -951,15 +983,6 @@ public sealed class WorkspaceConfig
     /// </summary>
     public List<SprintEntry>? Sprints { get; set; }
 
-    /// <summary>
-    /// Optional allow-set for primary-scope attachment (AB#738). When empty or
-    /// omitted every work-item type is eligible; when non-empty, only listed
-    /// type names may be attached as the worktree's primary scope. Comparison
-    /// is case-insensitive. The list is process-agnostic — values are opaque
-    /// strings the active process description defines. Runtime policy, not a
-    /// hard-coded allow-list; see <c>IPrimaryScopeTypeEligibility</c>.
-    /// </summary>
-    public List<string>? PrimaryScopeTypes { get; set; }
 }
 
 /// <summary>

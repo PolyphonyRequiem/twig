@@ -272,8 +272,11 @@ public sealed class PrimaryScopeAttachmentServiceTests
     }
 
     [Fact]
-    public async Task Successful_attach_upserts_the_worktree_row()
+    public async Task Successful_attach_does_not_reupsert_the_worktree_row()
     {
+        // Registration is a managed-init concern; a successful attach MUST NOT
+        // reach around it to bootstrap a row. Silent post-attach bootstrap was
+        // exactly the review-blocker this refactor removes.
         var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
         var repo = new FakeWorkItemRepository(new WorkItemBuilder(903, "A").AsTask().Build());
         var registry = FakeSystemRegistry.WithRegisteredWorktree(WorktreeFingerprint, ConnectionRef);
@@ -281,9 +284,33 @@ public sealed class PrimaryScopeAttachmentServiceTests
 
         (await service.AttachAsync(903)).IsSuccess.ShouldBeTrue();
 
-        // §9.4 tail — after a successful attach the registry MUST have observed
-        // the upsert so recovery/index authorities have this worktree pinned.
-        registry.UpsertedFingerprints.ShouldContain(WorktreeFingerprint);
+        registry.UpsertedFingerprints.ShouldBeEmpty();
+    }
+
+    // ── AC: registry gate is enforced on reads too ─────────────────────
+
+    [Fact]
+    public async Task ReadStatus_surfaces_worktree_not_registered_when_registry_is_empty()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository();
+        var service = BuildService(store, repo, FakeEligibility.All(), FakeSystemRegistry.Empty());
+
+        var status = (await service.ReadStatusAsync()).Value;
+        status.FailureCode.ShouldNotBeNull();
+        status.FailureCode.ShouldContain(AttachmentStorageFailure.WorktreeNotRegistered);
+    }
+
+    [Fact]
+    public async Task RequireActiveClaim_refuses_when_worktree_is_not_registered()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(905, "A").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All(), FakeSystemRegistry.Empty());
+
+        var required = await service.RequireActiveClaimForScopeAsync(905);
+        required.IsSuccess.ShouldBeFalse();
+        required.Error.ShouldContain(AttachmentFailure.WorktreeNotRegistered.ToString());
     }
 
     // ── AC: origin-bearing work item URL ───────────────────────────────
@@ -447,6 +474,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
             WriteCount++;
             return Task.FromResult(Result.Ok());
         }
+
+        public Task<Result> InitializeAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 
     private sealed class FakeEligibility : IPrimaryScopeTypeEligibility
@@ -517,6 +546,13 @@ public sealed class PrimaryScopeAttachmentServiceTests
             _rows[worktreeFingerprint] = new SystemWorktreeRow(connectionRef, RetiredAt: null);
             return Task.FromResult(Result.Ok());
         }
+
+        public Task<Result> InsertClaimAsync(string claimId, string connectionRef, string worktreeFingerprint, int workItemId, string state, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> UpdateClaimStateAsync(string claimId, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
+        public Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
+        public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemProfileCacheRow?>(null));
+        public Task<Result> WriteProfileCacheAsync(string connectionRef, string profileIdentity, string profileVersion, string payload, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 
     private sealed class FakeFingerprintProvider : IWorktreeFingerprintProvider

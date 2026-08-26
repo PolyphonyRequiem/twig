@@ -149,9 +149,12 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<TwigPaths>(),
                 sp.GetRequiredService<TwigConfiguration>(),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>(sp =>
+            new Twig.Infrastructure.Config.CheckedInProfilePolicySource(
+                sp.GetRequiredService<TwigConfiguration>()));
         services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
             new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
-                sp.GetRequiredService<TwigConfiguration>()));
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>()));
         services.AddSingleton<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(sp =>
             new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(
                 sp.GetRequiredService<TwigPaths>(),

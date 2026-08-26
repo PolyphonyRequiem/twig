@@ -6,42 +6,61 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Infrastructure.Config;
 
 /// <summary>
-/// Default type-eligibility resolver. Consults the active profile's primary-scope
-/// allow-set (as materialized into <see cref="WorkspaceConfig.PrimaryScopeTypes"/>
-/// from the profile pinned in <c>twig.json</c>) and returns
-/// <see cref="Result{T}"/>-carrying <c>true</c> only when the type is in the
-/// set.
-/// <para>
-/// Fails closed when the allow-set cannot be resolved: an empty or missing set
-/// surfaces <c>eligibility-unavailable</c> (see
-/// <see cref="AttachmentStorageFailure.EligibilityUnavailable"/>). Silent
-/// permit-all — the defect the review flagged — would let every managed
-/// worktree without an explicit workspace policy attach any type; a repository
-/// that has never bound a profile MUST refuse rather than adopt the
-/// convention-less path. Type-name comparison is case-insensitive, mirroring
-/// <c>StatePairComparer</c> and <c>WorkItemTypeComparer</c>.
-/// </para>
+/// Default eligibility resolver — delegates to the injected
+/// <see cref="IPrimaryScopePolicySource"/> for the allow-set. Case-insensitive
+/// match, mirroring <c>StatePairComparer</c> / <c>WorkItemTypeComparer</c>.
+/// A failure result from the source (no policy yet published) propagates
+/// unchanged so the attachment service surfaces
+/// <see cref="AttachmentFailure.EligibilityUnavailable"/>.
 /// </summary>
 internal sealed class ConfigPrimaryScopeTypeEligibility : IPrimaryScopeTypeEligibility
 {
-    private readonly TwigConfiguration _config;
+    private readonly IPrimaryScopePolicySource _source;
 
-    public ConfigPrimaryScopeTypeEligibility(TwigConfiguration config)
+    public ConfigPrimaryScopeTypeEligibility(IPrimaryScopePolicySource source)
     {
-        _config = config;
+        _source = source;
     }
 
     public Result<bool> Evaluate(WorkItemType type)
     {
-        var allow = _config.Workspace?.PrimaryScopeTypes;
-        if (allow is null || allow.Count == 0)
-            return Result.Fail<bool>(AttachmentStorageFailure.EligibilityUnavailable);
+        var allow = _source.GetAllowSet();
+        if (!allow.IsSuccess)
+            return Result.Fail<bool>(allow.Error);
 
-        for (var i = 0; i < allow.Count; i++)
+        var set = allow.Value;
+        for (var i = 0; i < set.Count; i++)
         {
-            if (string.Equals(allow[i], type.Value, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(set[i], type.Value, StringComparison.OrdinalIgnoreCase))
                 return Result.Ok(true);
         }
         return Result.Ok(false);
+    }
+}
+
+/// <summary>
+/// Concrete checked-in profile policy source: reads the AB#736 §4.1 policy
+/// block from <c>twig.json</c> (via <see cref="TwigConfiguration.Policy"/>).
+/// Missing block or missing <see cref="PolicyConfig.PrimaryScopeTypes"/> fails
+/// closed with <c>eligibility-unavailable</c> so a repository that has never
+/// published a policy never silently permits arbitrary primary-scope types.
+/// AB#727 will introduce a profile-registry source that plugs into the same
+/// <see cref="IPrimaryScopePolicySource"/> seam.
+/// </summary>
+internal sealed class CheckedInProfilePolicySource : IPrimaryScopePolicySource
+{
+    private readonly TwigConfiguration _config;
+
+    public CheckedInProfilePolicySource(TwigConfiguration config)
+    {
+        _config = config;
+    }
+
+    public Result<IReadOnlyList<string>> GetAllowSet()
+    {
+        var types = _config.Policy?.PrimaryScopeTypes;
+        if (types is null)
+            return Result.Fail<IReadOnlyList<string>>(AttachmentStorageFailure.EligibilityUnavailable);
+        return Result.Ok<IReadOnlyList<string>>(types);
     }
 }

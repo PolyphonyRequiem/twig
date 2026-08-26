@@ -6,6 +6,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Boundary;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Ado;
@@ -122,6 +123,15 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — every string field value in
+        // the outbound patch is checked for transport provenance
+        // before it can reach an ADO field-projection sink.
+        for (int i = 0; i < changes.Count; i++)
+        {
+            AdoProjectionGuard.AssertNoTransportOrigin(
+                changes[i].NewValue,
+                $"IAdoWorkItemService.PatchAsync[{changes[i].FieldName}]");
+        }
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = AdoResponseMapper.MapPatchDocument(changes);
         patchDoc.Insert(0, AdoResponseMapper.CreateRevisionTest(expectedRevision));
@@ -232,6 +242,10 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — a transport-origin scalar
+        // reaching the ADO comment sink raises
+        // `transport-ado-projection-forbidden` (§11).
+        AdoProjectionGuard.AssertNoTransportOrigin(text, "IAdoWorkItemService.AddCommentAsync(text)");
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={AdoApiVersions.WorkItemComments}";
         var request = new AdoCommentRequest { Text = text };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoCommentRequest);
@@ -279,6 +293,10 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// <inheritdoc />
     public async Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — link type and comment
+        // strings are ADO-projected scalars.
+        AdoProjectionGuard.AssertNoTransportOrigin(adoLinkType, "IAdoWorkItemService.AddLinkWithCommentAsync(adoLinkType)");
+        AdoProjectionGuard.AssertNoTransportOrigin(comment, "IAdoWorkItemService.AddLinkWithCommentAsync(comment)");
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
         var relation = new System.Text.Json.Nodes.JsonObject
         {

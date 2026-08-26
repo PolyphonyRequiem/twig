@@ -748,7 +748,7 @@ public sealed class LocalClaimServiceTests : IDisposable
             var r = NextHolderResult ?? Result.Ok();
             NextHolderResult = null;
             if (r.IsSuccess)
-                CurrentAssignedTo = holder.DisplayName ?? holder.Identity;
+                CurrentAssignedTo = holder.Identity;
             return Task.FromResult(r);
         }
 

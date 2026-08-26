@@ -84,48 +84,36 @@ public class TwigPathsTests
         TwigPaths.SanitizePathSegment("/:*").ShouldBe("___");
     }
 
-    // ──────────────────────── GetContextDbPath ────────────────────────
+    // ──────────────────────── GetContextDbPath (T1 §4.2.4) ────────────────────────
 
     [Fact]
-    public void GetContextDbPath_CombinesOrgProjectIntoNestedPath()
+    public void GetContextDbPath_ReturnsCanonicalCachePath_IgnoringOrgAndProject()
     {
         var twigDir = Path.Combine("C:", "repo", ".twig");
+        // T1 §4.2.4 clean cutover: one DB per worktree at .twig/cache/twig.db.
+        // org/project no longer segment the path.
         var result = TwigPaths.GetContextDbPath(twigDir, "dangreen-msft", "Twig");
-
-        var expected = Path.Combine(twigDir, "dangreen-msft", "Twig", "twig.db");
-        result.ShouldBe(expected);
+        result.ShouldBe(Path.Combine(twigDir, "cache", "twig.db"));
     }
 
     [Fact]
-    public void GetContextDbPath_SanitizesOrgAndProject()
+    public void GetCacheDbPath_IsTheCanonicalCachePath()
     {
         var twigDir = Path.Combine("C:", "repo", ".twig");
-        var result = TwigPaths.GetContextDbPath(twigDir, "org/with/slashes", "project:bad");
-
-        var expected = Path.Combine(twigDir, "org_with_slashes", "project_bad", "twig.db");
-        result.ShouldBe(expected);
+        TwigPaths.GetCacheDbPath(twigDir).ShouldBe(Path.Combine(twigDir, "cache", "twig.db"));
     }
 
     // ──────────────────────── ForContext ────────────────────────
 
     [Fact]
-    public void ForContext_SetsAllPaths()
+    public void ForContext_UsesCacheDbPath()
     {
         var twigDir = Path.Combine("C:", "repo", ".twig");
         var paths = TwigPaths.ForContext(twigDir, "myorg", "myproj");
 
         paths.TwigDir.ShouldBe(twigDir);
         paths.ConfigPath.ShouldBe(Path.Combine(twigDir, "config"));
-        paths.DbPath.ShouldBe(Path.Combine(twigDir, "myorg", "myproj", "twig.db"));
-    }
-
-    [Fact]
-    public void ForContext_SanitizesOrgAndProject()
-    {
-        var twigDir = Path.Combine("C:", "repo", ".twig");
-        var paths = TwigPaths.ForContext(twigDir, "org<bad>", "proj|bad");
-
-        paths.DbPath.ShouldBe(Path.Combine(twigDir, "org_bad_", "proj_bad", "twig.db"));
+        paths.DbPath.ShouldBe(Path.Combine(twigDir, "cache", "twig.db"));
     }
 
     // ──────────────────────── GetLegacyDbPath ────────────────────────
@@ -140,41 +128,13 @@ public class TwigPathsTests
     // ──────────────────────── BuildPaths ────────────────────────
 
     [Fact]
-    public void BuildPaths_WithOrgAndProject_ReturnsContextScopedPath()
+    public void BuildPaths_AlwaysReturnsCachePath()
     {
         var twigDir = Path.Combine("C:", "repo", ".twig");
         var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
 
         var paths = TwigPaths.BuildPaths(twigDir, config);
-
-        paths.TwigDir.ShouldBe(twigDir);
-        paths.ConfigPath.ShouldBe(Path.Combine(twigDir, "config"));
-        paths.DbPath.ShouldBe(Path.Combine(twigDir, "myorg", "myproj", "twig.db"));
-    }
-
-    [Theory]
-    [InlineData("", "myproj")]
-    [InlineData("myorg", "")]
-    [InlineData("", "")]
-    [InlineData(null, "myproj")]
-    [InlineData("myorg", null)]
-    [InlineData(null, null)]
-    [InlineData("  ", "myproj")]
-    [InlineData("myorg", "  ")]
-    public void BuildPaths_WithEmptyOrgOrProject_ReturnsFlatPath(string? org, string? project)
-    {
-        var twigDir = Path.Combine("C:", "repo", ".twig");
-        var config = new TwigConfiguration
-        {
-            Organization = org ?? string.Empty,
-            Project = project ?? string.Empty,
-        };
-
-        var paths = TwigPaths.BuildPaths(twigDir, config);
-
-        paths.TwigDir.ShouldBe(twigDir);
-        paths.ConfigPath.ShouldBe(Path.Combine(twigDir, "config"));
-        paths.DbPath.ShouldBe(Path.Combine(twigDir, "twig.db"));
+        paths.DbPath.ShouldBe(Path.Combine(twigDir, "cache", "twig.db"));
     }
 
     // ──────────────────────── TrackingFilePath ────────────────────────

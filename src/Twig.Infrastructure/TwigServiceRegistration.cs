@@ -27,11 +27,11 @@ namespace Twig.Infrastructure;
 /// include <c>Twig.Tui</c>. An <c>internal</c> class would cause a compilation
 /// error in the TUI project.
 /// <para/>
-/// <b>LegacyDbMigrator exclusion</b>: <c>LegacyDbMigrator</c> is an
-/// <c>internal static class</c> in the CLI project and cannot be referenced
-/// from Infrastructure. CLI <c>Program.cs</c> must call
-/// <c>LegacyDbMigrator.MigrateIfNeeded()</c> directly after consuming
-/// <see cref="AddConnectionServices"/>.
+/// <b>Storage layout</b>: AB#736 pins one SQLite file per worktree at
+/// <c>.twig/cache/twig.db</c>. Migration from the pre-T1
+/// <c>.twig/{org}/{project}/twig.db</c> nested layout is deliberately not
+/// provided — the clean cutover requires <c>twig init --force</c> in each
+/// affected worktree; there is no in-band bridge.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -138,7 +138,91 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<IProcessTypeStore>()));
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetService<Twig.Domain.Interfaces.IAttachmentStatusProjection>()));
+
+        // AB#738 primary-scope attachment (deep module). Every surface (CLI status
+        // projection, MCP status tool, prompt writer) resolves the same service
+        // instance so attach/switch/detach behavior cannot diverge across surfaces.
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeLocalAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>(sp =>
+            new Twig.Infrastructure.Config.CheckedInProfilePolicySource(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
+            new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(sp =>
+            new Twig.Infrastructure.Persistence.ConfiguredPrimaryScopeUrlBuilder(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(sp =>
+        {
+            // AB#736 §4.3 requires <system-root>/layout.json, system.db, and
+            // tmp/ to be present. The registry opens system.db and creates
+            // the file lazily; layout.json + tmp/ are materialized here so
+            // the tier is complete even before the first registry call.
+            var systemRoot = Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath;
+            Twig.Infrastructure.Persistence.SystemStoreLayout.EnsureRoot(systemRoot, TimeProvider.System);
+            return new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
+                Path.Combine(systemRoot, "system.db"),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System);
+        });
+        services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
+            new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemRepository>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentService>(sp =>
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>());
+        services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
+            new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IProfileRegistrySource>(sp =>
+            new Twig.Infrastructure.Persistence.UnavailableProfileRegistrySource());
+        services.AddSingleton<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(sp =>
+            new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
+
+        // AB#739 — local claim lifecycle. Every seam is registered here so
+        // any surface (CLI, MCP, TUI, integration test) resolves the same
+        // implementation through DI. The claim service is the sole owner
+        // of local claim state; downstream surfaces never open the system
+        // store or attachment file directly for claim reads/writes.
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimIdGenerator>(sp =>
+            new Twig.Infrastructure.Persistence.UlidClaimIdGenerator(
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimCasTokenGenerator, Twig.Infrastructure.Persistence.GuidClaimCasTokenGenerator>();
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimHolderResolver>(sp =>
+            new Twig.Infrastructure.Services.Claims.ConnectionHolderResolver(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>()));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
+            new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>(),
+                sp.GetRequiredService<Twig.Infrastructure.Ado.IAdoAssignedIdentityReader>()));
+        services.AddSingleton<Twig.Domain.Services.Claims.ILocalClaimService>(sp =>
+            new Twig.Infrastructure.Services.Claims.LocalClaimService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimIdGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimCasTokenGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimHolderResolver>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
         AddConnectionDomainServices(services);
 

@@ -147,6 +147,55 @@ public sealed class AdoResponseMapperTests
         result.AssignedTo.ShouldBe("Jane Smith");
     }
 
+    // ── ExtractAssignedUniqueName ──────────────────────────────────
+    // AB#728 identity read seam. The general AssignedTo projection above
+    // returns the display name only — the byte-comparable UPN travels via
+    // ExtractAssignedUniqueName for the AB#739 claim-projection readback.
+
+    [Fact]
+    public void ExtractAssignedUniqueName_IdentityObject_ReturnsUniqueName()
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement(new { displayName = "Jane Smith", uniqueName = "jane@example.com" }),
+        };
+
+        var result = AdoResponseMapper.ExtractAssignedUniqueName(fields);
+
+        result.ShouldBe("jane@example.com");
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_IdentityObjectWithoutUniqueName_ReturnsNull()
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement(new { displayName = "Jane Smith" }),
+        };
+
+        AdoResponseMapper.ExtractAssignedUniqueName(fields).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_BareStringValue_ReturnsNull()
+    {
+        // A legacy display-only string carries no stable identity —
+        // callers MUST treat this as a projection failure, not as a
+        // display-name fallback.
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement("Jane Smith"),
+        };
+
+        AdoResponseMapper.ExtractAssignedUniqueName(fields).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_MissingField_ReturnsNull()
+    {
+        AdoResponseMapper.ExtractAssignedUniqueName(new Dictionary<string, object?>()).ShouldBeNull();
+    }
+
     [Fact]
     public void MapToSnapshot_NullAssignedTo_ReturnsNull()
     {

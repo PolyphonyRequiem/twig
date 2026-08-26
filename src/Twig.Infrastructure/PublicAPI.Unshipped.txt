@@ -32,3 +32,20 @@ Twig.Infrastructure.Plan.PlanLifecycleService.PlanLifecycleService(Twig.Infrastr
 Twig.Infrastructure.Plan.PlanLifecycleService.PreviewAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanPreviewResult!>!
 Twig.Infrastructure.Plan.PlanLifecycleService.StatusAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanStatusResult?>!
 Twig.Infrastructure.Plan.PlanLifecycleService.ValidateAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanValidationResult!>!
+Twig.Infrastructure.Config.PolicyConfig
+Twig.Infrastructure.Config.PolicyConfig.PolicyConfig() -> void
+Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.get -> System.Collections.Generic.List<string!>?
+Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.set -> void
+Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.get -> Twig.Infrastructure.Config.SelectedProfileBinding?
+Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.set -> void
+Twig.Infrastructure.Config.SelectedProfileBinding
+Twig.Infrastructure.Config.SelectedProfileBinding.SelectedProfileBinding() -> void
+Twig.Infrastructure.Config.SelectedProfileBinding.Identity.get -> string!
+Twig.Infrastructure.Config.SelectedProfileBinding.Identity.set -> void
+Twig.Infrastructure.Config.SelectedProfileBinding.Version.get -> string!
+Twig.Infrastructure.Config.SelectedProfileBinding.Version.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
+Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
+static Twig.Infrastructure.Config.TwigPaths.GetCacheDbPath(string! twigDir) -> string!
+Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void

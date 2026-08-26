@@ -1,5 +1,6 @@
 #nullable enable
 Twig.Domain.Interfaces.IAdoWorkItemService.FetchBatchWithLinksAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! Items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>! Links)>!
+Twig.Domain.Interfaces.IIterationService.GetAuthenticatedUserIdentityAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(string? DisplayName, string? UniqueName)>!
 Twig.Domain.Interfaces.IPendingChangeReader
 Twig.Domain.Interfaces.IPendingChangeReader.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService
@@ -413,3 +414,21 @@ virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
 Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
 Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void
+Twig.Domain.Interfaces.IAttachmentStatusProjection
+Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
+Twig.Domain.Interfaces.StatusProjection
+Twig.Domain.Interfaces.StatusProjection.StatusProjection(bool isManagedWorktree, bool hasPrimaryScope, int? primaryScopeWorkItemId, string? primaryScopeTitle, string? primaryScopeType, string? failureCode = null) -> void
+Twig.Domain.Interfaces.StatusProjection.HasPrimaryScope.get -> bool
+Twig.Domain.Interfaces.StatusProjection.IsManagedWorktree.get -> bool
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeTitle.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeType.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeWorkItemId.get -> int?
+Twig.Domain.Interfaces.StatusProjection.FailureCode.get -> string?
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.AttachAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.SwitchAsync(int newWorkItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.DetachAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.RequireActiveClaimForScopeAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.ReadStatusAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
+Twig.Domain.Interfaces.IManagedWorktreeInitializer
+Twig.Domain.Interfaces.IManagedWorktreeInitializer.InitializeAsync(string! organization, string! project, string? team, string! profileIdentity, string! profileVersion, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!

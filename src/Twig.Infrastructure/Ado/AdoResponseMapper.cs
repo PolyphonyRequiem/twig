@@ -398,7 +398,12 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
-    /// Parses AssignedTo which can be a string or an identity object with displayName.
+    /// Parses the <c>System.AssignedTo</c> projection as a DISPLAY NAME only.
+    /// The stable identity (<c>uniqueName</c>) does not travel through this
+    /// projection — surfaces that need it MUST read the raw identity via
+    /// <see cref="IAdoAssignedIdentityReader"/>. This split preserves the
+    /// display-name user-facing semantics AB#728 pinned while giving
+    /// AB#739's claim projection an exact-UPN read seam.
     /// </summary>
     private static string? ParseAssignedTo(Dictionary<string, object?> fields)
     {
@@ -413,18 +418,40 @@ internal static class AdoResponseMapper
             if (element.ValueKind == JsonValueKind.String)
                 return element.GetString();
 
-            // Identity object: { displayName: "...", uniqueName: "...", ... }
             if (element.ValueKind == JsonValueKind.Object)
-            {
-                if (element.TryGetProperty("displayName", out var displayName))
-                    return displayName.GetString();
-
-                if (element.TryGetProperty("uniqueName", out var uniqueName))
-                    return uniqueName.GetString();
-            }
+                return ExtractIdentityDisplayName(element);
         }
 
         return value.ToString();
+    }
+
+    /// <summary>
+    /// Extracts the stable <c>uniqueName</c> from a raw ADO
+    /// <c>System.AssignedTo</c> field value — the byte-comparable UPN
+    /// AB#739's claim projection verifies against. Returns <c>null</c> when
+    /// the response is empty, a bare string, or an identity object with no
+    /// <c>uniqueName</c> property. NEVER falls back to display comparison —
+    /// callers treat a missing uniqueName as a projection failure.
+    /// </summary>
+    internal static string? ExtractAssignedUniqueName(Dictionary<string, object?> fields)
+    {
+        if (!fields.TryGetValue("System.AssignedTo", out var value) || value is null)
+            return null;
+
+        if (value is JsonElement element)
+        {
+            if (element.ValueKind is JsonValueKind.Null or JsonValueKind.String)
+                return null;
+
+            if (element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("uniqueName", out var upn))
+            {
+                var text = upn.GetString();
+                return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            }
+        }
+
+        return null;
     }
 
 

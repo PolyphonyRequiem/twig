@@ -13,11 +13,23 @@ namespace Twig.Infrastructure.Config;
 public static class WorkspaceDiscovery
 {
     /// <summary>
-    /// The well-known global home directory: <c>~/.twig/</c>.
-    /// Contains binaries, token cache, and profiles — NOT a workspace.
+    /// The AB#736 §4.3 system-local storage root. On Linux, honors
+    /// <c>$XDG_STATE_HOME/twig</c> when the variable is set; otherwise falls
+    /// back to the platform-appropriate <c>~/.twig</c>. Contains binaries,
+    /// token cache, and the system registry — NOT a workspace.
     /// </summary>
-    internal static string GlobalHomePath { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".twig");
+    internal static string GlobalHomePath { get; } = ResolveSystemStateRoot();
+
+    private static string ResolveSystemStateRoot()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            var xdgState = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+            if (!string.IsNullOrEmpty(xdgState))
+                return Path.Combine(xdgState, "twig");
+        }
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".twig");
+    }
 
     /// <summary>
     /// AB#3296: the committed manifest filename at the repo root.

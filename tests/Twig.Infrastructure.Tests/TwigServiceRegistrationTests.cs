@@ -127,7 +127,7 @@ public sealed class TwigServiceRegistrationTests
         var paths = provider.GetRequiredService<TwigPaths>();
 
         paths.TwigDir.ShouldBe(customDir);
-        paths.DbPath.ShouldBe(Path.Combine(customDir, "myorg", "myproj", "twig.db"));
+        paths.DbPath.ShouldBe(Path.Combine(customDir, "cache", "twig.db"));
         paths.ConfigPath.ShouldBe(Path.Combine(customDir, "config"));
     }
 

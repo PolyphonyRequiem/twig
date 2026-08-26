@@ -52,11 +52,14 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
 
-        // IRevisionBoundAdoWorkItemService aliases the same AdoRestClient instance so
-        // interface-segregated consumers (plan lifecycle) resolve without the full
-        // IAdoWorkItemService surface. Cast is safe: AdoRestClient implements both.
+        // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
+        // same AdoRestClient instance so interface-segregated consumers (plan
+        // lifecycle, claim projection) resolve without the full IAdoWorkItemService
+        // surface. Casts are safe: AdoRestClient implements all three.
         services.AddSingleton<IRevisionBoundAdoWorkItemService>(sp =>
             (IRevisionBoundAdoWorkItemService)sp.GetRequiredService<IAdoWorkItemService>());
+        services.AddSingleton<IAdoAssignedIdentityReader>(sp =>
+            (IAdoAssignedIdentityReader)sp.GetRequiredService<IAdoWorkItemService>());
 
         // IAdoGitService — conditional registration; only requires git project.
         // Repository is optional — when null, GetRepositoryIdAsync returns null

@@ -30,16 +30,26 @@ public sealed class InitCommand
     private readonly IGlobalProfileStore? _globalProfileStore;
     private readonly ITelemetryClient? _telemetryClient;
     private readonly IConsoleInput? _consoleInput;
+    private readonly Twig.Domain.Interfaces.IManagedWorktreeInitializer? _managedInitializer;
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry? _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource? _profileRegistry;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
     /// <see cref="AdoIterationService"/> with the effective init coordinates
-    /// instead of the potentially-empty config loaded at DI time.
+    /// instead of the potentially-empty config loaded at DI time. Also
+    /// accepts the AB#738 storage seams so managed init produces a valid
+    /// worktree-local layout AND registers the connection + worktree row in
+    /// the system store — the two prerequisites §9.5 makes every downstream
+    /// attach depend on.
     /// </summary>
-    public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
+    internal InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
         IConsoleInput consoleInput,
-        ITelemetryClient? telemetryClient = null)
+        ITelemetryClient? telemetryClient,
+        Twig.Domain.Interfaces.IManagedWorktreeInitializer managedInitializer,
+        Twig.Domain.Interfaces.ISystemWorktreeRegistry systemRegistry,
+        Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -49,6 +59,9 @@ public sealed class InitCommand
         _globalProfileStore = globalProfileStore;
         _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
+        _managedInitializer = managedInitializer;
+        _systemRegistry = systemRegistry;
+        _profileRegistry = profileRegistry;
     }
 
     /// <summary>
@@ -60,6 +73,28 @@ public sealed class InitCommand
         IGlobalProfileStore? globalProfileStore = null,
         IConsoleInput? consoleInput = null,
         ITelemetryClient? telemetryClient = null)
+        : this(iterationService, paths, formatterFactory, hintEngine, globalProfileStore, consoleInput, telemetryClient,
+               systemRegistry: null, profileRegistry: null)
+    {
+    }
+
+    /// <summary>
+    /// Extended test constructor: accepts the AB#728 §6.3 managed-init
+    /// seams so a fixture can opt in to end-to-end managed behavior
+    /// against real temp-path <see cref="Twig.Domain.Interfaces.ISystemWorktreeRegistry"/>
+    /// and a deterministic
+    /// <see cref="Twig.Domain.Services.Attachment.IProfileRegistrySource"/>
+    /// (an explicit selected profile identity/version + a non-empty
+    /// primary-scope allow-set). Callers that want the pre-#728 test path
+    /// omit both parameters and get the unmanaged-only behavior.
+    /// </summary>
+    internal InitCommand(IIterationService iterationService, TwigPaths paths,
+        OutputFormatterFactory formatterFactory, HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore,
+        IConsoleInput? consoleInput,
+        ITelemetryClient? telemetryClient,
+        Twig.Domain.Interfaces.ISystemWorktreeRegistry? systemRegistry,
+        Twig.Domain.Services.Attachment.IProfileRegistrySource? profileRegistry)
     {
         _iterationService = iterationService;
         _paths = paths;
@@ -68,15 +103,16 @@ public sealed class InitCommand
         _globalProfileStore = globalProfileStore;
         _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
+        _systemRegistry = systemRegistry;
+        _profileRegistry = profileRegistry;
     }
-
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int fieldCount;
         bool hadGlobalProfile;
-        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, ct);
+        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -93,24 +129,51 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, CancellationToken ct)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
         var telemetryFieldCount = 0;
 
-        // init always targets CWD, not the walked-up .twig/ ancestor.
-        // This prevents ~/projects/repo from reusing ~/.twig when repos live under ~.
-        var twigDir = Path.Combine(_paths.StartDir, ".twig");
+        // ── Step 1 (design §6.3): root detection FIRST. Any failure stops
+        //    before any filesystem write. Non-Git checkouts, bare repos, or
+        //    invocations from a subdirectory of the worktree are refused up
+        //    front; there is no partial workspace to clean up.
+        if (!Infrastructure.Config.WorktreeAnchorDetector.TryDetect(_paths.StartDir, out var worktreeAnchor, out var anchorFailure))
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Managed init refused: {anchorFailure}"));
+            return (1, false, 0);
+        }
+        var canonicalStart = Infrastructure.Config.WorktreeAnchorDetector.CanonicalPath(_paths.StartDir, _paths.StartDir);
+        // Windows and macOS default to case-insensitive filesystems, so the
+        // root comparison there must ignore case. The platform predicate is
+        // grouped deliberately: `IsWindows() || IsMacOS() && equals` would
+        // bind as `IsWindows() || (IsMacOS() && equals)` and let every
+        // Windows subdirectory bypass the refusal entirely.
+        var startIsWorktreeRoot = string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.Ordinal)
+            || ((OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+                && string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.OrdinalIgnoreCase));
+        if (!startIsWorktreeRoot)
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Managed init refused: invocation directory {_paths.StartDir} is not the git worktree root {worktreeAnchor.WorktreeRoot}."));
+            return (1, false, 0);
+        }
+
+        // init always targets the invocation worktree root, never a
+        // startup-discovered ancestor. This prevents a nested repo from
+        // rewriting an ancestor's `.twig/` — the exact defect §3.1 fixes.
+        var twigDir = Path.Combine(worktreeAnchor.WorktreeRoot, ".twig");
+        var invocationStartDir = worktreeAnchor.WorktreeRoot;
 
         // Derive context-specific paths from the supplied org/project args
-        var requestedContextPaths = TwigPaths.ForContext(twigDir, org, project, _paths.StartDir);
+        var requestedContextPaths = TwigPaths.ForContext(twigDir, org, project, invocationStartDir);
         var preserveRepoManifest = false;
         if (File.Exists(requestedContextPaths.RepoConfigPath))
         {
             try
             {
-                preserveRepoManifest = await IsRepoManifestTrackedAsync(_paths.StartDir, ct);
+                preserveRepoManifest = await IsRepoManifestTrackedAsync(invocationStartDir, ct);
             }
             catch (InvalidOperationException ex)
             {
@@ -129,15 +192,12 @@ public sealed class InitCommand
             };
 
         var contextPaths = preserveRepoManifest
-            ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, _paths.StartDir)
+            ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
 
-        if (File.Exists(contextPaths.DbPath) && !force)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
-            return (1, false, 0);
-        }
-
+        // ── Design §6.3: every refusal that depends only on inputs and the
+        //    tracked manifest runs BEFORE the first mutation, so a rejected
+        //    invocation cannot archive, delete, or create anything.
         if (preserveRepoManifest
             && GetManifestCoordinateConflict(config, org, project, team) is { } coordinateConflict)
         {
@@ -149,6 +209,79 @@ public sealed class InitCommand
             && GetManifestOverrideConflict(gitProject, sprint, area) is { } overrideConflict)
         {
             Console.Error.WriteLine(fmt.FormatError(overrideConflict));
+            return (1, false, 0);
+        }
+
+        // `--sprint`/`--area` are pure input validation. Validating them
+        // after managed registration would let a rejected flag return 1 with
+        // the local layout and system-store rows already committed; doing it
+        // after the archive below would leave a renamed workspace behind.
+        List<SprintEntry>? preparsedSprints = null;
+        if (!string.IsNullOrWhiteSpace(sprint))
+        {
+            preparsedSprints = [];
+            foreach (var expr in sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parsed = IterationExpression.Parse(expr);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
+                    return (1, false, 0);
+                }
+                preparsedSprints.Add(new SprintEntry { Expression = expr });
+            }
+        }
+
+        List<AreaPathEntry>? preparsedAreas = null;
+        if (!string.IsNullOrWhiteSpace(area))
+        {
+            preparsedAreas = [];
+            foreach (var raw in area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var isExact = raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase);
+                var pathPart = isExact ? raw[..^":exact".Length] : raw;
+
+                var parsed = AreaPath.Parse(pathPart);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
+                    return (1, false, 0);
+                }
+                preparsedAreas.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = !isExact });
+            }
+        }
+
+        // ── Design §7 legacy recovery: --reinitialize atomically archives
+        //    the existing .twig/ tree to .twig-legacy-<timestamp>/ before
+        //    running a fresh init. No conversion, no migration. Archive
+        //    failure surfaces the named identifier and leaves the source
+        //    intact.
+        if (reinitialize && Directory.Exists(twigDir))
+        {
+            var archive = Infrastructure.Persistence.LegacyLayoutDetector.ArchiveLegacyLayout(twigDir, TimeProvider.System);
+            if (!archive.IsSuccess)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Legacy archive failed: {archive.Error}"));
+                return (1, false, 0);
+            }
+            if (!string.IsNullOrEmpty(archive.Value))
+                Console.WriteLine($"  Archived legacy layout to {archive.Value}");
+        }
+        if (File.Exists(contextPaths.DbPath) && !force)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
+            return (1, false, 0);
+        }
+
+        // ── Design §6.3 step 3: refuse pre-T1 legacy layouts BEFORE step 4
+        //    creates anything, so a refused init leaves `.twig/` byte-for-byte
+        //    as it found it. `--reinitialize` archives the tree above, so by
+        //    this point the predicate only trips on an unarchived legacy tree.
+        if (Infrastructure.Persistence.LegacyLayoutDetector.IsLegacyLayoutPresent(twigDir))
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Managed init refused: {Domain.Services.Attachment.AttachmentStorageFailure.LegacyLayoutPresent}. " +
+                "Re-run with --reinitialize to archive the legacy layout first."));
             return (1, false, 0);
         }
 
@@ -196,53 +329,97 @@ public sealed class InitCommand
             }
         }
 
-        // Check for .git directory/file alongside the target — warn if missing
-        var gitPath = Path.Combine(_paths.StartDir, ".git");
-        if (!Directory.Exists(gitPath) && !File.Exists(gitPath))
+        // Design §6.3: local layout is staged FIRST, then remote/registry
+        // registration LAST. Every write is tracked so a failure in steps
+        // 4–10 rolls back only what THIS invocation created (and restores
+        // any overwritten file byte-for-byte).
+        var rollback = new InitRollbackJournal();
+        try
         {
-            if (_consoleInput is not null && !_consoleInput.IsOutputRedirected)
+            // Step 2: create .twig/ root (tracked so managed-init rollback
+            // removes it if the directory did not exist before this run).
+            rollback.TrackDirectory(twigDir);
+            Directory.CreateDirectory(twigDir);
+
+            var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
+            rollback.TrackDirectory(contextDir);
+            Directory.CreateDirectory(contextDir);
+
+            // Set git.project if explicitly provided
+            if (!string.IsNullOrWhiteSpace(gitProject))
             {
-                Console.Error.Write($"\u26a0 No .git directory found at {_paths.StartDir}. This may not be a repository root. Continue? [y/N]: ");
-                var response = _consoleInput.ReadLine();
-                if (!string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.Error.WriteLine(fmt.FormatError("Aborted."));
-                    return (1, false, 0);
-                }
+                config.Git.Project = gitProject;
+                Console.WriteLine($"  Git project: {gitProject}");
             }
-        }
 
-        // Create .twig/ root and nested context directory
-        Directory.CreateDirectory(twigDir);
-        var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
-        Directory.CreateDirectory(contextDir);
+            // AB#3296: write the new split shape — twig.json (committed manifest) at
+            // repo root and .twig/config (gitignored user prefs). Fresh init always
+            // produces the new shape; migration handles legacy upgrades. Tracked
+            // before writing so a downstream failure restores the pre-init state.
+            rollback.TrackFile(contextPaths.ConfigPath);
+            if (preserveRepoManifest)
+            {
+                await config.SaveUserAsync(contextPaths.ConfigPath, ct);
+            }
+            else
+            {
+                rollback.TrackFile(contextPaths.RepoConfigPath);
+                await config.SaveSplitAsync(contextPaths, ct);
+            }
 
-        // Set git.project if explicitly provided
-        if (!string.IsNullOrWhiteSpace(gitProject))
-        {
-            config.Git.Project = gitProject;
-            Console.WriteLine($"  Git project: {gitProject}");
-        }
+            var effectiveOrg = config.Organization;
+            var effectiveProject = config.Project;
+            var effectiveTeam = string.IsNullOrWhiteSpace(config.Team) ? $"{effectiveProject} Team" : config.Team;
+            var iterationService = _iterationService
+                ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam);
 
-        // AB#3296: write the new split shape — twig.json (committed manifest) at
-        // repo root and .twig/config (gitignored user prefs). Fresh init always
-        // produces the new shape; migration handles legacy upgrades.
-        if (preserveRepoManifest)
-            await config.SaveUserAsync(contextPaths.ConfigPath, ct);
-        else
-            await config.SaveSplitAsync(contextPaths, ct);
+            var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
 
-        var effectiveOrg = config.Organization;
-        var effectiveProject = config.Project;
-        var effectiveTeam = string.IsNullOrWhiteSpace(config.Team) ? $"{effectiveProject} Team" : config.Team;
-        var iterationService = _iterationService
-            ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam);
+            var template = await iterationService.DetectTemplateNameAsync();
+            if (!preserveRepoManifest)
+                config.ProcessTemplate = template ?? string.Empty;
 
-        var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
+            // ── Design §6.3 steps 4–10: managed init runs against an
+            //    initializer scoped to THIS invocation's paths + effective
+            //    config, never the DI-singleton built from startup-discovered
+            //    coordinates. `selected-profile-unavailable` is a fatal
+            //    refusal (design §6.3: no synthetic identity, no partial
+            //    workspace), rolled back before any downstream write runs.
+            var invocationPaths = new TwigPaths(twigDir, contextPaths.ConfigPath, contextPaths.DbPath, invocationStartDir);
+            var invocationFingerprint = new Infrastructure.Persistence.WorktreeFingerprintProvider(invocationPaths, config);
+            var invocationStore = new Infrastructure.Persistence.WorktreeLocalAttachmentStore(invocationPaths, config, TimeProvider.System);
+            if (_systemRegistry is null || _profileRegistry is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError("Managed init refused: system-store or profile-registry seam is unavailable."));
+                rollback.Rollback();
+                return (1, false, 0);
+            }
+            var scopedInitializer = new Infrastructure.Persistence.ManagedWorktreeInitializer(
+                invocationStore, _systemRegistry, invocationFingerprint, config, invocationPaths, _profileRegistry);
 
-        var template = await iterationService.DetectTemplateNameAsync();
-        if (!preserveRepoManifest)
-            config.ProcessTemplate = template ?? string.Empty;
+            var effectiveIdentity = string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "unknown" : config.ProcessTemplate;
+
+            // Track the files the initializer will create so rollback can
+            // remove exactly this run's contribution.
+            rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.LayoutFileName));
+            rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.WorktreeFileName));
+            rollback.TrackFile(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.AttachmentFileName));
+            rollback.TrackDirectory(Path.Combine(twigDir, Infrastructure.Persistence.WorktreeLocalAttachmentStore.TmpDirName));
+
+            var managed = await scopedInitializer.InitializeAsync(
+                config.Organization,
+                config.Project,
+                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
+                profileIdentity: effectiveIdentity,
+                profileVersion: "1",
+                ct);
+            if (!managed.IsSuccess)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {managed.Error}"));
+                rollback.Rollback();
+                return (1, false, 0);
+            }
+
 
         // AB#3296 PR-3: type appearances are sourced from the SQLite cache
         // (process_types table, populated below by ProcessTypeSyncService).
@@ -358,57 +535,23 @@ public sealed class InitCommand
             }
         }
 
-        // --sprint flag: add sprint expressions to workspace.sprints[]
-        if (!string.IsNullOrWhiteSpace(sprint))
+        // --sprint flag: the expressions were validated before step 4 (see
+        // the pre-write validation above); apply the parsed entries here.
+        // A non-null list means the flag was supplied; an EMPTY one (e.g.
+        // `--sprint ';'`) still overrides, clearing anything auto-detected.
+        if (preparsedSprints is not null)
         {
-            var expressions = sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var sprintEntries = new List<SprintEntry>();
-            foreach (var expr in expressions)
-            {
-                var parsed = IterationExpression.Parse(expr);
-                if (!parsed.IsSuccess)
-                {
-                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
-                    return (1, telemetryHadGlobalProfile, 0);
-                }
-                sprintEntries.Add(new SprintEntry { Expression = expr });
-            }
-            config.Workspace.Sprints = sprintEntries;
-            foreach (var entry in sprintEntries)
+            config.Workspace.Sprints = preparsedSprints;
+            foreach (var entry in preparsedSprints)
                 Console.WriteLine($"  Sprint: {entry.Expression}");
         }
 
-        // --area flag: add area path entries to defaults.areapathentries[]
-        if (!string.IsNullOrWhiteSpace(area))
+        // --area flag: likewise pre-validated; apply the parsed entries.
+        if (preparsedAreas is not null)
         {
-            var areaParts = area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var areaEntries = new List<AreaPathEntry>();
-            foreach (var raw in areaParts)
-            {
-                string pathPart;
-                bool includeChildren;
-                if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
-                {
-                    pathPart = raw[..^":exact".Length];
-                    includeChildren = false;
-                }
-                else
-                {
-                    pathPart = raw;
-                    includeChildren = true;
-                }
-
-                var parsed = AreaPath.Parse(pathPart);
-                if (!parsed.IsSuccess)
-                {
-                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
-                    return (1, telemetryHadGlobalProfile, 0);
-                }
-                areaEntries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
-            }
-            config.Defaults.AreaPathEntries = areaEntries;
-            config.Defaults.AreaPaths = areaEntries.Select(e => e.Path).ToList();
-            foreach (var entry in areaEntries)
+            config.Defaults.AreaPathEntries = preparsedAreas;
+            config.Defaults.AreaPaths = preparsedAreas.Select(e => e.Path).ToList();
+            foreach (var entry in preparsedAreas)
                 Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
         }
 
@@ -630,7 +773,13 @@ public sealed class InitCommand
                 Console.WriteLine(formatted);
         }
 
-        return (0, telemetryHadGlobalProfile, telemetryFieldCount);
+            return (0, telemetryHadGlobalProfile, telemetryFieldCount);
+        }
+        catch
+        {
+            rollback.Rollback();
+            throw;
+        }
     }
 
     private static string? GetManifestCoordinateConflict(
@@ -737,4 +886,73 @@ public sealed class InitCommand
         }
     }
 
+}
+
+/// <summary>
+/// Tracks filesystem artifacts created by a single <c>twig init</c>
+/// invocation so a failure in the managed-init transaction can restore the
+/// pre-invocation state per §6.3 (compensation removes only files this run
+/// created and restores overwritten files byte-for-byte).
+/// </summary>
+internal sealed class InitRollbackJournal
+{
+    private readonly List<string> _createdFiles = new();
+    private readonly List<string> _createdDirectories = new();
+    private readonly Dictionary<string, byte[]> _overwriteSnapshots = new();
+
+    /// <summary>Track a file that may be created or overwritten this run.
+    /// If the file already exists, its bytes are snapshotted so rollback
+    /// restores them; otherwise it is scheduled for delete on rollback.</summary>
+    public void TrackFile(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        if (File.Exists(path))
+        {
+            if (!_overwriteSnapshots.ContainsKey(path))
+                _overwriteSnapshots[path] = File.ReadAllBytes(path);
+            return;
+        }
+        _createdFiles.Add(path);
+    }
+
+    /// <summary>Track a directory that may be created this run. If the
+    /// directory already exists, no compensation is scheduled (leave
+    /// pre-existing directories alone).</summary>
+    public void TrackDirectory(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        if (Directory.Exists(path)) return;
+        _createdDirectories.Add(path);
+    }
+
+    /// <summary>
+    /// Undo tracked writes. Restores overwritten files byte-for-byte,
+    /// deletes files created this run, and removes empty directories this
+    /// run created (deepest first). Best-effort — a failure to restore one
+    /// file must not prevent restoring the rest.
+    /// </summary>
+    public void Rollback()
+    {
+        foreach (var kvp in _overwriteSnapshots)
+        {
+            try { File.WriteAllBytes(kvp.Key, kvp.Value); } catch { /* best-effort */ }
+        }
+        foreach (var file in _createdFiles)
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { /* best-effort */ }
+        }
+        // Deepest-first so children are removed before parents.
+        foreach (var dir in _createdDirectories.OrderByDescending(d => d.Length))
+        {
+            try
+            {
+                if (Directory.Exists(dir)
+                    && !Directory.EnumerateFileSystemEntries(dir).Any())
+                {
+                    Directory.Delete(dir);
+                }
+            }
+            catch { /* best-effort */ }
+        }
+    }
 }

@@ -63,6 +63,7 @@ public sealed class TwigConfiguration
     public WorkspaceConfig Workspace { get => RepoCoords.Workspace; set => RepoCoords.Workspace = value; }
     public TrackingConfig Tracking { get => UserPrefs.Tracking; set => UserPrefs.Tracking = value; }
     public AreasConfig Areas { get => RepoCoords.Areas; set => RepoCoords.Areas = value; }
+    public PolicyConfig? Policy { get => RepoCoords.Policy; set => RepoCoords.Policy = value; }
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -785,6 +786,60 @@ public sealed class TwigRepoConfig
     public GitConfig Git { get; set; } = new();
     public WorkspaceConfig Workspace { get; set; } = new();
     public AreasConfig Areas { get; set; } = new();
+    /// <summary>
+    /// The <c>policy</c> block AB#736 §4.1 fixes on the checked-in
+    /// <c>twig.json</c>. Portable per-repo policy that every contributor
+    /// consumes verbatim; today its sole content is the primary-scope
+    /// allow-set consumed by AB#738. Nullable so a repo without a checked-in
+    /// policy fails closed at the eligibility gate rather than silently
+    /// permitting every type.
+    /// </summary>
+    public PolicyConfig? Policy { get; set; }
+}
+
+/// <summary>
+/// The <c>policy</c> block in the checked-in <c>twig.json</c>. Portable
+/// per-repo policy that survives every worktree init and that AB#738's
+/// eligibility gate consults through
+/// <see cref="Twig.Domain.Services.Attachment.IPrimaryScopePolicySource"/>.
+/// AB#736 §4.1 pins the block as the materialized policy of the selected
+/// pinned profile: <see cref="SelectedProfile"/> binds the identity + version
+/// (the same identity AB#727 will publish through profile storage) and
+/// <see cref="PrimaryScopeTypes"/> carries the concrete allow-set that
+/// binding materializes. There is no permanently-unavailable default: init
+/// writes a policy block, so a checked-in twig.json without one is a
+/// migration issue the eligibility gate names explicitly.
+/// </summary>
+public sealed class PolicyConfig
+{
+    /// <summary>The pinned profile identity + version this repository is
+    /// bound to. Both fields are opaque strings; validated as non-empty by
+    /// the checked-in policy source. AB#727 will match this binding against
+    /// its own registry; until that lands, the binding is a self-describing
+    /// materialization the eligibility gate consumes directly.</summary>
+    public SelectedProfileBinding? SelectedProfile { get; set; }
+
+    /// <summary>
+    /// Work-item type allow-set for primary-scope attachment (AB#738).
+    /// Comparison is case-insensitive. Values are opaque strings the active
+    /// process description defines. An empty list refuses every type; the
+    /// list is nullable at the JSON layer but init supplies an empty list
+    /// so an untouched managed worktree never surfaces
+    /// <c>eligibility-unavailable</c> for the wrong reason.
+    /// </summary>
+    public List<string>? PrimaryScopeTypes { get; set; }
+}
+
+/// <summary>
+/// The <c>selectedProfile</c> object materialized into the checked-in
+/// twig.json policy block. Both fields are opaque per T1 §4.1's
+/// process-agnostic constraint; the eligibility source validates that they
+/// are non-empty so a hand-edited manifest fails closed at the right layer.
+/// </summary>
+public sealed class SelectedProfileBinding
+{
+    public string Identity { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -950,6 +1005,7 @@ public sealed class WorkspaceConfig
     /// Each entry represents a subscribed sprint iteration that twig tracks.
     /// </summary>
     public List<SprintEntry>? Sprints { get; set; }
+
 }
 
 /// <summary>

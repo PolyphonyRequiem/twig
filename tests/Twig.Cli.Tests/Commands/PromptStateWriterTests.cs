@@ -480,4 +480,77 @@ public class PromptStateWriterTests : IDisposable
         title.ShouldEndWith("…");
         title.ShouldBe(new string('A', 119) + "…");
     }
+
+    // ── AB#738: primaryScope block on the machine surface ─────────────
+
+    [Fact]
+    public void WriteAttachmentBlock_emits_named_failure_when_status_carries_failure_code()
+    {
+        var status = PrimaryScopeAttachmentStatus.Failed("worktree-fingerprint-drift");
+        using var stream = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(stream))
+        {
+            jsonWriter.WriteStartObject();
+            PromptStateWriter.WriteAttachmentBlock(jsonWriter, status);
+            jsonWriter.WriteEndObject();
+        }
+        var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        json.ShouldContain("\"primaryScope\"");
+        json.ShouldContain("\"status\":\"failed\"");
+        json.ShouldContain("\"failureCode\":\"worktree-fingerprint-drift\"");
+    }
+
+    [Fact]
+    public void WriteAttachmentBlock_emits_attached_state_with_work_item_metadata()
+    {
+        var scope = new PrimaryScope(
+            42,
+            "https://dev.azure.com/o/p/_workitems/edit/42",
+            new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero));
+        var status = PrimaryScopeAttachmentStatus.Attached(scope, title: "The Item", type: "Task");
+
+        using var stream = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(stream))
+        {
+            jsonWriter.WriteStartObject();
+            PromptStateWriter.WriteAttachmentBlock(jsonWriter, status);
+            jsonWriter.WriteEndObject();
+        }
+        var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        json.ShouldContain("\"attached\":true");
+        json.ShouldContain("\"workItemId\":42");
+        json.ShouldContain("\"title\":\"The Item\"");
+        json.ShouldContain("\"type\":\"Task\"");
+    }
+
+    [Fact]
+    public void WriteAttachmentBlock_emits_unattached_state_when_managed_but_no_scope()
+    {
+        var status = PrimaryScopeAttachmentStatus.Unattached();
+        using var stream = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(stream))
+        {
+            jsonWriter.WriteStartObject();
+            PromptStateWriter.WriteAttachmentBlock(jsonWriter, status);
+            jsonWriter.WriteEndObject();
+        }
+        var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        json.ShouldContain("\"attached\":false");
+        json.ShouldContain("\"status\":\"unattached\"");
+    }
+
+    [Fact]
+    public void WriteAttachmentBlock_omits_block_when_unmanaged_and_no_failure()
+    {
+        var status = PrimaryScopeAttachmentStatus.NotManaged();
+        using var stream = new MemoryStream();
+        using (var jsonWriter = new Utf8JsonWriter(stream))
+        {
+            jsonWriter.WriteStartObject();
+            PromptStateWriter.WriteAttachmentBlock(jsonWriter, status);
+            jsonWriter.WriteEndObject();
+        }
+        var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+        json.ShouldNotContain("primaryScope");
+    }
 }

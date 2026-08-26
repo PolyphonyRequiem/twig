@@ -110,6 +110,13 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IStagedIdentityRegistry>());
         services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
         services.AddSingleton<Twig.Domain.Services.Seed.SeedDiscardOrchestrator>();
+        // AB#728: AB#736 storage / attachment seams. Production registers
+        // these in TwigServiceRegistration.AddConnectionServices, which this
+        // fixture deliberately does not compose (it stops at the domain
+        // module). Substituting them here matches production wiring where
+        // both InitCommand and CommandContext resolve them out of DI.
+        services.AddSingleton(Substitute.For<IManagedWorktreeInitializer>());
+        services.AddSingleton(Substitute.For<IAttachmentStatusProjection>());
 
         services.AddSingleton(new HttpClient());
         services.AddSingleton(new OutputFormatterFactory(new HumanOutputFormatter()));

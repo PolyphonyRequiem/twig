@@ -129,6 +129,16 @@ public sealed class ShowCommand(
                     return 1;
                 case ActiveNoContext:
                 default:
+                    // AB#738 requires primary-scope status to render even
+                    // when Twig Context is unset (attachment is a separate
+                    // identity). Emit the status line before the branch hint
+                    // so a managed unattached checkout is observable without
+                    // first setting Context.
+                    if (!IsMachineFormat(outputFormat) && ctx.AttachmentStatus is { } noCtxAttachment)
+                    {
+                        var noCtxProj = await noCtxAttachment.ReadAsync(ct);
+                        RenderAttachmentStatusLine(noCtxProj);
+                    }
                     EmitBranchDetectionHint();
                     return 1;
             }
@@ -252,6 +262,17 @@ public sealed class ShowCommand(
             }
         }
 
+
+        // AB#738 status projection. Emitted on human-audience surfaces only —
+        // the machine surface receives the same signal via .twig/prompt.json's
+        // `primaryScope` block (PromptStateWriter). Unattached checkouts state
+        // the fact explicitly per the ticket contract; unmanaged checkouts
+        // (rendering a work item outside a twig worktree) get no block at all.
+        if (!IsMachineFormat(outputFormat) && ctx.AttachmentStatus is { } attachmentStatus)
+        {
+            var proj = await attachmentStatus.ReadAsync(ct);
+            RenderAttachmentStatusLine(proj);
+        }
         if (renderer is not null)
         {
             Task RenderStaticAsync() => renderer.RenderStatusAsync(
@@ -844,6 +865,35 @@ public sealed class ShowCommand(
         {
             ctx.StderrWriter.WriteLine($"hint: Branch '{branch}' may reference work item #{detectedId.Value}.");
             ctx.StderrWriter.WriteLine($"      Try: twig set {detectedId.Value}");
+        }
+    }
+
+    /// <summary>
+    /// Renders the AB#738 primary-scope status line on human-audience
+    /// surfaces. Shared by the with-context and no-context paths so a
+    /// managed unattached checkout is observable identically whether or
+    /// not Twig Context is currently set. Machine surfaces route through
+    /// <c>.twig/prompt.json</c>'s <c>primaryScope</c> block instead.
+    /// </summary>
+    private static void RenderAttachmentStatusLine(Twig.Domain.Interfaces.StatusProjection proj)
+    {
+        if (proj.FailureCode is { } failure)
+        {
+            Console.WriteLine($"Primary Scope: (unavailable — {failure})");
+            return;
+        }
+        if (!proj.IsManagedWorktree)
+            return;
+        if (proj.HasPrimaryScope)
+        {
+            var label = proj.PrimaryScopeTitle is { Length: > 0 }
+                ? $"Primary Scope: #{proj.PrimaryScopeWorkItemId} {proj.PrimaryScopeTitle}"
+                : $"Primary Scope: #{proj.PrimaryScopeWorkItemId}";
+            Console.WriteLine(label);
+        }
+        else
+        {
+            Console.WriteLine("Primary Scope: (not attached)");
         }
     }
 

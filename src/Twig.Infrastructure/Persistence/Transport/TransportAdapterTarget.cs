@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Twig.Infrastructure.Boundary;
 
 namespace Twig.Infrastructure.Persistence.Transport;
 
@@ -16,12 +17,35 @@ namespace Twig.Infrastructure.Persistence.Transport;
 /// defined in §7.
 /// </para>
 /// </summary>
-internal sealed record TransportAdapterTarget(
-    TransportAdapterRole Role,
-    string AdapterId,
-    string HostAttachmentId,
-    string HostAttachmentIdKind,
-    IReadOnlyDictionary<string, string> AdapterContext);
+internal sealed record TransportAdapterTarget
+{
+    public TransportAdapterTarget(
+        TransportAdapterRole Role,
+        string AdapterId,
+        string HostAttachmentId,
+        string HostAttachmentIdKind,
+        IReadOnlyDictionary<string, string> AdapterContext)
+    {
+        // §8.3 rail 3 — mark every scalar string entering a
+        // transport record as transport-origin so the ADO client
+        // boundary can refuse to project it into an ADO comment /
+        // field / link (see AdoProjectionGuard).
+        AdoProjectionGuard.MarkTransportOrigin(AdapterId);
+        AdoProjectionGuard.MarkTransportOrigin(HostAttachmentId);
+        AdoProjectionGuard.MarkTransportOrigin(HostAttachmentIdKind);
+        this.Role = Role;
+        this.AdapterId = AdapterId;
+        this.HostAttachmentId = HostAttachmentId;
+        this.HostAttachmentIdKind = HostAttachmentIdKind;
+        this.AdapterContext = AdapterContext;
+    }
+
+    public TransportAdapterRole Role { get; init; }
+    public string AdapterId { get; init; }
+    public string HostAttachmentId { get; init; }
+    public string HostAttachmentIdKind { get; init; }
+    public IReadOnlyDictionary<string, string> AdapterContext { get; init; }
+}
 
 /// <summary>
 /// Contract §7.4 <c>RecordIdentityRequest</c>. Every §7 adapter's
@@ -68,10 +92,35 @@ internal enum PartialCloseReason
 /// (§3.1). <see cref="HumanReadable"/> is for diagnostics only and is
 /// never a router key.
 /// </summary>
-internal sealed record AdapterDescription(
-    string AdapterId,
-    string DisplayName,
-    string AdapterVersion,
-    IReadOnlySet<TransportCapability> Capabilities,
-    IReadOnlySet<TransportAdapterRole> SupportedRoles,
-    string HumanReadable);
+internal sealed record AdapterDescription
+{
+    public AdapterDescription(
+        string AdapterId,
+        string DisplayName,
+        string AdapterVersion,
+        IReadOnlySet<TransportCapability> Capabilities,
+        IReadOnlySet<TransportAdapterRole> SupportedRoles,
+        string HumanReadable)
+    {
+        // §8.3 rail 3 — mark description scalars so a caller that
+        // reads DescribeAdapter().AdapterId and passes it to an ADO
+        // AddCommentAsync trips the runtime backstop.
+        AdoProjectionGuard.MarkTransportOrigin(AdapterId);
+        AdoProjectionGuard.MarkTransportOrigin(DisplayName);
+        AdoProjectionGuard.MarkTransportOrigin(AdapterVersion);
+        AdoProjectionGuard.MarkTransportOrigin(HumanReadable);
+        this.AdapterId = AdapterId;
+        this.DisplayName = DisplayName;
+        this.AdapterVersion = AdapterVersion;
+        this.Capabilities = Capabilities;
+        this.SupportedRoles = SupportedRoles;
+        this.HumanReadable = HumanReadable;
+    }
+
+    public string AdapterId { get; init; }
+    public string DisplayName { get; init; }
+    public string AdapterVersion { get; init; }
+    public IReadOnlySet<TransportCapability> Capabilities { get; init; }
+    public IReadOnlySet<TransportAdapterRole> SupportedRoles { get; init; }
+    public string HumanReadable { get; init; }
+}

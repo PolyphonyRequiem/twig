@@ -537,41 +537,61 @@ public sealed class WindowsTerminalTransportAdapterTests
     }
 
     /// <summary>
-    /// Deliberately non-compliant class the canary test scans. Every
-    /// method here matches a forbidden pattern the WT adapter's real
-    /// tests forbid: Process.Start, a "wt.exe" literal, and a
-    /// reflection-based invocation. If a future .NET IL change or a
-    /// scanner bug lets any of them slip past
-    /// <see cref="SideEffectFreeProbeScanner"/>, the canary fails and
-    /// blocks the release. It is NEVER instantiated at runtime — the
-    /// scanner reads its IL directly.
+    /// Deliberately non-compliant class the canary test scans.
+    /// <para>
+    /// Every forbidden operation lives in a SEPARATE
+    /// <see cref="ForbiddenOperationsHelper"/>. The root methods on
+    /// this class only CALL the helper. This is deliberate: a
+    /// scanner that stopped at root methods (never descended into
+    /// helpers) would let a real regression slip through, because
+    /// production maintainers who reach for <c>wt.exe</c> tomorrow
+    /// will do it through a helper — not by inlining
+    /// <see cref="System.Diagnostics.Process.Start(string,string)"/>
+    /// straight into <see cref="ITransportAdapter.RecordIdentity"/>.
+    /// If the walker regressed to only inspecting root methods, this
+    /// canary would silently pass; that is the vacuous-guarantee
+    /// failure mode finding 6 blocks.
+    /// </para>
     /// </summary>
     private static class CanaryThatLaunchesWtExe
     {
-        // A method that references System.Diagnostics.Process
-        // directly. Guarded by a runtime never-true condition so no
-        // process actually spawns during test execution — we only
-        // need the IL to contain the reference.
-        public static void LaunchesProcess()
+        // Root: no forbidden token appears here. Only a call.
+        public static void LaunchesProcess() => ForbiddenOperationsHelper.LaunchProcessInternal();
+
+        // Root: no literal in this method — the literal sits behind
+        // one level of indirection so the walker's recursion is
+        // what surfaces the forbidden fragment.
+        public static string EmbedsWtExeLiteral() => ForbiddenOperationsHelper.BuildWtCommandLine();
+
+        // Root: no reflection escape hatch appears here. The
+        // reflective reach lives behind the helper.
+        public static object? ReachesReflection() => ForbiddenOperationsHelper.ResolveProcessType();
+
+        /// <summary>
+        /// Helper class that actually carries the forbidden
+        /// constructs. If the transitive walker never enters this
+        /// class, the canary passes even when the guarantee is
+        /// broken — that is the exact regression the canary must
+        /// catch.
+        /// </summary>
+        private static class ForbiddenOperationsHelper
         {
-            // Intentional: the scanner reads the IL, not runtime
-            // behaviour, so the `if` is unreachable but keeps the
-            // token present.
-            if (System.Environment.ProcessorCount < 0)
+            public static void LaunchProcessInternal()
             {
-                System.Diagnostics.Process.Start("wt.exe", "--window 0 -- echo canary");
+                // Unreachable at runtime; the scanner reads IL.
+                if (System.Environment.ProcessorCount < 0)
+                {
+                    System.Diagnostics.Process.Start("wt.exe", "--window 0 -- echo canary");
+                }
             }
-        }
 
-        // A method carrying a literal the string-literal scan MUST
-        // catch.
-        public static string EmbedsWtExeLiteral() => "wt.exe";
+            public static string BuildWtCommandLine() => "wt.exe --window 0";
 
-        // A method reaching a reflection escape hatch.
-        public static object? ReachesReflection()
-        {
-            var t = System.Type.GetType("System.Diagnostics.Process");
-            return t;
+            public static object? ResolveProcessType()
+            {
+                var t = System.Type.GetType("System.Diagnostics.Process");
+                return t;
+            }
         }
     }
 
@@ -598,40 +618,120 @@ public sealed class WindowsTerminalTransportAdapterTests
     {
         // Row-by-row assertion aligned with
         // TransportNoAuthorityConformanceTests.RejectedRows(): no
-        // method call in the WT adapter reaches an R-row seam.
-        // Attach/probe/detach/close cannot trigger a claim mint, a
-        // Change Proposal state transition, a plan apply, an ADO
-        // mutation, or a session-steering derivation because the
-        // adapter's IL contains no reference to any of those types
-        // by declaring type name.
-        var forbiddenPrefixes = new[]
-        {
-            // R1 — claim lifecycle
-            "Twig.Domain.Services.Claims",
-            // R2 / R3 — plan lifecycle and Change Proposal state
-            "Twig.Domain.Services.Plan",
-            // R4 / R5 / R6 / R7 — ADO mutation surfaces
-            "Twig.Domain.Interfaces.IAdoWorkItemService",
-            "Twig.Domain.Services.Ado",
-            "Twig.Infrastructure.Ado",
-            // R8 — session-steering-mode derivation
-            "Twig.Domain.Interfaces.IAttachmentStatusProjection",
-            "Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService",
-            // R9 — primary-scope attachment lifecycle
-            "Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore",
-            "Twig.Domain.Interfaces.IPrimaryScopeAttachmentService",
-            // R10 — managed-worktree init
-            "Twig.Domain.Interfaces.IManagedWorktreeInitializer",
-        };
-        foreach (var method in AllDeclaredMethods(typeof(WindowsTerminalTransportAdapter)))
-        {
-            foreach (var referenced in ReferencedMethods(method))
+        // reachable method call in the WT adapter's TRANSITIVE call
+        // graph reaches an R-row seam. Finding 7: the old check was
+        // direct-only and could be defeated by moving the call
+        // behind a helper; this uses the shared transitive walker
+        // and is proven live by the paired canary test below.
+        var forbiddenPrefixes = ForbiddenAuthorityPrefixes;
+        var offenders = new List<string>();
+        TransportCallGraphWalker.Walk(
+            typeof(WindowsTerminalTransportAdapter),
+            onCallee: (from, callee) =>
             {
-                var declaring = referenced.DeclaringType?.FullName ?? "";
+                var declaring = callee.DeclaringType?.FullName ?? string.Empty;
                 foreach (var prefix in forbiddenPrefixes)
-                    declaring.ShouldNotStartWith(prefix, Case.Sensitive,
-                        $"{method.DeclaringType!.Name}.{method.Name} references R-row surface {declaring}.{referenced.Name}.");
-            }
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add(
+                            $"{TransportCallGraphWalker.Describe(from)} -> {declaring}.{callee.Name}");
+                }
+            });
+        offenders.ShouldBeEmpty(
+            "Windows Terminal adapter's TRANSITIVE call graph reaches an R1–R15 seam. " +
+            "Attach/probe/detach/close must not trigger a claim mint, plan apply, ADO mutation, " +
+            "or session-steering derivation — regardless of how many helpers the call hides " +
+            "behind. Offenders:\n  " + string.Join("\n  ", offenders));
+    }
+
+    [Fact]
+    public void Scanner_flags_the_canary_whose_root_calls_a_helper_that_reaches_an_authority_surface()
+    {
+        // Finding 7 canary: this canary's root method contains NO
+        // reference to any R-row surface — only a call into a
+        // helper. If the walker regressed to a direct-only scan
+        // (like the pre-fix version), this test would silently pass.
+        var offenders = new List<string>();
+        TransportCallGraphWalker.Walk(
+            typeof(R1R15TransitiveCanary),
+            onCallee: (from, callee) =>
+            {
+                var declaring = callee.DeclaringType?.FullName ?? string.Empty;
+                foreach (var prefix in ForbiddenAuthorityPrefixes)
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add(
+                            $"{TransportCallGraphWalker.Describe(from)} -> {declaring}.{callee.Name}");
+                }
+            });
+        offenders.ShouldNotBeEmpty(
+            "R1–R15 scanner failed to descend from a canary root into a helper that reaches " +
+            "an authority surface. A regression to a direct-only scan would silently pass the " +
+            "guarantee — finding 7 pins this as blocking.");
+    }
+
+    private static readonly string[] ForbiddenAuthorityPrefixes =
+    {
+        // R1 — claim lifecycle
+        "Twig.Domain.Services.Claims",
+        // R2 / R3 — plan lifecycle and Change Proposal state
+        "Twig.Domain.Services.Plan",
+        // R4 / R5 / R6 / R7 — ADO mutation surfaces
+        "Twig.Domain.Interfaces.IAdoWorkItemService",
+        "Twig.Domain.Services.Ado",
+        "Twig.Infrastructure.Ado",
+        // R8 — session-steering-mode derivation
+        "Twig.Domain.Interfaces.IAttachmentStatusProjection",
+        "Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService",
+        // R9 — primary-scope attachment lifecycle
+        "Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore",
+        "Twig.Domain.Interfaces.IPrimaryScopeAttachmentService",
+        // R10 — managed-worktree init
+        "Twig.Domain.Interfaces.IManagedWorktreeInitializer",
+    };
+
+    /// <summary>
+    /// Deliberately non-compliant fixture for finding 7's transitive
+    /// canary. The root method contains no forbidden token; the
+    /// reach lives in a helper. If the walker regressed to a
+    /// direct-only scan (matching the pre-fix state), the offenders
+    /// list would be empty and the canary test would fail.
+    /// </summary>
+    private static class R1R15TransitiveCanary
+    {
+        // Root: no forbidden token. Only a call into a helper.
+        public static Twig.Domain.Common.Result MintClaimIndirectly()
+        {
+            AuthoritySinkHelper.CallForbiddenClaimSink();
+            return Twig.Domain.Common.Result.Ok();
+        }
+
+        private static class AuthoritySinkHelper
+        {
+            // The forbidden reach: a call whose declaring type sits
+            // in the R1 claim namespace prefix.
+            public static Twig.Domain.Services.Claims.ClaimRecord CallForbiddenClaimSink()
+                => new Twig.Domain.Services.Claims.ClaimRecord(
+                    SchemaVersion: 1,
+                    ClaimId: string.Empty,
+                    Label: null,
+                    ConnectionRef: string.Empty,
+                    PrimaryScopeId: string.Empty,
+                    PrimaryScopeKind: string.Empty,
+                    HolderIdentity: string.Empty,
+                    HolderDisplay: null,
+                    WorktreeFingerprint: string.Empty,
+                    State: string.Empty,
+                    Origin: string.Empty,
+                    LeaseGeneration: 0,
+                    ExpiresAt: null,
+                    CreatedAt: System.DateTimeOffset.UnixEpoch,
+                    ActivatedAt: null,
+                    ReleasedAt: null,
+                    SupersededByClaimId: null,
+                    ReleaseReason: null,
+                    Notes: null,
+                    CasToken: string.Empty);
         }
     }
 

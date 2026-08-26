@@ -150,6 +150,152 @@ public sealed class HerdrTransportAdapterRejectedVerbsConformanceTests
     }
 
     /// <summary>
+    /// Finding 8: the constructor check alone lets a
+    /// workflow-domain reach hide behind a private method call,
+    /// a field type on <see cref="HerdrProcessHostSurface"/>, or a
+    /// helper on <see cref="IHerdrHostSurface"/> and its wrappers.
+    /// This transitive walker roots at both production Herdr
+    /// classes and refuses ANY reachable callee whose declaring
+    /// type sits under a §9.1 R-row prefix. The paired canary
+    /// below proves the walk is live.
+    /// </summary>
+    [Fact]
+    public void HerdrTransportAdapter_and_process_host_surface_transitive_call_graph_never_reaches_a_rejected_surface()
+    {
+        var offenders = new List<string>();
+        TransportCallGraphWalker.Walk(
+            new[] { typeof(HerdrTransportAdapter), typeof(HerdrProcessHostSurface), typeof(IHerdrHostSurface) },
+            onCallee: (from, callee) =>
+            {
+                var declaring = callee.DeclaringType?.FullName ?? string.Empty;
+                foreach (var prefix in ForbiddenAuthorityPrefixes)
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add(
+                            $"{TransportCallGraphWalker.Describe(from)} -> {declaring}.{callee.Name}");
+                }
+            },
+            onReferencedType: (from, referenced) =>
+            {
+                var declaring = referenced.FullName ?? string.Empty;
+                foreach (var prefix in ForbiddenAuthorityPrefixes)
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add(
+                            $"{TransportCallGraphWalker.Describe(from)} references {declaring}");
+                }
+            });
+
+        // Field-type reach: a field on the adapter/host-surface
+        // whose type sits in an R-row namespace is a DI-free way to
+        // acquire the sink. Walk declared fields too.
+        foreach (var t in new[] { typeof(HerdrTransportAdapter), typeof(HerdrProcessHostSurface) })
+        {
+            foreach (var f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            {
+                var declaring = f.FieldType.FullName ?? string.Empty;
+                foreach (var prefix in ForbiddenAuthorityPrefixes)
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add($"{t.Name}.{f.Name} has field type {declaring}");
+                }
+            }
+        }
+
+        offenders.ShouldBeEmpty(
+            "Herdr adapter's transitive call graph (or field types) reaches a §9.1 rejected " +
+            "workflow-domain surface. This closes off private methods, wrappers, and helper " +
+            "types the constructor-parameter check cannot see. Offenders:\n  " +
+            string.Join("\n  ", offenders));
+    }
+
+    [Fact]
+    public void Scanner_flags_a_canary_that_reaches_a_rejected_surface_via_a_helper_wrapper()
+    {
+        // Finding 8 canary: root method contains no direct
+        // reference to any R-row surface, the reach is behind a
+        // helper wrapper. If the transitive walker were replaced
+        // with a constructor-only or direct-call scan, this canary
+        // would silently pass — vacuous guarantee.
+        var offenders = new List<string>();
+        TransportCallGraphWalker.Walk(
+            typeof(HerdrIndirectAuthorityCanary),
+            onCallee: (from, callee) =>
+            {
+                var declaring = callee.DeclaringType?.FullName ?? string.Empty;
+                foreach (var prefix in ForbiddenAuthorityPrefixes)
+                {
+                    if (declaring.StartsWith(prefix, System.StringComparison.Ordinal))
+                        offenders.Add(
+                            $"{TransportCallGraphWalker.Describe(from)} -> {declaring}.{callee.Name}");
+                }
+            });
+
+        offenders.ShouldNotBeEmpty(
+            "Herdr R1–R15 scanner failed to descend past a helper wrapper into an authority " +
+            "surface. This is the exact regression a constructor-only check misses.");
+    }
+
+    private static readonly string[] ForbiddenAuthorityPrefixes =
+    {
+        // R1 — claim lifecycle
+        "Twig.Domain.Services.Claims",
+        // R2 / R3 — plan lifecycle
+        "Twig.Domain.Services.Plan",
+        // R4–R7 — ADO mutation
+        "Twig.Domain.Interfaces.IAdoWorkItemService",
+        "Twig.Domain.Services.Ado",
+        "Twig.Infrastructure.Ado",
+        // R8 — session-steering-mode derivation
+        "Twig.Domain.Interfaces.IAttachmentStatusProjection",
+        "Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService",
+        // R9 — primary-scope attachment lifecycle
+        "Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore",
+        "Twig.Domain.Interfaces.IPrimaryScopeAttachmentService",
+        // R10 — managed-worktree init
+        "Twig.Domain.Interfaces.IManagedWorktreeInitializer",
+    };
+
+    /// <summary>
+    /// Deliberately non-compliant fixture. The root method contains
+    /// no direct reach to any R-row surface — the reach is behind
+    /// one level of wrapper indirection. If the transitive walker
+    /// were replaced with a constructor-only or direct-call scan,
+    /// the offenders list would be empty and the canary test would
+    /// fail, meaning the true guarantee is unenforced.
+    /// </summary>
+    private static class HerdrIndirectAuthorityCanary
+    {
+        public static void RootMethod() => AuthorityWrapper.ReachClaimSurface();
+
+        private static class AuthorityWrapper
+        {
+            public static Twig.Domain.Services.Claims.ClaimRecord ReachClaimSurface()
+                => new Twig.Domain.Services.Claims.ClaimRecord(
+                    SchemaVersion: 1,
+                    ClaimId: string.Empty,
+                    Label: null,
+                    ConnectionRef: string.Empty,
+                    PrimaryScopeId: string.Empty,
+                    PrimaryScopeKind: string.Empty,
+                    HolderIdentity: string.Empty,
+                    HolderDisplay: null,
+                    WorktreeFingerprint: string.Empty,
+                    State: string.Empty,
+                    Origin: string.Empty,
+                    LeaseGeneration: 0,
+                    ExpiresAt: null,
+                    CreatedAt: System.DateTimeOffset.UnixEpoch,
+                    ActivatedAt: null,
+                    ReleasedAt: null,
+                    SupersededByClaimId: null,
+                    ReleaseReason: null,
+                    Notes: null,
+                    CasToken: string.Empty);
+        }
+    }
+
+    /// <summary>
     /// §12.2 the adapter MUST NOT declare a <c>LifecycleFacets</c>
     /// capability beyond the six-value core vocabulary (deferred per
     /// §4.4). Capabilities set MUST be exactly the five §3.3 optional
@@ -180,7 +326,7 @@ public sealed class HerdrTransportAdapterRejectedVerbsConformanceTests
     {
         var publicMethods = typeof(HerdrTransportAdapter)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .Where(m => !m.IsSpecialName) // exclude property getters, Equals, GetHashCode
+            .Where(m => !m.IsSpecialName)
             .Select(m => m.Name)
             .ToHashSet(System.StringComparer.Ordinal);
         var expected = new HashSet<string>(System.StringComparer.Ordinal)

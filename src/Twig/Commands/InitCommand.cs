@@ -145,8 +145,15 @@ public sealed class InitCommand
             return (1, false, 0);
         }
         var canonicalStart = Infrastructure.Config.WorktreeAnchorDetector.CanonicalPath(_paths.StartDir, _paths.StartDir);
-        if (!string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.Ordinal)
-            && !(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() && string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.OrdinalIgnoreCase)))
+        // Windows and macOS default to case-insensitive filesystems, so the
+        // root comparison there must ignore case. The platform predicate is
+        // grouped deliberately: `IsWindows() || IsMacOS() && equals` would
+        // bind as `IsWindows() || (IsMacOS() && equals)` and let every
+        // Windows subdirectory bypass the refusal entirely.
+        var startIsWorktreeRoot = string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.Ordinal)
+            || ((OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+                && string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.OrdinalIgnoreCase));
+        if (!startIsWorktreeRoot)
         {
             Console.Error.WriteLine(fmt.FormatError(
                 $"Managed init refused: invocation directory {_paths.StartDir} is not the git worktree root {worktreeAnchor.WorktreeRoot}."));
@@ -222,6 +229,57 @@ public sealed class InitCommand
         {
             Console.Error.WriteLine(fmt.FormatError(overrideConflict));
             return (1, false, 0);
+        }
+
+        // ── Design §6.3 step 3: refuse pre-T1 legacy layouts BEFORE step 4
+        //    creates anything, so a refused init leaves `.twig/` byte-for-byte
+        //    as it found it. `--reinitialize` archives the tree above, so by
+        //    this point the predicate only trips on an unarchived legacy tree.
+        if (Infrastructure.Persistence.LegacyLayoutDetector.IsLegacyLayoutPresent(twigDir))
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Managed init refused: {Domain.Services.Attachment.AttachmentStorageFailure.LegacyLayoutPresent}. " +
+                "Re-run with --reinitialize to archive the legacy layout first."));
+            return (1, false, 0);
+        }
+
+        // ── Design §6.3: `--sprint`/`--area` are pure input validation, so
+        //    they run before the first write. Validating them after managed
+        //    registration would let a rejected flag return 1 with the local
+        //    layout and system-store rows already committed.
+        List<SprintEntry>? preparsedSprints = null;
+        if (!string.IsNullOrWhiteSpace(sprint))
+        {
+            preparsedSprints = [];
+            foreach (var expr in sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var parsed = IterationExpression.Parse(expr);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
+                    return (1, false, 0);
+                }
+                preparsedSprints.Add(new SprintEntry { Expression = expr });
+            }
+        }
+
+        List<AreaPathEntry>? preparsedAreas = null;
+        if (!string.IsNullOrWhiteSpace(area))
+        {
+            preparsedAreas = [];
+            foreach (var raw in area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var isExact = raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase);
+                var pathPart = isExact ? raw[..^":exact".Length] : raw;
+
+                var parsed = AreaPath.Parse(pathPart);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
+                    return (1, false, 0);
+                }
+                preparsedAreas.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = !isExact });
+            }
         }
 
         // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree.
@@ -474,57 +532,21 @@ public sealed class InitCommand
             }
         }
 
-        // --sprint flag: add sprint expressions to workspace.sprints[]
-        if (!string.IsNullOrWhiteSpace(sprint))
+        // --sprint flag: the expressions were validated before step 4 (see
+        // the pre-write validation above); apply the parsed entries here.
+        if (preparsedSprints is { Count: > 0 })
         {
-            var expressions = sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var sprintEntries = new List<SprintEntry>();
-            foreach (var expr in expressions)
-            {
-                var parsed = IterationExpression.Parse(expr);
-                if (!parsed.IsSuccess)
-                {
-                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
-                    return (1, telemetryHadGlobalProfile, 0);
-                }
-                sprintEntries.Add(new SprintEntry { Expression = expr });
-            }
-            config.Workspace.Sprints = sprintEntries;
-            foreach (var entry in sprintEntries)
+            config.Workspace.Sprints = preparsedSprints;
+            foreach (var entry in preparsedSprints)
                 Console.WriteLine($"  Sprint: {entry.Expression}");
         }
 
-        // --area flag: add area path entries to defaults.areapathentries[]
-        if (!string.IsNullOrWhiteSpace(area))
+        // --area flag: likewise pre-validated; apply the parsed entries.
+        if (preparsedAreas is { Count: > 0 })
         {
-            var areaParts = area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var areaEntries = new List<AreaPathEntry>();
-            foreach (var raw in areaParts)
-            {
-                string pathPart;
-                bool includeChildren;
-                if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
-                {
-                    pathPart = raw[..^":exact".Length];
-                    includeChildren = false;
-                }
-                else
-                {
-                    pathPart = raw;
-                    includeChildren = true;
-                }
-
-                var parsed = AreaPath.Parse(pathPart);
-                if (!parsed.IsSuccess)
-                {
-                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
-                    return (1, telemetryHadGlobalProfile, 0);
-                }
-                areaEntries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
-            }
-            config.Defaults.AreaPathEntries = areaEntries;
-            config.Defaults.AreaPaths = areaEntries.Select(e => e.Path).ToList();
-            foreach (var entry in areaEntries)
+            config.Defaults.AreaPathEntries = preparsedAreas;
+            config.Defaults.AreaPaths = preparsedAreas.Select(e => e.Path).ToList();
+            foreach (var entry in preparsedAreas)
                 Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
         }
 

@@ -197,6 +197,96 @@ public sealed class Ab728InitRollbackTests : IDisposable
         (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(originalManifestBytes);
     }
 
+    // ── §6.3: pure input validation runs before the first write ────────
+
+    [Fact]
+    public async Task Init_refuses_invalid_sprint_expression_before_creating_any_local_state()
+    {
+        if (!InitCommandTestFixture.InitTempWorktree(_tempRoot)) return;
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            Path.Combine(_tempRoot, ".twig"),
+            Path.Combine(_tempRoot, ".twig", "config"),
+            Path.Combine(_tempRoot, ".twig", "cache", "twig.db"),
+            startDir: _tempRoot);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync("org", "proj", sprint: "@@not-an-expression");
+
+        result.ShouldBe(1);
+        // A rejected flag must not leave a half-built workspace behind:
+        // no local layout, no manifest, no registry row to orphan.
+        Directory.Exists(paths.TwigDir).ShouldBeFalse();
+        File.Exists(Path.Combine(_tempRoot, "twig.json")).ShouldBeFalse();
+    }
+
+    // ── §6.3 step 3: legacy refusal precedes step 4 ────────────────────
+
+    [Fact]
+    public async Task Init_refuses_legacy_layout_without_creating_current_shape_state()
+    {
+        if (!InitCommandTestFixture.InitTempWorktree(_tempRoot)) return;
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        // Design §7 predicate #2: a flat pre-T1 twig.db at the workspace root.
+        var legacyDbPath = Path.Combine(twigDir, "twig.db");
+        var legacyBytes = System.Text.Encoding.UTF8.GetBytes("legacy-pre-t1-cache");
+        await File.WriteAllBytesAsync(legacyDbPath, legacyBytes);
+
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            twigDir,
+            Path.Combine(twigDir, "config"),
+            Path.Combine(twigDir, "cache", "twig.db"),
+            startDir: _tempRoot);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync("org", "proj");
+
+        result.ShouldBe(1);
+        (await File.ReadAllBytesAsync(legacyDbPath)).ShouldBe(legacyBytes);
+        // Nothing of the current shape may appear alongside the legacy tree.
+        File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeFalse();
+        File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeFalse();
+        File.Exists(paths.ConfigPath).ShouldBeFalse();
+        File.Exists(Path.Combine(_tempRoot, "twig.json")).ShouldBeFalse();
+    }
+
+    // ── §3.1: a linked worktree root is a valid init target ────────────
+
+    [Fact]
+    public async Task Init_succeeds_from_a_linked_worktree_root_where_dot_git_is_a_file()
+    {
+        if (!InitCommandTestFixture.InitTempWorktree(_tempRoot)) return;
+        // A linked worktree needs at least one commit in the parent repo.
+        await File.WriteAllTextAsync(Path.Combine(_tempRoot, "seed.txt"), "seed\n");
+        await RunGit("add", "--", "seed.txt");
+        await RunGit("-c", "user.email=t@example", "-c", "user.name=T", "commit", "-q", "-m", "seed");
+        var linkedRoot = Path.Combine(_tempRoot, "linked");
+        await RunGit("worktree", "add", "-q", "-b", "linked-branch", linkedRoot);
+        // The defining property of a linked worktree: .git is a FILE.
+        File.Exists(Path.Combine(linkedRoot, ".git")).ShouldBeTrue();
+
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            Path.Combine(linkedRoot, ".twig"),
+            Path.Combine(linkedRoot, ".twig", "config"),
+            Path.Combine(linkedRoot, ".twig", "cache", "twig.db"),
+            startDir: linkedRoot);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync("org", "proj");
+
+        result.ShouldBe(0);
+        File.Exists(Path.Combine(linkedRoot, ".twig", WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
+        File.Exists(paths.DbPath).ShouldBeTrue();
+        // State belongs to the linked worktree, never the parent checkout.
+        Directory.Exists(Path.Combine(_tempRoot, ".twig")).ShouldBeFalse();
+    }
+
     private async Task RunGit(params string[] args)
     {
         var psi = new ProcessStartInfo("git")

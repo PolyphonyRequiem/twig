@@ -686,6 +686,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="depth">Levels of children to expand below each set member. 0 (default) renders the induced subtree only.</param>
     /// <param name="rootsOnly">Render only the items given, without connecting ancestors.</param>
     /// <param name="icons">Override the configured glyph mode for this invocation: unicode or nerd.</param>
+    /// <param name="color">Emit ANSI colour: always or never. Defaults to never; never auto-detected from TERM, COLORTERM, NO_COLOR or TTY state.</param>
+    /// <param name="width">Bound output to this many columns. 0 (default) leaves output unwrapped.</param>
     [Command("tree-set")]
     public async Task<int> TreeSet(
         string? items = null,
@@ -694,9 +696,11 @@ public sealed class TwigCommands(IServiceProvider services)
         int depth = 0,
         bool rootsOnly = false,
         string? icons = null,
+        string? color = null,
+        int width = 0,
         CancellationToken ct = default)
         => await services.GetRequiredService<Twig.Commands.SetTree.WorkingSetTreeCommand>()
-            .ExecuteAsync(items, annotate, output, depth, rootsOnly, icons, ct);
+            .ExecuteAsync(items, annotate, output, depth, rootsOnly, icons, color, width, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

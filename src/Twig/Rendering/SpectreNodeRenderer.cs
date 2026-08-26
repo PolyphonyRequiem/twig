@@ -27,6 +27,12 @@ namespace Twig.Rendering;
 /// before handing the tree to this renderer.
 /// </para>
 /// <para>
+/// A cell may also carry an opaque <see cref="RenderCell.ThemeColor"/> token. The
+/// renderer resolves it against the cell's severity in
+/// <see cref="ResolveCellColor"/> and knows nothing about where the token came
+/// from — that stays the projector's business, so the paragraph above still holds.
+/// </para>
+/// <para>
 /// Named <c>SpectreNodeRenderer</c> rather than <c>SpectreRenderer</c> to coexist
 /// with the legacy <see cref="SpectreRenderer"/> during the staged collapse of
 /// <c>IOutputFormatter</c> in AB#3301. The legacy renderer is retired in the
@@ -121,7 +127,7 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         var key = Markup.Escape(kv.Key);
         var valueMarkup = FormatCellMarkup(kv.Value);
         var severity = kv.Severity != Severity.None ? kv.Severity : kv.Value.Severity;
-        var color = MarkupColorForSeverity(severity);
+        var color = ResolveCellColor(severity, kv.Value.ThemeColor);
         var wrappedValue = color is null ? valueMarkup : $"[{color}]{valueMarkup}[/]";
         console.MarkupLine($"[bold]{key}[/]: {wrappedValue}");
     }
@@ -252,7 +258,7 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
             }
 
             var markup = FormatCellMarkup(cell);
-            var color = MarkupColorForSeverity(cell.Severity);
+            var color = ResolveCellColor(cell.Severity, cell.ThemeColor);
             parts.Add(color is null ? markup : $"[{color}]{markup}[/]");
         }
 
@@ -273,4 +279,36 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         Severity.Muted => "grey",
         _ => null,
     };
+
+    /// <summary>
+    /// Resolves the colour for a cell that may carry both a severity and a theme
+    /// colour, per the AB#774 precedence ruling.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Severity.Muted"/> and <see cref="Severity.Error"/> override the
+    /// theme colour outright. Muted's whole purpose is to recede (twig#340: an
+    /// ancestor spine is context, not subject) — a spine whose badges keep full
+    /// saturation does not recede, and Muted is the one severity with no glyph, so
+    /// colour is all it has. Error is a statement about the row's standing, not
+    /// about any attached note.
+    /// </para>
+    /// <para>
+    /// <see cref="Severity.Warning"/>, <see cref="Severity.Info"/> and
+    /// <see cref="Severity.Success"/> are statements about an attached note, so a
+    /// cell with a theme colour of its own keeps it; only cells with no theme
+    /// colour (the note itself) take the severity colour. Suppressing type colour
+    /// on those rows would delete the identity signal on exactly the rows a
+    /// reviewer scrutinises hardest.
+    /// </para>
+    /// </remarks>
+    private static string? ResolveCellColor(Severity severity, string? themeColor)
+    {
+        if (severity is Severity.Muted or Severity.Error)
+        {
+            return MarkupColorForSeverity(severity);
+        }
+
+        return themeColor ?? MarkupColorForSeverity(severity);
+    }
 }

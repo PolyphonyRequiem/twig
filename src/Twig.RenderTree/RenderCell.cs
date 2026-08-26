@@ -18,12 +18,34 @@ namespace Twig.RenderTree;
 /// <para>
 /// The minimal/ids renderers may use either, depending on context.
 /// </para>
+/// <para>
+/// <see cref="ThemeColor"/> is a third, independent channel: an opaque renderer
+/// colour token supplied by the projecting command when a cell has a colour of its
+/// own (a type badge, a state category). It is deliberately not a
+/// <see cref="Severity"/> — severity says how the row <em>stands</em>, theme colour
+/// says what the cell <em>is</em> — and the two are resolved against each other by
+/// the human renderer, not here.
+/// </para>
 /// </remarks>
 public sealed record RenderCell(
     string DisplayText,
     RenderValue Value,
     Severity Severity = Severity.None)
 {
+    /// <summary>
+    /// Optional renderer-native colour token for this cell (e.g. a Spectre markup
+    /// colour such as <c>"#A4880A"</c> or <c>"blue"</c>), or <see langword="null"/>
+    /// when the cell has no colour of its own.
+    /// </summary>
+    /// <remarks>
+    /// An <c>init</c> property rather than a positional record parameter on purpose:
+    /// the constructor and <c>Deconstruct</c> of this record are tracked public API,
+    /// so a fourth positional parameter would rewrite shipped surface. Machine
+    /// renderers ignore this channel entirely — it carries no semantic meaning, only
+    /// presentation.
+    /// </remarks>
+    public string? ThemeColor { get; init; }
+
     /// <summary>Convenience: a display-only cell with no machine value.</summary>
     public static RenderCell DisplayOnly(string displayText, Severity severity = Severity.None)
         => new(displayText, new RenderValue.Absent(), severity);

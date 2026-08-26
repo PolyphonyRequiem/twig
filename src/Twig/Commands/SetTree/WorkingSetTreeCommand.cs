@@ -37,8 +37,10 @@ internal sealed class WorkingSetTreeCommand(
         int depth,
         bool rootsOnly,
         string? icons,
+        string? color,
+        int width,
         CancellationToken ct)
-        => await this.ExecuteAsync(items, annotate, outputFormat, depth, rootsOnly, icons, readFile: null, readStdin: null, ct);
+        => await this.ExecuteAsync(items, annotate, outputFormat, depth, rootsOnly, icons, color, width, readFile: null, readStdin: null, ct);
 
     /// <summary>Testing overload with file/stdin seams.</summary>
     internal async Task<int> ExecuteAsync(
@@ -48,6 +50,8 @@ internal sealed class WorkingSetTreeCommand(
         int depth,
         bool rootsOnly,
         string? icons,
+        string? color,
+        int width,
         Func<string, string>? readFile,
         Func<string>? readStdin,
         CancellationToken ct)
@@ -78,6 +82,35 @@ internal sealed class WorkingSetTreeCommand(
             }
             iconMode = requested;
         }
+
+        // Colour and width are explicit opt-in (AB#776): both default to the historical
+        // behaviour so an existing caller sees byte-identical output. There is no
+        // `auto` — the driving consumer captures twig over a pipe and has no TTY, so a
+        // detected mode would resolve to "never" and push it into spoofing TERM.
+        var useColor = false;
+        if (!string.IsNullOrWhiteSpace(color))
+        {
+            var requestedColor = color.Trim().ToLowerInvariant();
+            if (requestedColor is not ("always" or "never"))
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Unknown colour mode '{color}'. Expected: always, never."));
+                return 1;
+            }
+            useColor = requestedColor == "always";
+        }
+
+        if (width < 0)
+        {
+            Console.Error.WriteLine(fmt.FormatError("--width must be zero or greater."));
+            return 1;
+        }
+
+        var renderOptions = new HumanRenderOptions
+        {
+            Color = useColor,
+            Width = width > 0 ? width : null,
+        };
 
         var idResult = WorkingSetIdParser.Parse(items, readFile, readStdin);
         if (!idResult.Ok)
@@ -128,7 +161,7 @@ internal sealed class WorkingSetTreeCommand(
         var projector = new WorkingSetTreeProjector(theme, iconMode);
         var renderTree = projector.Project(forest);
 
-        rendererFactory.GetRenderer(outputFormat).Render(renderTree);
+        rendererFactory.GetRenderer(outputFormat, renderOptions).Render(renderTree);
         Console.WriteLine();
 
         // A cache miss is not a failure of the render — the rest of the tree is still

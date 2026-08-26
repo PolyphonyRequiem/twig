@@ -10,3 +10,4 @@ Twig.Domain.Services.Sync.SyncCoordinator.SyncLinksForSetAsync(System.Collection
 static Twig.Domain.ReadModels.WorkItemGraph.Build(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>? links = null) -> Twig.Domain.ReadModels.WorkItemGraph!
 Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 static Twig.Domain.Extensions.WorkItemExtensions.ReadCommentCount(this Twig.Domain.Aggregates.WorkItem! item) -> int
+static Twig.Domain.ValueObjects.IconSet.NormalizeBadgeWidth(string! badge) -> string!

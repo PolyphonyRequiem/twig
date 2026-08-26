@@ -18,17 +18,26 @@ namespace Twig.Commands.SetTree;
 /// <para>
 /// Glyphs are resolved through <see cref="SpectreTheme.GetTypeBadge"/> and
 /// <see cref="IconSet.GetIconByIconId"/> — never hardcoded here — so nerd/unicode/ascii
-/// behaviour is inherited. Annotation styles map to <see cref="Severity"/> so the
-/// renderer, not this projection, owns colour.
+/// behaviour is inherited. Annotation styles map to <see cref="Severity"/>, and type /
+/// state colours travel on <see cref="RenderCell.ThemeColor"/>, so the renderer — not
+/// this projection — owns how the two are resolved against each other.
+/// </para>
+/// <para>
+/// This projector also owns the annotation column: it measures each row and pads the
+/// title so every note starts in the same column (AB#775). Alignment lives here rather
+/// than in the renderer because only the projector knows which cell the note follows.
 /// </para>
 /// </remarks>
 internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMode)
 {
     internal RenderTree.RenderTree Project(WorkingSetForest forest)
     {
+        var layout = new List<RowLayout>();
         var structures = forest.Roots
-            .Select(root => (RenderNode)new RenderNode.TreeView(BuildBranch(root)))
+            .Select(root => (RenderNode)new RenderNode.TreeView(BuildBranch(root, depth: 0, layout)))
             .ToList();
+
+        AlignAnnotationColumn(layout);
 
         var fields = new List<DocumentField>
         {
@@ -59,7 +68,7 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
         return new RenderTree.RenderTree([new RenderNode.Document("workingSetTree", fields)]);
     }
 
-    private RenderTreeBranch BuildBranch(WorkingSetNode node)
+    private RenderTreeBranch BuildBranch(WorkingSetNode node, int depth, List<RowLayout> layout)
     {
         var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal);
         var severity = SeverityFor(node.Annotation?.Style ?? AnnotationStyle.Default);
@@ -76,6 +85,7 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
             cells["notInCache"] = new RenderCell(string.Empty, new RenderValue.Boolean(true));
             cells["inWorkingSet"] = new RenderCell(string.Empty, new RenderValue.Boolean(node.InWorkingSet));
             AppendAnnotationCells(cells, node.Annotation, severity);
+            layout.Add(new RowLayout(cells, depth));
             return new RenderTreeBranch(new RenderRow("workItem", cells), []);
         }
 
@@ -92,13 +102,28 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
         // Annotation icon takes the badge slot when supplied, so the caller can flag a
         // node visually; otherwise the item's own type badge is used. Both resolve
         // through IconSet so nerd/unicode/ascii behaviour is inherited.
-        var badge = node.Annotation?.IconId is { } iconId
-            ? IconSet.GetIconByIconId(iconMode, iconId) ?? theme.GetTypeBadge(item.Type)
-            : theme.GetTypeBadge(item.Type);
+        //
+        // NormalizeBadgeWidth is applied to both arms, not just the type badge:
+        // GetIconByIconId deliberately returns the raw glyph so callers can chain a
+        // fallback, so the annotation-icon path would otherwise skip normalization and
+        // render a nerd badge one cell narrower than a type badge on the row beside it.
+        var badge = IconSet.NormalizeBadgeWidth(
+            node.Annotation?.IconId is { } iconId
+                ? IconSet.GetIconByIconId(iconMode, iconId) ?? theme.GetTypeBadge(item.Type)
+                : theme.GetTypeBadge(item.Type));
 
-        cells["badge"] = RenderCell.DisplayOnly(badge.TrimEnd(), rowSeverity);
-        cells["state"] = RenderCell.String(item.State ?? string.Empty, rowSeverity);
-        cells["type"] = RenderCell.String(item.Type.Value, rowSeverity);
+        // Type and state carry their own colour so an annotated tree reads like
+        // `twig show` for the same item. Severity still wins outright for Muted and
+        // Error — that precedence is the renderer's call, not this projection's.
+        var typeColor = theme.GetTypeMarkupColor(item.Type);
+        var state = item.State ?? string.Empty;
+
+        cells["badge"] = RenderCell.DisplayOnly(badge, rowSeverity) with { ThemeColor = typeColor };
+        cells["state"] = RenderCell.String(state, rowSeverity) with
+        {
+            ThemeColor = theme.GetStateCategoryMarkupColor(state),
+        };
+        cells["type"] = RenderCell.String(item.Type.Value, rowSeverity) with { ThemeColor = typeColor };
         cells["id"] = RenderCell.Integer(item.Id, $"#{item.Id}", rowSeverity);
         cells["title"] = RenderCell.String(item.Title ?? string.Empty, rowSeverity);
         cells["parentId"] = item.ParentId.HasValue
@@ -111,8 +136,9 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
         cells["inWorkingSet"] = new RenderCell(string.Empty, new RenderValue.Boolean(node.InWorkingSet));
 
         AppendAnnotationCells(cells, node.Annotation, severity);
+        layout.Add(new RowLayout(cells, depth));
 
-        var children = node.Children.Select(BuildBranch).ToList();
+        var children = node.Children.Select(child => BuildBranch(child, depth + 1, layout)).ToList();
         return new RenderTreeBranch(new RenderRow("workItem", cells), children);
     }
 
@@ -160,4 +186,123 @@ internal sealed class WorkingSetTreeProjector(SpectreTheme theme, string iconMod
         AnnotationStyle.Error => Severity.Error,
         _ => Severity.None,
     };
+
+    /// <summary>
+    /// A built row plus the tree depth it will be drawn at, retained so the annotation
+    /// column can be measured once every row exists.
+    /// </summary>
+    /// <remarks>
+    /// Holds the live cell dictionary rather than the <see cref="RenderRow"/> wrapping
+    /// it, so alignment can rewrite a cell in place without rebuilding the branch tree.
+    /// </remarks>
+    private sealed record RowLayout(Dictionary<string, RenderCell> Cells, int Depth);
+
+    /// <summary>
+    /// Columns Spectre's tree guide spends per level of depth (<c>"├── "</c>,
+    /// <c>"│   "</c>). Indentation shifts every following column — that is the tree's
+    /// core affordance and AB#775 keeps it — so depth has to be folded into the
+    /// measurement rather than aligned away.
+    /// </summary>
+    private const int TreeIndentWidth = 4;
+
+    /// <summary>
+    /// Pads each annotated row's title so every note begins in the same column
+    /// (AB#775). Only the annotation column is aligned; badge, state, type and id keep
+    /// shifting with depth, because a fixed gutter would spend columns at depth zero to
+    /// buy alignment nobody reads across, and would need a max-depth policy that
+    /// silently stops encoding depth once clamped.
+    /// </summary>
+    private static void AlignAnnotationColumn(List<RowLayout> layout)
+    {
+        var target = 0;
+        foreach (var row in layout)
+        {
+            if (row.Cells.ContainsKey("note"))
+            {
+                target = Math.Max(target, NoteColumn(row));
+            }
+        }
+
+        if (target == 0)
+        {
+            return;
+        }
+
+        foreach (var row in layout)
+        {
+            if (!row.Cells.ContainsKey("note"))
+            {
+                continue;
+            }
+
+            var pad = target - NoteColumn(row);
+            if (pad <= 0)
+            {
+                continue;
+            }
+
+            // Pad the last cell the human actually sees before the note. The machine
+            // Value is left untouched: padding is presentation, and a JSON consumer
+            // must not have to trim it back off.
+            var key = LastVisibleKeyBeforeNote(row.Cells);
+            if (key is not null)
+            {
+                var cell = row.Cells[key];
+                row.Cells[key] = cell with { DisplayText = cell.DisplayText + new string(' ', pad) };
+            }
+        }
+    }
+
+    /// <summary>
+    /// The column the note currently starts in: the tree indent for this row's depth,
+    /// plus every visible cell before the note, plus the renderer's two-space joins.
+    /// </summary>
+    private static int NoteColumn(RowLayout row)
+    {
+        var width = row.Depth * TreeIndentWidth;
+        var visible = 0;
+        foreach (var (key, cell) in row.Cells)
+        {
+            if (string.Equals(key, "note", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            // Machine-only cells carry empty DisplayText and the renderer skips them,
+            // so they contribute neither width nor a separator.
+            if (cell.DisplayText.Length == 0)
+            {
+                continue;
+            }
+
+            if (visible > 0)
+            {
+                width += 2;
+            }
+
+            width += DisplayWidth.Measure(cell.DisplayText);
+            visible++;
+        }
+
+        return width;
+    }
+
+    private static string? LastVisibleKeyBeforeNote(Dictionary<string, RenderCell> cells)
+    {
+        string? last = null;
+        foreach (var (key, cell) in cells)
+        {
+            if (string.Equals(key, "note", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            if (cell.DisplayText.Length > 0)
+            {
+                last = key;
+            }
+        }
+
+        return last;
+    }
 }

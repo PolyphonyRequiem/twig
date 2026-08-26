@@ -44,17 +44,15 @@ public sealed class RendererFactory
     /// from the CLI.
     /// </remarks>
     public IRenderer GetRenderer(string? format)
-    {
-        return Twig.Formatters.OutputFormats.Normalize(format) switch
-        {
-            "json"         => new JsonRenderer(Console.Out, indented: true),
-            "json-full"    => new JsonRenderer(Console.Out, indented: true),
-            "json-compact" => new JsonRenderer(Console.Out, indented: true),
-            "minimal"      => new MinimalRenderer(Console.Out),
-            "ids"          => new IdsRenderer(Console.Out),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out)),
-        };
-    }
+        => this.GetRenderer(format, Console.Out, HumanRenderOptions.Default);
+
+    /// <summary>
+    /// Returns an <see cref="IRenderer"/> bound to the current <c>Console.Out</c>,
+    /// with explicit human-render options (AB#776). Non-human formats ignore
+    /// <paramref name="options"/> entirely — colour and width are presentation-only.
+    /// </summary>
+    public IRenderer GetRenderer(string? format, HumanRenderOptions options)
+        => this.GetRenderer(format, Console.Out, options);
 
     /// <summary>
     /// Returns an <see cref="IRenderer"/> bound to the supplied
@@ -65,8 +63,22 @@ public sealed class RendererFactory
     /// available.
     /// </summary>
     public IRenderer GetRenderer(string? format, TextWriter writer)
+        => this.GetRenderer(format, writer, HumanRenderOptions.Default);
+
+    /// <summary>
+    /// Returns an <see cref="IRenderer"/> bound to the supplied
+    /// <paramref name="writer"/> with explicit human-render options (AB#776).
+    /// </summary>
+    /// <remarks>
+    /// This is the single chokepoint for human colour and width: every command that
+    /// has migrated onto the <see cref="IRenderer"/> seam inherits the behaviour from
+    /// here, so opting a command in is a matter of passing
+    /// <see cref="HumanRenderOptions"/> rather than touching the renderer.
+    /// </remarks>
+    public IRenderer GetRenderer(string? format, TextWriter writer, HumanRenderOptions options)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(options);
 
         return Twig.Formatters.OutputFormats.Normalize(format) switch
         {
@@ -75,51 +87,52 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(writer, indented: true),
             "minimal"      => new MinimalRenderer(writer),
             "ids"          => new IdsRenderer(writer),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer)),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer, options)),
         };
     }
 
-    private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
+    private static IAnsiConsole CreateAnsiConsole(TextWriter writer, HumanRenderOptions options)
     {
-        // Render plain text unconditionally. Spectre's auto-detection of
-        // ANSI support keys off the TERM env var when the upstream writer
-        // is not a terminal — on Linux CI runners TERM=xterm-256color is
-        // set, so Spectre emits ANSI escape codes even when stdout has
-        // been redirected to a StringWriter (tests) or a pipe (CI logs,
-        // `twig … | cat`). On Windows TERM is unset so Spectre stays
-        // plain; the divergence breaks tests that assert on rendered
-        // output.
+        // Colour is opt-in and explicit (AB#776) — never auto-detected.
         //
-        // Disabling ANSI/colour unconditionally here gives deterministic
-        // output across platforms. Box-drawing characters (tables, trees)
-        // still render via Unicode, which works fine in non-TTY contexts.
-        // HumanOutputFormatter keeps its own hardcoded ANSI codes for the
-        // legacy paths that target live terminals directly, so interactive
-        // colour output is preserved through that surface.
+        // Spectre's own auto-detection keys off the TERM env var when the upstream
+        // writer is not a terminal. On Linux CI runners TERM=xterm-256color is set, so
+        // Spectre emits ANSI escape codes even when stdout has been redirected to a
+        // StringWriter (tests) or a pipe (CI logs, `twig … | cat`); on Windows TERM is
+        // unset so Spectre stays plain. That divergence is precisely why detection is
+        // not a usable contract here, and why the caller states what it wants instead.
+        //
+        // With colour off, the settings below reproduce the historical unconditional
+        // plain-text behaviour byte for byte. Box-drawing characters (tables, trees)
+        // still render via Unicode either way, which works fine in non-TTY contexts.
         var settings = new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),
-            Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors,
+            Ansi = options.Color ? AnsiSupport.Yes : AnsiSupport.No,
+            ColorSystem = options.Color ? ColorSystemSupport.TrueColor : ColorSystemSupport.NoColors,
             Interactive = InteractionSupport.No,
         };
         var console = AnsiConsole.Create(settings);
-        // Belt-and-braces: Spectre's `AnsiSupport.No` setting is honoured by
-        // its capability detector, but on some platforms (notably GitHub
-        // Actions Linux runners) Spectre still emits ANSI escape codes for
-        // styling markup like `[bold]…[/]` even after construction. Force
-        // the profile capabilities explicitly so the renderer never writes
-        // escape sequences.
-        console.Profile.Capabilities.Ansi = false;
+
+        // Belt-and-braces: Spectre's capability detector does not always honour the
+        // settings above once the writer is redirected — on some platforms (notably
+        // GitHub Actions Linux runners) it still emits escape codes for styling markup
+        // like `[bold]…[/]`. Force the profile explicitly so the answer is the caller's
+        // in both directions: never escape sequences when off, always when on.
+        console.Profile.Capabilities.Ansi = options.Color;
         console.Profile.Capabilities.Links = false;
         console.Profile.Capabilities.Interactive = false;
         console.Profile.Capabilities.Unicode = true;
-        console.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
-        // Disable hard wrapping for migrated commands. Legacy `HumanOutputFormatter`
-        // wrote raw strings via `Console.WriteLine` which never wraps, and tests
-        // (plus pipelines) rely on long success messages staying on one line.
-        // Spectre defaults to 80-column width when stdout is redirected.
-        console.Profile.Width = int.MaxValue;
+        console.Profile.Capabilities.ColorSystem = options.Color
+            ? ColorSystem.TrueColor
+            : ColorSystem.NoColors;
+
+        // Width is opt-in too. Unbounded is the default because legacy
+        // `HumanOutputFormatter` wrote raw strings via `Console.WriteLine`, which never
+        // wraps, and tests (plus pipelines) rely on long success messages staying on
+        // one line. Spectre would otherwise assume 80 columns whenever stdout is
+        // redirected and silently rewrap piped output.
+        console.Profile.Width = options.Width ?? int.MaxValue;
         return console;
     }
 }

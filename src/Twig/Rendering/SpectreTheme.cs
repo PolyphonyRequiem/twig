@@ -119,6 +119,20 @@ internal sealed class SpectreTheme
     }
 
     /// <summary>
+    /// Resolves the Spectre markup colour for a work item type using this theme's
+    /// configured type colours and appearances — the colour half of
+    /// <see cref="FormatTypeBadge"/>, without the glyph.
+    /// </summary>
+    /// <remarks>
+    /// Callers that project into the render tree need the colour as a bare token so it
+    /// can travel on <see cref="RenderTree.RenderCell.ThemeColor"/> and be resolved
+    /// against severity by the renderer; they cannot use the pre-composed markup
+    /// <see cref="FormatTypeBadge"/> returns.
+    /// </remarks>
+    internal string GetTypeMarkupColor(WorkItemType type)
+        => GetTypeMarkupColor(type.Value, _typeColors, _appearanceColors);
+
+    /// <summary>
     /// Resolves a Spectre markup color string for the given type name.
     /// Priority: TypeColorResolver hex → Spectre markup color, fallback: DeterministicTypeColor → Spectre color name.
     /// </summary>

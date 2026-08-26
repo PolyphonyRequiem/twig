@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Commands.SetTree;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -69,9 +70,11 @@ public sealed class WorkingSetTreeCommandTests
     }
 
     /// <summary>Projects a forest and returns the Nth structure's root branch.</summary>
-    private static RenderTreeBranch ProjectRoot(WorkingSetForest forest, int index = 0)
+    private static RenderTreeBranch ProjectRoot(
+        WorkingSetForest forest, int index = 0, string iconMode = "unicode")
     {
-        var tree = new WorkingSetTreeProjector(new SpectreTheme(new DisplayConfig()), "unicode").Project(forest);
+        var tree = new WorkingSetTreeProjector(
+            new SpectreTheme(new DisplayConfig { Icons = iconMode }), iconMode).Project(forest);
         var structures = (RenderNode.Section)((RenderNode.Document)tree.Nodes[0]).Fields[0].Node;
         return ((RenderNode.TreeView)structures.Children[index]).Root;
     }
@@ -84,9 +87,11 @@ public sealed class WorkingSetTreeCommandTests
         int depth = 0,
         bool rootsOnly = false,
         string? icons = null,
+        string? color = null,
+        int width = 0,
         Func<string, string>? readFile = null)
         => await StdoutCapture.RunAsync(() => cmd.ExecuteAsync(
-            items, annotate, output, depth, rootsOnly, icons, readFile, readStdin: null, CancellationToken.None));
+            items, annotate, output, depth, rootsOnly, icons, color, width, readFile, readStdin: null, CancellationToken.None));
 
     // ── Multi-root rendering ───────────────────────────────────────
 
@@ -182,9 +187,10 @@ public sealed class WorkingSetTreeCommandTests
             new WorkItemBuilder(1, "Ancestor").AsEpic().Build(),
             new WorkItemBuilder(3, "Member").AsTask().WithParent(1).Build());
 
-        // Assert the severity the projector actually stamps on each row. Going
-        // through rendered stdout can't see this: RendererFactory deliberately
-        // strips ANSI, so muted and normal render byte-identical there.
+        // Assert the severity the projector actually stamps on each row, rather
+        // than the colour it ends up rendering as. Since AB#776 stdout *can* show
+        // colour, but only with `--color always`, and the resolved colour folds
+        // severity together with the theme — this test wants the severity alone.
         var forest = await new WorkingSetTreeBuilder(_repo).BuildAsync(
             [3], new Dictionary<int, TreeAnnotation>(), rootsOnly: false, depth: 0, CancellationToken.None);
 
@@ -460,6 +466,292 @@ public sealed class WorkingSetTreeCommandTests
     {
         var (exit, _) = await RunAsync(CreateCommand(), "1", depth: -1);
         exit.ShouldBe(1);
+    }
+
+    // ── AB#776: colour and width are explicit opt-in ───────────────
+
+    private const string LongTitle =
+        "A deliberately long title that runs well past eighty columns so bounding the width has something to bite on";
+
+    /// <summary>
+    /// Returns the ANSI SGR sequence immediately preceding <paramref name="token"/>,
+    /// or <see langword="null"/> when the token is not wrapped in one.
+    /// </summary>
+    /// <remarks>
+    /// Comparing two of these answers "did these two cells resolve to the same
+    /// colour?" without hardcoding a palette value the theme is free to change —
+    /// the AB#774 ruling is about precedence, not about any particular hex.
+    /// </remarks>
+    private static string? SgrBefore(string rendered, string token)
+    {
+        var i = rendered.IndexOf(token, StringComparison.Ordinal);
+        if (i <= 0 || rendered[i - 1] != 'm')
+        {
+            return null;
+        }
+
+        var start = rendered.LastIndexOf('\u001b', i - 1);
+        return start < 0 ? null : rendered[start..i];
+    }
+
+    [Fact]
+    public async Task HumanOutput_ByDefault_EmitsNoAnsi()
+    {
+        // The default must stay byte-identical to the pre-AB#776 renderer, which
+        // disabled ANSI unconditionally.
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "1", output: "human");
+
+        exit.ShouldBe(0);
+        stdout.ShouldNotContain("\u001b");
+    }
+
+    [Fact]
+    public async Task ColorNever_EmitsNoAnsi()
+    {
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "1", output: "human", color: "never");
+
+        exit.ShouldBe(0);
+        stdout.ShouldNotContain("\u001b");
+    }
+
+    [Fact]
+    public async Task ColorAlways_EmitsRealAnsi()
+    {
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "1", output: "human", color: "always");
+
+        exit.ShouldBe(0);
+        stdout.ShouldContain("\u001b");
+        // The type cell carries the theme's colour, so an opted-in row is coloured
+        // even with no annotation anywhere on it.
+        SgrBefore(stdout, "Task").ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task ColorAuto_IsAnError_BecauseThereIsNoDetectedMode()
+    {
+        // Deliberate: auto-detection cannot serve a caller capturing twig over a
+        // pipe, so `auto` is rejected rather than silently resolving to `never`.
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().Build());
+
+        var (exit, _) = await RunAsync(CreateCommand(), "1", output: "human", color: "auto");
+
+        exit.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task NegativeWidth_IsAnError()
+    {
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().Build());
+
+        var (exit, _) = await RunAsync(CreateCommand(), "1", output: "human", width: -1);
+
+        exit.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DefaultWidth_LeavesLongRowsUnwrapped()
+    {
+        SeedCache(new WorkItemBuilder(1, LongTitle).AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "1", output: "human");
+
+        exit.ShouldBe(0);
+        stdout.ShouldContain(LongTitle);
+    }
+
+    [Fact]
+    public async Task Width_BoundsOutputToThatManyColumns()
+    {
+        SeedCache(new WorkItemBuilder(1, LongTitle).AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(CreateCommand(), "1", output: "human", width: 40);
+
+        exit.ShouldBe(0);
+        foreach (var line in stdout.Split('\n'))
+        {
+            line.TrimEnd('\r').Length.ShouldBeLessThanOrEqualTo(40);
+        }
+
+        // Wrapped, not truncated — the title is still all there, just not contiguous.
+        stdout.ShouldNotContain(LongTitle);
+    }
+
+    // ── AB#774: severity vs theme colour precedence ────────────────
+
+    /// <summary>Renders one Task row in colour, with the given annotation map.</summary>
+    private async Task<string> RenderOneRowInColorAsync(string? annotationJson)
+    {
+        SeedCache(new WorkItemBuilder(1, "Alpha").AsTask().InState("To do").Build());
+
+        var (exit, stdout) = await RunAsync(
+            CreateCommand(), "1", annotate: annotationJson, output: "human", color: "always");
+
+        exit.ShouldBe(0);
+        return stdout;
+    }
+
+    [Fact]
+    public async Task WarnAnnotation_KeepsTheTypeThemeColour_AndColoursOnlyTheNote()
+    {
+        var plain = await RenderOneRowInColorAsync(null);
+        var warned = await RenderOneRowInColorAsync("""{"1":{"note":"look-here","style":"warn"}}""");
+
+        var themeColor = SgrBefore(plain, "Task");
+        themeColor.ShouldNotBeNull();
+
+        // Warn is a statement about the attached note. Suppressing type colour here
+        // would delete the identity signal on exactly the rows a reviewer
+        // scrutinises hardest.
+        SgrBefore(warned, "Task").ShouldBe(themeColor);
+
+        var noteColor = SgrBefore(warned, "└ look-here");
+        noteColor.ShouldNotBeNull();
+        noteColor.ShouldNotBe(themeColor);
+    }
+
+    [Fact]
+    public async Task MutedAnnotation_OverridesTheThemeColourAcrossTheWholeRow()
+    {
+        var plain = await RenderOneRowInColorAsync(null);
+        var muted = await RenderOneRowInColorAsync("""{"1":{"note":"context-only","style":"muted"}}""");
+
+        var themeColor = SgrBefore(plain, "Task");
+        themeColor.ShouldNotBeNull();
+
+        // Muted exists so an ancestor spine recedes (twig#340: context, not
+        // subject). A spine whose badges keep full saturation does not recede, and
+        // muted is the one severity with no glyph — colour is all it has.
+        var rowColor = SgrBefore(muted, "Task");
+        rowColor.ShouldNotBeNull();
+        rowColor.ShouldNotBe(themeColor);
+        rowColor.ShouldBe(SgrBefore(muted, "└ context-only"));
+    }
+
+    [Fact]
+    public async Task ErrorAnnotation_OverridesTheThemeColourAcrossTheWholeRow()
+    {
+        var plain = await RenderOneRowInColorAsync(null);
+        var errored = await RenderOneRowInColorAsync("""{"1":{"note":"broken-here","style":"error"}}""");
+
+        var themeColor = SgrBefore(plain, "Task");
+        themeColor.ShouldNotBeNull();
+
+        // Error is a statement about the row's standing, not about the note.
+        var rowColor = SgrBefore(errored, "Task");
+        rowColor.ShouldNotBeNull();
+        rowColor.ShouldNotBe(themeColor);
+        rowColor.ShouldBe(SgrBefore(errored, "└ broken-here"));
+    }
+
+    // ── AB#775: only the annotation column aligns ──────────────────
+
+    /// <summary>The column each named note starts in, one entry per annotated row.</summary>
+    private static List<int> NoteColumns(string stdout, params string[] notes)
+    {
+        var columns = new List<int>();
+        foreach (var line in stdout.Split('\n'))
+        {
+            foreach (var note in notes)
+            {
+                var i = line.IndexOf("└ " + note, StringComparison.Ordinal);
+                if (i >= 0)
+                {
+                    columns.Add(i);
+                }
+            }
+        }
+
+        return columns;
+    }
+
+    [Theory]
+    [InlineData("unicode")]
+    [InlineData("nerd")]
+    public async Task AnnotationNotes_AlignOnOneColumn_InEveryIconMode(string iconMode)
+    {
+        // Two rows whose titles differ in length, at two different depths, so the
+        // column has to survive both. Both icon modes are asserted because
+        // measuring raw string length instead of visible width misaligns nerd mode
+        // by exactly one cell per badge while unicode mode looks perfect.
+        SeedCache(
+            new WorkItemBuilder(1, "Short").AsEpic().InState("To do").Build(),
+            new WorkItemBuilder(2, "A considerably longer child title").AsTask().InState("Doing").WithParent(1).Build());
+
+        var (exit, stdout) = await RunAsync(
+            CreateCommand(), "1,2",
+            annotate: """{"1":{"note":"note-one"},"2":{"note":"note-two"}}""",
+            output: "human",
+            icons: iconMode);
+
+        exit.ShouldBe(0);
+
+        var columns = NoteColumns(stdout, "note-one", "note-two");
+        columns.Count.ShouldBe(2);
+        columns.Distinct().Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AnnotationAlignment_PadsOnlyTheDisplayText_NotTheMachineValue()
+    {
+        // Padding is presentation. A JSON consumer must not have to trim it back off.
+        SeedCache(
+            new WorkItemBuilder(1, "Short").AsEpic().InState("To do").Build(),
+            new WorkItemBuilder(2, "A considerably longer child title").AsTask().InState("Doing").WithParent(1).Build());
+
+        var (exit, stdout) = await RunAsync(
+            CreateCommand(), "1,2",
+            annotate: """{"1":{"note":"note-one"},"2":{"note":"note-two"}}""");
+
+        exit.ShouldBe(0);
+        stdout.ShouldContain("\"title\": \"Short\"");
+    }
+
+    [Fact]
+    public void NerdAnnotationIcon_IsWidthNormalized_LikeATypeBadge()
+    {
+        // The drift AB#775 flags in red is invisible to string indices: buggy and
+        // correct code both align consistently against whatever they measured. What
+        // differs is the screen — a BMP PUA glyph is one UTF-16 char that Spectre
+        // measures as one cell but a nerd font draws as two, so NormalizeBadgeWidth's
+        // trailing space is what makes the measurement match the terminal.
+        //
+        // ResolveTypeBadge normalizes on its own; GetIconByIconId deliberately returns
+        // the raw glyph so callers can chain a fallback first. That asymmetry is why
+        // the annotation-icon arm has to normalize explicitly, and why skipping it
+        // renders an annotated badge one cell narrower than the type badge beside it.
+        var forest = new WorkingSetForest(
+            [new WorkingSetNode(1, new WorkItemBuilder(1, "Alpha").AsTask().Build(),
+                InWorkingSet: true, new TreeAnnotation("ctx", AnnotationStyle.Default, "icon_parachute"), [])],
+            []);
+
+        var badge = ProjectRoot(forest, iconMode: "nerd").Row.Cells["badge"].DisplayText;
+
+        badge.ShouldBe(IconSet.NormalizeBadgeWidth(IconSet.GetIconByIconId("nerd", "icon_parachute")!));
+        badge.Length.ShouldBe(2);
+        ((int)badge[0]).ShouldBeInRange(0xE000, 0xF8FF);
+        badge[1].ShouldBe(' ');
+    }
+
+    [Fact]
+    public void UnicodeAnnotationIcon_IsNotPaddedByTheNormalizer()
+    {
+        // The other half of the rule: normalization is PUA-only. Padding a unicode
+        // glyph would shift the whole row right by one cell for no reason.
+        var forest = new WorkingSetForest(
+            [new WorkingSetNode(1, new WorkItemBuilder(1, "Alpha").AsTask().Build(),
+                InWorkingSet: true, new TreeAnnotation("ctx", AnnotationStyle.Default, "icon_parachute"), [])],
+            []);
+
+        var badge = ProjectRoot(forest).Row.Cells["badge"].DisplayText;
+
+        badge.ShouldBe(IconSet.GetIconByIconId("unicode", "icon_parachute"));
+        badge.ShouldNotEndWith(" ");
     }
 
     // ── Scope guard: this is a pure render ─────────────────────────

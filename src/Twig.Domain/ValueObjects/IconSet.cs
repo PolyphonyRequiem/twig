@@ -174,7 +174,15 @@ public static class IconSet
     /// so the trailing space yields a 2-cell measurement that matches a 1-glyph + 1-space
     /// visual width — keeping columns aligned.
     /// </summary>
-    private static string NormalizeBadgeWidth(string badge)
+    /// <remarks>
+    /// Public because badge width is not only <see cref="ResolveTypeBadge"/>'s business:
+    /// any caller that measures or pads a rendered badge column must route through the
+    /// same rule, or nerd mode drifts by exactly one cell per badge while unicode mode
+    /// looks perfect. Callers that resolve a glyph through
+    /// <see cref="GetIconByIconId"/> must normalize it themselves — that path
+    /// deliberately returns the raw glyph so the caller can apply its own fallback first.
+    /// </remarks>
+    public static string NormalizeBadgeWidth(string badge)
     {
         if (badge.Length == 1 && badge[0] >= '\uE000' && badge[0] <= '\uF8FF')
             return badge + " ";

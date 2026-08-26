@@ -1,4 +1,6 @@
 #nullable enable
+Twig.RenderTree.RenderCell.ThemeColor.get -> string?
+Twig.RenderTree.RenderCell.ThemeColor.init -> void
 Twig.RenderTree.RenderValue.Array
 Twig.RenderTree.RenderValue.Array.Array(System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderCell!>! Items) -> void
 Twig.RenderTree.RenderValue.Array.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderCell!>! Items) -> void

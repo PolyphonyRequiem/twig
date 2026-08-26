@@ -1,5 +1,6 @@
 #nullable enable
 Twig.Domain.Interfaces.IAdoWorkItemService.FetchBatchWithLinksAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! Items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>! Links)>!
+Twig.Domain.Interfaces.IIterationService.GetAuthenticatedUserIdentityAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(string? DisplayName, string? UniqueName)>!
 Twig.Domain.Interfaces.IPendingChangeReader
 Twig.Domain.Interfaces.IPendingChangeReader.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService

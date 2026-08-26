@@ -153,7 +153,7 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
 
         // Scope-only write: MUST leave the ActiveClaim block byte-identical so
         // AB#739's mint timestamp / opaque id survives an AB#738 detach.
-        var write = await _store.WriteAsync(current.WithoutPrimaryScope(), ct).ConfigureAwait(false);
+        var write = await _store.WriteAsync(current.WithoutPrimaryScope(), expectedRevision: -1, ct).ConfigureAwait(false);
         return write.IsSuccess ? Result.Ok() : NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
     }
 
@@ -242,7 +242,7 @@ internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentSer
         // Scope-only write: preserve the current ActiveClaim block untouched
         // (§9.3 "consumers set one field without disturbing the other").
         var next = current.WithPrimaryScope(scope);
-        var write = await _store.WriteAsync(next, ct).ConfigureAwait(false);
+        var write = await _store.WriteAsync(next, expectedRevision: -1, ct).ConfigureAwait(false);
         if (!write.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
         return write;

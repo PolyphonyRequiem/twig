@@ -22,9 +22,15 @@ internal sealed class FakeTransportAttachmentStore : ITransportAttachmentStore
     public Result<TransportWriteOutcome>? CloseNextResult { get; set; }
     public long NextRevision { get; set; } = 1;
 
-    public Task<Result<VersionedTransportEnvelope>> ReadWithRevisionAsync(CancellationToken ct = default) =>
-        Task.FromResult(Result.Ok(new VersionedTransportEnvelope(null, 0)));
+    /// <summary>Read revision the <see cref="ReadWithRevisionAsync"/>
+    /// path reports. Dispatcher tests that need to prove the
+    /// <c>expectedRevision</c> mismatch fires BEFORE the adapter close
+    /// set this to a value distinct from the caller's expected.</summary>
+    public long ReadRevision { get; set; } = 0;
+    public TransportAttachmentEnvelope? ReadEnvelope { get; set; }
 
+    public Task<Result<VersionedTransportEnvelope>> ReadWithRevisionAsync(CancellationToken ct = default) =>
+        Task.FromResult(Result.Ok(new VersionedTransportEnvelope(ReadEnvelope, ReadRevision)));
     public Task<Result<TransportWriteOutcome>> WriteAsync(
         TransportAttachmentRecord newRecord,
         long expectedRevision,

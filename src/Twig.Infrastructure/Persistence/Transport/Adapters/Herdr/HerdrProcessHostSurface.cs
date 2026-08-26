@@ -37,11 +37,24 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
 {
     private readonly string _herdrExecutable;
     private readonly TimeProvider _clock;
+    private readonly System.Func<IReadOnlyList<string>, int, CancellationToken, Task<ProcessInvocation>> _invoker;
 
     public HerdrProcessHostSurface(string herdrExecutable, TimeProvider clock)
+        : this(herdrExecutable, clock, invokerOverride: null)
+    {
+    }
+
+    /// <summary>Test seam: injects an alternative process invoker so a
+    /// unit test can exercise the §5.3 "stamp after invoke" contract
+    /// without spawning a real <c>herdr</c> subprocess.</summary>
+    internal HerdrProcessHostSurface(
+        string herdrExecutable,
+        TimeProvider clock,
+        System.Func<IReadOnlyList<string>, int, CancellationToken, Task<ProcessInvocation>>? invokerOverride)
     {
         _herdrExecutable = string.IsNullOrEmpty(herdrExecutable) ? "herdr" : herdrExecutable;
         _clock = clock;
+        _invoker = invokerOverride ?? RunProcessAsync;
     }
 
     public async Task<HerdrStatusReadout> QueryStatusAsync(HerdrTargetLocator target, int budgetMs, CancellationToken ct)
@@ -50,7 +63,6 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
         // target names an agent; otherwise fall back to
         // `herdr api snapshot`. Neither reads use `agent wait` without
         // an explicit --timeout, and neither reaches a mutating verb.
-        var recordedAt = _clock.GetUtcNow();
         string[] args;
         if (!string.IsNullOrEmpty(target.AgentTarget))
         {
@@ -64,12 +76,22 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
         switch (invocation.Outcome)
         {
             case HerdrOperationOutcome.Ok:
+                // §5.3 — stamp `recordedAt` at the moment the value is
+                // obtained from the host (after a successful invoke),
+                // NOT before launch. A slow-but-successful query MUST
+                // return `Fresh`, and stamping pre-launch would elapse
+                // the freshness window during the invoke itself.
+                var okRecordedAt = _clock.GetUtcNow();
                 var status = ParseStatus(invocation.StdOut);
-                return new HerdrStatusReadout(HerdrOperationOutcome.Ok, status, recordedAt);
+                return new HerdrStatusReadout(HerdrOperationOutcome.Ok, status, okRecordedAt);
             case HerdrOperationOutcome.Timeout:
-                return new HerdrStatusReadout(HerdrOperationOutcome.Timeout, HerdrHostStatus.Unknown, recordedAt);
+                // Bounded-failure observation (§5.2). §5.3 carve-out:
+                // the adapter always reports `Stale` here, so the
+                // exact timestamp is not authority-bearing; use `now`
+                // for a defensible RecordedAt value.
+                return new HerdrStatusReadout(HerdrOperationOutcome.Timeout, HerdrHostStatus.Unknown, _clock.GetUtcNow());
             default:
-                return new HerdrStatusReadout(HerdrOperationOutcome.Failed, HerdrHostStatus.Unknown, recordedAt);
+                return new HerdrStatusReadout(HerdrOperationOutcome.Failed, HerdrHostStatus.Unknown, _clock.GetUtcNow());
         }
     }
 
@@ -77,7 +99,6 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
     {
         // §12.2 — `pane current` / `agent explain`; NEVER `agent wait`
         // / `pane wait-output` without a --timeout.
-        var recordedAt = _clock.GetUtcNow();
         string[] args;
         if (!string.IsNullOrEmpty(target.AgentTarget))
         {
@@ -95,14 +116,19 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
         switch (invocation.Outcome)
         {
             case HerdrOperationOutcome.Ok:
+                // §5.3 — see the QueryStatus rationale above; the
+                // timestamp attaches AFTER a successful invoke so a
+                // no-cache adapter's observation is Fresh by
+                // construction on return.
+                var okRecordedAt = _clock.GetUtcNow();
                 var presence = LooksLikePresent(invocation.StdOut, target)
                     ? TransportLivenessPresence.Present
                     : TransportLivenessPresence.Absent;
-                return new HerdrLivenessReadout(HerdrOperationOutcome.Ok, presence, recordedAt);
+                return new HerdrLivenessReadout(HerdrOperationOutcome.Ok, presence, okRecordedAt);
             case HerdrOperationOutcome.Timeout:
-                return new HerdrLivenessReadout(HerdrOperationOutcome.Timeout, TransportLivenessPresence.Error, recordedAt);
+                return new HerdrLivenessReadout(HerdrOperationOutcome.Timeout, TransportLivenessPresence.Error, _clock.GetUtcNow());
             default:
-                return new HerdrLivenessReadout(HerdrOperationOutcome.Failed, TransportLivenessPresence.Unknown, recordedAt);
+                return new HerdrLivenessReadout(HerdrOperationOutcome.Failed, TransportLivenessPresence.Unknown, _clock.GetUtcNow());
         }
     }
 
@@ -160,7 +186,10 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
         return new HerdrRemainingReadout(HerdrOperationOutcome.Ok, summary);
     }
 
-    private async Task<ProcessInvocation> InvokeAsync(IReadOnlyList<string> args, int budgetMs, CancellationToken ct)
+    private Task<ProcessInvocation> InvokeAsync(IReadOnlyList<string> args, int budgetMs, CancellationToken ct)
+        => _invoker(args, budgetMs, ct);
+
+    private async Task<ProcessInvocation> RunProcessAsync(IReadOnlyList<string> args, int budgetMs, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(_herdrExecutable)
         {
@@ -299,5 +328,5 @@ internal sealed class HerdrProcessHostSurface : IHerdrHostSurface
         }
     }
 
-    private readonly record struct ProcessInvocation(HerdrOperationOutcome Outcome, string StdOut);
+    internal readonly record struct ProcessInvocation(HerdrOperationOutcome Outcome, string StdOut);
 }

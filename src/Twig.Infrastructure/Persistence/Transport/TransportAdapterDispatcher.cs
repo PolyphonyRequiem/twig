@@ -235,9 +235,12 @@ internal sealed class TransportAdapterDispatcher
     /// transaction". Explicit caller invocation only (§1.1(c), §6.2).
     /// <para>Return shape:</para>
     /// <list type="bullet">
-    ///   <item>Adapter capability not declared →
-    ///     <see cref="TransportAttachmentFailure.CloseNotSupported"/>,
-    ///     no tombstone.</item>
+    ///   <item>Caller's <paramref name="expectedRevision"/> disagrees
+    ///     with the store's current envelope revision →
+    ///     <see cref="TransportAttachmentFailure.VersionMismatch"/> BEFORE
+    ///     any adapter close is attempted. §6.2 requires the host and
+    ///     record state stay coupled; a stale caller MUST NOT close a
+    ///     live host and then discover the CAS lost.</item>
     ///   <item>Adapter threw / returned Fail →
     ///     <see cref="TransportAttachmentFailure.CloseAdapterFailed"/>
     ///     (or the adapter's own error identifier), no tombstone.</item>
@@ -255,6 +258,20 @@ internal sealed class TransportAdapterDispatcher
         var adapter = adapterResult.Value;
         if (!adapter.Capabilities.Contains(TransportCapability.Close))
             return Result.Fail<TransportWriteOutcome>(TransportAttachmentFailure.CloseNotSupported);
+
+        // §6.2 pre-mutation CAS preflight. The dispatcher reads the
+        // current envelope revision BEFORE reaching adapter.CloseAsync
+        // so a stale caller cannot close a live host and then lose the
+        // tombstone to a version mismatch. The store's own CAS check
+        // (§8.4) still fires under the write lock and is authoritative
+        // if the on-disk revision moves between here and the store
+        // write; the preflight is defence-in-depth against the common
+        // "caller's expectedRevision is already stale" case.
+        var readResult = await _store.ReadWithRevisionAsync(ct).ConfigureAwait(false);
+        if (!readResult.IsSuccess)
+            return Result.Fail<TransportWriteOutcome>(readResult.Error);
+        if (readResult.Value.Revision != expectedRevision)
+            return Result.Fail<TransportWriteOutcome>(TransportAttachmentFailure.VersionMismatch);
 
         Result adapterOutcome;
         try

@@ -426,6 +426,82 @@ public sealed class HerdrTransportAdapterTests
     }
 
     // ---------------------------------------------------------------
+    // Defect 2 (Spec-axis final review) — §7.4 scoped preflight.
+    // ---------------------------------------------------------------
+
+    [Fact]
+    public async Task PartialClose_preflights_the_fully_scoped_locator_not_the_parent()
+    {
+        // §7.4 mandates workspace/tab/pane cross-check before ANY
+        // close. A stale/foreign pane id that survives inside a live
+        // parent tab MUST be caught here — so preflight has to see the
+        // scoped pane, not the parent alone.
+        var (adapter, host, _) = NewAdapter();
+        await adapter.PartialCloseAsync(
+            TabTarget(workspace: "w3", tab: "w3:t1"),
+            new PartialCloseScope(ScopeKind: "pane", ScopeId: "w3:p-scoped", Reason: PartialCloseReason.UserRequested),
+            CancellationToken.None);
+        host.PreflightCalls.ShouldHaveSingleItem();
+        var seen = host.PreflightCalls[0];
+        seen.Pane.ShouldBe("w3:p-scoped");
+        seen.HostAttachmentId.ShouldBe("w3:p-scoped");
+        seen.HostAttachmentIdKind.ShouldBe(HerdrAdapterConstants.HostAttachmentIdKindPane);
+    }
+
+    [Fact]
+    public async Task PartialClose_refuses_unknown_scope_kind_without_touching_host()
+    {
+        // §6.3 / §7.4 — an unknown ScopeKind MUST NOT fall through to
+        // the parent locator. The whole point of a scoped close is
+        // that the scope identifies WHICH host slice we mutate; an
+        // unknown scope refuses OUTRIGHT.
+        var (adapter, host, _) = NewAdapter();
+        var result = await adapter.PartialCloseAsync(
+            TabTarget(),
+            new PartialCloseScope(ScopeKind: "window", ScopeId: "w3:x1", Reason: PartialCloseReason.UserRequested),
+            CancellationToken.None);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.PartialCloseAdapterFailed);
+        // The host MUST be untouched — no preflight, no close.
+        host.PreflightCalls.ShouldBeEmpty();
+        host.CloseCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PartialClose_valid_scope_preflights_then_closes_exactly_once()
+    {
+        // Third path: a legitimate scoped close. Preflight fires once
+        // against the scoped locator; close fires exactly once against
+        // the same.
+        var (adapter, host, _) = NewAdapter();
+        host.RemainingSummary = HerdrRemainingSummary.Subset;
+        var scope = new PartialCloseScope(ScopeKind: "pane", ScopeId: "w3:p-scoped", Reason: PartialCloseReason.UserRequested);
+        var result = await adapter.PartialCloseAsync(TabTarget(), scope, CancellationToken.None);
+        result.IsSuccess.ShouldBeTrue();
+        host.PreflightCalls.Count.ShouldBe(1);
+        host.CloseCalls.Count.ShouldBe(1);
+        host.CloseCalls[0].HostAttachmentId.ShouldBe("w3:p-scoped");
+        host.CloseCalls[0].HostAttachmentIdKind.ShouldBe(HerdrAdapterConstants.HostAttachmentIdKindPane);
+    }
+
+    [Fact]
+    public async Task PartialClose_scoped_preflight_failure_refuses_without_calling_close()
+    {
+        // §7.4 destructive-bug prevention: the scoped preflight caught
+        // "stale/foreign scope id inside a still-live parent" case.
+        // A failing preflight MUST NOT reach the close call.
+        var (adapter, host, _) = NewAdapter();
+        host.PreflightConfirmed = false;
+        var result = await adapter.PartialCloseAsync(
+            TabTarget(),
+            new PartialCloseScope("pane", "w3:p-stale", PartialCloseReason.UserRequested),
+            CancellationToken.None);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.PartialCloseAdapterFailed);
+        host.CloseCalls.ShouldBeEmpty();
+    }
+
+    // ---------------------------------------------------------------
     // §2.2 shape produced by RecordIdentity — accepted rows only.
     // ---------------------------------------------------------------
 

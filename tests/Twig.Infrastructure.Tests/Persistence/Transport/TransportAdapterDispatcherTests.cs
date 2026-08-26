@@ -249,6 +249,7 @@ public sealed class TransportAdapterDispatcherTests
     {
         // Path 3: adapter succeeds; store tombstone written; Ok.
         var (dispatcher, store) = NewDispatcher(new SucceedingCloseAdapter());
+        store.ReadRevision = 11;
         var res = await dispatcher.CloseAsync(SucceedingCloseAdapter.TargetOf(TransportAdapterRole.Agent), expectedRevision: 11, CancellationToken.None);
         res.IsSuccess.ShouldBeTrue();
         store.CloseCalls.Count.ShouldBe(1);
@@ -260,6 +261,7 @@ public sealed class TransportAdapterDispatcherTests
     {
         // Path 4: adapter failed; NO tombstone; caller sees close-adapter-failed.
         var (dispatcher, store) = NewDispatcher(new FailingCloseAdapter());
+        store.ReadRevision = 13;
         var res = await dispatcher.CloseAsync(FailingCloseAdapter.TargetOf(TransportAdapterRole.Agent), expectedRevision: 13, CancellationToken.None);
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(TransportAttachmentFailure.CloseAdapterFailed);
@@ -270,10 +272,57 @@ public sealed class TransportAdapterDispatcherTests
     public async Task Close_with_adapter_throwing_surfaces_close_adapter_failed_and_writes_no_tombstone()
     {
         var (dispatcher, store) = NewDispatcher(new ThrowingCloseAdapter());
+        store.ReadRevision = 15;
         var res = await dispatcher.CloseAsync(ThrowingCloseAdapter.TargetOf(TransportAdapterRole.Agent), expectedRevision: 15, CancellationToken.None);
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(TransportAttachmentFailure.CloseAdapterFailed);
         store.CloseCalls.ShouldBeEmpty();
+    }
+
+    // ─── Defect 1 (Spec-axis final review) — stale CAS preflight ───
+
+    [Fact]
+    public async Task Close_refuses_stale_expected_revision_before_reaching_adapter_close()
+    {
+        // §6.2 destructive-bug prevention: a stale caller MUST NOT
+        // reach the adapter's CloseAsync when its expectedRevision no
+        // longer matches the on-disk envelope. Before the fix, the
+        // adapter closed the live host and only THEN did the store
+        // return `transport-version-mismatch`, leaving transport.json
+        // attached while the host was destroyed.
+        var tracker = new TrackingCloseAdapter(returnResult: Result.Ok());
+        var (dispatcher, store) = NewDispatcher(tracker);
+        // Store reports current revision = 5; caller passes 3.
+        store.ReadRevision = 5;
+        var res = await dispatcher.CloseAsync(
+            TrackingCloseAdapter.TargetOf(TransportAdapterRole.Agent),
+            expectedRevision: 3,
+            CancellationToken.None);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.VersionMismatch);
+        // The host MUST be untouched — that is the whole point.
+        tracker.CloseCalls.ShouldBe(0);
+        // And no tombstone was written either.
+        store.CloseCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Close_declared_but_stale_revision_does_not_reach_adapter_even_when_capability_declared()
+    {
+        // Belt-and-suspenders: the preflight fires AFTER the capability
+        // check but BEFORE the adapter close. This proves that a
+        // declared-Close adapter with a stale revision is refused
+        // without host touch.
+        var tracker = new TrackingCloseAdapter(returnResult: Result.Ok());
+        var (dispatcher, store) = NewDispatcher(tracker);
+        store.ReadRevision = 100;
+        var res = await dispatcher.CloseAsync(
+            TrackingCloseAdapter.TargetOf(TransportAdapterRole.Terminal),
+            expectedRevision: 99,
+            CancellationToken.None);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.VersionMismatch);
+        tracker.CloseCalls.ShouldBe(0);
     }
 
     // ─── test adapter fakes ───
@@ -398,6 +447,36 @@ public sealed class TransportAdapterDispatcherTests
         public Task<Result<TransportLivenessObservation>> ProbeLivenessAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct) => throw new System.NotSupportedException();
         public Task<Result> DetachAsync(TransportAdapterTarget target, CancellationToken ct) => throw new System.NotSupportedException();
         public Task<Result> CloseAsync(TransportAdapterTarget target, CancellationToken ct) => throw new System.InvalidOperationException("close boom");
+        public Task<Result<TransportPartialCloseOutcome>> PartialCloseAsync(TransportAdapterTarget target, PartialCloseScope scope, CancellationToken ct) => throw new System.NotSupportedException();
+        public static TransportAdapterTarget TargetOf(TransportAdapterRole role) => new(role, Id, "x", "kind", new Dictionary<string, string>());
+    }
+
+    /// <summary>Records <see cref="CloseAsync"/> call count so a test
+    /// can assert the adapter's host mutation was NOT reached on the
+    /// refusal path. Declares both <c>Close</c> and
+    /// <c>PartialClose</c> so the tracker doubles for §6.2 and §6.3
+    /// regression tests.</summary>
+    private sealed class TrackingCloseAdapter : ITransportAdapter
+    {
+        private const string Id = "tracking-close";
+        private readonly Result _returnResult;
+        public int CloseCalls { get; private set; }
+        public TrackingCloseAdapter(Result returnResult) { _returnResult = returnResult; }
+        public string AdapterId => Id;
+        public IReadOnlySet<TransportCapability> Capabilities { get; } = new HashSet<TransportCapability>
+        {
+            TransportCapability.Close, TransportCapability.PartialClose,
+        };
+        public Result<TransportAttachmentRecord> RecordIdentity(RecordIdentityRequest request) => throw new System.NotSupportedException();
+        public AdapterDescription DescribeAdapter() => new(Id, "tracking", "1", Capabilities, new System.Collections.Generic.HashSet<TransportAdapterRole>(), "tracking");
+        public Task<Result<TransportStatusObservation>> ReportStatusAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result<TransportLivenessObservation>> ProbeLivenessAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result> DetachAsync(TransportAdapterTarget target, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result> CloseAsync(TransportAdapterTarget target, CancellationToken ct)
+        {
+            CloseCalls++;
+            return Task.FromResult(_returnResult);
+        }
         public Task<Result<TransportPartialCloseOutcome>> PartialCloseAsync(TransportAdapterTarget target, PartialCloseScope scope, CancellationToken ct) => throw new System.NotSupportedException();
         public static TransportAdapterTarget TargetOf(TransportAdapterRole role) => new(role, Id, "x", "kind", new Dictionary<string, string>());
     }

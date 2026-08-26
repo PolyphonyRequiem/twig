@@ -53,13 +53,16 @@ internal sealed class ChangeProposalRenderer : IChangeProposalRenderer
         TransportAttachmentRecord? transportRecord)
     {
         _ = proposal; // opaque payload, not inspected here (§10.5).
-
         // Clause 1 — null, unreadable, OR any referenced adapter is
         // not registered. §10.2 clause 1 forces TerminalText BEFORE
-        // clauses 2 and 3: a record whose agent adapter is unknown
-        // must not silently select a rich terminal presentation for
-        // the OTHER role.
+        // clauses 2 and 3: a record whose worktree, agent, or terminal
+        // adapter is unknown must not silently select a rich terminal
+        // presentation for the OTHER role. Every §2.1 payload carries
+        // an adapter reference; the gate walks every present one.
         if (transportRecord is null)
+            return Presentation.TerminalText.Instance;
+        if (transportRecord.Worktree is not null
+            && !_adapterRegistry.Resolve(transportRecord.Worktree.Target.AdapterId).IsSuccess)
             return Presentation.TerminalText.Instance;
         if (transportRecord.Agent is not null
             && !_adapterRegistry.Resolve(transportRecord.Agent.Target.AdapterId).IsSuccess)

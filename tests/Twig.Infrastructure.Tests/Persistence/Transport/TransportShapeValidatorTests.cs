@@ -139,4 +139,76 @@ public sealed class TransportShapeValidatorTests
         var result = TransportShapeValidator.Validate(envelope);
         result.Error.ShouldBe(TransportAttachmentFailure.RecordInvalid);
     }
+
+    // ─── Defect 3 (Spec-axis final review) — enum value validation ───
+
+    [Fact]
+    public void Undefined_RecordedStatus_enum_value_returns_unknown_status()
+    {
+        // §2.2 row 5 — an in-memory record built with an undefined
+        // enum value (e.g. `(RecordedStatus)999`) MUST be rejected at
+        // the write boundary, NOT deferred to `ToWire` which would
+        // throw `ArgumentOutOfRangeException` from downstream code.
+        var badAgent = new TransportAgentPayload(
+            AgentTarget(),
+            "cli",
+            RecordedStatus: (RecordedStatus)999,
+            System.DateTimeOffset.UnixEpoch,
+            _noCaps);
+        var record = new TransportAttachmentRecord(Worktree(), badAgent, null);
+        var result = TransportShapeValidator.ValidateRecord(record);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.UnknownStatus);
+    }
+
+    [Fact]
+    public void Undefined_TransportCapability_enum_value_in_agent_returns_unknown_capability()
+    {
+        // §2.2 row 6 — same rule, one row deeper. The wire-form parser
+        // owns the "unknown string" path; ValidateRecord owns the
+        // in-memory `(TransportCapability)999` path.
+        var badCaps = new HashSet<TransportCapability> { (TransportCapability)999 };
+        var agent = new TransportAgentPayload(
+            AgentTarget(),
+            "cli",
+            RecordedStatus.Working,
+            System.DateTimeOffset.UnixEpoch,
+            (System.Collections.Generic.IReadOnlySet<TransportCapability>)badCaps);
+        var record = new TransportAttachmentRecord(Worktree(), agent, null);
+        var result = TransportShapeValidator.ValidateRecord(record);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.UnknownCapability);
+    }
+
+    [Fact]
+    public void Undefined_TransportCapability_enum_value_in_terminal_returns_unknown_capability()
+    {
+        var badCaps = new HashSet<TransportCapability> { (TransportCapability)999 };
+        var terminal = new TransportTerminalPayload(
+            TerminalTarget(),
+            (System.Collections.Generic.IReadOnlySet<TransportCapability>)badCaps);
+        var record = new TransportAttachmentRecord(Worktree(), null, terminal);
+        var result = TransportShapeValidator.ValidateRecord(record);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.UnknownCapability);
+    }
+
+    [Fact]
+    public void Row_5_fires_before_row_6_when_both_defects_present()
+    {
+        // §2.2 fixes ordering: row 5 (unknown-status) MUST fire before
+        // row 6 (unknown-capability). A record with both defects
+        // surfaces the status identifier first.
+        var badCaps = new HashSet<TransportCapability> { (TransportCapability)999 };
+        var agent = new TransportAgentPayload(
+            AgentTarget(),
+            "cli",
+            RecordedStatus: (RecordedStatus)999,
+            System.DateTimeOffset.UnixEpoch,
+            (System.Collections.Generic.IReadOnlySet<TransportCapability>)badCaps);
+        var record = new TransportAttachmentRecord(Worktree(), agent, null);
+        var result = TransportShapeValidator.ValidateRecord(record);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(TransportAttachmentFailure.UnknownStatus);
+    }
 }

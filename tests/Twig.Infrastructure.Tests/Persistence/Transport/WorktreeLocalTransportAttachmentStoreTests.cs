@@ -275,4 +275,50 @@ public sealed class WorktreeLocalTransportAttachmentStoreTests : System.IDisposa
         read.Value.Envelope.Record.Terminal!.Target.AdapterId.ShouldBe("null");
         read.Value.Envelope.Record.Agent.ShouldBeNull();
     }
+
+    // ─── Defect 6 (Spec-axis final review) — fingerprint at write boundary ───
+
+    [Fact]
+    public async Task Write_with_mismatched_worktree_fingerprint_returns_named_failure_without_touching_disk()
+    {
+        // §8.4 — the store MUST verify record.worktree.worktreeFingerprint
+        // against the live worktree BEFORE any mutation. Before the fix,
+        // WriteAsync only ran the shape validator and pushed the wrong
+        // fingerprint straight to disk, and only the NEXT read caught it.
+        if (!_gitAvailable) return;
+        var store = NewStore();
+        var record = AgentDrivenRecord(worktreeFp: "this-is-not-the-live-fingerprint");
+        var res = await store.WriteAsync(record, expectedRevision: 0);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.WorktreeFingerprintMismatch);
+
+        // The wrong fingerprint MUST NOT have reached transport.json.
+        var transportPath = Path.Combine(_paths.TwigDir, WorktreeLocalTransportAttachmentStore.TransportFileName);
+        File.Exists(transportPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Write_replacing_valid_record_with_wrong_fingerprint_returns_named_failure_without_touching_disk()
+    {
+        // Guards the "replacement over a valid old record" case the
+        // review named explicitly: the pre-fix code compared the on-disk
+        // (still correct) fingerprint against the live one and passed,
+        // then persisted the incoming (wrong) fingerprint anyway.
+        if (!_gitAvailable) return;
+        var store = NewStore();
+        var fp = LiveWorktreeFingerprint();
+        (await store.WriteAsync(AgentDrivenRecord(fp), expectedRevision: 0)).IsSuccess.ShouldBeTrue();
+
+        var badReplacement = AgentDrivenRecord(worktreeFp: "wrong-fingerprint");
+        var res = await store.WriteAsync(badReplacement, expectedRevision: 1);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.WorktreeFingerprintMismatch);
+
+        // The subsequent read still sees the ORIGINAL correct record —
+        // the wrong fingerprint never touched disk.
+        var read = await store.ReadWithRevisionAsync();
+        read.IsSuccess.ShouldBeTrue(read.Error);
+        read.Value.Envelope!.Record!.Worktree!.WorktreeFingerprint.ShouldBe(fp);
+        read.Value.Revision.ShouldBe(1);
+    }
 }

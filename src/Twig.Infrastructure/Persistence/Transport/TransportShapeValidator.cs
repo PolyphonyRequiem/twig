@@ -98,7 +98,16 @@ internal static class TransportShapeValidator
         if (!isDirectHuman && !isAgentDriven)
             return Result.Fail(TransportAttachmentFailure.OrphanTerminal);
 
-        // Row 5 — capability catalogue on every payload.
+        // Row 5 — agent.RecordedStatus must be in §4.1's enumeration.
+        // The wire-form parser (TransportEnvelopeMapper) already rejects
+        // unknown strings, but ValidateRecord runs on every write
+        // boundary too — a caller synthesising a record in memory with
+        // an out-of-range enum value (e.g. `(RecordedStatus)999`) MUST
+        // be rejected here rather than downstream from `ToWire`.
+        if (record.Agent is { } agent5 && !IsDefinedRecordedStatus(agent5.RecordedStatus))
+            return Result.Fail(TransportAttachmentFailure.UnknownStatus);
+
+        // Row 6 — capability catalogue on every payload.
         if (record.Agent is { } agent)
         {
             var capsResult = ValidateCapabilities(agent.Capabilities);
@@ -110,22 +119,44 @@ internal static class TransportShapeValidator
             if (!capsResult.IsSuccess) return capsResult;
         }
 
-        // Note: RecordedStatus row-5 rejection is enforced at parse
-        // time by the JSON reader (an unknown string never becomes a
-        // valid enum) — see TransportEnvelopeSerializer for the pass.
         return Result.Ok();
     }
 
+    private static bool IsDefinedRecordedStatus(RecordedStatus status) => status switch
+    {
+        RecordedStatus.IdleAmbiguous => true,
+        RecordedStatus.Working => true,
+        RecordedStatus.Blocked => true,
+        RecordedStatus.Done => true,
+        RecordedStatus.Unknown => true,
+        RecordedStatus.Unobservable => true,
+        _ => false,
+    };
+
     private static Result ValidateCapabilities(System.Collections.Generic.IReadOnlySet<TransportCapability> caps)
     {
-        // Every TransportCapability enum value corresponds to a valid
-        // §3.3 optional name — the enum IS the catalogue; a value
-        // reaching here is a valid entry by construction. The §2.2
-        // row-6 defense against a persisted unknown/common-denominator
-        // name lives at parse time (see TransportEnvelopeSerializer):
-        // parse rejects the raw string before the enum is populated,
-        // so no downstream caller ever sees an invalid capability.
-        _ = caps;
+        // §2.2 row 6 — a capability whose enum value is not one of the
+        // five §3.3 optional catalogue entries is rejected here so an
+        // in-memory `(TransportCapability)999` never survives the write
+        // preflight and later throws from `ToWire`. The wire-form
+        // parser owns the "unknown string" path (including the two
+        // §3.1 common-denominator names, which are §3.3-absent by
+        // construction and never enter the enum).
+        foreach (var cap in caps)
+        {
+            if (!IsDefinedCapability(cap))
+                return Result.Fail(TransportAttachmentFailure.UnknownCapability);
+        }
         return Result.Ok();
     }
+
+    private static bool IsDefinedCapability(TransportCapability capability) => capability switch
+    {
+        TransportCapability.StatusReporting => true,
+        TransportCapability.LivenessProbe => true,
+        TransportCapability.Detach => true,
+        TransportCapability.Close => true,
+        TransportCapability.PartialClose => true,
+        _ => false,
+    };
 }

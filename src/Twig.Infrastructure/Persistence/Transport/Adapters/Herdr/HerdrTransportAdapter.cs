@@ -323,12 +323,24 @@ internal sealed class HerdrTransportAdapter : ITransportAdapter
         if (!TryBuildLocator(target, out var locator))
             return Result.Fail<TransportPartialCloseOutcome>(TransportAttachmentFailure.PartialCloseAdapterFailed);
 
-        // §12.2 mandated preflight on the parent target's live records
-        // before issuing a scoped close.
+        // §7.4 — the scoped locator is what the close will address.
+        // Unknown ScopeKind values are refused OUTRIGHT: the adapter
+        // MUST NOT fall through to the parent target and mutate an
+        // unexpected host (§6.3, §7.4). Only the two adapter-defined
+        // scope kinds Herdr owns ("pane", "tab") are honoured.
+        if (!TryScopeToLocator(locator, scope, out var scopedLocator))
+            return Result.Fail<TransportPartialCloseOutcome>(TransportAttachmentFailure.PartialCloseAdapterFailed);
+
+        // §7.4 mandated preflight cross-check on the FULLY SCOPED
+        // locator's live records before issuing a scoped close. Using
+        // the parent locator alone lets a stale/unrelated pane id
+        // through as long as the parent tab still resolves; §12.2 says
+        // "workspace/tab/pane cross-check" — the pane belongs in the
+        // preflight when we're closing a pane.
         HerdrPreflightReadout preflight;
         try
         {
-            preflight = await _host.PreflightCloseAsync(locator, ct).ConfigureAwait(false);
+            preflight = await _host.PreflightCloseAsync(scopedLocator, ct).ConfigureAwait(false);
         }
         catch (System.OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -343,10 +355,8 @@ internal sealed class HerdrTransportAdapter : ITransportAdapter
 
         // A partial close is scoped by `PartialCloseScope`; the
         // adapter honours its ScopeKind + ScopeId verbatim. The single
-        // unpiped close call is directed at the scoped target the
-        // caller supplied, not the parent — the parent id served only
-        // to preflight-anchor the workspace.
-        var scopedLocator = ScopeToLocator(locator, scope);
+        // unpiped close call is directed at the scoped locator the
+        // scope-builder produced above.
         HerdrCloseReadout close;
         try
         {
@@ -450,21 +460,20 @@ internal sealed class HerdrTransportAdapter : ITransportAdapter
     }
 
     /// <summary>§7.4 <see cref="PartialCloseScope"/> → adapter-internal
-    /// locator for the scoped close. <see cref="PartialCloseScope.ScopeId"/>
-    /// is the Herdr pane/tab id the single unpiped close will address;
-    /// the workspace anchor stays with the parent locator so
-    /// <see cref="IHerdrHostSurface"/> keeps the same qualification
-    /// key.</summary>
-    private static HerdrTargetLocator ScopeToLocator(HerdrTargetLocator parent, PartialCloseScope scope)
+    /// locator for the scoped close, returning <c>false</c> when
+    /// <see cref="PartialCloseScope.ScopeKind"/> is not an
+    /// adapter-defined Herdr scope kind. Refusing an unknown kind up
+    /// front (rather than falling through to the parent locator) is
+    /// what stops a stale/foreign <c>ScopeId</c> from being closed as
+    /// if it belonged to the parent target — §6.3's UNVERIFIED-safe
+    /// stance forbids that mutation.</summary>
+    private static bool TryScopeToLocator(HerdrTargetLocator parent, PartialCloseScope scope, out HerdrTargetLocator scoped)
     {
-        // scope.ScopeKind is opaque and adapter-defined. The Herdr
-        // convention is "pane" or "tab"; anything else falls through to
-        // the parent locator (the close call will fail preflight rather
-        // than mutate an unexpected target).
+        scoped = default!;
         var kind = scope.ScopeKind;
         string? tab = parent.Tab;
         string? pane = parent.Pane;
-        string hostAttachmentIdKind = parent.HostAttachmentIdKind;
+        string hostAttachmentIdKind;
         if (string.Equals(kind, "pane", System.StringComparison.Ordinal))
         {
             pane = scope.ScopeId;
@@ -475,12 +484,19 @@ internal sealed class HerdrTransportAdapter : ITransportAdapter
             tab = scope.ScopeId;
             hostAttachmentIdKind = HerdrAdapterConstants.HostAttachmentIdKindTab;
         }
-        return new HerdrTargetLocator(
+        else
+        {
+            return false;
+        }
+        if (string.IsNullOrEmpty(scope.ScopeId))
+            return false;
+        scoped = new HerdrTargetLocator(
             Workspace: parent.Workspace,
             Tab: tab,
             Pane: pane,
             AgentTarget: parent.AgentTarget,
             HostAttachmentIdKind: hostAttachmentIdKind,
             HostAttachmentId: scope.ScopeId);
+        return true;
     }
 }

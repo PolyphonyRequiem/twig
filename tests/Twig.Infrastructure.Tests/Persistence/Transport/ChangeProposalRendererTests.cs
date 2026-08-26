@@ -106,7 +106,7 @@ public sealed class ChangeProposalRendererTests
     public void Terminal_selected_when_agent_unsupported_but_terminal_supported()
     {
         var r = MakeRenderer(new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) },
-            registeredAdapterIds: new[] { "wt", "unknown-agent" });
+            registeredAdapterIds: new[] { "wt", "unknown-agent", "herdr" });
         var p = r.SelectPresentation(Proposal(), AgentDrivenRecord(agentAdapter: "unknown-agent", terminalAdapter: "wt"));
         var rich = p.ShouldBeOfType<Presentation.RichAdapter>();
         rich.AdapterId.Role.ShouldBe(TransportAdapterRole.Terminal);
@@ -168,6 +168,45 @@ public sealed class ChangeProposalRendererTests
             supported: new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) },
             registeredAdapterIds: new string[] { }); // 'wt' absent
         var p = r.SelectPresentation(Proposal(), DirectHumanRecord(terminalAdapter: "wt"));
+        p.ShouldBeOfType<Presentation.TerminalText>();
+    }
+
+    // ─── Defect 4 (Spec-axis final review) — worktree adapter gate ───
+
+    [Fact]
+    public void Clause1_unregistered_worktree_adapter_forces_terminal_text_even_when_agent_or_terminal_registered_and_supported()
+    {
+        // §10.2 clause 1 gates on ALL referenced adapters, not just
+        // agent/terminal. A record whose worktree adapter is unknown
+        // must not silently select a rich terminal presentation for
+        // the OTHER role.
+        //
+        // The agent-driven record built here has:
+        //   • worktree.adapterId = "herdr"  (deliberately unregistered)
+        //   • agent.adapterId    = "herdr"  (registered + supported)
+        //   • terminal.adapterId = "wt"     (registered + supported)
+        var r = MakeRenderer(
+            supported: new[]
+            {
+                new RichAdapterId("herdr", TransportAdapterRole.Agent),
+                new RichAdapterId("wt", TransportAdapterRole.Terminal),
+            },
+            // Everything BUT "herdr" is registered — the worktree
+            // reference will therefore fail to resolve.
+            registeredAdapterIds: new[] { "wt" });
+        // AgentDrivenRecord builds a worktree with adapterId "herdr"
+        // internally; override so agent = "wt" too, isolating worktree
+        // as the sole unregistered reference.
+        var record = new TransportAttachmentRecord(
+            Worktree: new TransportWorktreePayload("{fp}",
+                new TransportAdapterTarget(TransportAdapterRole.Worktree, "herdr", "w", "kind", _ctx)),
+            Agent: new TransportAgentPayload(
+                new TransportAdapterTarget(TransportAdapterRole.Agent, "wt", "a", "kind", _ctx),
+                "cli", RecordedStatus.Working, System.DateTimeOffset.UnixEpoch, _noCaps),
+            Terminal: new TransportTerminalPayload(
+                new TransportAdapterTarget(TransportAdapterRole.Terminal, "wt", "t", "kind", _ctx),
+                _noCaps));
+        var p = r.SelectPresentation(Proposal(), record);
         p.ShouldBeOfType<Presentation.TerminalText>();
     }
 

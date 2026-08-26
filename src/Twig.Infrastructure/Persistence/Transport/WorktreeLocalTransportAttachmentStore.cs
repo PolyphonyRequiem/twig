@@ -64,6 +64,21 @@ internal sealed class WorktreeLocalTransportAttachmentStore : ITransportAttachme
         if (!shapeResult.IsSuccess)
             return Task.FromResult(Result.Fail<TransportWriteOutcome>(shapeResult.Error));
 
+        // §2.1 / §8.4 — the incoming record's worktreeFingerprint MUST
+        // byte-equal the live tuple. Otherwise a first attach persists
+        // a wrong fingerprint that only surfaces on the NEXT read.
+        // The read-boundary check catches replaced-record drift; this
+        // write-boundary check catches the first-attach case the read
+        // never sees.
+        if (newRecord.Worktree is { } incoming)
+        {
+            if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out _))
+                return Task.FromResult(Result.Fail<TransportWriteOutcome>(TransportAttachmentFailure.WorktreeFingerprintMismatch));
+            var liveFingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
+            if (!string.Equals(incoming.WorktreeFingerprint, liveFingerprint, System.StringComparison.Ordinal))
+                return Task.FromResult(Result.Fail<TransportWriteOutcome>(TransportAttachmentFailure.WorktreeFingerprintMismatch));
+        }
+
         return MutateAsync(
             expectedRevision: expectedRevision,
             targetState: TransportAttachmentEnvelopeState.Attached,

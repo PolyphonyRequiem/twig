@@ -11,38 +11,20 @@ namespace Twig.Infrastructure.Persistence;
 
 /// <summary>
 /// Worktree-local implementation of <see cref="IPrimaryScopeAttachmentStore"/>.
-/// This is the AB#736 §9.3 seam AB#738 consumes. It refuses to open, read, or
-/// write outside a valid managed worktree — every code path names its failure
-/// against §8 rather than falling through to an "unmanaged" projection.
+/// AB#736 §9.3 seam that AB#738 owns and AB#739 extends with a
+/// cross-process CAS handshake through an OS-visible file lock plus a
+/// monotonic revision counter.
 /// <para>
-/// The write path <b>never bootstraps</b> the layout marker or the worktree
-/// fingerprint file. Marker creation belongs exclusively to explicit managed
-/// init (<see cref="InitializeAsync"/>) so an existing pre-AB#736 checkout —
-/// including a legacy <c>.twig/&lt;org&gt;/&lt;project&gt;/</c> tree — cannot be
-/// silently adopted by an attachment operation. Under the T1 runtime ordering
-/// (§6.4) the sequence is: detect git → validate <c>layout.json</c> → validate
-/// <c>worktree.json</c> against the live tuple → validate
-/// <c>attachment.json</c>'s connectionRef → open the system store row. Any
-/// mismatch surfaces named.
-/// </para>
-/// <para>
-/// Atomic writes are durable (§6.1): the temp file is opened with
-/// <see cref="FileOptions.WriteThrough"/> and flushed with
-/// <see cref="FileStream.Flush(bool)"/>(<c>true</c>) before rename, so a
-/// power-loss between rename and further writes leaves the new version intact
-/// rather than a rename-visible but content-empty target.
-/// </para>
-/// <para>
-/// Link/unlink coordinate through a monotonic revision counter on the
-/// attachment document. Every write increments the counter; link/unlink
-/// perform read → mutate → write inside <see cref="_writeGate"/>, and
-/// refuse if the revision advanced between read and write —
-/// <c>attachment-version-mismatch</c>. Link additionally verifies the
-/// caller's expected primary scope tuple still matches byte-exact and
-/// refuses with <c>attachment-scope-mismatch</c> otherwise. The gate is
-/// in-process serialization; cross-process contention is compounded by
-/// SQLite's system-store transactions, which serialize the underlying
-/// claim writes at the process boundary.
+/// Every mutating operation runs the sequence: acquire the exclusive
+/// <c>attachment.json.lock</c> file via <see cref="FileStream"/> with
+/// <see cref="FileShare.None"/>, read the current document (validating
+/// the layout / worktree / connectionRef ordering §6.4), compare the
+/// caller's expected revision against the on-disk revision, run the
+/// mutation, bump revision + write via temp-file rename, then release
+/// the lock. Because <see cref="FileShare.None"/> yields an
+/// <see cref="IOException"/> on any peer's open attempt, this
+/// serializes writers across processes on the same worktree checkout —
+/// the in-process semaphore alone was not sufficient.
 /// </para>
 /// </summary>
 internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStore, IDisposable
@@ -52,12 +34,14 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
-    // Files this store reads and writes. Named as constants so a change to the
-    // §4.2 layout is a single-line touch rather than a scavenger hunt.
     internal const string LayoutFileName = "layout.json";
     internal const string WorktreeFileName = "worktree.json";
     internal const string AttachmentFileName = "attachment.json";
+    internal const string AttachmentLockFileName = "attachment.json.lock";
     internal const string TmpDirName = "tmp";
+
+    private const int LockAcquireMaxAttempts = 400;
+    private const int LockAcquireDelayMs = 25;
 
     public WorktreeLocalAttachmentStore(TwigPaths paths, TwigConfiguration config, TimeProvider clock)
     {
@@ -66,15 +50,6 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         _clock = clock;
     }
 
-    /// <summary>
-    /// A managed worktree, for AB#738's purposes, is one that the T1 storage
-    /// contract has anything to say about — i.e. a <c>.twig/</c> directory
-    /// exists or the checked-in <c>twig.json</c> manifest is present at the
-    /// repo root. The read/write paths then run the full §6.4 fail-closed
-    /// ordering; a checkout that carries a <c>.twig/</c> without the layout
-    /// marker surfaces <c>layout-marker-missing</c> rather than silently
-    /// falling back to "unmanaged".
-    /// </summary>
     public bool IsManagedWorktree()
     {
         if (string.IsNullOrEmpty(_paths.TwigDir))
@@ -92,22 +67,22 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         return Result.Ok(res.Value.Projection);
     }
 
-    public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default)
-        => WriteWithReadCheckAsync(
-            expectedRevision: null,
+    public async Task<Result<VersionedPrimaryScopeAttachment>> ReadWithRevisionAsync(CancellationToken ct = default)
+    {
+        var res = await ReadInternalAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccess)
+            return Result.Fail<VersionedPrimaryScopeAttachment>(res.Error);
+        return Result.Ok(new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision));
+    }
+
+    public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
+        => MutateAsync(
+            expectedRevision: expectedRevision,
             build: _ => attachment,
             scopeCheck: null,
+            requireScopeKind: null,
             ct: ct);
 
-    /// <summary>
-    /// Explicit managed-init hook: creates <c>.twig/layout.json</c>,
-    /// <c>.twig/worktree.json</c>, and an empty <c>attachment.json</c> (§6.3
-    /// steps 4–7). Idempotent on retry. Exposed so callers with a legitimate
-    /// init verb — a future AB#740-scoped init command, an integration test
-    /// fixture — can produce a valid managed worktree without either
-    /// re-implementing §6.3 or reaching around this store to write marker
-    /// files themselves.
-    /// </summary>
     public async Task<Result> InitializeAsync(CancellationToken ct = default)
     {
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
@@ -131,18 +106,9 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             }
             return Result.Ok();
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (IOException ex)
-        {
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
+        catch (OperationCanceledException) { throw; }
+        catch (IOException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+        catch (UnauthorizedAccessException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
         finally
         {
             _writeGate.Release();
@@ -154,6 +120,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         DateTimeOffset mintedAt,
         string expectedPrimaryScopeKind,
         int expectedWorkItemId,
+        long expectedRevision,
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(claimId))
@@ -163,45 +130,37 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         if (expectedWorkItemId <= 0)
             return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedWorkItemId must be positive."));
 
-        return WriteWithReadCheckAsync(
-            expectedRevision: null,
+        return MutateAsync(
+            expectedRevision: expectedRevision,
             build: current => current with { ActiveClaim = new ActiveClaimReference(claimId, mintedAt) },
             scopeCheck: current =>
             {
-                if (current.PrimaryScope is not { } scope)
-                    return AttachmentStorageFailure.AttachmentScopeMismatch;
-                if (scope.WorkItemId != expectedWorkItemId)
-                    return AttachmentStorageFailure.AttachmentScopeMismatch;
-                // The on-disk record carries the primary scope kind
-                // explicitly (AttachmentPrimaryScope.Kind). The projection
-                // stripped it into an internal marker; we compare against
-                // the raw doc read via scopeCheckSide.
+                if (current.PrimaryScope is not { } scope) return AttachmentStorageFailure.AttachmentScopeMismatch;
+                if (scope.WorkItemId != expectedWorkItemId) return AttachmentStorageFailure.AttachmentScopeMismatch;
                 return null;
             },
             requireScopeKind: expectedPrimaryScopeKind,
             ct: ct);
     }
 
-    public Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default)
+    public Task<Result> UnlinkClaimAsync(string expectedClaimId, long expectedRevision, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(expectedClaimId))
             return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required."));
 
-        return WriteWithReadCheckAsync(
-            expectedRevision: null,
+        return MutateAsync(
+            expectedRevision: expectedRevision,
             build: current =>
             {
                 if (current.ActiveClaim is null
                     || !string.Equals(current.ActiveClaim.Value.ClaimId, expectedClaimId, StringComparison.Ordinal))
                 {
-                    // Idempotent from the attachment's perspective — no
-                    // change to write. Return the same record so the
-                    // caller-side WriteWithReadCheck short-circuits.
-                    return current;
+                    return current; // idempotent short-circuit
                 }
                 return current with { ActiveClaim = null };
             },
             scopeCheck: null,
+            requireScopeKind: null,
             ct: ct);
     }
 
@@ -212,10 +171,8 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private async Task<Result<ReadOutcome>> ReadInternalAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
             return Result.Fail<ReadOutcome>(anchorFailure);
-
         if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
             return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LegacyLayoutPresent);
 
@@ -240,37 +197,20 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                 stream, TwigJsonContext.Default.AttachmentDocument, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
-        catch (JsonException)
-        {
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-        }
-        catch (IOException ex)
-        {
-            return Result.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
+        catch (JsonException) { return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid); }
+        catch (IOException ex) { return Result.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
 
-        if (doc is null)
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-        if (doc.Revision < 0)
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-        if (string.IsNullOrEmpty(doc.ConnectionRef))
-            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-
+        if (doc is null) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (doc.Revision < 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (string.IsNullOrEmpty(doc.ConnectionRef)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
             return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
 
         PrimaryScope? scope = null;
         if (doc.PrimaryScope is { } ps)
         {
-            // Reject malformed present primary-scope block with a NAMED
-            // schema failure. A silent skip would let a hand-crafted
-            // attachment.json (nonpositive id, invalid timestamp, invalid
-            // URL) reach the claim path as "no primary scope" — one of
-            // the exact fail-closed defects §7 forbids.
-            if (ps.WorkItemId <= 0)
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
-            if (string.IsNullOrEmpty(ps.Kind))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (ps.WorkItemId <= 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ps.Kind)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (!DateTimeOffset.TryParse(ps.AttachedAt, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var attachedAt))
                 return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
@@ -284,40 +224,40 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         ActiveClaimReference? claim = null;
         if (doc.ActiveClaim is { } ac)
         {
-            if (string.IsNullOrEmpty(ac.ClaimId))
-                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ac.ClaimId)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             if (!DateTimeOffset.TryParse(ac.MintedAt, System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var mintedAt))
                 return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
             claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
         }
 
-        var projection = new PrimaryScopeAttachment(
-            ConnectionRef: doc.ConnectionRef,
-            PrimaryScope: scope,
-            ActiveClaim: claim);
-        return Result.Ok(new ReadOutcome(projection, doc));
+        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim), doc));
     }
 
-    private async Task<Result> WriteWithReadCheckAsync(
-        long? expectedRevision,
+    private async Task<Result> MutateAsync(
+        long expectedRevision,
         Func<PrimaryScopeAttachment, PrimaryScopeAttachment> build,
         Func<PrimaryScopeAttachment, string?>? scopeCheck,
-        string? requireScopeKind = null,
+        string? requireScopeKind,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        FileStream? lockHandle = null;
         try
         {
+            lockHandle = await AcquireCrossProcessLockAsync(ct).ConfigureAwait(false);
+            if (lockHandle is null)
+                return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
+
             var readRes = await ReadInternalAsync(ct).ConfigureAwait(false);
             if (!readRes.IsSuccess)
                 return Result.Fail(readRes.Error);
+
             var currentProjection = readRes.Value.Projection;
             var currentDoc = readRes.Value.Document;
 
-            if (expectedRevision.HasValue && currentDoc.Revision != expectedRevision.Value)
+            if (expectedRevision >= 0 && currentDoc.Revision != expectedRevision)
                 return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
 
             if (scopeCheck is not null)
@@ -335,11 +275,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
             var next = build(currentProjection);
             if (ReferenceEquals(next, currentProjection) || next.Equals(currentProjection))
-            {
-                // No change to apply. Signal success without a write —
-                // idempotent unlink over an unlinked record, for example.
-                return Result.Ok();
-            }
+                return Result.Ok(); // no-op
 
             var expectedRef = ConnectionRefResolver.Compute(_config);
             if (!string.Equals(next.ConnectionRef, expectedRef, StringComparison.Ordinal))
@@ -353,19 +289,46 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                     .ConfigureAwait(false);
                 return Result.Ok();
             }
-            catch (IOException ex)
-            {
-                return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-            }
+            catch (IOException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
         }
         finally
         {
+            lockHandle?.Dispose();
             _writeGate.Release();
         }
+    }
+
+    /// <summary>Acquires an exclusive OS-visible lock via
+    /// <c>attachment.json.lock</c>. <see cref="FileShare.None"/> gives any
+    /// peer process an <see cref="IOException"/> when it attempts to
+    /// open, which is the cross-process serialization signal. Bounded
+    /// retry so a stale lock does not permanently block us; a
+    /// long-outstanding lock returns null → the caller surfaces as
+    /// <c>attachment-version-mismatch</c>.</summary>
+    private async Task<FileStream?> AcquireCrossProcessLockAsync(CancellationToken ct)
+    {
+        Directory.CreateDirectory(_paths.TwigDir);
+        var lockPath = Path.Combine(_paths.TwigDir, AttachmentLockFileName);
+        for (var attempt = 0; attempt < LockAcquireMaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    options: FileOptions.DeleteOnClose);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(LockAcquireDelayMs, ct).ConfigureAwait(false);
+            }
+        }
+        return null;
     }
 
     private static AttachmentDocument BuildDocument(PrimaryScopeAttachment attachment, long nextRevision) =>
@@ -388,8 +351,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private async Task EnsureLayoutMarkerAsync(CancellationToken ct)
     {
         var path = Path.Combine(_paths.TwigDir, LayoutFileName);
-        if (File.Exists(path))
-            return;
+        if (File.Exists(path)) return;
 
         var doc = new LayoutMarkerDocument(
             Schema: LayoutMarkerDocument.CurrentSchema,
@@ -413,8 +375,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     private async Task<string?> ValidateFingerprintAsync(WorktreeAnchor live, CancellationToken ct)
     {
         var path = Path.Combine(_paths.TwigDir, WorktreeFileName);
-        if (!File.Exists(path))
-            return AttachmentStorageFailure.WorktreeFingerprintDrift;
+        if (!File.Exists(path)) return AttachmentStorageFailure.WorktreeFingerprintDrift;
 
         WorktreeFingerprintDocument? doc;
         try
@@ -424,13 +385,9 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                 stream, TwigJsonContext.Default.WorktreeFingerprintDocument, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
-        catch
-        {
-            return AttachmentStorageFailure.WorktreeFingerprintDrift;
-        }
+        catch { return AttachmentStorageFailure.WorktreeFingerprintDrift; }
 
-        if (doc is null)
-            return AttachmentStorageFailure.WorktreeFingerprintDrift;
+        if (doc is null) return AttachmentStorageFailure.WorktreeFingerprintDrift;
 
         var stored = doc.WorktreeFingerprint;
         if (string.IsNullOrEmpty(stored.WorktreeRoot)
@@ -449,8 +406,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
     private static bool PathsEqual(string a, string b)
     {
-        if (string.IsNullOrEmpty(a) && string.IsNullOrEmpty(b))
-            return true;
+        if (string.IsNullOrEmpty(a) && string.IsNullOrEmpty(b)) return true;
         var comparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
@@ -495,10 +451,8 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 }
 
 /// <summary>
-/// Detects the legacy pre-AB#736 layout — <c>.twig/&lt;org&gt;/&lt;project&gt;/twig.db</c> —
-/// so runtime storage reads/writes refuse fail-closed rather than adopt the
-/// old tree silently. Only the shape §7 fixes is probed; the specific org and
-/// project names are opaque.
+/// Detects the legacy pre-AB#736 layout so runtime storage reads/writes
+/// refuse fail-closed rather than adopt the old tree silently.
 /// </summary>
 internal static class LegacyLayoutDetector
 {
@@ -506,9 +460,6 @@ internal static class LegacyLayoutDetector
     {
         if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
             return false;
-        // Managed layout is authoritative: once §4.2.1 layout.json is
-        // present the checkout is on the new layout and disposable cache
-        // directories under the old shape are just interim state.
         if (File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)))
             return false;
         try
@@ -532,23 +483,14 @@ internal static class LegacyLayoutDetector
     }
 }
 
-/// <summary>
-/// Validates the origin (organization + project) of an ADO work-item URL against
-/// the current connection binding. AB#736 §4.2.2 requires this check ahead of
-/// the system-store answer so a stolen or copied <c>.twig/</c> whose
-/// <c>connectionRef</c> forgery matches still trips on the visible URL
-/// origin.
-/// </summary>
 internal static class AdoWorkItemUrlValidator
 {
     public static bool OriginMatches(string? url, string? organization, string? project)
     {
         if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(organization) || string.IsNullOrEmpty(project))
             return false;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            return false;
-        if (uri.Scheme is not ("https" or "http"))
-            return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme is not ("https" or "http")) return false;
 
         var orgSlug = OrganizationNormalizer.ToSlug(organization);
         var host = uri.Host;

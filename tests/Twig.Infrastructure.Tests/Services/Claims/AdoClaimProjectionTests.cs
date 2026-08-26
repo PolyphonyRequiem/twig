@@ -11,53 +11,63 @@ using Xunit;
 namespace Twig.Infrastructure.Tests.Services.Claims;
 
 /// <summary>
-/// AB#737 §Mint step 2 requires the projection to verify by readback that
-/// ADO's <c>System.AssignedTo</c> resolves to the intended holder before
-/// reporting success. AB#737 §Release requires the same verified boundary on
-/// clear. These tests exercise the seam directly against an in-memory ADO
-/// fake so a normalization-losing patch fails-loud rather than promoting the
-/// claim silently.
+/// AB#739 strict stable-identity readback: the projection writes the
+/// holder's uniqueName (UPN) as AssignedTo, then re-fetches and compares
+/// the observed uniqueName byte-exactly.
 /// </summary>
 public sealed class AdoClaimProjectionTests
 {
+    private const string Display = "Jane Doe";
+    private const string Upn = "jane@example.com";
+    private static readonly string Composite = $"{Display} <{Upn}>";
+
     [Fact]
-    public async Task Project_holder_returns_ok_when_readback_matches_intended_holder()
+    public async Task Project_holder_returns_ok_when_readback_matches_intended_upn()
     {
         var ado = new FakeAdo("");
         var proj = new AdoClaimProjection(ado);
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("jane@example.com", "Jane Doe"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
         res.IsSuccess.ShouldBeTrue(res.Error);
-        ado.AssignedTo.ShouldBe("Jane Doe");
+        ado.AssignedTo.ShouldContain(Upn);
         ado.FetchCount.ShouldBe(2);
     }
 
     [Fact]
-    public async Task Project_holder_returns_ok_no_write_when_readback_already_matches_intended()
+    public async Task Project_holder_returns_ok_no_write_when_readback_already_matches_intended_upn()
     {
-        var ado = new FakeAdo("Jane Doe");
+        var ado = new FakeAdo(Composite);
         var proj = new AdoClaimProjection(ado);
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("jane@example.com", "Jane Doe"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
         res.IsSuccess.ShouldBeTrue(res.Error);
         ado.PatchCount.ShouldBe(0);
-        ado.AssignedTo.ShouldBe("Jane Doe");
     }
 
     [Fact]
-    public async Task Project_holder_fails_when_readback_shows_a_different_identity()
+    public async Task Project_holder_fails_when_readback_shows_a_different_upn()
     {
-        var ado = new FakeAdo("") { NormalizeWriteTo = "Somebody Else" };
+        var ado = new FakeAdo("") { NormalizeWriteTo = $"Other Somebody <other@example.com>" };
         var proj = new AdoClaimProjection(ado);
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("jane@example.com", "Jane Doe"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldStartWith(AdoClaimProjection.ReadbackMismatch);
     }
 
     [Fact]
-    public async Task Project_holder_fails_when_readback_shows_an_empty_assignment()
+    public async Task Project_holder_fails_when_readback_carries_no_stable_upn()
+    {
+        var ado = new FakeAdo("") { NormalizeWriteTo = "Bare Display" };
+        var proj = new AdoClaimProjection(ado);
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldStartWith(AdoClaimProjection.ReadbackMissingUniqueName);
+    }
+
+    [Fact]
+    public async Task Project_holder_fails_when_readback_shows_empty_assignment()
     {
         var ado = new FakeAdo("") { NormalizeWriteTo = "" };
         var proj = new AdoClaimProjection(ado);
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("jane@example.com", "Jane Doe"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(AdoClaimProjection.ReadbackMissing);
     }
@@ -75,7 +85,7 @@ public sealed class AdoClaimProjectionTests
     [Fact]
     public async Task Clear_holder_fails_when_readback_still_shows_an_assignee()
     {
-        var ado = new FakeAdo("Jane Doe") { RejectClear = true };
+        var ado = new FakeAdo(Composite) { RejectClear = true };
         var proj = new AdoClaimProjection(ado);
         var res = await proj.ClearHolderAsync("42");
         res.IsSuccess.ShouldBeFalse();
@@ -87,7 +97,7 @@ public sealed class AdoClaimProjectionTests
     {
         var ado = new FakeAdo("") { ThrowConflict = true };
         var proj = new AdoClaimProjection(ado);
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("j@e.com", "Jane"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, Upn));
         res.IsSuccess.ShouldBeFalse();
         res.Error.ShouldBe(AdoClaimProjection.ConflictAfterRetry);
     }
@@ -96,28 +106,25 @@ public sealed class AdoClaimProjectionTests
     public async Task Project_holder_rejects_invalid_scope_id()
     {
         var proj = new AdoClaimProjection(new FakeAdo(""));
-        (await proj.ProjectHolderAsync("not-an-int", new ClaimHolderDescriptor("j", "j"))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
-        (await proj.ProjectHolderAsync("-5", new ClaimHolderDescriptor("j", "j"))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
-        (await proj.ProjectHolderAsync("0", new ClaimHolderDescriptor("j", "j"))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
+        (await proj.ProjectHolderAsync("not-an-int", new ClaimHolderDescriptor(Upn, Display, Upn))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
+        (await proj.ProjectHolderAsync("-5", new ClaimHolderDescriptor(Upn, Display, Upn))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
+        (await proj.ProjectHolderAsync("0", new ClaimHolderDescriptor(Upn, Display, Upn))).Error.ShouldBe(AdoClaimProjection.InvalidScopeId);
     }
 
     [Fact]
     public async Task Project_holder_rejects_empty_holder_identity()
     {
         var proj = new AdoClaimProjection(new FakeAdo(""));
-        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("", "Jane"));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor("", Display, Upn));
         res.Error.ShouldBe(AdoClaimProjection.EmptyHolder);
     }
 
-    [Theory]
-    [InlineData("Jane <jane@example.com>", "jane@example.com", true)]
-    [InlineData("jane@example.com", "Jane <jane@example.com>", true)]
-    [InlineData("jane@example.com", "Jane <jack@example.com>", false)]
-    [InlineData("Jane Doe", "Jane Doe", true)]
-    [InlineData("Jane Doe", "Somebody Else", false)]
-    public void Identity_matcher_accepts_upn_and_display_forms_but_refuses_a_different_upn(string observed, string intended, bool expected)
+    [Fact]
+    public async Task Project_holder_rejects_missing_unique_name()
     {
-        AdoClaimProjection.IdentityMatches(observed, intended).ShouldBe(expected);
+        var proj = new AdoClaimProjection(new FakeAdo(""));
+        var res = await proj.ProjectHolderAsync("42", new ClaimHolderDescriptor(Upn, Display, UniqueName: null));
+        res.Error.ShouldBe(AdoClaimProjection.EmptyUniqueName);
     }
 
     private sealed class FakeAdo : IAdoWorkItemService

@@ -14,71 +14,65 @@ namespace Twig.Domain.Interfaces;
 /// carries the storage identifier verbatim so the service can route on it.
 /// </para>
 /// <para>
-/// Every write MUST leave the pre-existing file intact on failure (temp write +
-/// fsync + rename, §6.1). Callers rely on that so ineligible-type refusals never
-/// touch the record.
+/// AB#739 adds an OS-visible cross-process coordination surface: every
+/// read exposes the observed <c>revision</c> counter and every write
+/// takes an <c>expectedRevision</c>. Link/unlink acquire an exclusive
+/// file lock through the OS so a peer process in the same worktree
+/// cannot race the read-verify-write sequence.
 /// </para>
 /// </summary>
 internal interface IPrimaryScopeAttachmentStore
 {
-    /// <summary>
-    /// <c>true</c> when the invocation directory sits inside a managed twig worktree
-    /// — i.e. §3.1 anchors resolve, <c>.twig/layout.json</c> is present, and the
-    /// worktree fingerprint matches the checked-in record. <c>false</c> when the
-    /// checkout is unmanaged (fresh clone with only <c>twig.json</c>, or outside a
-    /// Git worktree entirely). Never throws.
-    /// </summary>
     bool IsManagedWorktree();
 
-    /// <summary>Read the current attachment. Returns a failure carrying the AB#736
-    /// storage identifier when validation fails; returns an <see cref="PrimaryScopeAttachment.Empty(string)"/>
-    /// record on a managed worktree that has not yet been attached.</summary>
     Task<Result<PrimaryScopeAttachment>> ReadAsync(CancellationToken ct = default);
 
-    /// <summary>Write the given attachment atomically. Verifies that
-    /// <see cref="PrimaryScopeAttachment.ConnectionRef"/> matches the value derived
-    /// from the current <c>twig.json</c> (§9.3) and refuses with
-    /// <c>attachment-connection-mismatch</c> otherwise.</summary>
-    Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default);
+    /// <summary>Reads the attachment together with the on-disk revision
+    /// counter so the caller can gate a subsequent link/unlink on that
+    /// revision. AB#739 §Attachment lifecycle coordination — the counter
+    /// is the cross-process CAS handle.</summary>
+    Task<Result<VersionedPrimaryScopeAttachment>> ReadWithRevisionAsync(CancellationToken ct = default);
 
-    /// <summary>Explicit managed-init hook: creates the §6.3 marker files
-    /// (<c>layout.json</c>, <c>worktree.json</c>, an empty
-    /// <c>attachment.json</c>) for the current worktree. Idempotent. This
-    /// is the sole route that writes marker files; write-time bootstrap is
-    /// forbidden by §7.</summary>
+    /// <summary>Writes the attachment atomically. When
+    /// <paramref name="expectedRevision"/> is non-negative the store
+    /// verifies the on-disk revision matches under an OS-visible lock
+    /// and refuses with <c>attachment-version-mismatch</c> otherwise.
+    /// A negative expected revision skips the check.</summary>
+    Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default);
+
     Task<Result> InitializeAsync(CancellationToken ct = default);
 
-    /// <summary>Bind the given active-claim reference (opaque id + mint
-    /// timestamp) onto the current attachment record without disturbing the
-    /// primary-scope block. Realizes AB#737 §Interface's <c>link</c> at
-    /// mint step 4 and reclaim step 4.
-    /// <para>
-    /// Callers supply the primary-scope kind and id they minted against;
-    /// the store re-reads the attachment, verifies the primary-scope block
-    /// still matches byte-exact, and refuses the write with
-    /// <c>attachment-scope-mismatch</c> if the scope was switched or
-    /// detached mid-mint. The attachment document also carries a monotonic
-    /// revision counter — a bump between the caller's read and the write
-    /// (a lost-update coordination signal) surfaces as
-    /// <c>attachment-version-mismatch</c> so the caller retries with a
-    /// fresh read rather than clobbering another writer.
-    /// </para>
-    /// A generic storage failure surfaces the AB#736 §8 identifier verbatim
-    /// so the claim service maps it to
-    /// <see cref="Twig.Domain.Services.Claims.ClaimMintOutcome.AttachmentLinkFailed"/>.</summary>
+    /// <summary>Bind the given active-claim reference. Under an
+    /// OS-visible lock: reads the current attachment, verifies the
+    /// caller-supplied <paramref name="expectedRevision"/> against the
+    /// on-disk value, verifies the primary-scope block still matches
+    /// (<paramref name="expectedPrimaryScopeKind"/>,
+    /// <paramref name="expectedWorkItemId"/>), and writes atomically.
+    /// AB#736 §8 identifiers surface verbatim so the claim service maps
+    /// scope switches to <c>attachment-scope-mismatch</c>, lost updates
+    /// to <c>attachment-version-mismatch</c>, and I/O to
+    /// <c>attachment-link-failed</c>.</summary>
     Task<Result> LinkClaimAsync(
         string claimId,
         DateTimeOffset mintedAt,
         string expectedPrimaryScopeKind,
         int expectedWorkItemId,
+        long expectedRevision,
         CancellationToken ct = default);
 
-    /// <summary>Drop the active-claim reference from the current attachment
-    /// record when it points at <paramref name="expectedClaimId"/>. Realizes
-    /// AB#737 §Interface's <c>unlink</c> at release step 3. A mismatch is
-    /// treated as already-unlinked (the release is idempotent from the
-    /// attachment's perspective); a real storage failure surfaces the
-    /// AB#736 §8 identifier verbatim so the claim service maps it to
-    /// <see cref="Twig.Domain.Services.Claims.ClaimReleaseOutcome.AttachmentUnlinkFailed"/>.</summary>
-    Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default);
+    /// <summary>Drop the active-claim reference under the same OS-visible
+    /// lock discipline as link. Idempotent when the record already points
+    /// at a different claim id.</summary>
+    Task<Result> UnlinkClaimAsync(
+        string expectedClaimId,
+        long expectedRevision,
+        CancellationToken ct = default);
 }
+
+/// <summary>Attachment plus its on-disk revision counter — the CAS handle
+/// AB#739 lifecycle operations pass to
+/// <see cref="IPrimaryScopeAttachmentStore.LinkClaimAsync"/> and
+/// <see cref="IPrimaryScopeAttachmentStore.UnlinkClaimAsync"/>.</summary>
+internal readonly record struct VersionedPrimaryScopeAttachment(
+    PrimaryScopeAttachment Attachment,
+    long Revision);

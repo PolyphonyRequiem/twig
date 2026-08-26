@@ -398,7 +398,11 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
-    /// Parses AssignedTo which can be a string or an identity object with displayName.
+    /// Parses AssignedTo and returns the display-plus-uniqueName composite
+    /// form <c>display &lt;uniqueName&gt;</c> when both are available, so
+    /// AB#739's identity readback can extract the stable UPN via
+    /// <see cref="AdoResponseMapper.ExtractAssigneeUniqueName"/>. Legacy
+    /// display-only responses still round-trip as before.
     /// </summary>
     private static string? ParseAssignedTo(Dictionary<string, object?> fields)
     {
@@ -413,18 +417,40 @@ internal static class AdoResponseMapper
             if (element.ValueKind == JsonValueKind.String)
                 return element.GetString();
 
-            // Identity object: { displayName: "...", uniqueName: "...", ... }
             if (element.ValueKind == JsonValueKind.Object)
             {
-                if (element.TryGetProperty("displayName", out var displayName))
-                    return displayName.GetString();
-
-                if (element.TryGetProperty("uniqueName", out var uniqueName))
-                    return uniqueName.GetString();
+                string? display = element.TryGetProperty("displayName", out var d) ? d.GetString() : null;
+                string? unique = element.TryGetProperty("uniqueName", out var u) ? u.GetString() : null;
+                if (!string.IsNullOrEmpty(display) && !string.IsNullOrEmpty(unique)
+                    && !string.Equals(display, unique, StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"{display} <{unique}>";
+                }
+                return display ?? unique;
             }
         }
 
         return value.ToString();
+    }
+
+    /// <summary>
+    /// Extract the stable uniqueName from a rendered AssignedTo string. If
+    /// the value is in the <c>display &lt;uniqueName&gt;</c> composite form,
+    /// returns the uniqueName; if it looks like a bare UPN (contains
+    /// <c>@</c>) returns it as-is; otherwise returns <c>null</c> —
+    /// AB#739's readback treats a missing uniqueName as a projection
+    /// failure rather than falling back to display comparison.
+    /// </summary>
+    internal static string? ExtractAssigneeUniqueName(string? assignedTo)
+    {
+        if (string.IsNullOrEmpty(assignedTo)) return null;
+        var lt = assignedTo.LastIndexOf('<');
+        var gt = assignedTo.LastIndexOf('>');
+        if (lt >= 0 && gt > lt)
+            return assignedTo.Substring(lt + 1, gt - lt - 1).Trim();
+        if (assignedTo.Contains('@'))
+            return assignedTo.Trim();
+        return null;
     }
 
 

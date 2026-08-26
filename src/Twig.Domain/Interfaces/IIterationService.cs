@@ -20,6 +20,27 @@ public interface IIterationService
     Task<string?> GetAuthenticatedUserDisplayNameAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Returns the authenticated user's stable ADO identity as a
+    /// <c>(displayName, uniqueName)</c> pair — <c>uniqueName</c> is the
+    /// stable UPN/descriptor that AB#739's claim projection writes and
+    /// verifies against on readback. AB#737 §Cross-cutting rules requires
+    /// the identity used for claim authorization to be the connection's
+    /// authenticated identity, not a display rendering; a resolver that
+    /// cannot supply <c>uniqueName</c> MUST refuse to mint. The default
+    /// implementation returns <c>(GetAuthenticatedUserDisplayNameAsync(), null)</c>
+    /// so a pre-AB#739 iteration service still compiles; the ADO
+    /// implementation returns the actual connection identity.
+    /// </summary>
+    Task<(string? DisplayName, string? UniqueName)> GetAuthenticatedUserIdentityAsync(CancellationToken ct = default)
+        => GetAuthenticatedUserIdentityDefaultAsync(ct);
+
+    private async Task<(string? DisplayName, string? UniqueName)> GetAuthenticatedUserIdentityDefaultAsync(CancellationToken ct)
+    {
+        var display = await GetAuthenticatedUserDisplayNameAsync(ct).ConfigureAwait(false);
+        return (display, null);
+    }
+
+    /// <summary>
     /// Gets all work item types with their ordered state sequences.
     /// Reuses the existing GET /_apis/wit/workitemtypes endpoint.
     /// Disabled types are excluded; null-color types are retained (custom types may lack colors).

@@ -45,11 +45,24 @@ internal interface IAdoClaimProjection
 }
 
 /// <summary>
-/// Opaque holder descriptor forwarded to the ADO projection. Carries both the
-/// stable identity captured in the claim record (<see cref="Identity"/>) and
-/// the resolved display form the projection SHOULD write into
-/// <c>System.AssignedTo</c> (<see cref="DisplayName"/>). Both are supplied by
-/// the runtime resolver (<see cref="IClaimHolderResolver"/>); neither is
-/// derived from OS username or an in-service default.
+/// Opaque holder descriptor forwarded to the ADO projection. Carries three
+/// values captured at mint time:
+/// <list type="bullet">
+///   <item><see cref="Identity"/>: the stable identity string persisted in
+///     the claim record. Historically the display name; AB#739's readback
+///     verification uses <see cref="UniqueName"/> instead so identity is
+///     compared against ADO's stable representation, not a rendering.</item>
+///   <item><see cref="DisplayName"/>: the human-readable rendering.
+///     Persisted for status projections and log formatting only; never a
+///     comparison key.</item>
+///   <item><see cref="UniqueName"/>: the stable ADO identity (UPN or
+///     descriptor). ADO's <c>System.AssignedTo</c> accepts a UPN verbatim
+///     as the write value and reflects it back on read as the
+///     <c>uniqueName</c> field. The claim projection writes this string
+///     and byte-compares it on readback; a resolver that cannot supply
+///     one refuses to mint (<c>HolderUnavailable</c>). Nullable at the
+///     shape level so downstream code compiles; the resolver enforces
+///     non-null.</item>
+/// </list>
 /// </summary>
-internal sealed record ClaimHolderDescriptor(string Identity, string? DisplayName);
+internal sealed record ClaimHolderDescriptor(string Identity, string? DisplayName, string? UniqueName = null);

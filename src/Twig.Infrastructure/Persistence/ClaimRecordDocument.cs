@@ -35,6 +35,7 @@ internal sealed record ClaimRecordDocument(
     [property: JsonPropertyName("claimId")] string? ClaimId,
     [property: JsonPropertyName("label")] string? Label,
     [property: JsonPropertyName("connectionRef")] string? ConnectionRef,
+    [property: JsonPropertyName("holderUniqueName")] string? HolderUniqueName,
     [property: JsonPropertyName("primaryScopeId")] string? PrimaryScopeId,
     [property: JsonPropertyName("primaryScopeKind")] string? PrimaryScopeKind,
     [property: JsonPropertyName("holderIdentity")] string? HolderIdentity,

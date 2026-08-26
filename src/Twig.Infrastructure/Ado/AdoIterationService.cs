@@ -301,6 +301,27 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         }
     }
 
+    public async Task<(string? DisplayName, string? UniqueName)> GetAuthenticatedUserIdentityAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var url = $"https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version={AdoApiVersions.Profile}";
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProfileResponse, ct);
+            // emailAddress is the stable UPN ADO reflects back on
+            // System.AssignedTo.uniqueName. AB#739 §Identity readback
+            // treats it as the byte-comparable identity — display name
+            // is projection-only.
+            return (result?.DisplayName, result?.EmailAddress);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
     /// <summary>
     /// Sorts states by category rank (Proposed=0, InProgress=1, Resolved=2, Completed=3, Removed=4, Unknown=5),
     /// preserving original within-category order via stable sort on original index.

@@ -304,7 +304,7 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         var store = NewStore();
         (await store.WriteAsync(attachment)).IsSuccess.ShouldBeTrue();
 
-        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, "some-other-kind", 50);
+        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, "some-other-kind", 50, expectedRevision: -1);
         link.IsSuccess.ShouldBeFalse();
         link.Error.ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
     }
@@ -324,7 +324,7 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         var store = NewStore();
         (await store.WriteAsync(attachment)).IsSuccess.ShouldBeTrue();
 
-        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, expectedWorkItemId: 51);
+        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, expectedWorkItemId: 51, expectedRevision: -1);
         link.IsSuccess.ShouldBeFalse();
         link.Error.ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
     }
@@ -407,7 +407,7 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
 
         var scope = new PrimaryScope(60, AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 60), DateTimeOffset.UtcNow);
         (await store.WriteAsync(new PrimaryScopeAttachment(_ConnectionRef(), scope, ActiveClaim: null))).IsSuccess.ShouldBeTrue();
-        (await store.LinkClaimAsync("CLM-r1", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, 60)).IsSuccess.ShouldBeTrue();
+        (await store.LinkClaimAsync("CLM-r1", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, 60, expectedRevision: -1)).IsSuccess.ShouldBeTrue();
 
         var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
         var content = await File.ReadAllTextAsync(attachmentPath);

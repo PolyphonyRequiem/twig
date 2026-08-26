@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
@@ -10,42 +11,43 @@ namespace Twig.Infrastructure.Persistence;
 /// Stores the AB#736 §4.3 <c>system.db</c> at <c>~/.twig/system.db</c>.
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
-/// On open the store distinguishes a truly new database from an existing
-/// one: if the file existed before this process opened it, the layout_meta
-/// row is exact-matched against <see cref="SchemaVersion"/> BEFORE any DDL
-/// runs, and a mismatch surfaces <c>system-store-schema-mismatch</c>. The
-/// mismatch is NOT sticky against a concurrent init race — if the file
-/// existed but layout_meta was still absent (another process created the
-/// file but had not yet committed the schema transaction), we retry
-/// validation up to a short bounded window before giving up. Only a
-/// mismatch against a fully-committed prior schema is fatal for the
-/// process lifetime; concurrent initialization succeeds.
+/// Schema is at <see cref="SchemaVersion"/> 2 (AB#739 tuple storage bump —
+/// the <c>primary_scope_kind</c> column and the extended partial-unique
+/// index it participates in). A file whose <c>layout_meta.version</c>
+/// disagrees with <see cref="SchemaVersion"/> fails closed with
+/// <c>system-store-schema-mismatch</c>; no silent migration adopts an
+/// older shape and then trips on the missing column. AB#739's tuple
+/// storage bump is a hard bump: the T2 §Schema clause names it.
 /// </para>
 /// <para>
-/// Every command executes inside a <c>BEGIN IMMEDIATE</c> transaction and
-/// its <see cref="SqliteCommand.Transaction"/> property is bound explicitly
-/// to the outer <see cref="SqliteTransaction"/> so a stray unbound command
-/// cannot leak past the CAS/rollback boundary. Read-only commands share
-/// the same connection but never open a transaction — the reader is
-/// materialized before the caller returns and the connection stays
-/// serialized through <see cref="_writeGate"/>.
+/// <b>Concurrent open safety.</b> Initialization is serialized across
+/// every registry instance in this process through
+/// <see cref="PathInitGates"/>, and across processes through SQLite's own
+/// write lock + <c>BEGIN IMMEDIATE</c>. Each command owns its own
+/// <see cref="SqliteConnection"/>-scoped transaction; the connection is
+/// never used concurrently by two commands (the async
+/// <see cref="_writeGate"/> plus the per-instance
+/// <see cref="_connectionGate"/> maintain that). Shared-cache mode was
+/// removed after review — the ADO.NET provider's shared-cache path threw
+/// <see cref="ArgumentOutOfRangeException"/> under a specific concurrent
+/// open pattern, and Twig gets nothing from shared cache the WAL-mode
+/// path doesn't already give.
 /// </para>
 /// </summary>
 internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
 {
-    private const int SchemaVersion = 1;
-    private const int OpenValidationRetryCount = 20;
+    // AB#739 bump from 1 → 2 for the tuple-storage schema change
+    // (`primary_scope_kind` column + extended partial unique index).
+    private const int SchemaVersion = 2;
+    private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
+
+    private static readonly ConcurrentDictionary<string, object> PathInitGates =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private readonly string _dbPath;
     private readonly TimeProvider _clock;
     private readonly object _connectionGate = new();
-    // Every write serializes through this async gate so a concurrent
-    // reclaim/release/mint cannot interleave commands from different
-    // logical transactions on the shared connection. SQLite would already
-    // serialize the transactions at the file level via
-    // <c>BEGIN IMMEDIATE</c>, but the ADO.NET connection object is not
-    // thread-safe for parallel command execution — the gate matches that.
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private SqliteConnection? _connection;
     private string? _openFailure;
@@ -121,8 +123,6 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         string primaryScopeKind, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
-            // FK precheck — return a named error instead of the opaque
-            // constraint failure the raw INSERT would raise.
             using (var check = connection.CreateCommand())
             {
                 check.Transaction = tx;
@@ -402,56 +402,113 @@ ON CONFLICT(connection_ref) DO UPDATE SET
 
     private bool TryEnsureOpen(out SqliteConnection? connection, out string? failure)
     {
+        // Fast path — this instance already has an open connection.
         lock (_connectionGate)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SqliteSystemWorktreeRegistry));
             if (_openFailure is not null) { connection = null; failure = _openFailure; return false; }
             if (_connection is { State: System.Data.ConnectionState.Open }) { connection = _connection; failure = null; return true; }
+        }
+
+        // Slow path — first-time init. Serialize every registry instance in
+        // the same process against the same DB path so two concurrent
+        // instances cannot both race through PRAGMA + schema init on the
+        // ADO.NET SqliteConnection (which threw ArgumentOutOfRangeException
+        // under a specific concurrent-open pattern on Microsoft.Data.Sqlite).
+        // Cross-process concurrency is still serialized by SQLite's own
+        // write lock + BEGIN IMMEDIATE inside EnsureSchema.
+        var canonical = Path.GetFullPath(_dbPath);
+        var pathGate = PathInitGates.GetOrAdd(canonical, _ => new object());
+        lock (pathGate)
+        {
+            // Re-check under the path gate — another instance in this
+            // process may have opened this connection while we waited.
+            lock (_connectionGate)
+            {
+                if (_disposed) throw new ObjectDisposedException(nameof(SqliteSystemWorktreeRegistry));
+                if (_openFailure is not null) { connection = null; failure = _openFailure; return false; }
+                if (_connection is { State: System.Data.ConnectionState.Open }) { connection = _connection; failure = null; return true; }
+            }
 
             var dir = Path.GetDirectoryName(_dbPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
             var isNewDb = !File.Exists(_dbPath);
 
+            // No shared-cache mode: multiple SqliteConnection instances in
+            // the same process each get their own private cache. Every
+            // command is transactionally scoped and every mutation goes
+            // through BEGIN IMMEDIATE, so shared cache buys nothing here
+            // but sidesteps the ArgumentOutOfRangeException path.
             var cs = new SqliteConnectionStringBuilder
             {
                 DataSource = _dbPath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Shared,
-                DefaultTimeout = 5,
+                DefaultTimeout = 30,
             }.ToString();
             var newConnection = new SqliteConnection(cs);
-            newConnection.Open();
+            try
+            {
+                newConnection.Open();
 
-            using (var pragma = newConnection.CreateCommand())
-            {
-                pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
-                pragma.ExecuteNonQuery();
-            }
+                // PRAGMAs must run one at a time — Microsoft.Data.Sqlite's
+                // batched PRAGMA path can misbehave under a mid-init race.
+                // Retry SQLITE_BUSY (code 5) so a cross-process peer briefly
+                // holding the write lock does not fail the whole open.
+                ExecuteWithBusyRetry(newConnection, "PRAGMA journal_mode=WAL;");
+                ExecuteWithBusyRetry(newConnection, "PRAGMA busy_timeout=30000;");
+                ExecuteWithBusyRetry(newConnection, "PRAGMA foreign_keys=ON;");
 
-            if (isNewDb)
-            {
-                EnsureSchema(newConnection);
-            }
-            else
-            {
-                // Existing DB — validate BEFORE running any DDL that would
-                // mutate layout_meta. A truly older schema (layout_meta
-                // rows with a different version) is sticky-fatal; but an
-                // in-flight init race — the file exists because another
-                // process is mid-schema-transaction — is transient. Retry
-                // validation briefly before declaring a mismatch.
-                if (!WaitForCommittedSchema(newConnection))
+                if (isNewDb)
                 {
-                    _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
-                    newConnection.Dispose();
-                    connection = null; failure = _openFailure; return false;
+                    EnsureSchema(newConnection);
+                }
+                else
+                {
+                    // Existing DB — could be another peer's in-flight init.
+                    // Wait for a committed layout_meta then compare version.
+                    if (!WaitForCommittedSchema(newConnection))
+                    {
+                        _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
+                        newConnection.Dispose();
+                        connection = null; failure = _openFailure; return false;
+                    }
                 }
             }
+            catch
+            {
+                newConnection.Dispose();
+                throw;
+            }
 
-            _connection = newConnection;
-            connection = _connection; failure = null; return true;
+            lock (_connectionGate)
+            {
+                _connection = newConnection;
+                connection = _connection; failure = null; return true;
+            }
         }
+    }
+
+    private static void ExecuteWithBusyRetry(SqliteConnection conn, string sql)
+    {
+        const int maxAttempts = 60;
+        SqliteException? last = null;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+                return;
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 5)
+            {
+                last = ex;
+                Thread.Sleep(25);
+            }
+        }
+        if (last is not null) throw last;
     }
 
     private static bool WaitForCommittedSchema(SqliteConnection connection)
@@ -478,16 +535,14 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         {
             cmd.CommandText = "SELECT version FROM layout_meta WHERE id = 1;";
             var raw = cmd.ExecuteScalar();
-            if (raw is null) return (false, 0);
-            return (true, Convert.ToInt32(raw));
+            if (raw is null || raw is DBNull) return (false, 0);
+            try { return (true, Convert.ToInt32(raw)); }
+            catch { return (true, -1); }
         }
     }
 
     private void EnsureSchema(SqliteConnection connection)
     {
-        // BEGIN IMMEDIATE so a concurrent opener that races on isNewDb sees
-        // a locked file and either waits (busy_timeout) or observes our
-        // completed schema on retry — never a half-materialized layout.
         using var tx = connection.BeginTransaction(deferred: false);
         using (var cmd = connection.CreateCommand())
         {
@@ -531,10 +586,6 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE INDEX IF NOT EXISTS idx_claims_worktree_fingerprint ON claims(worktree_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_claims_connection_kind_work_item ON claims(connection_ref, primary_scope_kind, work_item_id);
 CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
--- Partial unique index: enforces at most one pending or active claim per
--- (connection_ref, primary_scope_kind, work_item_id) at the storage
--- layer. Two claims sharing the same numeric id but a different
--- primary_scope_kind (a future non-ADO scope) do not collide.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_unique_reserved
     ON claims(connection_ref, primary_scope_kind, work_item_id)
     WHERE state IN ('pending', 'active');

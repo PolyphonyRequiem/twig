@@ -468,16 +468,18 @@ public sealed class PrimaryScopeAttachmentServiceTests
             return Task.FromResult(Result.Ok(_current));
         }
 
-        public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default)
+        public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
         {
             _current = attachment;
             WriteCount++;
             return Task.FromResult(Result.Ok());
         }
+        public Task<Result<VersionedPrimaryScopeAttachment>> ReadWithRevisionAsync(CancellationToken ct = default) =>
+            Task.FromResult(Result.Ok(new VersionedPrimaryScopeAttachment(_current, 0)));
 
         public Task<Result> InitializeAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok());
-        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, string expectedPrimaryScopeKind, int expectedWorkItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok());
-        public Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, string expectedPrimaryScopeKind, int expectedWorkItemId, long expectedRevision, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> UnlinkClaimAsync(string expectedClaimId, long expectedRevision, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 
     private sealed class FakeEligibility : IPrimaryScopeTypeEligibility

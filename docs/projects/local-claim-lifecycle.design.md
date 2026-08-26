@@ -334,29 +334,77 @@ their existing `claimId`s and `releaseReason`s.
 ### Reclaim over `active` (supersession)
 
 The caller explicitly asks to replace the currently `active` claim for the
-tuple. Steps 1' and 3' below extend the mint transaction to include a
-supersession write; step 2 is unchanged.
+tuple. The existing `active` predecessor row is what holds the tuple lock
+throughout — the partial unique index on `(connectionRef, primaryScopeKind,
+primaryScopeId, state ∈ {pending, active})` fixed by #736 forbids inserting
+a second `pending` row while a predecessor exists, so this path never
+stages a pending reservation. Only two writes touch the registry: an ADO
+projection call between them, and one atomic terminal transaction on
+success.
 
-1'. **Reservation with pinned predecessor.** Under one storage transaction,
-    read the current `active` row for the tuple. Refuse if it is not in this
-    installation's registry (i.e. a fleet-lease coordinator marker) — reclaim
-    never crosses the local boundary. Capture its `claimId` as
-    `predecessorClaimId` and `casToken` as `predecessorCas`. Insert the new
-    `pending` row exactly as in step 1. Commit.
+1. **Predecessor lock (local read).** Read the current `active` row for
+   the tuple. Refuse if no such row exists (this is not reclaim-over-active
+   — the caller wanted a fresh mint path). Refuse if it is not in this
+   installation's registry — reclaim never crosses the local boundary.
+   Capture its `claimId` as `predecessorClaimId` and `casToken` as
+   `predecessorCas`. Nothing is written; the predecessor row continues to
+   hold the tuple lock and continues to be the authoritative active claim
+   for every observer.
 
-2. Same ADO projection call. If the current ADO assignment is already the
-   intended holder, this step is a no-op-but-verified read that confirms
-   the assignment; otherwise it rewrites `System.AssignedTo`.
+2. **ADO projection.** Project the intended holder onto `System.AssignedTo`
+   for the primary scope through the same native ADO mutation path as
+   mint. If the current ADO assignment is already the intended holder,
+   this step is a verified read that confirms the assignment; otherwise
+   it rewrites `System.AssignedTo`. If the projection fails with any
+   error, surface `AdoProjectionFailed` naming the underlying error and
+   stop: the predecessor row is untouched (still `active`), no new
+   `claimId` was minted, and no new row exists in the registry.
 
-3'. **Atomic supersession.** Under one storage transaction:
-    - CAS-rewrite the pending row → `active` (as in mint step 3),
-    - CAS-rewrite the predecessor row → `superseded`,
-      setting `releasedAt = now`, `releaseReason = "explicit-reclaim"`,
-      `supersededByClaimId = <new-claimId>`, matching `predecessorCas`.
-    Both writes commit together. Either write failing on CAS aborts the
-    whole transaction; surface `ConcurrentClaimWrite`.
+3. **Atomic supersession (single `BEGIN IMMEDIATE` / CAS transaction).**
+   In one storage transaction that acquires the writer lock immediately:
+   - CAS-rewrite the predecessor row → `state = "superseded"`,
+     `releasedAt = now`, `releaseReason = "explicit-reclaim"`,
+     `supersededByClaimId = <new-claimId>`, matching `predecessorCas`
+     under `WHERE claimId = ? AND casToken = ?`. A zero-row update means
+     another writer raced; abort with `ConcurrentClaimWrite` and roll the
+     whole transaction back.
+   - Insert the new row with a fresh `claimId`, `state = "active"`,
+     `createdAt = now`, `activatedAt = now`, `releasedAt = null`,
+     `origin = "local"`, `leaseGeneration = 0`, `expiresAt = null`, and a
+     fresh `casToken`. The predecessor is already `superseded` inside this
+     transaction, so the partial unique index sees zero `pending|active`
+     rows for the tuple and accepts the insert.
+   Commit. On any failure inside the transaction (CAS mismatch, unique
+   index violation, storage IO error) roll back and surface
+   `ConcurrentClaimWrite`; the predecessor remains `active` and no new
+   row exists — the ADO projection landed but authority did not change
+   locally, which is safe because `System.AssignedTo` was already the
+   intended holder on success paths and reclaim retries against the
+   refreshed state.
 
-4. Attachment linkage rebinds to the new `claimId`.
+4. **Attachment linkage.** Rebind the attachment (`link` on the
+   worktree fingerprint) to the new `claimId`. Attachment write occurs
+   after the atomic supersession commits so a partial reclaim never
+   leaves the attachment referencing a `superseded` row. Attachment-link
+   failure surfaces `AttachmentLinkFailed`; the new row is live and the
+   operator rebinds the attachment separately (the reclaim path in
+   step 3 already succeeded, so a second reclaim call is refused with
+   `PrimaryScopeAlreadyClaimed` naming the fresh active row).
+
+### Reclaim-over-active outcomes
+
+- On success: exactly one active row per tuple (the new `claimId`);
+  exactly one predecessor row marked `superseded` with
+  `supersededByClaimId` pointing at the new active row; ADO assignment
+  reflects the intended holder; attachment references the new `claimId`.
+- On ADO projection failure: predecessor row remains `active`
+  unchanged; no new registry row exists; caller sees
+  `AdoProjectionFailed`. Retrying reclaim is safe.
+- On CAS/index failure during step 3: predecessor row remains `active`
+  unchanged; no new registry row exists; caller sees
+  `ConcurrentClaimWrite`. Caller re-reads and retries.
+- No implicit reclaim (see below). Every state above is reached only by
+  explicit caller action.
 
 ### No implicit reclaim
 

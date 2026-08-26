@@ -219,34 +219,13 @@ public sealed class InitCommand
             }
         }
 
-        // Create .twig/ root. The managed init below fills it with the
-        // T1 §6.3 markers (layout.json, worktree.json, empty attachment.json)
-        // BEFORE the legacy per-org/per-project cache directory is created,
-        // so legacy detection has nothing to reject and any managed-init
-        // failure aborts init loudly rather than being silently overwritten
-        // by the subsequent SqliteCacheStore creation.
+        // Create .twig/ root. Managed init below is deferred until after
+        // process detection so it can supply a real profile identity (not a
+        // synthetic default). With the T1 §4.2.4 cutover the SQLite cache
+        // lives at .twig/cache/twig.db, so the disposable cache directory
+        // no longer resembles the legacy `.twig/{org}/{project}/twig.db`
+        // layout the legacy detector rejects.
         Directory.CreateDirectory(twigDir);
-
-        // AB#738 §9.5 — every managed init MUST produce a valid worktree-local
-        // layout AND a matching system-store row so downstream attach/switch/
-        // detach commands find both prerequisites. This runs FIRST so the
-        // legacy `.twig/<org>/<project>/twig.db` cache is created only after
-        // the new layout markers are in place; failures abort init.
-        if (_managedInitializer is not null)
-        {
-            var managed = await _managedInitializer.InitializeAsync(
-                config.Organization,
-                config.Project,
-                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
-                profileIdentity: string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "twig/default" : config.ProcessTemplate,
-                profileVersion: "1",
-                ct);
-            if (!managed.IsSuccess)
-            {
-                Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {managed.Error}"));
-                return (1, false, 0);
-            }
-        }
 
         var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
         Directory.CreateDirectory(contextDir);
@@ -277,6 +256,37 @@ public sealed class InitCommand
         var template = await iterationService.DetectTemplateNameAsync();
         if (!preserveRepoManifest)
             config.ProcessTemplate = template ?? string.Empty;
+
+        // AB#738 §9.5 — managed init runs AFTER process detection so it can
+        // supply the real process template identity (not a synthetic
+        // default). Failures other than `selected-profile-unavailable`
+        // abort init loudly; when #727 has not landed and the checked-in
+        // twig.json carries no Policy block, we degrade with a named
+        // warning so init still succeeds for callers that don't need
+        // managed features yet.
+        if (_managedInitializer is not null)
+        {
+            var effectiveIdentity = string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "unknown" : config.ProcessTemplate;
+            var managed = await _managedInitializer.InitializeAsync(
+                config.Organization,
+                config.Project,
+                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
+                profileIdentity: effectiveIdentity,
+                profileVersion: "1",
+                ct);
+            if (!managed.IsSuccess)
+            {
+                if (managed.Error == "selected-profile-unavailable")
+                {
+                    Console.WriteLine($"  ⚠ Primary-scope attachment unavailable: {managed.Error} (add a Policy block to twig.json or wait for AB#727)");
+                }
+                else
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {managed.Error}"));
+                    return (1, false, 0);
+                }
+            }
+        }
 
         // AB#3296 PR-3: type appearances are sourced from the SQLite cache
         // (process_types table, populated below by ProcessTypeSyncService).

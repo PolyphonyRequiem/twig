@@ -32,5 +32,6 @@ internal static class AttachmentStorageFailure
     /// Named to prevent a permissive-by-default silent widening.</summary>
     public const string ClaimDuplicateReserved = "claim-duplicate-reserved";
     public const string ClaimCasMismatch = "claim-cas-mismatch";
+    public const string SelectedProfileUnavailable = "selected-profile-unavailable";
     public const string EligibilityUnavailable = "eligibility-unavailable";
 }

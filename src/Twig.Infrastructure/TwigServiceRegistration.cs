@@ -180,13 +180,16 @@ public static class TwigServiceRegistration
         services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
             new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IProfileRegistrySource>(sp =>
+            new Twig.Infrastructure.Persistence.UnavailableProfileRegistrySource());
         services.AddSingleton<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(sp =>
             new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
                 sp.GetRequiredService<TwigConfiguration>(),
-                sp.GetRequiredService<TwigPaths>()));
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
 
         AddConnectionDomainServices(services);
 

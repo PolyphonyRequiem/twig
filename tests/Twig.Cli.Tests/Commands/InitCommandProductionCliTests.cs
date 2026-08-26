@@ -72,7 +72,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stderr.ShouldNotContain("already initialized");
         File.Exists(contextPaths.DbPath).ShouldBeTrue();
         File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
-        (await TwigConfiguration.LoadSplitAsync(contextPaths)).ProcessTemplate.ShouldBe("Basic");
+        var loaded = await TwigConfiguration.LoadSplitAsync(contextPaths);
+        loaded.ProcessTemplate.ShouldBeEmpty("tracked manifest fields remain authoritative");
+        loaded.Policy.ShouldNotBeNull();
+        loaded.Policy!.SelectedProfile.ShouldNotBeNull();
+        loaded.Policy.SelectedProfile!.Identity.ShouldBe("Test.Profile");
     }
 
     [Fact]

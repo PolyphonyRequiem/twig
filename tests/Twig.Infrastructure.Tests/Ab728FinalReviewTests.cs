@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Domain.Common;
+using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
 using Twig.Domain.Services.Claims;
 using Twig.Domain.ValueObjects;

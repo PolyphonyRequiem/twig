@@ -92,9 +92,11 @@ local-first contract or invalidating any record written today.
 - Provenance: supplied by the caller at mint time (typically derived from
   the primary scope's current title). It is a display aid only.
 - Mutability: label MAY be updated on an active claim without changing the
-  identifier or the lifecycle; a label update is an ordinary field write on
-  the same row and does not consume the CAS token. A rename never produces a
-  new claim.
+  identifier or the lifecycle. A label update is CAS-guarded exactly like
+  every other write: it matches the observed `casToken`, mints a fresh
+  `casToken` under the same transaction, and surfaces
+  `ConcurrentClaimWrite` on mismatch. It never changes `state` and never
+  produces a new claim.
 - Never load-bearing: no lookup, no lifecycle decision, and no equality test
   reads `label`. Label collisions across records are allowed.
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
@@ -91,18 +92,31 @@ public sealed class HerdrTransportAdapterTests
     }
 
     [Fact]
-    public void DescribeAdapter_excludes_common_denominator_names_from_capabilities()
+    public void DescribeAdapter_declares_all_five_optional_capabilities_and_excludes_mandatory_names()
     {
         var (adapter, _, _) = NewAdapter();
         var description = adapter.DescribeAdapter();
         description.AdapterId.ShouldBe("herdr");
         description.DisplayName.ShouldBe(HerdrAdapterConstants.DisplayName);
         description.AdapterVersion.ShouldBe(HerdrAdapterConstants.AdapterVersion);
-        // §3.1 — mandatory names never appear in the declared set.
-        description.Capabilities.ShouldNotContain(TransportCapability.StatusReporting == default ? default : TransportCapability.StatusReporting, "sanity");
-        // Structural: neither RecordIdentity nor DescribeAdapter is a
-        // member of TransportCapability, so their absence is enforced
-        // at the type level.
+        // §12.2 — Herdr declares every §3.3 OPTIONAL capability. All
+        // five names MUST be present in the declared set.
+        description.Capabilities.ShouldContain(TransportCapability.StatusReporting);
+        description.Capabilities.ShouldContain(TransportCapability.LivenessProbe);
+        description.Capabilities.ShouldContain(TransportCapability.Detach);
+        description.Capabilities.ShouldContain(TransportCapability.Close);
+        description.Capabilities.ShouldContain(TransportCapability.PartialClose);
+        description.Capabilities.Count.ShouldBe(5);
+        // §3.1 — the two mandatory common-denominator names
+        // (RecordIdentity, DescribeAdapter) NEVER appear in a declared
+        // Capabilities set. The persisted wire form is a string set
+        // (§2.1 / §2.2 row 6); assert neither literal appears when the
+        // declared enum values are projected to their wire strings.
+        var wireNames = description.Capabilities
+            .Select(c => c.ToWire())
+            .ToHashSet(System.StringComparer.Ordinal);
+        wireNames.ShouldNotContain(TransportCapabilityExtensions.RecordIdentity);
+        wireNames.ShouldNotContain(TransportCapabilityExtensions.DescribeAdapter);
         description.SupportedRoles.ShouldContain(TransportAdapterRole.Worktree);
         description.SupportedRoles.ShouldContain(TransportAdapterRole.Agent);
         description.SupportedRoles.ShouldContain(TransportAdapterRole.Terminal);

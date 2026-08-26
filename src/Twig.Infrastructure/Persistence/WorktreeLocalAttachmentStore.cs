@@ -404,6 +404,13 @@ internal static class LegacyLayoutDetector
     {
         if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
             return false;
+        // Managed layout is authoritative: once §4.2.1 layout.json is present
+        // the checkout is on the new layout, and disposable cache directories
+        // under the old `.twig/<org>/<project>/` shape are just interim state
+        // rather than "legacy layout". Refusing here would make managed init
+        // reject its own run once the SqliteCacheStore fills the cache path.
+        if (File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)))
+            return false;
         try
         {
             foreach (var orgDir in Directory.EnumerateDirectories(twigDir))

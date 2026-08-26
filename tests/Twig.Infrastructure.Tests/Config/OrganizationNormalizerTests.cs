@@ -6,12 +6,14 @@ using Xunit;
 namespace Twig.Infrastructure.Tests.Config;
 
 /// <summary>
-/// Tests the organization normalizer that keeps the connectionRef, stored
-/// workItemUrl, and URL origin validation aligned when contributors check in
-/// different shapes or casings of <c>twig.json</c>'s <c>organization</c>.
-/// The canonical form is lowercase invariant across every supported shape —
-/// ADO already routes slugs case-insensitively, so a mixed-casing check-in
-/// must not surface as <c>attachment-connection-mismatch</c>.
+/// Tests the organization normalizer that keeps the stored workItemUrl and
+/// URL origin validation aligned when contributors check in different shapes
+/// or casings of <c>twig.json</c>'s <c>organization</c>. The
+/// <see cref="ConnectionRefResolver"/> hash intentionally does NOT normalize
+/// — T1 §5.1 hashes the configured strings opaquely, so two shapes yield
+/// two rows; the single-source-of-truth twig.json fixes the canonical shape
+/// at the team level. Normalization applies only where the value is
+/// projected through URL construction or validation.
 /// </summary>
 public sealed class OrganizationNormalizerTests
 {
@@ -35,25 +37,16 @@ public sealed class OrganizationNormalizerTests
     }
 
     [Fact]
-    public void ConnectionRef_is_stable_across_slug_and_uri_shapes_and_casings()
+    public void ConnectionRef_hashes_the_configured_strings_opaquely()
     {
+        // T1 §5.1 fixes the org+project payload as opaque; two check-in
+        // shapes of the same organization MUST produce two connectionRefs
+        // so the storage tier never absorbs the drift silently.
         var slug = ConnectionRefResolver.Compute("contoso", "proj");
-        var upperSlug = ConnectionRefResolver.Compute("CONTOSO", "proj");
-        var mixedSlug = ConnectionRefResolver.Compute("Contoso", "proj");
-        var uri = ConnectionRefResolver.Compute("https://dev.azure.com/contoso", "proj");
-        var upperUri = ConnectionRefResolver.Compute("https://dev.azure.com/CONTOSO", "proj");
-        var legacy = ConnectionRefResolver.Compute("https://contoso.visualstudio.com", "proj");
-        var legacyUpper = ConnectionRefResolver.Compute("https://CONTOSO.VISUALSTUDIO.COM", "proj");
-
-        // Every shape must converge on the same connectionRef — otherwise the
-        // system-store registry would treat casing variants as distinct
-        // worktree bindings and reject the second contributor's attach.
-        slug.ShouldBe(upperSlug);
-        slug.ShouldBe(mixedSlug);
-        slug.ShouldBe(uri);
-        slug.ShouldBe(upperUri);
-        slug.ShouldBe(legacy);
-        slug.ShouldBe(legacyUpper);
+        var uriShape = ConnectionRefResolver.Compute("https://dev.azure.com/contoso", "proj");
+        slug.ShouldNotBe(uriShape);
+        // But identical inputs must produce identical refs.
+        slug.ShouldBe(ConnectionRefResolver.Compute("contoso", "proj"));
     }
 
     [Fact]

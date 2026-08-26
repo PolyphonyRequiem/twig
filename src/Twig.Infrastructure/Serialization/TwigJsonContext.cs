@@ -170,6 +170,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
 // AB#738 policy source
 [JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -194,6 +195,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

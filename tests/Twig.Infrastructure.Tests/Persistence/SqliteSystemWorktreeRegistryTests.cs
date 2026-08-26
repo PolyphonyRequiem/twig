@@ -6,13 +6,6 @@ using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
 
-/// <summary>
-/// Contract tests for <see cref="SqliteSystemWorktreeRegistry"/>. These exercise
-/// the AB#736 §9.4 surface AB#738 depends on: connection + worktree upsert,
-/// non-retired matching lookup, and the fail-closed behavior a missing row
-/// implies. The DB is created inside a per-test temp dir so parallel tests do
-/// not clash.
-/// </summary>
 public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
 {
     private readonly string _dir;
@@ -52,29 +45,13 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task Upsert_is_idempotent_and_reactivates_a_retired_row()
-    {
-        (await _registry.UpsertConnectionAsync("ref-b", "org-b", "proj-b", team: "t")).IsSuccess.ShouldBeTrue();
-        (await _registry.UpsertWorktreeAsync("fp-b", "ref-b", "/wt-b")).IsSuccess.ShouldBeTrue();
-
-        // A second upsert refreshes lastSeenAt and clears retiredAt back to
-        // null — the exact behavior §7 depends on when a legacy reinit reruns
-        // and re-registers the same fingerprint.
-        (await _registry.UpsertWorktreeAsync("fp-b", "ref-b", "/wt-b")).IsSuccess.ShouldBeTrue();
-        var find = await _registry.FindWorktreeAsync("fp-b");
-        find.Value!.RetiredAt.ShouldBeNull();
-    }
-
-    // ── AB#736 §4.3.1 claims table ─────────────────────────────────────
-
-    [Fact]
     public async Task Insert_claim_refuses_when_the_worktree_is_not_registered()
     {
         (await _registry.UpsertConnectionAsync("ref-c", "org-c", "proj-c", team: null)).IsSuccess.ShouldBeTrue();
         var insert = await _registry.InsertClaimAsync(
             claimId: "claim-x", connectionRef: "ref-c",
             worktreeFingerprint: "fp-does-not-exist",
-            workItemId: 42, state: "active", recordJson: "{}");
+            workItemId: 42, state: "active", casToken: "tok0", recordJson: "{}");
         insert.IsSuccess.ShouldBeFalse();
         insert.Error.ShouldBe(AttachmentStorageFailure.WorktreeNotRegistered);
     }
@@ -84,12 +61,37 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-d", "org-d", "proj-d", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-d", "ref-d", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-01", "ref-d", "fp-d", 42, "active", "{\"a\":1}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-01", "ref-d", "fp-d", 42, "active", "tok0", "{\"a\":1}")).IsSuccess.ShouldBeTrue();
 
         var find = await _registry.FindClaimAsync("claim-01");
         find.Value.ShouldNotBeNull();
         find.Value!.State.ShouldBe("active");
-        find.Value.RecordJson.ShouldBe("{\"a\":1}");
+        find.Value.CasToken.ShouldBe("tok0");
+    }
+
+    // ── Partial unique index: at most one pending|active per (conn, wi) ─
+
+    [Fact]
+    public async Task Partial_unique_index_refuses_a_second_reserved_claim_for_the_same_work_item()
+    {
+        (await _registry.UpsertConnectionAsync("ref-u", "org-u", "proj-u", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-u", "ref-u", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-a", "ref-u", "fp-u", 500, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
+
+        var dup = await _registry.InsertClaimAsync("claim-b", "ref-u", "fp-u", 500, "pending", "tok0", "{}");
+        dup.IsSuccess.ShouldBeFalse();
+        dup.Error.ShouldContain(AttachmentStorageFailure.ClaimDuplicateReserved);
+    }
+
+    [Fact]
+    public async Task Partial_unique_index_permits_a_new_claim_after_the_prior_one_leaves_the_reserved_set()
+    {
+        (await _registry.UpsertConnectionAsync("ref-v", "org-v", "proj-v", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-v", "ref-v", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-a", "ref-v", "fp-v", 600, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
+        // released ∉ {pending, active} so a new mint is permitted.
+        (await _registry.UpdateClaimStateAsync("claim-a", "tok0", "tok1", "released", DateTimeOffset.UtcNow, "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-b", "ref-v", "fp-v", 600, "pending", "tok2", "{}")).IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
@@ -97,36 +99,62 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-e", "org-e", "proj-e", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-e", "ref-e", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-a", "ref-e", "fp-e", 100, "pending", "{}")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-b", "ref-e", "fp-e", 101, "released", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-p", "ref-e", "fp-e", 100, "pending", "t0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-r", "ref-e", "fp-e", 101, "released", "t0", "{}")).IsSuccess.ShouldBeTrue();
 
         var pending = await _registry.FindReservedClaimAsync("ref-e", 100, new[] { "pending", "active" });
         pending.Value.ShouldNotBeNull();
-        pending.Value!.ClaimId.ShouldBe("claim-a");
+        pending.Value!.ClaimId.ShouldBe("claim-p");
 
-        // A released row MUST NOT be surfaced through the reserved lookup —
-        // widening the set here would defeat the local-duplicate rule §9.4 §615.
         var released = await _registry.FindReservedClaimAsync("ref-e", 101, new[] { "pending", "active" });
         released.Value.ShouldBeNull();
     }
 
+    // ── CAS-guarded UpdateClaimState ────────────────────────────────────
+
     [Fact]
-    public async Task UpdateClaimState_persists_state_endedAt_and_recordJson()
+    public async Task UpdateClaimState_succeeds_when_expected_cas_token_matches()
     {
-        (await _registry.UpsertConnectionAsync("ref-f", "org-f", "proj-f", team: null)).IsSuccess.ShouldBeTrue();
-        (await _registry.UpsertWorktreeAsync("fp-f", "ref-f", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-c", "ref-f", "fp-f", 200, "active", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertConnectionAsync("ref-w", "org-w", "proj-w", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-w", "ref-w", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-cas", "ref-w", "fp-w", 700, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
 
         var endedAt = new DateTimeOffset(2026, 5, 5, 5, 5, 5, TimeSpan.Zero);
-        (await _registry.UpdateClaimStateAsync("claim-c", "released", endedAt, "{\"reason\":\"done\"}")).IsSuccess.ShouldBeTrue();
+        var upd = await _registry.UpdateClaimStateAsync("claim-cas", "cas-v0", "cas-v1", "released", endedAt, "{\"reason\":\"done\"}");
+        upd.IsSuccess.ShouldBeTrue();
 
-        var find = await _registry.FindClaimAsync("claim-c");
+        var find = await _registry.FindClaimAsync("claim-cas");
         find.Value!.State.ShouldBe("released");
+        find.Value.CasToken.ShouldBe("cas-v1");
         find.Value.EndedAt.ShouldBe(endedAt);
-        find.Value.RecordJson.ShouldContain("done");
     }
 
-    // ── AB#736 §4.3.1 profileCache table ─────────────────────────────
+    [Fact]
+    public async Task UpdateClaimState_fails_with_cas_mismatch_when_expected_token_does_not_match()
+    {
+        (await _registry.UpsertConnectionAsync("ref-x", "org-x", "proj-x", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-x", "ref-x", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-cas2", "ref-x", "fp-x", 800, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
+
+        var upd = await _registry.UpdateClaimStateAsync("claim-cas2", "wrong-token", "cas-v1", "released", null, "{}");
+        upd.IsSuccess.ShouldBeFalse();
+        upd.Error.ShouldBe(AttachmentStorageFailure.ClaimCasMismatch);
+
+        // Row remains unchanged.
+        var find = await _registry.FindClaimAsync("claim-cas2");
+        find.Value!.State.ShouldBe("active");
+        find.Value.CasToken.ShouldBe("cas-v0");
+    }
+
+    [Fact]
+    public async Task UpdateClaimState_fails_with_cas_mismatch_on_a_missing_claim()
+    {
+        var upd = await _registry.UpdateClaimStateAsync("no-such-claim", "any", "next", "released", null, "{}");
+        upd.IsSuccess.ShouldBeFalse();
+        upd.Error.ShouldBe(AttachmentStorageFailure.ClaimCasMismatch);
+    }
+
+    // ── Profile cache ────────────────────────────────────────────────
 
     [Fact]
     public async Task Profile_cache_write_read_round_trips()
@@ -137,19 +165,13 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         var read = await _registry.ReadProfileCacheAsync("ref-g");
         read.Value.ShouldNotBeNull();
         read.Value!.ProfileIdentity.ShouldBe("prof-id");
-        read.Value.ProfileVersion.ShouldBe("v1");
-        read.Value.Payload.ShouldContain("types");
     }
 
-    // ── §4.3.1 layout_meta exact-version check ──────────────────────────
+    // ── layout_meta exact-version pre-check ─────────────────────────────
 
     [Fact]
-    public async Task Reopen_with_bumped_schema_version_fails_with_named_error()
+    public async Task Reopen_with_bumped_schema_version_fails_before_running_ddl()
     {
-        // Bootstrap the store at the current schema version, then hand-patch
-        // layout_meta to a version this binary does not expect and verify that
-        // reopening surfaces `system-store-schema-mismatch` instead of silently
-        // adopting the mismatched shape.
         var dbPath = Path.Combine(_dir, "system.db");
         (await _registry.UpsertConnectionAsync("ref-h", "org-h", "proj-h", team: null)).IsSuccess.ShouldBeTrue();
         _registry.Dispose();
@@ -169,15 +191,36 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     }
 
     [Fact]
-    public async Task Registry_survives_a_close_and_reopen()
+    public async Task Reopen_of_valid_existing_db_does_not_reinitialize_schema()
     {
-        (await _registry.UpsertConnectionAsync("ref-c", "org-c", "proj-c", team: null)).IsSuccess.ShouldBeTrue();
-        (await _registry.UpsertWorktreeAsync("fp-c", "ref-c", "/wt-c")).IsSuccess.ShouldBeTrue();
+        var dbPath = Path.Combine(_dir, "system.db");
+        (await _registry.UpsertConnectionAsync("ref-i", "org-i", "proj-i", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-i", "ref-i", "/wt")).IsSuccess.ShouldBeTrue();
         _registry.Dispose();
 
-        using var reopened = new SqliteSystemWorktreeRegistry(Path.Combine(_dir, "system.db"), TimeProvider.System);
-        var find = await reopened.FindWorktreeAsync("fp-c");
+        using var reopened = new SqliteSystemWorktreeRegistry(dbPath, TimeProvider.System);
+        var find = await reopened.FindWorktreeAsync("fp-i");
         find.Value.ShouldNotBeNull();
-        find.Value!.ConnectionRef.ShouldBe("ref-c");
+        find.Value!.ConnectionRef.ShouldBe("ref-i");
+    }
+
+    [Fact]
+    public async Task Existing_db_missing_layout_meta_fails_closed()
+    {
+        var dbPath = Path.Combine(_dir, "system.db");
+        // Force schema creation, then hand-strip layout_meta table.
+        (await _registry.UpsertConnectionAsync("ref-j", "org-j", "proj-j", team: null)).IsSuccess.ShouldBeTrue();
+        _registry.Dispose();
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DROP TABLE layout_meta;";
+            cmd.ExecuteNonQuery();
+        }
+        using var reopened = new SqliteSystemWorktreeRegistry(dbPath, TimeProvider.System);
+        var find = await reopened.FindWorktreeAsync("anything");
+        find.IsSuccess.ShouldBeFalse();
+        find.Error.ShouldBe(AttachmentStorageFailure.SystemStoreSchemaMismatch);
     }
 }

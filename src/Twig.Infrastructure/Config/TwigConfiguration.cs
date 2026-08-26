@@ -802,21 +802,44 @@ public sealed class TwigRepoConfig
 /// per-repo policy that survives every worktree init and that AB#738's
 /// eligibility gate consults through
 /// <see cref="Twig.Domain.Services.Attachment.IPrimaryScopePolicySource"/>.
-/// AB#736 §4.1 pins this as one of the two canonical policy sources; a repo
-/// that publishes a selected profile through AB#727 SHOULD prefer that path,
-/// but until it does, this checked-in shape is the fail-closed default.
+/// AB#736 §4.1 pins the block as the materialized policy of the selected
+/// pinned profile: <see cref="SelectedProfile"/> binds the identity + version
+/// (the same identity AB#727 will publish through profile storage) and
+/// <see cref="PrimaryScopeTypes"/> carries the concrete allow-set that
+/// binding materializes. There is no permanently-unavailable default: init
+/// writes a policy block, so a checked-in twig.json without one is a
+/// migration issue the eligibility gate names explicitly.
 /// </summary>
 public sealed class PolicyConfig
 {
+    /// <summary>The pinned profile identity + version this repository is
+    /// bound to. Both fields are opaque strings; validated as non-empty by
+    /// the checked-in policy source. AB#727 will match this binding against
+    /// its own registry; until that lands, the binding is a self-describing
+    /// materialization the eligibility gate consumes directly.</summary>
+    public SelectedProfileBinding? SelectedProfile { get; set; }
+
     /// <summary>
     /// Work-item type allow-set for primary-scope attachment (AB#738).
     /// Comparison is case-insensitive. Values are opaque strings the active
-    /// process description defines. An empty list refuses every type; a
-    /// null <see cref="Policy"/> block fails eligibility closed with
-    /// <c>eligibility-unavailable</c> so a repo without any policy at all
-    /// never silently permits arbitrary types.
+    /// process description defines. An empty list refuses every type; the
+    /// list is nullable at the JSON layer but init supplies an empty list
+    /// so an untouched managed worktree never surfaces
+    /// <c>eligibility-unavailable</c> for the wrong reason.
     /// </summary>
     public List<string>? PrimaryScopeTypes { get; set; }
+}
+
+/// <summary>
+/// The <c>selectedProfile</c> object materialized into the checked-in
+/// twig.json policy block. Both fields are opaque per T1 §4.1's
+/// process-agnostic constraint; the eligibility source validates that they
+/// are non-empty so a hand-edited manifest fails closed at the right layer.
+/// </summary>
+public sealed class SelectedProfileBinding
+{
+    public string Identity { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
 }
 
 /// <summary>

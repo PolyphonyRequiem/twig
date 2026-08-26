@@ -184,7 +184,9 @@ public static class TwigServiceRegistration
             new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
-                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>()));
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetRequiredService<TwigPaths>()));
 
         AddConnectionDomainServices(services);
 

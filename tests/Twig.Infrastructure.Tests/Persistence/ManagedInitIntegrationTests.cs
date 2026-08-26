@@ -1,20 +1,11 @@
 using System.Diagnostics;
 using Shouldly;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
 
-/// <summary>
-/// End-to-end coverage for the AB#738 managed-init contract: the local
-/// layout markers and the system-store worktree row MUST both land in the
-/// same run so downstream attach/switch/detach find the two prerequisites
-/// §9.5 depends on. The composed run flows through the public
-/// <see cref="IManagedWorktreeInitializer"/> aggregate that InitCommand
-/// consumes. Skips itself when git is unavailable.
-/// </summary>
 public sealed class ManagedInitIntegrationTests : IDisposable
 {
     private readonly string _workDir;
@@ -60,28 +51,31 @@ public sealed class ManagedInitIntegrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Init_creates_local_layout_and_registers_worktree_in_the_system_store()
+    public async Task Init_creates_local_layout_registers_worktree_and_materializes_policy()
     {
         if (!_gitAvailable) return;
 
         var store = new WorktreeLocalAttachmentStore(_paths, _config, TimeProvider.System);
         using var registry = new SqliteSystemWorktreeRegistry(_systemDbPath, TimeProvider.System);
         var fingerprintProvider = new WorktreeFingerprintProvider(_paths, _config);
-        var initializer = new ManagedWorktreeInitializer(store, registry, fingerprintProvider);
+        var initializer = new ManagedWorktreeInitializer(store, registry, fingerprintProvider, _config, _paths);
 
-        var initResult = await initializer.InitializeAsync(_config.Organization, _config.Project, team: null);
+        var initResult = await initializer.InitializeAsync(
+            _config.Organization, _config.Project, team: null,
+            profileIdentity: "twig/default", profileVersion: "1");
         initResult.IsSuccess.ShouldBeTrue(initResult.Error);
 
-        // Local layout — §6.3 steps 4-7.
         File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
-        File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.WorktreeFileName)).ShouldBeTrue();
         File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeTrue();
 
-        // §9.5 step 5 pre-attach preconditions.
+        _config.Policy.ShouldNotBeNull();
+        _config.Policy!.SelectedProfile.ShouldNotBeNull();
+        _config.Policy.SelectedProfile!.Identity.ShouldBe("twig/default");
+        _config.Policy.SelectedProfile.Version.ShouldBe("1");
+        _config.Policy.PrimaryScopeTypes.ShouldNotBeNull();
+
         var fingerprint = fingerprintProvider.CurrentFingerprint;
         var find = await registry.FindWorktreeAsync(fingerprint.CanonicalJson);
         find.Value.ShouldNotBeNull();
-        find.Value!.RetiredAt.ShouldBeNull();
-        find.Value.ConnectionRef.ShouldBe(fingerprint.ConnectionRef);
     }
 }

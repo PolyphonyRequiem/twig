@@ -547,8 +547,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
             return Task.FromResult(Result.Ok());
         }
 
-        public Task<Result> InsertClaimAsync(string claimId, string connectionRef, string worktreeFingerprint, int workItemId, string state, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
-        public Task<Result> UpdateClaimStateAsync(string claimId, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> InsertClaimAsync(string claimId, string connectionRef, string worktreeFingerprint, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> UpdateClaimStateAsync(string claimId, string expectedCasToken, string newCasToken, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
         public Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
         public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemProfileCacheRow?>(null));

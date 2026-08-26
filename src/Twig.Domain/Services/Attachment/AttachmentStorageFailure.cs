@@ -30,5 +30,7 @@ internal static class AttachmentStorageFailure
     /// <summary>Selected profile could not supply a primary-scope allow-set
     /// yet. Deliberately not §8: the eligibility layer sits above storage.
     /// Named to prevent a permissive-by-default silent widening.</summary>
+    public const string ClaimDuplicateReserved = "claim-duplicate-reserved";
+    public const string ClaimCasMismatch = "claim-cas-mismatch";
     public const string EligibilityUnavailable = "eligibility-unavailable";
 }

@@ -6,10 +6,11 @@ using Xunit;
 namespace Twig.Infrastructure.Tests.Config;
 
 /// <summary>
-/// Tests the T1 §4.1 checked-in profile policy source consumed by AB#738's
-/// eligibility gate. Failure paths MUST fail closed with
-/// <c>eligibility-unavailable</c> — permit-by-default is the exact defect
-/// this policy source removes.
+/// Tests the T1 §4.1 checked-in profile policy source: materialized policy
+/// block with an explicit selected-profile identity/version binding plus the
+/// concrete primary-scope allow-set. Missing binding or missing allow-set
+/// fails closed — the "block absent" case is a migration event, not the
+/// steady-state default.
 /// </summary>
 public sealed class CheckedInProfilePolicySourceTests
 {
@@ -17,46 +18,77 @@ public sealed class CheckedInProfilePolicySourceTests
     public void GetAllowSet_fails_closed_when_no_policy_block_is_configured()
     {
         var config = new TwigConfiguration { Organization = "o", Project = "p" };
-        // Explicitly no Policy on the twig.json manifest — the legacy shape.
         config.Policy.ShouldBeNull();
-
-        var source = new CheckedInProfilePolicySource(config);
-        var result = source.GetAllowSet();
+        var result = new CheckedInProfilePolicySource(config).GetAllowSet();
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldBe(AttachmentStorageFailure.EligibilityUnavailable);
     }
 
     [Fact]
-    public void GetAllowSet_returns_configured_types_when_policy_block_present()
+    public void GetAllowSet_fails_closed_when_selected_profile_binding_is_missing()
+    {
+        // Policy block present but no selectedProfile — an out-of-contract
+        // manifest. Eligibility must refuse rather than silently accept the
+        // allow-set.
+        var config = new TwigConfiguration
+        {
+            Organization = "o",
+            Project = "p",
+            Policy = new PolicyConfig { PrimaryScopeTypes = new List<string> { "Task" } },
+        };
+        var result = new CheckedInProfilePolicySource(config).GetAllowSet();
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(AttachmentStorageFailure.EligibilityUnavailable);
+    }
+
+    [Fact]
+    public void GetAllowSet_fails_closed_when_selected_profile_identity_or_version_is_empty()
     {
         var config = new TwigConfiguration
         {
             Organization = "o",
             Project = "p",
-            Policy = new PolicyConfig { PrimaryScopeTypes = new List<string> { "Task", "Bug" } },
+            Policy = new PolicyConfig
+            {
+                SelectedProfile = new SelectedProfileBinding { Identity = "", Version = "1" },
+                PrimaryScopeTypes = new List<string> { "Task" },
+            },
         };
+        new CheckedInProfilePolicySource(config).GetAllowSet().IsSuccess.ShouldBeFalse();
+    }
 
-        var source = new CheckedInProfilePolicySource(config);
-        var result = source.GetAllowSet();
+    [Fact]
+    public void GetAllowSet_returns_configured_types_when_binding_and_types_present()
+    {
+        var config = new TwigConfiguration
+        {
+            Organization = "o",
+            Project = "p",
+            Policy = new PolicyConfig
+            {
+                SelectedProfile = new SelectedProfileBinding { Identity = "twig/default", Version = "1" },
+                PrimaryScopeTypes = new List<string> { "Task", "Bug" },
+            },
+        };
+        var result = new CheckedInProfilePolicySource(config).GetAllowSet();
         result.IsSuccess.ShouldBeTrue();
         result.Value.ShouldBe(new[] { "Task", "Bug" });
     }
 
     [Fact]
-    public void GetAllowSet_returns_empty_set_when_policy_block_declares_none()
+    public void GetAllowSet_returns_empty_set_when_binding_present_and_types_declared_none()
     {
-        // A repo may deliberately disable primary-scope attachment by writing
-        // an empty allow-set — that is a valid "no type is eligible" statement,
-        // distinct from the fail-closed "unavailable" of a missing block.
         var config = new TwigConfiguration
         {
             Organization = "o",
             Project = "p",
-            Policy = new PolicyConfig { PrimaryScopeTypes = new List<string>() },
+            Policy = new PolicyConfig
+            {
+                SelectedProfile = new SelectedProfileBinding { Identity = "twig/default", Version = "1" },
+                PrimaryScopeTypes = new List<string>(),
+            },
         };
-
-        var source = new CheckedInProfilePolicySource(config);
-        var result = source.GetAllowSet();
+        var result = new CheckedInProfilePolicySource(config).GetAllowSet();
         result.IsSuccess.ShouldBeTrue();
         result.Value.Count.ShouldBe(0);
     }

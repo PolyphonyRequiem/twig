@@ -219,8 +219,35 @@ public sealed class InitCommand
             }
         }
 
-        // Create .twig/ root and nested context directory
+        // Create .twig/ root. The managed init below fills it with the
+        // T1 §6.3 markers (layout.json, worktree.json, empty attachment.json)
+        // BEFORE the legacy per-org/per-project cache directory is created,
+        // so legacy detection has nothing to reject and any managed-init
+        // failure aborts init loudly rather than being silently overwritten
+        // by the subsequent SqliteCacheStore creation.
         Directory.CreateDirectory(twigDir);
+
+        // AB#738 §9.5 — every managed init MUST produce a valid worktree-local
+        // layout AND a matching system-store row so downstream attach/switch/
+        // detach commands find both prerequisites. This runs FIRST so the
+        // legacy `.twig/<org>/<project>/twig.db` cache is created only after
+        // the new layout markers are in place; failures abort init.
+        if (_managedInitializer is not null)
+        {
+            var managed = await _managedInitializer.InitializeAsync(
+                config.Organization,
+                config.Project,
+                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
+                profileIdentity: string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "twig/default" : config.ProcessTemplate,
+                profileVersion: "1",
+                ct);
+            if (!managed.IsSuccess)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {managed.Error}"));
+                return (1, false, 0);
+            }
+        }
+
         var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
         Directory.CreateDirectory(contextDir);
 
@@ -508,23 +535,6 @@ public sealed class InitCommand
 
         // SEC-001: Append .twig/ to .gitignore
         AppendToGitignore();
-
-        // AB#738 §9.5 — every managed init MUST produce a valid worktree-local
-        // layout (layout.json + worktree.json + empty attachment.json) AND a
-        // matching system-store row so downstream attach/switch/detach commands
-        // find both prerequisites. IManagedWorktreeInitializer aggregates
-        // both seams behind one public entry point so InitCommand's
-        // signature stays free of internal storage interfaces.
-        if (_managedInitializer is not null)
-        {
-            var managed = await _managedInitializer.InitializeAsync(
-                config.Organization,
-                config.Project,
-                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
-                ct);
-            if (!managed.IsSuccess)
-                Console.WriteLine($"  ⚠ Could not initialize managed worktree: {managed.Error}");
-        }
 
         // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
         // Non-interactive init with no flags starts empty; interactive "Neither" also skips.

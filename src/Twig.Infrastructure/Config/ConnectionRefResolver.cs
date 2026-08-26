@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Twig.Infrastructure.Serialization;
 
@@ -8,29 +7,32 @@ namespace Twig.Infrastructure.Config;
 /// <summary>
 /// Computes <c>connectionRef</c> per AB#736 §5.1:
 /// <c>lowercase-hex(sha256(canonical-json({ "organization": &lt;org&gt;,
-/// "project": &lt;project&gt; })))</c>. Team is intentionally excluded so a team
-/// change never invalidates registry rows. Canonical JSON is UTF-8, sorted keys,
-/// no whitespace.
+/// "project": &lt;project&gt; })))</c>. Both values are hashed <b>opaque and
+/// verbatim</b> — the T1 spec fixes them as strings, not URI-normalized
+/// slugs. Normalization (slug versus full URI, casing) is a
+/// <b>presentation</b> concern owned by <see cref="OrganizationNormalizer"/>
+/// for URL construction and origin validation only; hashing the normalized
+/// form would silently drift the <c>connectionRef</c> across every
+/// contributor who has an older <c>twig.json</c> checked in.
+/// <para>
+/// Canonical JSON is UTF-8, sorted keys, no whitespace. Team is intentionally
+/// excluded so a team change never invalidates registry rows.
+/// </para>
 /// </summary>
 internal static class ConnectionRefResolver
 {
     public static string Compute(string organization, string project)
     {
-        // Normalize the organization so a slug and a full URI collapse to the
-        // same canonical form. Two contributors — one who checked in
-        // "contoso" and one who checked in "https://dev.azure.com/contoso" —
-        // MUST agree on the same registry row, or the T1 system store treats
-        // them as distinct worktrees.
-        var orgSlug = OrganizationNormalizer.ToSlug(organization ?? string.Empty);
-        // Canonical JSON with sorted keys and no whitespace, per §5.1. We use a
-        // deliberate hand-rolled writer here — the source-generated context emits
-        // whitespace only when explicitly asked, but "sorted keys" is not a
-        // guarantee it makes, so any change to member order would silently drift
-        // the ref. This is the sole call site that treats those bytes as a hash
-        // input; the whole rest of Twig serializes freely.
+        // Canonical JSON with sorted keys and no whitespace, per §5.1. The
+        // configured strings are hashed verbatim — normalizing here would
+        // put two contributors who checked in different shapes of the same
+        // organization into two different registry rows, but T1's answer to
+        // that is "one team, one manifest": the checked-in twig.json fixes
+        // the canonical form. Storage-tier normalization defeats that
+        // discipline silently.
         var payload = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
-            ["organization"] = orgSlug,
+            ["organization"] = organization ?? string.Empty,
             ["project"] = project ?? string.Empty,
         };
         using var stream = new MemoryStream();

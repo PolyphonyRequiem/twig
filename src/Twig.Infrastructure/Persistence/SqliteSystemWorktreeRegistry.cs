@@ -401,9 +401,9 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE INDEX IF NOT EXISTS idx_claims_worktree_fingerprint ON claims(worktree_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_claims_connection_work_item ON claims(connection_ref, work_item_id);
 CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
--- Partial unique index: enforces "at most one pending|active claim per
--- (connection_ref, work_item_id)" at the storage layer, matching the T1
--- v1 reserved-state kinds. released/superseded/retired rows are excluded.
+-- Partial unique index: enforces at most one pending or active claim per
+-- (connection_ref, work_item_id) at the storage layer, matching the T1
+-- v1 reserved-state kinds. Released/superseded/retired rows are excluded.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_unique_reserved
     ON claims(connection_ref, work_item_id)
     WHERE state IN ('pending', 'active');

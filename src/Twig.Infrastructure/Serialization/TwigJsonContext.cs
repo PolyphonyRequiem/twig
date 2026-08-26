@@ -9,6 +9,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Telemetry;
+using Twig.Infrastructure.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure.Serialization;
 
@@ -157,6 +158,10 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<TrackingFileEntry>))]
 [JsonSerializable(typeof(ExclusionFileEntry))]
 [JsonSerializable(typeof(List<ExclusionFileEntry>))]
+// T3 (AB#734) reference profile — embedded JSON schema.
+[JsonSerializable(typeof(ReferenceProfileDto))]
+[JsonSerializable(typeof(Role))]
+[JsonSerializable(typeof(LinkKind))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

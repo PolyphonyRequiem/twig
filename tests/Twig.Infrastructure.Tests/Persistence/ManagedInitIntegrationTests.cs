@@ -11,7 +11,9 @@ namespace Twig.Infrastructure.Tests.Persistence;
 /// End-to-end coverage for the AB#738 managed-init contract: the local
 /// layout markers and the system-store worktree row MUST both land in the
 /// same run so downstream attach/switch/detach find the two prerequisites
-/// §9.5 depends on. Skips itself when git is unavailable.
+/// §9.5 depends on. The composed run flows through the public
+/// <see cref="IManagedWorktreeInitializer"/> aggregate that InitCommand
+/// consumes. Skips itself when git is unavailable.
 /// </summary>
 public sealed class ManagedInitIntegrationTests : IDisposable
 {
@@ -27,7 +29,7 @@ public sealed class ManagedInitIntegrationTests : IDisposable
         Directory.CreateDirectory(_workDir);
         var twigDir = Path.Combine(_workDir, ".twig");
         _paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), _workDir);
-        _config = new TwigConfiguration { Organization = "contoso", Project = "proj" };
+        _config = new TwigConfiguration { Organization = "Contoso", Project = "proj" };
         File.WriteAllText(Path.Combine(_workDir, "twig.json"), "{\n}\n");
         _systemDbPath = Path.Combine(_workDir, "system.db");
         _gitAvailable = TryInitGit(_workDir);
@@ -64,21 +66,19 @@ public sealed class ManagedInitIntegrationTests : IDisposable
 
         var store = new WorktreeLocalAttachmentStore(_paths, _config, TimeProvider.System);
         using var registry = new SqliteSystemWorktreeRegistry(_systemDbPath, TimeProvider.System);
+        var fingerprintProvider = new WorktreeFingerprintProvider(_paths, _config);
+        var initializer = new ManagedWorktreeInitializer(store, registry, fingerprintProvider);
+
+        var initResult = await initializer.InitializeAsync(_config.Organization, _config.Project, team: null);
+        initResult.IsSuccess.ShouldBeTrue(initResult.Error);
 
         // Local layout — §6.3 steps 4-7.
-        (await store.InitializeAsync()).IsSuccess.ShouldBeTrue();
         File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
         File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.WorktreeFileName)).ShouldBeTrue();
         File.Exists(Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeTrue();
 
-        // System store — §9.5 step 5 seed.
-        var connectionRef = ConnectionRefResolver.Compute(_config);
-        (await registry.UpsertConnectionAsync(connectionRef, _config.Organization, _config.Project, team: null)).IsSuccess.ShouldBeTrue();
-        var fingerprint = new WorktreeFingerprintProvider(_paths, _config).CurrentFingerprint;
-        (await registry.UpsertWorktreeAsync(fingerprint.CanonicalJson, fingerprint.ConnectionRef, fingerprint.WorktreeRoot)).IsSuccess.ShouldBeTrue();
-
-        // Every §9.5 pre-attach precondition now holds — the row is present,
-        // not retired, and its connectionRef matches the current binding.
+        // §9.5 step 5 pre-attach preconditions.
+        var fingerprint = fingerprintProvider.CurrentFingerprint;
         var find = await registry.FindWorktreeAsync(fingerprint.CanonicalJson);
         find.Value.ShouldNotBeNull();
         find.Value!.RetiredAt.ShouldBeNull();

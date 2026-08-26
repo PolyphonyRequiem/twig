@@ -42,8 +42,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IGlobalProfileStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetService<ITelemetryClient>(),
-            sp.GetService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
-            sp.GetService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>()));
+            sp.GetService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),

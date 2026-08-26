@@ -429,3 +429,5 @@ Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.SwitchAsync(int newWorkIte
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.DetachAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.RequireActiveClaimForScopeAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.ReadStatusAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
+Twig.Domain.Interfaces.IManagedWorktreeInitializer
+Twig.Domain.Interfaces.IManagedWorktreeInitializer.InitializeAsync(string! organization, string! project, string? team, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!

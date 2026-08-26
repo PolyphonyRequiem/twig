@@ -30,8 +30,7 @@ public sealed class InitCommand
     private readonly IGlobalProfileStore? _globalProfileStore;
     private readonly ITelemetryClient? _telemetryClient;
     private readonly IConsoleInput? _consoleInput;
-    private readonly Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore? _attachmentStore;
-    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry? _registry;
+    private readonly Twig.Domain.Interfaces.IManagedWorktreeInitializer? _managedInitializer;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -46,8 +45,7 @@ public sealed class InitCommand
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
         IConsoleInput consoleInput,
         ITelemetryClient? telemetryClient = null,
-        Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore? attachmentStore = null,
-        Twig.Domain.Interfaces.ISystemWorktreeRegistry? registry = null)
+        Twig.Domain.Interfaces.IManagedWorktreeInitializer? managedInitializer = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -57,8 +55,7 @@ public sealed class InitCommand
         _globalProfileStore = globalProfileStore;
         _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
-        _attachmentStore = attachmentStore;
-        _registry = registry;
+        _managedInitializer = managedInitializer;
     }
 
     /// <summary>
@@ -515,31 +512,18 @@ public sealed class InitCommand
         // AB#738 §9.5 — every managed init MUST produce a valid worktree-local
         // layout (layout.json + worktree.json + empty attachment.json) AND a
         // matching system-store row so downstream attach/switch/detach commands
-        // find both prerequisites. Both seams are optional here so unit tests
-        // that use the smaller constructor keep working; in production both are
-        // registered and both run.
-        if (_attachmentStore is not null)
+        // find both prerequisites. IManagedWorktreeInitializer aggregates
+        // both seams behind one public entry point so InitCommand's
+        // signature stays free of internal storage interfaces.
+        if (_managedInitializer is not null)
         {
-            var initLayout = await _attachmentStore.InitializeAsync(ct);
-            if (!initLayout.IsSuccess)
-                Console.WriteLine($"  ⚠ Could not initialize managed layout: {initLayout.Error}");
-        }
-        if (_registry is not null)
-        {
-            var connectionRef = Twig.Infrastructure.Config.ConnectionRefResolver.Compute(config);
-            var upsertConnection = await _registry.UpsertConnectionAsync(connectionRef, config.Organization, config.Project,
-                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team, ct);
-            if (!upsertConnection.IsSuccess)
-                Console.WriteLine($"  ⚠ Could not register connection: {upsertConnection.Error}");
-
-            var fingerprintProvider = new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(_paths, config);
-            var fingerprint = fingerprintProvider.CurrentFingerprint;
-            if (!string.IsNullOrEmpty(fingerprint.CanonicalJson))
-            {
-                var upsertWorktree = await _registry.UpsertWorktreeAsync(fingerprint.CanonicalJson, fingerprint.ConnectionRef, fingerprint.WorktreeRoot, ct);
-                if (!upsertWorktree.IsSuccess)
-                    Console.WriteLine($"  ⚠ Could not register worktree: {upsertWorktree.Error}");
-            }
+            var managed = await _managedInitializer.InitializeAsync(
+                config.Organization,
+                config.Project,
+                string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
+                ct);
+            if (!managed.IsSuccess)
+                Console.WriteLine($"  ⚠ Could not initialize managed worktree: {managed.Error}");
         }
 
         // DD-8/FR-17: Only inline-refresh when workspace has configured sources.

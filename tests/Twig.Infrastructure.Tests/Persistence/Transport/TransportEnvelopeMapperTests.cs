@@ -152,4 +152,122 @@ public sealed class TransportEnvelopeMapperTests
         re.Value.State.ShouldBe(TransportAttachmentEnvelopeState.Detached);
         re.Value.Record.ShouldBeNull();
     }
+
+    // ─── Defect 1 — Malformed JSON fails closed on nested-null ───
+
+    [Fact]
+    public void Malformed_worktree_target_null_returns_record_invalid_not_exception()
+    {
+        // Source-gen JSON of `{ "worktree": { "worktreeFingerprint": "x", "target": null } }`
+        // yields a null Target despite the non-nullable annotation.
+        // The mapper MUST fail closed with the named identifier, not
+        // NullReferenceException.
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: new TransportWorktreeDocument("{fp}", null!),
+            Agent: null,
+            Terminal: new TransportTerminalDocument(Target("terminal"), System.Array.Empty<string>())));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.RecordInvalid);
+    }
+
+    [Fact]
+    public void Malformed_agent_capabilities_null_returns_record_invalid_not_exception()
+    {
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: new TransportWorktreeDocument("{fp}", Target("worktree")),
+            Agent: new TransportAgentDocument(
+                Target: Target("agent"),
+                SessionKind: "cli",
+                RecordedStatus: "working",
+                RecordedAt: "2025-01-01T00:00:00Z",
+                Capabilities: null!),
+            Terminal: null));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.RecordInvalid);
+    }
+
+    [Fact]
+    public void Malformed_terminal_target_null_returns_record_invalid_not_exception()
+    {
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: new TransportWorktreeDocument("{fp}", Target("worktree")),
+            Agent: null,
+            Terminal: new TransportTerminalDocument(null!, System.Array.Empty<string>())));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.RecordInvalid);
+    }
+
+    [Fact]
+    public void Malformed_agent_target_null_returns_record_invalid_not_exception()
+    {
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: new TransportWorktreeDocument("{fp}", Target("worktree")),
+            Agent: new TransportAgentDocument(
+                Target: null!,
+                SessionKind: "cli",
+                RecordedStatus: "working",
+                RecordedAt: "2025-01-01T00:00:00Z",
+                Capabilities: System.Array.Empty<string>()),
+            Terminal: null));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.RecordInvalid);
+    }
+
+    // ─── Defect 2 — §2.2 rejection precedence ───
+
+    [Fact]
+    public void Row2_worktree_missing_takes_precedence_over_row5_unknown_status()
+    {
+        // Even when agent.recordedStatus is malformed, a worktree-absent
+        // document surfaces WorktreeMissing, not UnknownStatus (§2.2
+        // row-order rule).
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: null,
+            Agent: new TransportAgentDocument(
+                Target: Target("agent"),
+                SessionKind: "cli",
+                RecordedStatus: "made-up-status",
+                RecordedAt: "2025-01-01T00:00:00Z",
+                Capabilities: System.Array.Empty<string>()),
+            Terminal: null));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.WorktreeMissing);
+    }
+
+    [Fact]
+    public void Row3_bare_worktree_takes_precedence_over_row6_unknown_capability()
+    {
+        // A bare-worktree document with a MALFORMED capability payload
+        // must surface BareWorktree, not UnknownCapability (§2.2
+        // row-order rule). The row-6 UnknownCapability path exists but
+        // is unreachable here because rows 2/3 fire first — and there
+        // is no capabilities block on a bare worktree in any case; the
+        // bare-worktree row is what pins the precedence.
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: new TransportWorktreeDocument("{fp}", Target("worktree")),
+            Agent: null,
+            Terminal: null));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.BareWorktree);
+    }
+
+    [Fact]
+    public void Row2_worktree_missing_takes_precedence_over_row6_unknown_capability_in_terminal()
+    {
+        // worktree absent + terminal carries an invalid capability
+        // wire → WorktreeMissing, NOT UnknownCapability.
+        var doc = DirectHumanEnvelope(new TransportRecordDocument(
+            Worktree: null,
+            Agent: null,
+            Terminal: new TransportTerminalDocument(Target("terminal"), new[] { "NotACatalogueName" })));
+        var res = TransportEnvelopeMapper.FromDocument(doc);
+        res.IsSuccess.ShouldBeFalse();
+        res.Error.ShouldBe(TransportAttachmentFailure.WorktreeMissing);
+    }
 }

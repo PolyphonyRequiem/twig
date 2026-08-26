@@ -239,12 +239,38 @@ public static class TwigServiceRegistration
         // AB#745 requires. Always registered.
         services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter,
             Twig.Infrastructure.Persistence.Transport.NullTransportAdapter>();
+        // AB#747 — Windows Terminal adapter per contract §12.3.
+        // Declares no §3.3 optional capabilities; callers reach the
+        // per-operation absent-capability degradation for status,
+        // liveness, close, and partial close through the dispatcher.
+        // Registered alongside the null adapter via the same
+        // ITransportAdapter enumerable; the registry composes both.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter,
+            Twig.Infrastructure.Persistence.Transport.WindowsTerminalTransportAdapter>();
+        // AB#746 — Herdr transport adapter per contract §12.2. Declares
+        // every §3.3 optional capability
+        // { StatusReporting, LivenessProbe, Detach, Close, PartialClose }.
+        // The adapter depends on IHerdrHostSurface, wired to the
+        // process-shelling implementation in production; tests inject
+        // a synthetic surface so no live herdr broker is required.
+        // Registered alongside the null and Windows Terminal adapters
+        // via the same ITransportAdapter enumerable; the registry
+        // composes all three.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.IHerdrHostSurface>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.HerdrProcessHostSurface(
+                herdrExecutable: "herdr",
+                clock: sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.HerdrTransportAdapter(
+                host: sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.IHerdrHostSurface>(),
+                clock: sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(sp =>
             new Twig.Infrastructure.Persistence.Transport.TransportAdapterRegistry(
                 sp.GetServices<Twig.Infrastructure.Persistence.Transport.ITransportAdapter>()));
         services.AddSingleton<Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher>(sp =>
             new Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher(
                 sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAttachmentStore>(),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System));
         // §10.2 presentation-support registry: AB#745 registers no
         // rich-adapter entries at baseline — the terminal/text fallback
@@ -259,8 +285,9 @@ public static class TwigServiceRegistration
         services.AddSingleton<Twig.Infrastructure.Persistence.Transport.IChangeProposalRenderer>(sp =>
             new Twig.Infrastructure.Persistence.Transport.ChangeProposalRenderer(
                 sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.IChangeProposalPresentationSupportRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(),
                 sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITerminalTextChangeProposalRenderer>(),
-                sp.GetServices<Twig.Infrastructure.Persistence.Transport.IRichChangeProposalRenderer>()));
+                () => sp.GetServices<Twig.Infrastructure.Persistence.Transport.IRichChangeProposalRenderer>()));
 
         AddConnectionDomainServices(services);
 

@@ -10,11 +10,11 @@ namespace Twig.Infrastructure.Tests.Persistence.Transport;
 
 /// <summary>
 /// §10.1–§10.4 selection + render tests. Covers the four-clause
-/// selection rule, the invocation-time refusal fallback
-/// (<c>RichRenderersAllDecline</c>), and the universal terminal/text
-/// fallback (§10.4). Corresponds to the AB#745 §12.1 acceptance line:
-/// "a test where every adapter is refused still authorizes via the
-/// terminal/text fallback with the authorization decision unchanged".
+/// selection rule (including §10.2 clause 1 adapter-registry gate),
+/// the invocation-time refusal fallback
+/// (<c>RichRenderersAllDecline</c>), the §10.3 rich-renderer
+/// construction-failure fallback, and the universal terminal/text
+/// fallback (§10.4).
 /// </summary>
 public sealed class ChangeProposalRendererTests
 {
@@ -46,12 +46,39 @@ public sealed class ChangeProposalRendererTests
 
     private static ChangeProposalRenderer MakeRenderer(
         IEnumerable<RichAdapterId>? supported = null,
-        IEnumerable<IRichChangeProposalRenderer>? richRenderers = null)
+        IEnumerable<IRichChangeProposalRenderer>? richRenderers = null,
+        IEnumerable<string>? registeredAdapterIds = null,
+        System.Func<IEnumerable<IRichChangeProposalRenderer>>? richFactoryOverride = null)
     {
-        var registry = new ChangeProposalPresentationSupportRegistry(supported ?? System.Array.Empty<RichAdapterId>());
+        var supportRegistry = new ChangeProposalPresentationSupportRegistry(supported ?? System.Array.Empty<RichAdapterId>());
         var text = new TerminalTextChangeProposalRenderer();
-        return new ChangeProposalRenderer(registry, text, richRenderers ?? System.Array.Empty<IRichChangeProposalRenderer>());
+        HashSet<string> adapterIds;
+        if (registeredAdapterIds is not null)
+        {
+            adapterIds = new HashSet<string>(registeredAdapterIds);
+        }
+        else
+        {
+            // Every test with a rich adapter id in `supported` implicitly
+            // wants that adapter registered too (baseline behaviour).
+            adapterIds = new HashSet<string>(
+                System.Linq.Enumerable.Select(supported ?? System.Array.Empty<RichAdapterId>(), s => s.AdapterId));
+            // Plus the always-present "null" and default herdr/wt so
+            // agent-driven records with default adapters pass the
+            // clause-1 gate. Tests wanting the gate to trip explicitly
+            // pass `registeredAdapterIds`.
+            adapterIds.Add("null"); adapterIds.Add("herdr"); adapterIds.Add("wt");
+        }
+        var adapterList = new List<ITransportAdapter>();
+        foreach (var id in adapterIds)
+            adapterList.Add(new StubAdapter(id));
+        var adapterRegistry = new TransportAdapterRegistry(adapterList);
+        System.Func<IEnumerable<IRichChangeProposalRenderer>> factory =
+            richFactoryOverride ?? (() => richRenderers ?? System.Array.Empty<IRichChangeProposalRenderer>());
+        return new ChangeProposalRenderer(supportRegistry, adapterRegistry, text, factory);
     }
+
+    // ─── §10.2 four-clause selection ───
 
     [Fact]
     public void Null_transport_record_selects_terminal_text()
@@ -78,7 +105,8 @@ public sealed class ChangeProposalRendererTests
     [Fact]
     public void Terminal_selected_when_agent_unsupported_but_terminal_supported()
     {
-        var r = MakeRenderer(new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) });
+        var r = MakeRenderer(new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) },
+            registeredAdapterIds: new[] { "wt", "unknown-agent" });
         var p = r.SelectPresentation(Proposal(), AgentDrivenRecord(agentAdapter: "unknown-agent", terminalAdapter: "wt"));
         var rich = p.ShouldBeOfType<Presentation.RichAdapter>();
         rich.AdapterId.Role.ShouldBe(TransportAdapterRole.Terminal);
@@ -87,7 +115,7 @@ public sealed class ChangeProposalRendererTests
     [Fact]
     public void No_supported_adapters_falls_back_to_terminal_text()
     {
-        var r = MakeRenderer(); // support registry empty
+        var r = MakeRenderer();
         var p = r.SelectPresentation(Proposal(), AgentDrivenRecord());
         p.ShouldBeOfType<Presentation.TerminalText>();
     }
@@ -101,6 +129,83 @@ public sealed class ChangeProposalRendererTests
         rich.AdapterId.Role.ShouldBe(TransportAdapterRole.Terminal);
     }
 
+    // ─── Defect 5 — §10.2 clause 1 adapter-registry gate ───
+
+    [Fact]
+    public void Clause1_unregistered_agent_adapter_forces_terminal_text_even_when_terminal_registered_and_supported()
+    {
+        // Mixed case named by the reviewer: agent adapterId unregistered
+        // AND terminal registered+supported. Clause 1 MUST force
+        // TerminalText BEFORE clauses 2/3.
+        var r = MakeRenderer(
+            supported: new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) },
+            registeredAdapterIds: new[] { "wt" }); // 'unknown-agent' deliberately absent
+        var p = r.SelectPresentation(
+            Proposal(),
+            AgentDrivenRecord(agentAdapter: "unknown-agent", terminalAdapter: "wt"));
+        p.ShouldBeOfType<Presentation.TerminalText>();
+    }
+
+    [Fact]
+    public void Clause1_unregistered_terminal_adapter_forces_terminal_text_even_when_agent_registered_and_supported()
+    {
+        // Symmetric: agent registered+supported, terminal unregistered.
+        // Clause 1 still gates because ANY referenced-adapter is
+        // unregistered — a record we can't trust is TerminalText.
+        var r = MakeRenderer(
+            supported: new[] { new RichAdapterId("herdr", TransportAdapterRole.Agent) },
+            registeredAdapterIds: new[] { "herdr" }); // 'wt' deliberately absent
+        var p = r.SelectPresentation(
+            Proposal(),
+            AgentDrivenRecord(agentAdapter: "herdr", terminalAdapter: "wt"));
+        p.ShouldBeOfType<Presentation.TerminalText>();
+    }
+
+    [Fact]
+    public void Clause1_direct_human_unregistered_terminal_adapter_forces_terminal_text()
+    {
+        var r = MakeRenderer(
+            supported: new[] { new RichAdapterId("wt", TransportAdapterRole.Terminal) },
+            registeredAdapterIds: new string[] { }); // 'wt' absent
+        var p = r.SelectPresentation(Proposal(), DirectHumanRecord(terminalAdapter: "wt"));
+        p.ShouldBeOfType<Presentation.TerminalText>();
+    }
+
+    // ─── Defect 6 — Rich-renderer construction failure fallback ───
+
+    [Fact]
+    public async Task Rich_renderer_construction_throw_falls_back_to_terminal_text()
+    {
+        // §10.3(a): "throws on construction" MUST fall back to
+        // terminal-text with unchanged content. The factory is invoked
+        // INSIDE the render-time try/fallback boundary, so a constructor
+        // throw here does not defeat the whole renderer service.
+        var richId = new RichAdapterId("wt", TransportAdapterRole.Terminal);
+        var r = MakeRenderer(
+            supported: new[] { richId },
+            richFactoryOverride: () => throw new System.InvalidOperationException("constructor boom"));
+        var proposal = Proposal("cp-defect-6", content: "content-DEFECT6");
+        var result = await r.RenderAsync(proposal, new Presentation.RichAdapter(richId));
+        result.PresentationKind.ShouldBe(RenderedProposalKind.TerminalText);
+        result.AdapterId.ShouldBeNull();
+        result.Body.ShouldBe("content-DEFECT6");
+    }
+
+    [Fact]
+    public void Rich_renderer_construction_throw_does_not_prevent_ChangeProposalRenderer_from_resolving()
+    {
+        // §10.3 guarantee at the wiring level: constructing the
+        // ChangeProposalRenderer itself never enumerates rich renderers.
+        // A factory that throws on invocation is fine at construction
+        // time (only touched inside RenderAsync's try boundary).
+        var richId = new RichAdapterId("wt", TransportAdapterRole.Terminal);
+        Should.NotThrow(() => MakeRenderer(
+            supported: new[] { richId },
+            richFactoryOverride: () => throw new System.InvalidOperationException("boom")));
+    }
+
+    // ─── §10.3 refusal / throw / not-registered fallbacks (existing) ───
+
     [Fact]
     public async Task Rich_renderer_refusal_falls_back_to_terminal_text()
     {
@@ -112,7 +217,6 @@ public sealed class ChangeProposalRendererTests
         var result = await r.RenderAsync(proposal, new Presentation.RichAdapter(richId));
         result.PresentationKind.ShouldBe(RenderedProposalKind.TerminalText);
         result.AdapterId.ShouldBeNull();
-        // §10.3: content is UNCHANGED.
         result.Body.ShouldBe("content-A");
     }
 
@@ -132,7 +236,6 @@ public sealed class ChangeProposalRendererTests
     public async Task Rich_renderer_not_registered_falls_back_to_terminal_text()
     {
         var richId = new RichAdapterId("wt", TransportAdapterRole.Terminal);
-        // Supported by registry, but no renderer implementation registered.
         var r = MakeRenderer(new[] { richId });
         var result = await r.RenderAsync(Proposal(), new Presentation.RichAdapter(richId));
         result.PresentationKind.ShouldBe(RenderedProposalKind.TerminalText);
@@ -162,9 +265,6 @@ public sealed class ChangeProposalRendererTests
         result.Body.ShouldBe("authoritative-content");
     }
 
-    // §10.3 RichRenderersAllDecline conformance case:
-    // every registered rich renderer refuses; render still produces
-    // terminal-text with the proposal's content preserved.
     [Fact]
     public async Task RichRenderersAllDecline_conformance_falls_back_with_unchanged_content()
     {
@@ -178,11 +278,26 @@ public sealed class ChangeProposalRendererTests
                 new RefusingRichRenderer(richB),
             });
         var proposal = Proposal(content: "authorization-relevant-body");
-        // Pick agent path — refusal must still fall through.
         var selection = r.SelectPresentation(proposal, AgentDrivenRecord(agentAdapter: "herdr", terminalAdapter: "wt"));
         var result = await r.RenderAsync(proposal, selection);
         result.PresentationKind.ShouldBe(RenderedProposalKind.TerminalText);
         result.Body.ShouldBe("authorization-relevant-body");
+    }
+
+    // ─── fakes ───
+
+    private sealed class StubAdapter : ITransportAdapter
+    {
+        public StubAdapter(string id) { AdapterId = id; }
+        public string AdapterId { get; }
+        public IReadOnlySet<TransportCapability> Capabilities { get; } = new HashSet<TransportCapability>();
+        public Result<TransportAttachmentRecord> RecordIdentity(RecordIdentityRequest request) => throw new System.NotSupportedException();
+        public AdapterDescription DescribeAdapter() => new(AdapterId, "stub", "1", Capabilities, new System.Collections.Generic.HashSet<TransportAdapterRole>(), "stub");
+        public Task<Result<TransportStatusObservation>> ReportStatusAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result<TransportLivenessObservation>> ProbeLivenessAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result> DetachAsync(TransportAdapterTarget target, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result> CloseAsync(TransportAdapterTarget target, CancellationToken ct) => throw new System.NotSupportedException();
+        public Task<Result<TransportPartialCloseOutcome>> PartialCloseAsync(TransportAdapterTarget target, PartialCloseScope scope, CancellationToken ct) => throw new System.NotSupportedException();
     }
 
     private sealed class RefusingRichRenderer : IRichChangeProposalRenderer

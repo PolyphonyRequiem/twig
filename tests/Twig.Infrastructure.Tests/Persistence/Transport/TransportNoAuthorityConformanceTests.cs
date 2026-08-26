@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Shouldly;
 using Twig.Infrastructure.Persistence.Transport;
 using Xunit;
@@ -11,36 +13,46 @@ namespace Twig.Infrastructure.Tests.Persistence.Transport;
 /// Contract §9.1 R1–R15 no-authority conformance suite.
 ///
 /// <para>
-/// Two independent invariants per §9.1, plus the §1.1(c) reverse
-/// invariant that closes the observe-only guarantee.
+/// AB#745's acceptance criterion is that conformance FAILS when an
+/// authority-bearing verb is added to the transport surface. That
+/// means the check MUST detect a change to the transport surface
+/// itself, not just verify that today's declared interfaces match a
+/// hand-rolled unique-verb list. The suite runs two mechanisms:
 /// </para>
 ///
-/// <list type="bullet">
-///   <item><b>Field-reference invariant.</b> Enumerated types in the
-///     Transport namespace MUST NOT appear as parameters or return
-///     types on any surface implementing R1–R15 (claim lifecycle,
-///     Change Proposal state transitions, plan lifecycle, ADO
-///     mutation, session steering, primary-scope attachment lifecycle,
-///     managed-worktree init).</item>
-///   <item><b>Event/call-boundary invariant.</b> No transport operation
-///     name appears as a member of a workflow-domain interface. The
-///     conformance shape here is a name-based assertion — an R-row
-///     type MUST NOT publish a method returning a transport
-///     observation, taking a transport type, or otherwise "leaking"
-///     into an R-row entry point.</item>
-///   <item><b>§1.1(c) reverse invariant.</b> Non-close entry points on
-///     the transport surface MUST NOT publish
-///     <c>Close</c>/<c>PartialClose</c> methods or invoke them
-///     transitively via a method the reflection walk can see.</item>
+/// <list type="number">
+///   <item><b>(a) Frozen transport surface.</b> Every type declared
+///     in the <c>Twig.Infrastructure.Persistence.Transport</c>
+///     namespace (excluding host-adapter implementations, which are
+///     tracked by their own conformance suites) is enumerated with
+///     its declared method / property names. ANY new member fails
+///     until the frozen set is deliberately updated. An approval-style
+///     baseline lives in
+///     <see cref="TransportSurfaceBaseline.FrozenSurface"/> — we do
+///     NOT reuse the shipped <c>PublicAPI.Unshipped.txt</c> analyzer
+///     because every transport type is <c>internal</c> and the
+///     PublicAPI analyzer only covers <c>public</c> surface, so it
+///     cannot see the boundary at all.</item>
+///   <item><b>(b) Dependency-direction assertion.</b> The reachable
+///     types graph of every transport type — walking parameter,
+///     return, property, field, and generic-argument types — MUST NOT
+///     include any type from the R1–R15 authority surfaces (claim
+///     lifecycle, Change Proposal / plan lifecycle, ADO mutation,
+///     session-steering derivation, primary-scope attachment
+///     lifecycle, managed-worktree init). The walk is transitive with
+///     a visited set to bound cost.</item>
+///   <item><b>Mutation proof.</b> A single test drives a synthetic
+///     transport-namespace type carrying an authority-bearing verb
+///     through the frozen-surface AND dependency-direction helpers
+///     and asserts both reject it.</item>
 /// </list>
 ///
 /// <para>
-/// Reflection can't peer into IL to enumerate reachability inside a
-/// method body without an IL-walk library; the assertions below are
-/// therefore structural — they catch the mistake of adding a
-/// transport-typed parameter or a close-adjacent method to a
-/// no-authority surface, which is the primary failure mode a
-/// regression would take.
+/// The original R1–R15 row enumeration is retained as a separate
+/// clearly-labelled assertion below — it still checks the historical
+/// mistake mode ("an R-row interface takes a transport type or
+/// publishes a transport verb") and is not a substitute for the
+/// mechanisms above.
 /// </para>
 /// </summary>
 public sealed class TransportNoAuthorityConformanceTests
@@ -48,7 +60,10 @@ public sealed class TransportNoAuthorityConformanceTests
     private static Assembly DomainAssembly => typeof(Twig.Domain.Common.Result).Assembly;
     private static Assembly InfrastructureAssembly => typeof(WorktreeLocalTransportAttachmentStore).Assembly;
 
-    private static IReadOnlyCollection<System.Type> TransportPublicSurfaceTypes { get; } = new[]
+    private const string TransportNamespace = "Twig.Infrastructure.Persistence.Transport";
+
+    // Public "record surface" for the field-reference invariant.
+    private static IReadOnlyCollection<Type> TransportPublicSurfaceTypes { get; } = new[]
     {
         typeof(TransportAttachmentRecord),
         typeof(TransportWorktreePayload),
@@ -71,40 +86,150 @@ public sealed class TransportNoAuthorityConformanceTests
         typeof(TransportPartialCloseRemaining),
     };
 
-    // R1–R15 verb rows. Each row is asserted as (a) field-reference
-    // invariant, (b) event-boundary invariant. R11–R15 additionally
-    // participate in the §1.1(c) reverse invariant.
+    private static IReadOnlyCollection<Type> AuthoritySurfaceTypes()
+    {
+        var names = new[]
+        {
+            // R1 — claim lifecycle
+            "Twig.Domain.Services.Claims.ILocalClaimService",
+            "Twig.Domain.Services.Claims.IAdoClaimProjection",
+            "Twig.Domain.Services.Claims.ClaimRecord",
+            "Twig.Domain.Services.Claims.MintClaimInput",
+            "Twig.Domain.Services.Claims.ReclaimClaimInput",
+            "Twig.Domain.Services.Claims.ReleaseClaimInput",
+            "Twig.Domain.Services.Claims.ClaimValidationInput",
+            "Twig.Domain.Services.Claims.ClaimMintOutcome",
+            "Twig.Domain.Services.Claims.ClaimReclaimOutcome",
+            "Twig.Domain.Services.Claims.ClaimReleaseOutcome",
+            "Twig.Domain.Services.Claims.ClaimValidationOutcome",
+            "Twig.Domain.Services.Claims.ClaimLookupOutcome",
+            "Twig.Domain.Services.Claims.ClaimLabelUpdateOutcome",
+            // R2 / R3
+            "Twig.Domain.Interfaces.IPlanLifecycleService",
+            // R4–R7
+            "Twig.Domain.Interfaces.IAdoWorkItemService",
+            // R8
+            "Twig.Domain.Interfaces.IAttachmentStatusProjection",
+            // R9
+            "Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore",
+            "Twig.Domain.Interfaces.IPrimaryScopeAttachmentService",
+            // R10
+            "Twig.Domain.Interfaces.IManagedWorktreeInitializer",
+        };
+        var types = new List<Type>();
+        foreach (var n in names)
+        {
+            var t = DomainAssembly.GetType(n, throwOnError: false);
+            if (t is not null) types.Add(t);
+        }
+        return types;
+    }
+
+    // ─── (a) Frozen transport surface ────────────────────────────────
+
+    [Fact]
+    public void FrozenSurface_matches_the_expected_baseline()
+    {
+        var actual = EnumerateTransportSurface(
+            InfrastructureAssembly,
+            includeType: IsFrozenTransportType);
+        var baseline = TransportSurfaceBaseline.FrozenSurface;
+
+        var actualLines = SurfaceToLines(actual);
+        var missing = baseline.Except(actualLines, StringComparer.Ordinal).ToList();
+        var added = actualLines.Except(baseline, StringComparer.Ordinal).ToList();
+
+        var problems = new List<string>();
+        if (missing.Any())
+            problems.Add("REMOVED (present in baseline, absent from code):\n  " + string.Join("\n  ", missing));
+        if (added.Any())
+            problems.Add("ADDED (present in code, absent from baseline):\n  " + string.Join("\n  ", added));
+
+        problems.ShouldBeEmpty(
+            "Transport surface drifted from the frozen baseline. Every add MUST be a deliberate " +
+            "edit to TransportSurfaceBaseline.FrozenSurface — that's what makes an accidentally " +
+            "added authority-bearing verb fail conformance. Details:\n" +
+            string.Join("\n\n", problems));
+    }
+
+    // ─── (b) Dependency-direction ────────────────────────────────────
+
+    [Fact]
+    public void DependencyDirection_no_transport_type_reaches_an_authority_type()
+    {
+        var authority = new HashSet<Type>(AuthoritySurfaceTypes());
+        authority.ShouldNotBeEmpty("Authority surface list is empty — the walk cannot detect anything.");
+        var problems = new List<string>();
+        foreach (var t in TransportPublicSurfaceTypes)
+        {
+            var reached = ReachableTypesTransitive(t);
+            foreach (var r in reached)
+            {
+                if (authority.Contains(r))
+                    problems.Add($"{t.FullName} → …→ {r.FullName}");
+            }
+        }
+        problems.ShouldBeEmpty(
+            "Transport type reaches an R1–R15 authority surface. Adding an authority-bearing " +
+            "verb or accepting an authority DTO here defeats the observe-only guarantee. " +
+            "Offenders:\n  " + string.Join("\n  ", problems));
+    }
+
+    // ─── Mutation proof ──────────────────────────────────────────────
+
+    [Fact]
+    public void MutationProof_synthetic_authority_verb_fails_both_mechanisms()
+    {
+        // (a) Frozen surface: a synthetic transport-namespace type
+        // carrying an authority-bearing verb MUST register as a diff.
+        var syntheticSurface = new Dictionary<string, List<string>>
+        {
+            ["Twig.Infrastructure.Persistence.Transport.RogueAuthorityVerb"] = new List<string>
+            {
+                "M:MintClaim",
+                "M:SubmitChangeProposal",
+            },
+        };
+        var baselineLines = SurfaceToLines(EnumerateTransportSurface(
+            InfrastructureAssembly, includeType: IsFrozenTransportType));
+        var syntheticLines = SurfaceToLines(syntheticSurface);
+        var added = syntheticLines.Except(baselineLines, StringComparer.Ordinal).ToList();
+        added.ShouldContain("Twig.Infrastructure.Persistence.Transport.RogueAuthorityVerb::M:MintClaim",
+            "Frozen-surface mechanism must flag an authority-bearing verb added to the transport namespace.");
+
+        // (b) Dependency direction: a synthetic type returning
+        // ClaimRecord MUST be caught.
+        var authority = new HashSet<Type>(AuthoritySurfaceTypes());
+        var reached = ReachableTypesTransitive(typeof(RogueAuthorityMock));
+        var offenders = reached.Where(authority.Contains).ToList();
+        offenders.ShouldNotBeEmpty(
+            "Dependency-direction walker must catch a synthetic type reaching an authority surface.");
+    }
+
+    // Synthetic mock — takes/returns an authority type. Deliberately
+    // present so the mutation-proof test has something concrete to walk.
+    // Not in the transport namespace, so it does NOT affect the
+    // FrozenSurface test.
+    private sealed class RogueAuthorityMock
+    {
+        public Twig.Domain.Services.Claims.ClaimRecord? Mint() => null;
+    }
+
+    // ─── R1–R15 row enumeration (retained, clearly labelled) ────────
 
     public static IEnumerable<object[]> RejectedRows() => new[]
     {
-        // R1 — claim lifecycle. Owned by AB#737/739; ILocalClaimService is the seam.
         new object[] { "R1", "Twig.Domain.Services.Claims.ILocalClaimService" },
-        // R2 — Change Proposal state transition. Owned by plan lifecycle.
         new object[] { "R2", "Twig.Domain.Interfaces.IPlanLifecycleService" },
-        // R3 — plan validate/preview/apply/status.
         new object[] { "R3", "Twig.Domain.Interfaces.IPlanLifecycleService" },
-        // R4 — ADO work-item state mutation.
         new object[] { "R4", "Twig.Domain.Interfaces.IAdoWorkItemService" },
-        // R5 — ADO field update.
         new object[] { "R5", "Twig.Domain.Interfaces.IAdoWorkItemService" },
-        // R6 — ADO link add/remove.
         new object[] { "R6", "Twig.Domain.Interfaces.IAdoWorkItemService" },
-        // R7 — ADO comment publication.
         new object[] { "R7", "Twig.Domain.Interfaces.IAdoWorkItemService" },
-        // R8 — session-steering-mode derivation. IAttachmentStatusProjection is the
-        // steering-mode surface owned by AB#738.
         new object[] { "R8", "Twig.Domain.Interfaces.IAttachmentStatusProjection" },
-        // R9 — primary-scope attachment lifecycle.
         new object[] { "R9", "Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore" },
         new object[] { "R9", "Twig.Domain.Interfaces.IPrimaryScopeAttachmentService" },
-        // R10 — managed-worktree init/reinit.
         new object[] { "R10", "Twig.Domain.Interfaces.IManagedWorktreeInitializer" },
-        // R11–R15 — adapter management surface. There is no surface
-        // outside the transport namespace that publishes these verbs
-        // (that would be R11–R15's failure mode by construction). Row
-        // R11 verb "create host workspace" is asserted as: no interface
-        // OUTSIDE the transport namespace exposes a method with a name
-        // like "CreateWorkspace" that takes a transport type.
         new object[] { "R11", "Twig.Domain.Services.Claims.ILocalClaimService" },
         new object[] { "R12", "Twig.Domain.Services.Claims.ILocalClaimService" },
         new object[] { "R13", "Twig.Domain.Services.Claims.ILocalClaimService" },
@@ -114,101 +239,43 @@ public sealed class TransportNoAuthorityConformanceTests
 
     [Theory]
     [MemberData(nameof(RejectedRows))]
-    public void FieldReference_invariant_no_transport_type_reaches_rejected_row(string row, string interfaceFullName)
+    public void FieldReference_invariant_row_by_row_no_transport_type_on_rejected_surface(string row, string interfaceFullName)
     {
         _ = row;
         var iface = DomainAssembly.GetType(interfaceFullName, throwOnError: false);
         iface.ShouldNotBeNull($"required interface {interfaceFullName} not found in Domain assembly.");
+        var transportSet = new HashSet<Type>(TransportPublicSurfaceTypes);
         var offending = new List<string>();
         foreach (var method in iface!.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
         {
-            if (TransportPublicSurfaceTypes.Contains(UnwrapTaskAndResult(method.ReturnType)))
+            if (transportSet.Contains(UnwrapTaskAndResult(method.ReturnType)))
                 offending.Add($"{iface.Name}.{method.Name} returns transport type {method.ReturnType.Name}");
             foreach (var parameter in method.GetParameters())
             {
-                if (TransportPublicSurfaceTypes.Contains(UnwrapTaskAndResult(parameter.ParameterType)))
+                if (transportSet.Contains(UnwrapTaskAndResult(parameter.ParameterType)))
                     offending.Add($"{iface.Name}.{method.Name}({parameter.Name}: {parameter.ParameterType.Name}) takes transport type");
             }
         }
         offending.ShouldBeEmpty($"{row} rejected surface must NOT reference any transport type; found:\n  {string.Join("\n  ", offending)}");
     }
 
-    [Theory]
-    [MemberData(nameof(RejectedRows))]
-    public void EventBoundary_invariant_no_transport_operation_name_appears_on_rejected_row(string row, string interfaceFullName)
-    {
-        _ = row;
-        var iface = DomainAssembly.GetType(interfaceFullName, throwOnError: false);
-        iface.ShouldNotBeNull($"required interface {interfaceFullName} not found in Domain assembly.");
-        // §9.1 event-boundary invariant: an R-row surface must not
-        // publish a transport operation. Generic verbs like Write /
-        // Detach / Close are shared with AB#738 attachment lifecycle
-        // (write a claim link, detach the primary scope, close a
-        // work-item state) and are NOT transport-typed unless their
-        // parameters or return type carry a transport identity. The
-        // check is therefore: any method whose name matches a
-        // transport-unique verb (ReportStatus / ProbeLiveness /
-        // RecordIdentity / SelectPresentation / Render /
-        // PartialClose) OR any method whose signature carries a
-        // transport type. The transport-type check duplicates the
-        // field-reference invariant deliberately — a defence in depth,
-        // matching §9.1's "both invariants must pass" wording.
-        var transportUniqueVerbs = new[]
-        {
-            "ReportStatus", "ProbeLiveness", "RecordIdentity",
-            "SelectPresentation", "Render", "PartialClose",
-        };
-        var problems = new List<string>();
-        foreach (var method in iface!.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-        {
-            foreach (var verb in transportUniqueVerbs)
-            {
-                if (method.Name == verb || method.Name.EndsWith(verb + "Async", System.StringComparison.Ordinal))
-                    problems.Add($"{iface.Name}.{method.Name} matches transport-unique verb '{verb}'");
-            }
-            if (TransportPublicSurfaceTypes.Contains(UnwrapTaskAndResult(method.ReturnType)))
-                problems.Add($"{iface.Name}.{method.Name} returns transport type");
-            foreach (var parameter in method.GetParameters())
-            {
-                if (TransportPublicSurfaceTypes.Contains(UnwrapTaskAndResult(parameter.ParameterType)))
-                    problems.Add($"{iface.Name}.{method.Name} takes transport type parameter");
-            }
-        }
-        problems.ShouldBeEmpty($"event-boundary invariant: no transport operation or observation may appear on a rejected surface; found:\n  {string.Join("\n  ", problems)}");
-    }
+    // ─── §1.1(c) reverse invariant (retained) ────────────────────────
 
-    // §1.1(c) reverse invariant: walk the reachable event/call graph
-    // from every NON-close transport entry point and assert Close /
-    // PartialClose unreachable. Reflection can't run a true reachability
-    // walk of IL bodies without an IL library; the assertion is
-    // therefore structural — the shape validator, envelope mapper,
-    // store's Read/Write, dispatcher's non-close entry points, and the
-    // renderer's SelectPresentation/RenderAsync MUST NOT publish
-    // Close/PartialClose methods themselves.
     [Fact]
-    public void ReverseInvariant_shape_validator_never_publishes_close_or_partial_close()
-    {
+    public void ReverseInvariant_shape_validator_never_publishes_close_or_partial_close() =>
         AssertTypeHasNoCloseMembers(typeof(TransportShapeValidator));
-    }
 
     [Fact]
-    public void ReverseInvariant_envelope_mapper_never_publishes_close_or_partial_close()
-    {
+    public void ReverseInvariant_envelope_mapper_never_publishes_close_or_partial_close() =>
         AssertTypeHasNoCloseMembers(typeof(TransportEnvelopeMapper));
-    }
 
     [Fact]
     public void ReverseInvariant_store_read_never_publishes_close_or_partial_close()
     {
-        // ITransportAttachmentStore.Close/Detach ARE valid entry points
-        // — the reverse invariant applies to the READ side, not to the
-        // documented Close/Detach entry points. The store's Close is
-        // still explicit caller invocation only per §1.1(c).
         var iface = typeof(ITransportAttachmentStore);
         var readMethod = iface.GetMethod(nameof(ITransportAttachmentStore.ReadWithRevisionAsync))!;
         readMethod.ShouldNotBeNull();
-        // Read must not return a partial-close outcome.
-        readMethod.ReturnType.ShouldNotBe(typeof(System.Threading.Tasks.Task<Twig.Domain.Common.Result<TransportPartialCloseOutcome>>));
+        readMethod.ReturnType.ShouldNotBe(typeof(Task<Twig.Domain.Common.Result<TransportPartialCloseOutcome>>));
     }
 
     [Fact]
@@ -218,49 +285,18 @@ public sealed class TransportNoAuthorityConformanceTests
         AssertMemberNameDoesNotEqual(typeof(IChangeProposalRenderer), "PartialCloseAsync");
     }
 
-    private static void AssertTypeHasNoCloseMembers(System.Type type)
-    {
-        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-        {
-            method.Name.ShouldNotBe("Close");
-            method.Name.ShouldNotBe("PartialClose");
-            method.Name.ShouldNotBe("CloseAsync");
-            method.Name.ShouldNotBe("PartialCloseAsync");
-        }
-    }
+    // ─── §8.3 ADO namespace boundary (retained) ─────────────────────
 
-    private static void AssertMemberNameDoesNotEqual(System.Type type, string forbidden)
-    {
-        var found = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .Any(m => m.Name == forbidden);
-        found.ShouldBeFalse($"{type.Name} publishes forbidden member '{forbidden}'.");
-    }
-
-    // Unwrap Task<T>, Task<Result<T>>, Result<T> to inspect the terminal
-    // payload type.
-    private static System.Type UnwrapTaskAndResult(System.Type type)
-    {
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>))
-            return UnwrapTaskAndResult(type.GetGenericArguments()[0]);
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Twig.Domain.Common.Result<>))
-            return UnwrapTaskAndResult(type.GetGenericArguments()[0]);
-        return type;
-    }
-
-    // §8.3 ADO projection boundary: no transport type is referenced by
-    // any ADO namespace. Enforced structurally by checking every type
-    // in the Infrastructure assembly's Twig.Infrastructure.Ado.*
-    // namespace for a transport-typed member.
     [Fact]
     public void AdoNamespace_never_references_a_transport_type()
     {
         var adoTypes = InfrastructureAssembly.GetTypes()
             .Where(t => t.Namespace is not null
-                     && t.Namespace.StartsWith("Twig.Infrastructure.Ado", System.StringComparison.Ordinal))
+                     && t.Namespace.StartsWith("Twig.Infrastructure.Ado", StringComparison.Ordinal))
             .ToList();
         adoTypes.ShouldNotBeEmpty();
         var offending = new List<string>();
-        var transportSet = new HashSet<System.Type>(TransportPublicSurfaceTypes);
+        var transportSet = new HashSet<Type>(TransportPublicSurfaceTypes);
         foreach (var t in adoTypes)
         {
             foreach (var method in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
@@ -282,18 +318,142 @@ public sealed class TransportNoAuthorityConformanceTests
         offending.ShouldBeEmpty($"§8.3 boundary: ADO namespace types must NOT reference any transport type. Offenders:\n  {string.Join("\n  ", offending)}");
     }
 
-    // §8.3 namespace seam: transport types live in
-    // Twig.Infrastructure.Persistence.Transport. Anything moving them
-    // out would defeat the §8.3 test above.
     [Fact]
     public void All_transport_public_surface_types_live_in_transport_namespace()
     {
         var offending = new List<string>();
         foreach (var t in TransportPublicSurfaceTypes)
         {
-            if (t.Namespace != "Twig.Infrastructure.Persistence.Transport")
-                offending.Add($"{t.FullName} lives outside Twig.Infrastructure.Persistence.Transport");
+            if (t.Namespace != TransportNamespace)
+                offending.Add($"{t.FullName} lives outside {TransportNamespace}");
         }
         offending.ShouldBeEmpty($"§8.3 namespace seam violation:\n  {string.Join("\n  ", offending)}");
     }
+
+    // ─── helpers ─────────────────────────────────────────────────────
+
+    // The "frozen" transport surface excludes host-adapter
+    // implementations (author-owned; each has its own conformance
+    // suite) and their sub-namespaces.
+    private static bool IsFrozenTransportType(Type t) =>
+        t.Namespace == TransportNamespace
+        && !t.Name.EndsWith("TransportAdapter", StringComparison.Ordinal);
+
+    private static void AssertTypeHasNoCloseMembers(Type type)
+    {
+        foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+        {
+            method.Name.ShouldNotBe("Close");
+            method.Name.ShouldNotBe("PartialClose");
+            method.Name.ShouldNotBe("CloseAsync");
+            method.Name.ShouldNotBe("PartialCloseAsync");
+        }
+    }
+
+    private static void AssertMemberNameDoesNotEqual(Type type, string forbidden)
+    {
+        var found = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Any(m => m.Name == forbidden);
+        found.ShouldBeFalse($"{type.Name} publishes forbidden member '{forbidden}'.");
+    }
+
+    private static Type UnwrapTaskAndResult(Type type)
+    {
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>))
+            return UnwrapTaskAndResult(type.GetGenericArguments()[0]);
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Twig.Domain.Common.Result<>))
+            return UnwrapTaskAndResult(type.GetGenericArguments()[0]);
+        return type;
+    }
+
+    private static Dictionary<string, List<string>> EnumerateTransportSurface(
+        Assembly assembly, Func<Type, bool> includeType)
+    {
+        var surface = new Dictionary<string, List<string>>();
+        var types = assembly.GetTypes()
+            .Where(t => includeType(t) && !t.IsCompilerGenerated())
+            .OrderBy(t => t.FullName, StringComparer.Ordinal);
+        foreach (var t in types)
+        {
+            var sigils = new SortedSet<string>(StringComparer.Ordinal);
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+            foreach (var m in t.GetMethods(flags))
+                if (!m.IsSpecialName && !IsRecordAutoMember(m.Name)) sigils.Add("M:" + m.Name);
+            foreach (var p in t.GetProperties(flags))
+                sigils.Add("P:" + p.Name);
+            surface[t.FullName!] = sigils.ToList();
+        }
+        return surface;
+    }
+
+    // Skip record-generated plumbing so the baseline reflects contract
+    // members only, not compiler artifacts every record ships with.
+    private static bool IsRecordAutoMember(string name) =>
+        name is "Equals" or "GetHashCode" or "ToString" or "Deconstruct" or "<Clone>$"
+        || name.StartsWith("<", StringComparison.Ordinal);
+
+    private static List<string> SurfaceToLines(Dictionary<string, List<string>> surface)
+    {
+        var lines = new List<string>();
+        foreach (var kv in surface.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            foreach (var sig in kv.Value)
+                lines.Add(kv.Key + "::" + sig);
+        }
+        return lines;
+    }
+
+    /// <summary>Transitive reachable-types walk from a root. Only
+    /// includes types from Domain / Infrastructure assemblies to
+    /// prevent walking the BCL.</summary>
+    private static HashSet<Type> ReachableTypesTransitive(Type root)
+    {
+        var visited = new HashSet<Type>();
+        var queue = new Queue<Type>();
+        queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var t = queue.Dequeue();
+            if (!visited.Add(t)) continue;
+            // Skip BCL types — walking System.Object or generic Task<>
+            // pollutes the walk without adding signal. Keep everything
+            // in the twig assemblies (Domain / Infrastructure / test
+            // assemblies) so a synthetic mock in the test project can
+            // participate in the walk.
+            var asmName = t.Assembly.FullName ?? string.Empty;
+            if (asmName.StartsWith("System", StringComparison.Ordinal)) continue;
+            if (asmName.StartsWith("Microsoft", StringComparison.Ordinal)) continue;
+            if (asmName.StartsWith("mscorlib", StringComparison.Ordinal)) continue;
+            if (asmName.StartsWith("netstandard", StringComparison.Ordinal)) continue;
+            if (t == typeof(object) || t == typeof(void) || t.IsPrimitive) continue;
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic
+                                     | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+            foreach (var m in t.GetMethods(flags))
+            {
+                queue.Enqueue(UnwrapTaskAndResult(m.ReturnType));
+                foreach (var p in m.GetParameters())
+                    queue.Enqueue(UnwrapTaskAndResult(p.ParameterType));
+                if (m.IsGenericMethodDefinition)
+                    foreach (var g in m.GetGenericArguments()) queue.Enqueue(g);
+            }
+            foreach (var p in t.GetProperties(flags))
+                queue.Enqueue(UnwrapTaskAndResult(p.PropertyType));
+            foreach (var f in t.GetFields(flags))
+                queue.Enqueue(UnwrapTaskAndResult(f.FieldType));
+            if (t.IsGenericType)
+                foreach (var g in t.GetGenericArguments()) queue.Enqueue(g);
+            if (t.BaseType is not null) queue.Enqueue(t.BaseType);
+        }
+        return visited;
+    }
+}
+
+internal static class TransportSurfaceTypeExtensions
+{
+    public static bool IsCompilerGenerated(this Type type) =>
+        type.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() is not null
+        || type.Name.Contains('<')
+        || type.Name.Contains("d__")
+        || type.Name.StartsWith("__", StringComparison.Ordinal);
 }

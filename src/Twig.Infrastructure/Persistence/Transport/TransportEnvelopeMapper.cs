@@ -85,55 +85,152 @@ internal static class TransportEnvelopeMapper
             Record: envelope.Record is null ? null : ToRecordDocument(envelope.Record));
     }
 
+    /// <summary>Convert a parsed on-disk record document to the in-memory
+    /// <see cref="TransportAttachmentRecord"/>, obeying §2.2's fixed row
+    /// precedence and failing closed on source-generated-JSON null holes.
+    /// <para>
+    /// The parse is staged so a document with multiple defects surfaces
+    /// the correct row:
+    /// </para>
+    /// <list type="number">
+    ///   <item><b>Stage 1 — structural presence (row 1
+    ///     <see cref="TransportAttachmentFailure.RecordInvalid"/>).</b>
+    ///     Nested <c>Target</c>/<c>Capabilities</c> objects declared
+    ///     non-nullable in the JSON DTO can still deserialize to
+    ///     <c>null</c> when the JSON literally omits or nulls the field
+    ///     (source-gen JSON honours the wire, not the annotation). A bare
+    ///     dereference would leak <see cref="System.NullReferenceException"/>
+    ///     to the caller; instead every nested reference is null-checked
+    ///     and the malformed envelope surfaces
+    ///     <see cref="TransportAttachmentFailure.RecordInvalid"/>. Target
+    ///     parsing (adapter id, host attachment id, role, etc.) also
+    ///     lives at this stage.</item>
+    ///   <item><b>Stage 2 — shape rows (rows 2/3/4).</b> Worktree-absent
+    ///     (row 2), bare worktree (row 3), and residual "fits neither
+    ///     shape" (row 4) are decided from field presence alone, BEFORE
+    ///     any value-level parse. This is what makes the precedence
+    ///     match §2.2 verbatim: a document that both lacks a worktree
+    ///     AND has a malformed status/capability surfaces
+    ///     <see cref="TransportAttachmentFailure.WorktreeMissing"/>, not
+    ///     <see cref="TransportAttachmentFailure.UnknownStatus"/> or
+    ///     <see cref="TransportAttachmentFailure.UnknownCapability"/>.
+    ///     </item>
+    ///   <item><b>Stage 3 — value rows (rows 5/6).</b> Only after the
+    ///     shape rows have passed do we parse
+    ///     <c>agent.recordedStatus</c> (row 5) and each present
+    ///     capability set (row 6).</item>
+    /// </list>
+    /// </summary>
     private static Result<TransportAttachmentRecord> FromRecordDocument(TransportRecordDocument doc)
     {
-        TransportWorktreePayload? worktree = null;
+        // Stage 1 — structural presence + nested-null safety (row 1).
+        // The nested DTO annotations are non-nullable, but source-gen
+        // JSON of a document with the field absent or explicitly null
+        // still writes null through the constructor. Guard every deref.
+        TransportAdapterTarget? worktreeTarget = null;
+        string? worktreeFingerprint = null;
         if (doc.Worktree is { } w)
         {
+            if (w.Target is null)
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
             if (string.IsNullOrEmpty(w.WorktreeFingerprint))
                 return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
             var targetResult = FromTargetDocument(w.Target, expectedRole: TransportAdapterRole.Worktree);
             if (!targetResult.IsSuccess)
                 return Result.Fail<TransportAttachmentRecord>(targetResult.Error);
-            worktree = new TransportWorktreePayload(w.WorktreeFingerprint, targetResult.Value);
+            worktreeTarget = targetResult.Value;
+            worktreeFingerprint = w.WorktreeFingerprint;
         }
 
-        TransportAgentPayload? agent = null;
+        TransportAdapterTarget? agentTarget = null;
+        string? agentSessionKind = null;
+        string? agentRecordedStatusWire = null;
+        System.DateTimeOffset agentRecordedAt = default;
+        System.Collections.Generic.IReadOnlyList<string>? agentCapabilityWires = null;
         if (doc.Agent is { } a)
         {
+            if (a.Target is null)
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
+            if (a.Capabilities is null)
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
             var targetResult = FromTargetDocument(a.Target, expectedRole: TransportAdapterRole.Agent);
             if (!targetResult.IsSuccess)
                 return Result.Fail<TransportAttachmentRecord>(targetResult.Error);
             if (string.IsNullOrEmpty(a.SessionKind))
                 return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
-            if (!RecordedStatusExtensions.TryParse(a.RecordedStatus, out var status))
-                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.UnknownStatus);
+            // A null/empty recordedStatus is schema absence (row 1), not
+            // row 5 — row 5 fires only when a NON-EMPTY string is outside
+            // §4.1's enumeration.
+            if (string.IsNullOrEmpty(a.RecordedStatus))
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
             if (!TryParseUtc(a.RecordedAt, out var recordedAt))
                 return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
-            var capsResult = FromCapabilityWireStrings(a.Capabilities);
-            if (!capsResult.IsSuccess)
-                return Result.Fail<TransportAttachmentRecord>(capsResult.Error);
-            agent = new TransportAgentPayload(
-                Target: targetResult.Value,
-                SessionKind: a.SessionKind,
-                RecordedStatus: status,
-                RecordedAt: recordedAt,
-                Capabilities: capsResult.Value);
+            agentTarget = targetResult.Value;
+            agentSessionKind = a.SessionKind;
+            agentRecordedStatusWire = a.RecordedStatus;
+            agentRecordedAt = recordedAt;
+            agentCapabilityWires = a.Capabilities;
         }
 
-        TransportTerminalPayload? terminal = null;
+        TransportAdapterTarget? terminalTarget = null;
+        System.Collections.Generic.IReadOnlyList<string>? terminalCapabilityWires = null;
         if (doc.Terminal is { } t)
         {
+            if (t.Target is null)
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
+            if (t.Capabilities is null)
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.RecordInvalid);
             var targetResult = FromTargetDocument(t.Target, expectedRole: TransportAdapterRole.Terminal);
             if (!targetResult.IsSuccess)
                 return Result.Fail<TransportAttachmentRecord>(targetResult.Error);
-            var capsResult = FromCapabilityWireStrings(t.Capabilities);
-            if (!capsResult.IsSuccess)
-                return Result.Fail<TransportAttachmentRecord>(capsResult.Error);
-            terminal = new TransportTerminalPayload(targetResult.Value, capsResult.Value);
+            terminalTarget = targetResult.Value;
+            terminalCapabilityWires = t.Capabilities;
         }
 
-        return Result.Ok(new TransportAttachmentRecord(worktree, agent, terminal));
+        // Stage 2 — shape rows (rows 2/3/4). Decided from field
+        // presence alone; MUST run before rows 5/6.
+        var worktreePresent = doc.Worktree is not null;
+        var agentPresent = doc.Agent is not null;
+        var terminalPresent = doc.Terminal is not null;
+        if (!worktreePresent)
+            return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.WorktreeMissing);
+        if (!agentPresent && !terminalPresent)
+            return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.BareWorktree);
+        var isDirectHuman = !agentPresent && terminalPresent;
+        var isAgentDriven = agentPresent;
+        if (!isDirectHuman && !isAgentDriven)
+            return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.OrphanTerminal);
+
+        // Stage 3 — value rows (rows 5/6).
+        TransportAgentPayload? agentPayload = null;
+        if (agentTarget is not null)
+        {
+            if (!RecordedStatusExtensions.TryParse(agentRecordedStatusWire!, out var status))
+                return Result.Fail<TransportAttachmentRecord>(TransportAttachmentFailure.UnknownStatus);
+            var capsResult = FromCapabilityWireStrings(agentCapabilityWires!);
+            if (!capsResult.IsSuccess)
+                return Result.Fail<TransportAttachmentRecord>(capsResult.Error);
+            agentPayload = new TransportAgentPayload(
+                Target: agentTarget,
+                SessionKind: agentSessionKind!,
+                RecordedStatus: status,
+                RecordedAt: agentRecordedAt,
+                Capabilities: capsResult.Value);
+        }
+
+        TransportTerminalPayload? terminalPayload = null;
+        if (terminalTarget is not null)
+        {
+            var capsResult = FromCapabilityWireStrings(terminalCapabilityWires!);
+            if (!capsResult.IsSuccess)
+                return Result.Fail<TransportAttachmentRecord>(capsResult.Error);
+            terminalPayload = new TransportTerminalPayload(terminalTarget, capsResult.Value);
+        }
+
+        var worktreePayload = worktreeTarget is null
+            ? null
+            : new TransportWorktreePayload(worktreeFingerprint!, worktreeTarget);
+        return Result.Ok(new TransportAttachmentRecord(worktreePayload, agentPayload, terminalPayload));
     }
 
     private static TransportRecordDocument ToRecordDocument(TransportAttachmentRecord record)

@@ -103,8 +103,9 @@ local-first contract or invalidating any record written today.
 ## Record shape (registry row)
 
 Every claim is one row in the system-local registry. The row shape is fixed
-below. The storage binding (owned by #736) MAY realize the row as a SQLite
-table, a JSON blob, or another store, but the field set and invariants MUST
+below. The storage binding (owned by #736) realizes the row as a JSON
+document in `~/.twig/system.db`'s `Claims.recordJson` column — one
+registry row per claim record. The field set and invariants below MUST
 match exactly. `schemaVersion` is the single integer that gates on-disk
 compatibility for the row.
 
@@ -113,7 +114,7 @@ compatibility for the row.
 | `schemaVersion` | integer | no | On-disk shape version. Version 1 records are described here. Readers refuse a higher version rather than interpret unknown fields. |
 | `claimId` | opaque string | no | Canonical identifier, byte-exact. Immutable. Unique. |
 | `label` | UTF-8 string | yes | Human display only. May be updated in place; never load-bearing. |
-| `connectionId` | opaque string | no | Stable identifier of the ADO connection (`organization/project` binding). Supplied by the connection registry; never re-derived from URL text. |
+| `connectionRef` | opaque string | no | Stable identifier of the ADO connection (`organization/project` binding). Supplied by the connection registry; never re-derived from URL text. |
 | `primaryScopeId` | opaque string | no | Stable identifier for the primary scope this claim authorizes. For an ADO-backed scope this is the numeric work-item id rendered as a string; the schema treats it as opaque so future non-ADO scopes fit without migration. |
 | `primaryScopeKind` | opaque string | no | Discriminator for the scope identifier (initial value: `"ado-workitem"`). Version 1 readers accept exactly the values the profile declares; unknown values fail loudly. |
 | `holderIdentity` | opaque string | no | Captured principal that owns the claim (typically the connection's resolved identity descriptor). Never derived from OS username at claim-check time. |
@@ -134,7 +135,7 @@ compatibility for the row.
 ### Invariants
 
 - `(claimId)` is unique across the whole registry (all states).
-- `(connectionId, primaryScopeKind, primaryScopeId, state)` is unique when
+- `(connectionRef, primaryScopeKind, primaryScopeId, state)` is unique when
   `state ∈ { pending, active }`. Terminal states (`released`, `superseded`)
   are not part of this uniqueness constraint and MAY accumulate.
 - A row with `state = superseded` MUST have `supersededByClaimId` pointing at
@@ -226,7 +227,7 @@ or from a `pending` / `released` / `superseded` row.
 ## Single-active supersession
 
 One Twig installation may hold at most one **active or pending** claim for a
-given `(connectionId, primaryScopeKind, primaryScopeId)` tuple. This is
+given `(connectionRef, primaryScopeKind, primaryScopeId)` tuple. This is
 enforced by:
 
 1. The registry's uniqueness constraint on the tuple filtered by
@@ -255,7 +256,7 @@ failed ADO projection never leaves an active claim without a paired ADO
 assignment, and never leaves ADO assignment without a local record.
 
 1. **Uniqueness + reservation (local, atomic).**
-   Open a storage transaction. Assert `(connectionId, primaryScopeKind,
+   Open a storage transaction. Assert `(connectionRef, primaryScopeKind,
    primaryScopeId, state ∈ {pending, active})` uniqueness. Insert the new
    row with:
    - fresh `claimId`,
@@ -415,7 +416,7 @@ Spec #728 named:
   registry a `claimId` and expects the active row. Indexed on `claimId`
   (unique).
 - **Tuple lookup.** Mint/reclaim/release read the current row for
-  `(connectionId, primaryScopeKind, primaryScopeId, state ∈ {pending,
+  `(connectionRef, primaryScopeKind, primaryScopeId, state ∈ {pending,
   active})`. Indexed on the tuple restricted to those states.
 - **Worktree lookup.** Cross-installation diagnostics may enumerate claims
   minted by a given worktree. Indexed on `worktreeFingerprint`.
@@ -424,17 +425,19 @@ Spec #728 named:
 - **History lookup.** Time-ordered browsing uses `createdAt` (dense, always
   set) with `claimId` as tie-breaker.
 
-Concrete index realization is #736's storage seam. Version 1 assumes
-SQLite-compatible indexes; a non-SQLite binding provides equivalents.
+Concrete index realization is #736's storage seam: the `Claims` table
+in `~/.twig/system.db` carries the row payload on `recordJson` and
+exposes the tuple/`claimId`/`worktreeFingerprint`/`holderIdentity`/
+`createdAt` indexes above as native SQLite indexes.
 
 ### Recovery scenarios and their reads
 
 | Scenario | Read | Expected result |
 |---|---|---|
 | Fresh command loads its claim | `SELECT * FROM claims WHERE claimId = ?` from the attachment | Exactly one row in `active`. Otherwise: fail loud. |
-| Mint contention | `SELECT * FROM claims WHERE (connectionId, primaryScopeKind, primaryScopeId) = ? AND state IN ('pending','active')` | Zero rows: proceed to mint. One row: refuse with `PrimaryScopeAlreadyClaimed`. |
+| Mint contention | `SELECT * FROM claims WHERE (connectionRef, primaryScopeKind, primaryScopeId) = ? AND state IN ('pending','active')` | Zero rows: proceed to mint. One row: refuse with `PrimaryScopeAlreadyClaimed`. |
 | Attachment lost | `SELECT * FROM claims WHERE worktreeFingerprint = ? AND state = 'active'` | Operator command may rebind attachment to an existing active row. |
-| Historical audit | `SELECT * FROM claims WHERE (connectionId, primaryScopeKind, primaryScopeId) = ? ORDER BY createdAt` | Full history including released and superseded rows. |
+| Historical audit | `SELECT * FROM claims WHERE (connectionRef, primaryScopeKind, primaryScopeId) = ? ORDER BY createdAt` | Full history including released and superseded rows. |
 
 ## Retention
 
@@ -511,7 +514,7 @@ inputs, outputs, and preconditions below MUST match this spec.
 ```text
 mint(input: MintInput) -> Result<ActiveClaim, MintError>
     Preconditions:
-      - MintInput carries: connectionId, primaryScopeKind, primaryScopeId,
+      - MintInput carries: connectionRef, primaryScopeKind, primaryScopeId,
         holderIdentity, holderDisplay?, label?, worktreeFingerprint,
         notes?, adoProjection: AdoProjectionBinding.
       - MintInput has NO caller-supplied claimId; the mint operation
@@ -554,7 +557,7 @@ release(input: ReleaseInput) -> Result<ReleasedClaim, ReleaseError>
       ClaimNotFound | ClaimNotActive | ReleaseAdoProjectionFailed |
       ConcurrentClaimWrite | AttachmentUnlinkFailed.
 
-validate(claimId, connectionId, primaryScopeId, primaryScopeKind)
+validate(claimId, connectionRef, primaryScopeId, primaryScopeKind)
     -> Result<ActiveClaim, ValidateError>
     Preconditions:
       - Called by every #739 code path that requires a claim (fail-loud
@@ -567,7 +570,7 @@ validate(claimId, connectionId, primaryScopeId, primaryScopeKind)
       TupleMismatch (returned when the row exists but its tuple disagrees
       with the caller-supplied tuple; this is a corruption signal).
 
-lookupByTuple(connectionId, primaryScopeKind, primaryScopeId)
+lookupByTuple(connectionRef, primaryScopeKind, primaryScopeId)
     -> Result<Option<ActiveOrPendingClaim>, LookupError>
     Reads at most one row in {pending, active} for the tuple. Used by mint
     contention diagnostics and by reclaim precondition checks.
@@ -598,9 +601,11 @@ readClaimReference(worktreeFingerprint) -> Result<Option<claimId>, AttachmentErr
 The claim lifecycle uses `link` at mint/reclaim step 4, `unlink` at release
 step 3, and `readClaimReference` when a command starts up and needs to
 locate its claim. The attachment binding stores nothing about the claim
-except its opaque `claimId`; every other field lives in the registry. If
-#736 realizes the attachment binding as a JSON file, a SQLite row, or an
-in-memory adapter for tests, the seam remains the same.
+except its opaque `claimId`; every other field lives in the registry.
+#736 realizes the attachment binding as the worktree-local
+`.twig/attachment.json` file (gitignored) that references the active
+`claimId`, while the registry payload continues to live in
+`~/.twig/system.db`'s `Claims.recordJson`.
 
 ## Cross-cutting rules for implementers
 

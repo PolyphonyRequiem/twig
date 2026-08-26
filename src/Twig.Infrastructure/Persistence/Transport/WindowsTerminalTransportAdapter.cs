@@ -181,7 +181,7 @@ internal sealed class WindowsTerminalTransportAdapter : ITransportAdapter
         => throw new System.NotSupportedException("Windows Terminal adapter does not declare StatusReporting; dispatcher applies §3.2 degradation. See contract §12.3 / §3.4 — no query surface exists.");
 
     public Task<Result<TransportLivenessObservation>> ProbeLivenessAsync(TransportAdapterTarget target, TransportProbeOptions? options, CancellationToken ct)
-        => throw new System.NotSupportedException("Windows Terminal adapter does not declare LivenessProbe; dispatcher applies §3.2 degradation. See contract §12.3 — probing via wt.exe --window would silently CREATE a new window.");
+        => throw new System.NotSupportedException("Windows Terminal adapter does not declare LivenessProbe; dispatcher applies §3.2 degradation. See contract §12.3 — probing the caller-supplied window handle would silently CREATE a new window.");
 
     public Task<Result> DetachAsync(TransportAdapterTarget target, CancellationToken ct)
         => throw new System.NotSupportedException("Windows Terminal adapter does not declare Detach; dispatcher returns Result.Ok() per §3.2 (record-level detach always available).");

@@ -38,7 +38,7 @@ internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, ID
 {
     // AB#739 bump from 1 → 2 for the tuple-storage schema change
     // (`primary_scope_kind` column + extended partial unique index).
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -310,6 +310,75 @@ VALUES ($id, $ref, $fp, $kind, $wi, 'active', $tok, $now, NULL, $json);";
 
             return Result.Ok();
         }, ct);
+    public Task<Result<long>> ReserveTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default)
+        => ExecuteWriteAsync<long>(async (connection, tx) =>
+        {
+            // Atomic increment: INSERT-OR-UPDATE + return the new value.
+            // The BEGIN IMMEDIATE outer transaction serializes concurrent
+            // reservers across processes at the SQLite level; the returned
+            // epoch is strictly monotonic per tuple.
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+INSERT INTO tuple_epochs (connection_ref, primary_scope_kind, work_item_id, current_epoch, winning_claim_id, winning_cas_token)
+VALUES ($ref, $kind, $wi, 1, NULL, NULL)
+ON CONFLICT(connection_ref, primary_scope_kind, work_item_id) DO UPDATE SET
+    current_epoch = tuple_epochs.current_epoch + 1
+RETURNING current_epoch;";
+            cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
+            cmd.Parameters.AddWithValue("$wi", workItemId);
+            var raw = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if (raw is null || raw is DBNull)
+                return Result.Fail<long>(AttachmentStorageFailure.SystemStoreSchemaMismatch);
+            return Result.Ok(Convert.ToInt64(raw));
+        }, ct);
+
+    public Task<Result> CommitTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, string winningClaimId, string winningCasToken, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = @"
+UPDATE tuple_epochs
+   SET winning_claim_id = $cid,
+       winning_cas_token = $cas
+ WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
+   AND work_item_id = $wi
+   AND current_epoch = $epoch;";
+            cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
+            cmd.Parameters.AddWithValue("$wi", workItemId);
+            cmd.Parameters.AddWithValue("$epoch", expectedEpoch);
+            cmd.Parameters.AddWithValue("$cid", winningClaimId);
+            cmd.Parameters.AddWithValue("$cas", winningCasToken);
+            var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (rows == 0)
+                return Result.Fail(AttachmentStorageFailure.ClaimTupleEpochMismatch);
+            return Result.Ok();
+        }, ct);
+
+    public Task<Result<TupleEpochRow>> GetTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default)
+        => ExecuteReadAsync<TupleEpochRow>(async connection =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+SELECT current_epoch, winning_claim_id, winning_cas_token
+  FROM tuple_epochs
+ WHERE connection_ref = $ref AND primary_scope_kind = $kind AND work_item_id = $wi LIMIT 1;";
+            cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
+            cmd.Parameters.AddWithValue("$wi", workItemId);
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+                return Result.Ok(new TupleEpochRow(0, null, null));
+            var epoch = reader.GetInt64(0);
+            var claimId = reader.IsDBNull(1) ? null : reader.GetString(1);
+            var cas = reader.IsDBNull(2) ? null : reader.GetString(2);
+            return Result.Ok(new TupleEpochRow(epoch, claimId, cas));
+        }, ct);
+
 
     public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default)
         => ExecuteReadAsync<SystemProfileCacheRow?>(async connection =>
@@ -394,6 +463,27 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         catch (OperationCanceledException) { throw; }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 5) { return Result.Fail(AttachmentStorageFailure.SystemStoreLocked); }
         catch (SqliteException ex) { return Result.Fail($"{AttachmentStorageFailure.SystemStoreSchemaMismatch}: {ex.Message}"); }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    private async Task<Result<T>> ExecuteWriteAsync<T>(Func<SqliteConnection, SqliteTransaction, Task<Result<T>>> body, CancellationToken ct)
+    {
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!TryEnsureOpen(out var connection, out var openFailure))
+                return Result.Fail<T>(openFailure!);
+            using var tx = connection!.BeginTransaction(deferred: false);
+            var result = await body(connection, tx).ConfigureAwait(false);
+            if (result.IsSuccess) tx.Commit(); else tx.Rollback();
+            return result;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 5) { return Result.Fail<T>(AttachmentStorageFailure.SystemStoreLocked); }
+        catch (SqliteException ex) { return Result.Fail<T>($"{AttachmentStorageFailure.SystemStoreSchemaMismatch}: {ex.Message}"); }
         finally
         {
             _writeGate.Release();
@@ -589,6 +679,15 @@ CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_unique_reserved
     ON claims(connection_ref, primary_scope_kind, work_item_id)
     WHERE state IN ('pending', 'active');
+CREATE TABLE IF NOT EXISTS tuple_epochs (
+    connection_ref TEXT NOT NULL,
+    primary_scope_kind TEXT NOT NULL,
+    work_item_id INTEGER NOT NULL,
+    current_epoch INTEGER NOT NULL DEFAULT 0,
+    winning_claim_id TEXT,
+    winning_cas_token TEXT,
+    PRIMARY KEY (connection_ref, primary_scope_kind, work_item_id)
+);
 CREATE TABLE IF NOT EXISTS profile_cache (
     connection_ref TEXT PRIMARY KEY REFERENCES connections(connection_ref) ON DELETE RESTRICT,
     profile_identity TEXT NOT NULL,

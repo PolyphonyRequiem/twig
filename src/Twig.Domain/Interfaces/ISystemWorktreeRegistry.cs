@@ -106,6 +106,31 @@ internal interface ISystemWorktreeRegistry
         DateTimeOffset transitionAt,
         CancellationToken ct = default);
 
+    // ── Tuple operation epoch (§9.4, AB#739 durable epoch protocol) ────
+
+    /// <summary>Reserve the next monotonic epoch for the tuple, atomically
+    /// incrementing <c>tuple_epochs.current_epoch</c>. Returns the new
+    /// epoch number the caller has claimed for its remote projection.
+    /// Called BEFORE the ADO write so an authoritative claimId + casToken
+    /// can be recorded against this epoch after local activation
+    /// commits.</summary>
+    Task<Result<long>> ReserveTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default);
+
+    /// <summary>Record the caller as the tuple's winner at
+    /// <paramref name="expectedEpoch"/>. CAS-conditions on
+    /// <c>current_epoch = expectedEpoch</c>; a later reserver that
+    /// raised the epoch causes this to fail with
+    /// <c>claim-tuple-epoch-mismatch</c>. On success the winner's
+    /// <paramref name="winningClaimId"/> + <paramref name="winningCasToken"/>
+    /// are persisted so compensation reads know exactly what to project.</summary>
+    Task<Result> CommitTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, string winningClaimId, string winningCasToken, CancellationToken ct = default);
+
+    /// <summary>Read the current epoch state so a compensating writer or
+    /// a losing lifecycle operation can converge ADO to the authoritative
+    /// winner. Missing row returns
+    /// <see cref="TupleEpochRow"/> with <c>Epoch = 0</c>.</summary>
+    Task<Result<TupleEpochRow>> GetTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default);
+
     // ── ProfileCache (§9.4, AB#727) ───────────────────────────────────
 
     Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default);
@@ -128,6 +153,16 @@ internal sealed record SystemClaimRow(
     DateTimeOffset MintedAt,
     DateTimeOffset? EndedAt,
     string RecordJson);
+
+/// <summary>Row projection for <c>tuple_epochs</c>. AB#739 durable epoch
+/// protocol: every mint/reclaim/release reserves a monotonic epoch
+/// before its remote projection; the eventual local commit records the
+/// epoch as the winner. A compensating writer reads this row to know
+/// exactly which claim is authoritative and what CAS token pinned it.</summary>
+internal readonly record struct TupleEpochRow(
+    long Epoch,
+    string? WinningClaimId,
+    string? WinningCasToken);
 
 internal sealed record SystemProfileCacheRow(
     string ConnectionRef,

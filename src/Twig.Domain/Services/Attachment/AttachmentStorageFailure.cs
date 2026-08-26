@@ -47,4 +47,10 @@ internal static class AttachmentStorageFailure
     /// and its write — another writer landed. The caller retries with a
     /// fresh read.</summary>
     public const string AttachmentVersionMismatch = "attachment-version-mismatch";
+
+    /// <summary>Tuple-epoch CAS lost: a later reserver raised the
+    /// monotonic per-tuple epoch between our reserve and our commit.
+    /// AB#739 durable epoch protocol \u2014 the losing operation runs
+    /// compensation against the winner recorded in <c>tuple_epochs</c>.</summary>
+    public const string ClaimTupleEpochMismatch = "claim-tuple-epoch-mismatch";
 }

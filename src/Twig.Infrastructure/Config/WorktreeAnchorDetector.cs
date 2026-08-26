@@ -65,6 +65,24 @@ internal static class WorktreeAnchorDetector
         return true;
     }
 
+    /// <summary>Ask git whether <paramref name="startDir"/> IS the worktree
+    /// root. <c>rev-parse --show-prefix</c> is empty at the root and the
+    /// relative path otherwise, which makes it the only trustworthy answer:
+    /// git resolves symlinks in the paths it reports, the runtime does not,
+    /// so comparing <c>--show-toplevel</c> against a locally computed
+    /// absolute path reports "not the root" for any checkout reached through
+    /// a symlinked ancestor — the default state of macOS temp paths, where
+    /// <c>/var</c> is a link to <c>/private/var</c>. Returns <c>false</c>
+    /// when git cannot answer at all.</summary>
+    public static bool TryIsWorktreeRoot(string startDir, out bool isRoot)
+    {
+        isRoot = false;
+        if (!TryRunGit(startDir, "rev-parse --show-prefix", out var prefix, requireOutput: false))
+            return false;
+        isRoot = prefix.Trim().Length == 0;
+        return true;
+    }
+
     /// <summary>Canonicalise a path returned by git: resolve to an absolute
     /// path anchored at <paramref name="startDir"/>, then let the runtime
     /// resolve symlinks and normalise separators. Idempotent on a canonical
@@ -91,7 +109,11 @@ internal static class WorktreeAnchorDetector
         }
     }
 
-    private static bool TryRunGit(string workingDirectory, string args, out string stdout)
+    /// <summary>Run git and capture stdout. <paramref name="requireOutput"/>
+    /// defaults to <c>true</c> because every path-returning probe treats an
+    /// empty answer as failure; <c>--show-prefix</c> is the exception, since
+    /// empty output is precisely its "you are at the root" answer.</summary>
+    private static bool TryRunGit(string workingDirectory, string args, out string stdout, bool requireOutput = true)
     {
         stdout = string.Empty;
         try
@@ -111,7 +133,9 @@ internal static class WorktreeAnchorDetector
             stdout = process.StandardOutput.ReadToEnd();
             _ = process.StandardError.ReadToEnd();
             process.WaitForExit(5_000);
-            return process.HasExited && process.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout);
+            return process.HasExited
+                && process.ExitCode == 0
+                && (!requireOutput || !string.IsNullOrWhiteSpace(stdout));
         }
         catch
         {

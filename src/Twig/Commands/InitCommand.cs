@@ -144,15 +144,18 @@ public sealed class InitCommand
             Console.Error.WriteLine(fmt.FormatError($"Managed init refused: {anchorFailure}"));
             return (1, false, 0);
         }
-        var canonicalStart = Infrastructure.Config.WorktreeAnchorDetector.CanonicalPath(_paths.StartDir, _paths.StartDir);
-        // Windows and macOS default to case-insensitive filesystems, so the
-        // root comparison there must ignore case. The platform predicate is
-        // grouped deliberately: `IsWindows() || IsMacOS() && equals` would
-        // bind as `IsWindows() || (IsMacOS() && equals)` and let every
-        // Windows subdirectory bypass the refusal entirely.
-        var startIsWorktreeRoot = string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.Ordinal)
-            || ((OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
-                && string.Equals(canonicalStart, worktreeAnchor.WorktreeRoot, StringComparison.OrdinalIgnoreCase));
+        // "Am I at the root?" is git's question to answer, not ours. A string
+        // comparison against `--show-toplevel` fails on any checkout reached
+        // through a symlinked ancestor, because git resolves symlinks and the
+        // runtime does not — which refuses every macOS temp path (/var is a
+        // link to /private/var) and any user whose repo sits behind a link.
+        // `--show-prefix` is empty exactly at the root, on every platform and
+        // every filesystem casing, so it needs no path math at all.
+        if (!Infrastructure.Config.WorktreeAnchorDetector.TryIsWorktreeRoot(_paths.StartDir, out var startIsWorktreeRoot))
+        {
+            Console.Error.WriteLine(fmt.FormatError("Managed init refused: not-a-git-worktree"));
+            return (1, false, 0);
+        }
         if (!startIsWorktreeRoot)
         {
             Console.Error.WriteLine(fmt.FormatError(

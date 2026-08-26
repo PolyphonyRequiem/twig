@@ -268,6 +268,51 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         }
     }
 
+    /// <summary>
+    /// Bind the given active-claim reference onto the current attachment
+    /// (AB#737 §Interface consumed by #739, step 4 of mint/reclaim). Reads
+    /// the current record, replaces the <c>ActiveClaim</c> block with the
+    /// new (id, mint-timestamp) pair, and re-runs
+    /// <see cref="WriteAsync"/> — the whole read/validate/write sequence
+    /// so the connectionRef, layout-marker, and fingerprint checks apply.
+    /// The primary-scope block is preserved byte-for-byte.
+    /// </summary>
+    public async Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(claimId))
+            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: claimId is required.");
+        var read = await ReadAsync(ct).ConfigureAwait(false);
+        if (!read.IsSuccess)
+            return Result.Fail(read.Error);
+        var next = read.Value with { ActiveClaim = new ActiveClaimReference(claimId, mintedAt) };
+        return await WriteAsync(next, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Drop the active-claim reference when it points at
+    /// <paramref name="expectedClaimId"/>. If the record already carries no
+    /// claim, or references a different id, the call is a success — release
+    /// is idempotent from the attachment's perspective (AB#737 §Named
+    /// release outcomes preserves the "unlink after terminalize" ordering
+    /// even when the attachment has already been cleared by another writer).
+    /// </summary>
+    public async Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(expectedClaimId))
+            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required.");
+        var read = await ReadAsync(ct).ConfigureAwait(false);
+        if (!read.IsSuccess)
+            return Result.Fail(read.Error);
+        var current = read.Value;
+        if (current.ActiveClaim is null
+            || !string.Equals(current.ActiveClaim.Value.ClaimId, expectedClaimId, StringComparison.Ordinal))
+        {
+            return Result.Ok();
+        }
+        var next = current with { ActiveClaim = null };
+        return await WriteAsync(next, ct).ConfigureAwait(false);
+    }
+
     private async Task EnsureLayoutMarkerAsync(CancellationToken ct)
     {
         var path = Path.Combine(_paths.TwigDir, LayoutFileName);

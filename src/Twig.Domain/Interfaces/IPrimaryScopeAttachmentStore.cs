@@ -47,4 +47,22 @@ internal interface IPrimaryScopeAttachmentStore
     /// is the sole route that writes marker files; write-time bootstrap is
     /// forbidden by §7.</summary>
     Task<Result> InitializeAsync(CancellationToken ct = default);
+
+    /// <summary>Bind the given active-claim reference (opaque id + mint
+    /// timestamp) onto the current attachment record without disturbing the
+    /// primary-scope block. Realizes AB#737 §Interface's <c>link</c> at
+    /// mint step 4 and reclaim step 4. The write is atomic (§6.1 temp +
+    /// rename); a failure surfaces the AB#736 §8 identifier verbatim so the
+    /// claim service maps it to
+    /// <see cref="Twig.Domain.Services.Claims.ClaimMintOutcome.AttachmentLinkFailed"/>.</summary>
+    Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default);
+
+    /// <summary>Drop the active-claim reference from the current attachment
+    /// record when it points at <paramref name="expectedClaimId"/>. Realizes
+    /// AB#737 §Interface's <c>unlink</c> at release step 3. A mismatch is
+    /// treated as already-unlinked (the release is idempotent from the
+    /// attachment's perspective); a real storage failure surfaces the
+    /// AB#736 §8 identifier verbatim so the claim service maps it to
+    /// <see cref="Twig.Domain.Services.Claims.ClaimReleaseOutcome.AttachmentUnlinkFailed"/>.</summary>
+    Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default);
 }

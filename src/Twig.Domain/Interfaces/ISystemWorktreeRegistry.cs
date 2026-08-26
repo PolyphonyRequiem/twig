@@ -68,6 +68,42 @@ internal interface ISystemWorktreeRegistry
     Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default);
     Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default);
 
+    /// <summary>Enumerate every row (in any state) whose composite tuple
+    /// (<paramref name="connectionRef"/>,
+    /// <paramref name="workItemId"/>) matches. Used exclusively by the
+    /// AB#737 §Validation path when the caller wants to distinguish
+    /// <c>ClaimNotFound</c> from <c>ClaimNotActive</c> — it never
+    /// authorizes anything. Returned rows are unordered.</summary>
+    Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default);
+
+    /// <summary>Atomic supersession: within one storage transaction,
+    /// CAS-rewrites <paramref name="predecessorClaimId"/> from
+    /// <c>active</c>→<c>superseded</c> (matching
+    /// <paramref name="predecessorExpectedCasToken"/>) and inserts a fresh
+    /// row for <paramref name="newClaimId"/> in <c>active</c> state.
+    /// Realizes AB#737 §Reclaim step 3' while honoring T1's partial unique
+    /// index on
+    /// <c>(connection_ref, work_item_id) WHERE state IN ('pending','active')</c>:
+    /// the predecessor is superseded before the new row is inserted, so
+    /// both writes co-exist inside the transaction without tripping the
+    /// index. A predecessor CAS mismatch surfaces
+    /// <c>claim-cas-mismatch</c>; a residual index violation on the insert
+    /// surfaces <c>claim-duplicate-reserved</c>; either failure rolls the
+    /// whole transaction back.</summary>
+    Task<Result> SupersedeAndActivateClaimAsync(
+        string newClaimId,
+        string newCasToken,
+        string connectionRef,
+        string worktreeFingerprint,
+        int workItemId,
+        string newRecordJson,
+        string predecessorClaimId,
+        string predecessorExpectedCasToken,
+        string predecessorNewCasToken,
+        string predecessorRecordJson,
+        DateTimeOffset transitionAt,
+        CancellationToken ct = default);
+
     // ── ProfileCache (§9.4, AB#727) ───────────────────────────────────
 
     Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default);

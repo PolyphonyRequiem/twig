@@ -168,6 +168,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentPrimaryScope))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
+// AB#739 claim record persistence
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.ClaimRecordDocument))]
 // AB#738 policy source
 [JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]

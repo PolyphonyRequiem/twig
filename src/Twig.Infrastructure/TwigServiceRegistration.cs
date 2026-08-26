@@ -191,6 +191,31 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<TwigPaths>(),
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
 
+        // AB#739 — local claim lifecycle. Every seam is registered here so
+        // any surface (CLI, MCP, TUI, integration test) resolves the same
+        // implementation through DI. The claim service is the sole owner
+        // of local claim state; downstream surfaces never open the system
+        // store or attachment file directly for claim reads/writes.
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimIdGenerator>(sp =>
+            new Twig.Infrastructure.Persistence.UlidClaimIdGenerator(
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimCasTokenGenerator, Twig.Infrastructure.Persistence.GuidClaimCasTokenGenerator>();
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimHolderResolver>(sp =>
+            new Twig.Infrastructure.Services.Claims.ConnectionHolderResolver(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>(),
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
+            new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>()));
+        services.AddSingleton<Twig.Domain.Services.Claims.ILocalClaimService>(sp =>
+            new Twig.Infrastructure.Services.Claims.LocalClaimService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimIdGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimCasTokenGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimHolderResolver>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+
         AddConnectionDomainServices(services);
 
         return services;

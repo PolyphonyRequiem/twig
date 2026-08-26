@@ -476,6 +476,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
         }
 
         public Task<Result> InitializeAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 
     private sealed class FakeEligibility : IPrimaryScopeTypeEligibility
@@ -551,6 +553,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
         public Task<Result> UpdateClaimStateAsync(string claimId, string expectedCasToken, string newCasToken, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
         public Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
+        public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok<IReadOnlyList<SystemClaimRow>>(Array.Empty<SystemClaimRow>()));
+        public Task<Result> SupersedeAndActivateClaimAsync(string newClaimId, string newCasToken, string connectionRef, string worktreeFingerprint, int workItemId, string newRecordJson, string predecessorClaimId, string predecessorExpectedCasToken, string predecessorNewCasToken, string predecessorRecordJson, DateTimeOffset transitionAt, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemProfileCacheRow?>(null));
         public Task<Result> WriteProfileCacheAsync(string connectionRef, string profileIdentity, string profileVersion, string payload, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }

@@ -207,6 +207,90 @@ SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_
         }, ct).ConfigureAwait(false);
     }
 
+    public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default)
+        => ExecuteAsync<IReadOnlyList<SystemClaimRow>>(async connection =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json
+  FROM claims
+ WHERE connection_ref = $ref
+   AND work_item_id = $wi;";
+            cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$wi", workItemId);
+            var rows = new List<SystemClaimRow>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                rows.Add(ReadClaimRow(reader));
+            return Result.Ok<IReadOnlyList<SystemClaimRow>>(rows);
+        }, ct);
+
+    public Task<Result> SupersedeAndActivateClaimAsync(
+        string newClaimId,
+        string newCasToken,
+        string connectionRef,
+        string worktreeFingerprint,
+        int workItemId,
+        string newRecordJson,
+        string predecessorClaimId,
+        string predecessorExpectedCasToken,
+        string predecessorNewCasToken,
+        string predecessorRecordJson,
+        DateTimeOffset transitionAt,
+        CancellationToken ct = default)
+        => ExecuteWriteAsync(async connection =>
+        {
+            var stamp = transitionAt.ToUniversalTime().ToString("o");
+            // Step A: CAS predecessor active → superseded. Zero rows is a
+            // CAS mismatch on the predecessor row; the whole tx rolls back.
+            using (var supersede = connection.CreateCommand())
+            {
+                supersede.CommandText = @"
+UPDATE claims
+   SET state = 'superseded',
+       cas_token = $newTok,
+       ended_at = $endedAt,
+       record_json = $json
+ WHERE claim_id = $id AND cas_token = $expTok;";
+                supersede.Parameters.AddWithValue("$id", predecessorClaimId);
+                supersede.Parameters.AddWithValue("$expTok", predecessorExpectedCasToken);
+                supersede.Parameters.AddWithValue("$newTok", predecessorNewCasToken);
+                supersede.Parameters.AddWithValue("$endedAt", stamp);
+                supersede.Parameters.AddWithValue("$json", predecessorRecordJson);
+                var rows = await supersede.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
+            }
+
+            // Step B: INSERT the new claim in `active` state. The partial
+            // unique index now permits this because the predecessor row's
+            // state moved to `superseded` in step A within the same
+            // transaction. Any residual constraint violation surfaces as
+            // duplicate-reserved so the caller can distinguish it from a
+            // CAS race.
+            try
+            {
+                using var insert = connection.CreateCommand();
+                insert.CommandText = @"
+INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json)
+VALUES ($id, $ref, $fp, $wi, 'active', $tok, $now, NULL, $json);";
+                insert.Parameters.AddWithValue("$id", newClaimId);
+                insert.Parameters.AddWithValue("$ref", connectionRef);
+                insert.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                insert.Parameters.AddWithValue("$wi", workItemId);
+                insert.Parameters.AddWithValue("$tok", newCasToken);
+                insert.Parameters.AddWithValue("$now", stamp);
+                insert.Parameters.AddWithValue("$json", newRecordJson);
+                await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
+            {
+                return Result.Fail($"{AttachmentStorageFailure.ClaimDuplicateReserved}: {ex.Message}");
+            }
+
+            return Result.Ok();
+        }, ct);
+
     public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default)
         => ExecuteAsync<SystemProfileCacheRow?>(async connection =>
         {

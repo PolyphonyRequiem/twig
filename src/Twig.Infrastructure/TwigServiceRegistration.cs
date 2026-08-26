@@ -224,6 +224,44 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimHolderResolver>(),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
+        // AB#745 — host-neutral Transport Attachment core seam. All
+        // registrations are singletons because the contract (§7.2) fixes
+        // the registry as populated at DI composition time. The
+        // factory-lambda pattern matches AB#736 / AB#738's
+        // AddConnectionServices template so a surface swapping DI
+        // primitives sees a single deep-module seam.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.WorktreeLocalTransportAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // Mandatory null adapter per §7.3 — the "no live host" path
+        // AB#745 requires. Always registered.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter,
+            Twig.Infrastructure.Persistence.Transport.NullTransportAdapter>();
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.TransportAdapterRegistry(
+                sp.GetServices<Twig.Infrastructure.Persistence.Transport.ITransportAdapter>()));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher(
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // §10.2 presentation-support registry: AB#745 registers no
+        // rich-adapter entries at baseline — the terminal/text fallback
+        // is unconditional (§10.4) and is the sole path. Downstream
+        // renderer builds add rich-adapter entries in their own DI
+        // composition when they implement them.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.IChangeProposalPresentationSupportRegistry>(_ =>
+            new Twig.Infrastructure.Persistence.Transport.ChangeProposalPresentationSupportRegistry(
+                System.Array.Empty<Twig.Infrastructure.Persistence.Transport.RichAdapterId>()));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITerminalTextChangeProposalRenderer,
+            Twig.Infrastructure.Persistence.Transport.TerminalTextChangeProposalRenderer>();
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.IChangeProposalRenderer>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.ChangeProposalRenderer(
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.IChangeProposalPresentationSupportRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITerminalTextChangeProposalRenderer>(),
+                sp.GetServices<Twig.Infrastructure.Persistence.Transport.IRichChangeProposalRenderer>()));
+
         AddConnectionDomainServices(services);
 
         return services;

@@ -173,6 +173,13 @@ namespace Twig.Infrastructure.Serialization;
 // AB#738 policy source
 [JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
+// AB#745 transport-attachment envelope (contract §2.1) persisted at .twig/transport.json
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAttachmentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportRecordDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportWorktreeDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

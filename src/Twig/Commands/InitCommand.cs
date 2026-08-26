@@ -195,28 +195,9 @@ public sealed class InitCommand
             ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
 
-        // ── Design §7 legacy recovery: --reinitialize atomically archives
-        //    the existing .twig/ tree to .twig-legacy-<timestamp>/ before
-        //    running a fresh init. No conversion, no migration. Archive
-        //    failure surfaces the named identifier and leaves the source
-        //    intact.
-        if (reinitialize && Directory.Exists(twigDir))
-        {
-            var archive = Infrastructure.Persistence.LegacyLayoutDetector.ArchiveLegacyLayout(twigDir, TimeProvider.System);
-            if (!archive.IsSuccess)
-            {
-                Console.Error.WriteLine(fmt.FormatError($"Legacy archive failed: {archive.Error}"));
-                return (1, false, 0);
-            }
-            if (!string.IsNullOrEmpty(archive.Value))
-                Console.WriteLine($"  Archived legacy layout to {archive.Value}");
-        }
-        if (File.Exists(contextPaths.DbPath) && !force)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
-            return (1, false, 0);
-        }
-
+        // ── Design §6.3: every refusal that depends only on inputs and the
+        //    tracked manifest runs BEFORE the first mutation, so a rejected
+        //    invocation cannot archive, delete, or create anything.
         if (preserveRepoManifest
             && GetManifestCoordinateConflict(config, org, project, team) is { } coordinateConflict)
         {
@@ -231,22 +212,10 @@ public sealed class InitCommand
             return (1, false, 0);
         }
 
-        // ── Design §6.3 step 3: refuse pre-T1 legacy layouts BEFORE step 4
-        //    creates anything, so a refused init leaves `.twig/` byte-for-byte
-        //    as it found it. `--reinitialize` archives the tree above, so by
-        //    this point the predicate only trips on an unarchived legacy tree.
-        if (Infrastructure.Persistence.LegacyLayoutDetector.IsLegacyLayoutPresent(twigDir))
-        {
-            Console.Error.WriteLine(fmt.FormatError(
-                $"Managed init refused: {Domain.Services.Attachment.AttachmentStorageFailure.LegacyLayoutPresent}. " +
-                "Re-run with --reinitialize to archive the legacy layout first."));
-            return (1, false, 0);
-        }
-
-        // ── Design §6.3: `--sprint`/`--area` are pure input validation, so
-        //    they run before the first write. Validating them after managed
-        //    registration would let a rejected flag return 1 with the local
-        //    layout and system-store rows already committed.
+        // `--sprint`/`--area` are pure input validation. Validating them
+        // after managed registration would let a rejected flag return 1 with
+        // the local layout and system-store rows already committed; doing it
+        // after the archive below would leave a renamed workspace behind.
         List<SprintEntry>? preparsedSprints = null;
         if (!string.IsNullOrWhiteSpace(sprint))
         {
@@ -280,6 +249,40 @@ public sealed class InitCommand
                 }
                 preparsedAreas.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = !isExact });
             }
+        }
+
+        // ── Design §7 legacy recovery: --reinitialize atomically archives
+        //    the existing .twig/ tree to .twig-legacy-<timestamp>/ before
+        //    running a fresh init. No conversion, no migration. Archive
+        //    failure surfaces the named identifier and leaves the source
+        //    intact.
+        if (reinitialize && Directory.Exists(twigDir))
+        {
+            var archive = Infrastructure.Persistence.LegacyLayoutDetector.ArchiveLegacyLayout(twigDir, TimeProvider.System);
+            if (!archive.IsSuccess)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Legacy archive failed: {archive.Error}"));
+                return (1, false, 0);
+            }
+            if (!string.IsNullOrEmpty(archive.Value))
+                Console.WriteLine($"  Archived legacy layout to {archive.Value}");
+        }
+        if (File.Exists(contextPaths.DbPath) && !force)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
+            return (1, false, 0);
+        }
+
+        // ── Design §6.3 step 3: refuse pre-T1 legacy layouts BEFORE step 4
+        //    creates anything, so a refused init leaves `.twig/` byte-for-byte
+        //    as it found it. `--reinitialize` archives the tree above, so by
+        //    this point the predicate only trips on an unarchived legacy tree.
+        if (Infrastructure.Persistence.LegacyLayoutDetector.IsLegacyLayoutPresent(twigDir))
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Managed init refused: {Domain.Services.Attachment.AttachmentStorageFailure.LegacyLayoutPresent}. " +
+                "Re-run with --reinitialize to archive the legacy layout first."));
+            return (1, false, 0);
         }
 
         // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree.
@@ -534,7 +537,9 @@ public sealed class InitCommand
 
         // --sprint flag: the expressions were validated before step 4 (see
         // the pre-write validation above); apply the parsed entries here.
-        if (preparsedSprints is { Count: > 0 })
+        // A non-null list means the flag was supplied; an EMPTY one (e.g.
+        // `--sprint ';'`) still overrides, clearing anything auto-detected.
+        if (preparsedSprints is not null)
         {
             config.Workspace.Sprints = preparsedSprints;
             foreach (var entry in preparsedSprints)
@@ -542,7 +547,7 @@ public sealed class InitCommand
         }
 
         // --area flag: likewise pre-validated; apply the parsed entries.
-        if (preparsedAreas is { Count: > 0 })
+        if (preparsedAreas is not null)
         {
             config.Defaults.AreaPathEntries = preparsedAreas;
             config.Defaults.AreaPaths = preparsedAreas.Select(e => e.Path).ToList();

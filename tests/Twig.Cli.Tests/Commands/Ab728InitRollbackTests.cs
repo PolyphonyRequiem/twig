@@ -221,6 +221,35 @@ public sealed class Ab728InitRollbackTests : IDisposable
         File.Exists(Path.Combine(_tempRoot, "twig.json")).ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task Init_refuses_invalid_area_before_reinitialize_archives_the_workspace()
+    {
+        if (!InitCommandTestFixture.InitTempWorktree(_tempRoot)) return;
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        var markerPath = Path.Combine(twigDir, "marker.txt");
+        await File.WriteAllTextAsync(markerPath, "pre-existing workspace\n");
+
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var paths = new TwigPaths(
+            twigDir,
+            Path.Combine(twigDir, "config"),
+            Path.Combine(twigDir, "cache", "twig.db"),
+            startDir: _tempRoot);
+
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        // Empty segment — rejected by AreaPath.Parse.
+        var result = await cmd.ExecuteAsync("org", "proj", area: "Project\\\\Team", reinitialize: true);
+
+        result.ShouldBe(1);
+        // --reinitialize renames .twig/ to .twig-legacy-<timestamp>/. Input
+        // validation runs first, so a rejected flag leaves the workspace
+        // exactly where it was — nothing archived, nothing to restore.
+        File.Exists(markerPath).ShouldBeTrue();
+        Directory.EnumerateDirectories(_tempRoot, ".twig-legacy-*").ShouldBeEmpty();
+    }
+
     // ── §6.3 step 3: legacy refusal precedes step 4 ────────────────────
 
     [Fact]
@@ -243,9 +272,15 @@ public sealed class Ab728InitRollbackTests : IDisposable
 
         var cmd = InitCommandTestFixture.CreateInitCommand(
             registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+        _iterationService.ClearReceivedCalls();
         var result = await cmd.ExecuteAsync("org", "proj");
 
         result.ShouldBe(1);
+        // Ordering, not just outcome: the refusal must land before step 4
+        // starts any initialization work. Template detection is the first
+        // such step, so a late check (one that relies on rollback to undo
+        // its writes) fails here even though the filesystem ends up clean.
+        await _iterationService.DidNotReceive().DetectTemplateNameAsync(Arg.Any<CancellationToken>());
         (await File.ReadAllBytesAsync(legacyDbPath)).ShouldBe(legacyBytes);
         // Nothing of the current shape may appear alongside the legacy tree.
         File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeFalse();

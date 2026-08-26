@@ -22,7 +22,6 @@ public sealed class ConnectionHolderResolverTests
         res.IsSuccess.ShouldBeTrue(res.Error);
         res.Value.Identity.ShouldBe("jane@contoso.com");
         res.Value.DisplayName.ShouldBe("Jane Doe");
-        res.Value.UniqueName.ShouldBe("jane@contoso.com");
     }
 
     [Fact]

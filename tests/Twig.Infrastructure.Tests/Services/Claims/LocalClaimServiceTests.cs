@@ -54,7 +54,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         _attachment = new FakeAttachmentStore(defaultKind: PrimaryScopeKind, defaultWorkItemId: 42);
         _idGen = new SequentialClaimIdGenerator();
         _casGen = new SequentialCasTokenGenerator();
-        _holder = new FakeHolderResolver(new ClaimHolderDescriptor(Holder, "Service User", Holder));
+        _holder = new FakeHolderResolver(new ClaimHolderDescriptor(Holder, "Service User"));
         _ado = new FakeAdoClaimProjection();
         _svc = new LocalClaimService(_registry, _attachment, _idGen, _casGen, _holder, _clock);
     }
@@ -66,10 +66,10 @@ public sealed class LocalClaimServiceTests : IDisposable
     }
 
     private MintClaimInput MintInput(string? scopeId = null, string holderIdentity = Holder, string? label = "spec-728") =>
-        new(ConnRef, PrimaryScopeKind, scopeId ?? PrimaryScopeId, Fingerprint, holderIdentity, "Service User", HolderUniqueName: holderIdentity, label, Notes: null, _ado);
+        new(ConnRef, PrimaryScopeKind, scopeId ?? PrimaryScopeId, Fingerprint, holderIdentity, "Service User", label, Notes: null, _ado);
 
     private ReclaimClaimInput ReclaimInput(bool allowSupersede, string? scopeId = null) =>
-        new(ConnRef, PrimaryScopeKind, scopeId ?? PrimaryScopeId, Fingerprint, Holder, "Service User", HolderUniqueName: Holder,
+        new(ConnRef, PrimaryScopeKind, scopeId ?? PrimaryScopeId, Fingerprint, Holder, "Service User",
             Label: null, Notes: null, AllowSupersede: allowSupersede, AdoProjection: _ado);
 
     // ── T2 mint happy path ─────────────────────────────────────────────
@@ -155,7 +155,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         var svc = new LocalClaimService(mockRegistry, _attachment, _idGen, _casGen, _holder, _clock);
         var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("simulated-net") };
         var input = new MintClaimInput(
-            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User", HolderUniqueName: Holder,
+            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
             Label: null, Notes: null, AdoProjection: badAdo);
 
         var outcome = await svc.MintAsync(input);
@@ -173,7 +173,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         var svc = new LocalClaimService(mockRegistry, _attachment, _idGen, _casGen, _holder, _clock);
         var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("network-down") };
         var input = new MintClaimInput(
-            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User", HolderUniqueName: Holder,
+            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
             Label: null, Notes: null, AdoProjection: badAdo);
 
         var outcome = await svc.MintAsync(input);
@@ -246,7 +246,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         _holder.NextResult = Result.Fail<ClaimHolderDescriptor>("no-authenticated-holder");
         var input = new MintClaimInput(
             ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint,
-            HolderIdentity: string.Empty, HolderDisplay: null, HolderUniqueName: null, Label: null, Notes: null, _ado);
+            HolderIdentity: string.Empty, HolderDisplay: null, Label: null, Notes: null, _ado);
 
         var outcome = await _svc.MintAsync(input);
         outcome.ShouldBeOfType<ClaimMintOutcome.HolderUnavailable>();
@@ -589,7 +589,7 @@ public sealed class LocalClaimServiceTests : IDisposable
     public async Task Mint_reports_invalid_request_when_required_fields_are_empty()
     {
         var bad = new MintClaimInput(
-            ConnectionRef: "", PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, null, null, null, null, _ado);
+            ConnectionRef: "", PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, null, null, null, _ado);
         var outcome = await _svc.MintAsync(bad);
         outcome.ShouldBeOfType<ClaimMintOutcome.InvalidRequest>();
     }

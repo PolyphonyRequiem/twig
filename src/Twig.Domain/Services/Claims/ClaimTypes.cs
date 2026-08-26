@@ -30,7 +30,6 @@ internal sealed record ClaimRecord(
     string PrimaryScopeKind,
     string HolderIdentity,
     string? HolderDisplay,
-    string? HolderUniqueName,
     string WorktreeFingerprint,
     string State,
     string Origin,
@@ -57,7 +56,6 @@ internal sealed record MintClaimInput(
     string WorktreeFingerprint,
     string HolderIdentity,
     string? HolderDisplay,
-    string? HolderUniqueName,
     string? Label,
     string? Notes,
     IAdoClaimProjection AdoProjection);
@@ -76,7 +74,6 @@ internal sealed record ReclaimClaimInput(
     string WorktreeFingerprint,
     string HolderIdentity,
     string? HolderDisplay,
-    string? HolderUniqueName,
     string? Label,
     string? Notes,
     bool AllowSupersede,

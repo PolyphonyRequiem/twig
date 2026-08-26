@@ -10,46 +10,35 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Infrastructure.Services.Claims;
 
 /// <summary>
-/// Concrete implementation of <see cref="ILocalClaimService"/>. See
-/// <see cref="ILocalClaimService"/> for the surface contract.
-/// <para>
-/// <b>Cross-process lifecycle protocol (AB#739 review).</b> The service
-/// does NOT rely on an in-process semaphore to serialize
-/// mint/reclaim/release for a given tuple — an instance-local gate is
-/// invisible to a peer process sharing the same system store and would
-/// silently allow ADO and local authority to split. Instead the system
-/// store's partial unique index + CAS tokens act as the tuple's
-/// authority, and every path follows the same protocol:
+/// AB#739 lifecycle service. See <see cref="ILocalClaimService"/> for the
+/// surface contract. This concrete owns the cross-process protocol:
 /// <list type="number">
-///   <item><b>Local intent commit.</b> Insert or CAS-transition the
-///     claim row before the remote ADO call. The partial unique index
-///     picks exactly one winner; losers get named outcomes without
-///     touching ADO.</item>
-///   <item><b>Remote projection, no SQLite txn held.</b> ADO project /
-///     clear runs OUTSIDE the SQLite transaction so a network delay does
-///     not hold the write lock. The projection re-fetches for readback
-///     verification so a silent normalization surfaces as a named
-///     failure.</item>
-///   <item><b>CAS-guarded commit + compensation on loss.</b> The
-///     activation / terminalization CAS conditions on the exact token
-///     observed at step 1. On CAS mismatch (the tuple state moved
-///     underneath us), the loser reads the fresh state and issues a
-///     compensating ADO write — re-project the current active holder,
-///     or clear ADO when no active row remains — so the ADO surface
-///     always converges to the eventual winner's holder.</item>
-///   <item><b>Attachment link/unlink with expected-revision CAS.</b>
-///     The attachment store's OS-visible lock plus revision counter
-///     provides cross-process CAS on the worktree-local block.</item>
+///   <item>Local intent commit through the system store's partial unique
+///     index + CAS token — the tuple's authority.</item>
+///   <item>Remote ADO projection, no SQLite transaction held.</item>
+///   <item>CAS-guarded commit; on mismatch the loser runs a bounded,
+///     read-verified compensation that projects the fresh tuple winner or
+///     clears ADO — but only after a successful authoritative read. A
+///     read failure surfaces up the outcome, never silently swallowed.</item>
+///   <item>Attachment link/unlink under OS-visible lock + expected-revision
+///     CAS. After successful link, the row is re-verified active with the
+///     same CAS token so a concurrent release that terminalized between
+///     activation and link cannot leave a stale attachment reference.</item>
 /// </list>
-/// A <see cref="OperationCanceledException"/> raised after step 1's
-/// pending insert triggers a non-cancelable cleanup pass on a fresh
-/// token so a canceled mint never strands a pending reservation.
-/// </para>
+/// Cancellation is phase-aware: cleanup logic knows whether it is running
+/// pre-remote (terminalize the pending reservation), post-remote-pre-commit
+/// (converge from fresh tuple state, do not use a stale CAS), or
+/// post-commit (converge ADO to the fresh active row and reconcile the
+/// attachment). Every cleanup runs on <see cref="CancellationToken.None"/>
+/// so a canceled operation never strands work in a partial state; a
+/// cleanup that itself fails is surfaced through an
+/// <see cref="AggregateException"/>.
 /// </summary>
 internal sealed class LocalClaimService : ILocalClaimService
 {
     private static readonly IReadOnlyList<string> ReservedStates = new[] { ClaimStates.Pending, ClaimStates.Active };
     private static readonly IReadOnlyList<string> ActiveOnlyStates = new[] { ClaimStates.Active };
+    private const int CompensationMaxIterations = 8;
 
     private readonly ISystemWorktreeRegistry _registry;
     private readonly IPrimaryScopeAttachmentStore _attachment;
@@ -83,15 +72,11 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (!TryParseWorkItemId(input.PrimaryScopeId, out var workItemId))
             return new ClaimMintOutcome.InvalidRequest("primaryScopeId must be a positive integer.");
 
-        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, input.HolderUniqueName, ct).ConfigureAwait(false);
+        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, ct).ConfigureAwait(false);
         if (!holderResult.IsSuccess)
             return new ClaimMintOutcome.HolderUnavailable(holderResult.Error);
         var holder = holderResult.Value;
 
-        // Read attachment (with expected revision) before we insert. The
-        // scope must match the caller's tuple; the revision is threaded
-        // into the eventual link call so a peer switch/unlink between
-        // now and link surfaces as attachment-version-mismatch.
         var attachmentRes = await _attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!attachmentRes.IsSuccess)
             return new ClaimMintOutcome.AttachmentLinkFailed(attachmentRes.Error, PlaceholderRecord(input, holder));
@@ -100,22 +85,22 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimMintOutcome.AttachmentLinkFailed(AttachmentStorageFailure.AttachmentScopeMismatch, PlaceholderRecord(input, holder));
         var expectedAttachmentRevision = attachmentRes.Value.Revision;
 
-        // Step 1 — reservation + insert. The partial unique index picks
-        // the single winner across every process.
         var reservation = await ReservePendingAsync(input, holder, workItemId, ct).ConfigureAwait(false);
         if (reservation.Outcome is { } duplicateOrError)
             return duplicateOrError;
         var pending = reservation.Claim!;
 
-        // From here on, an OperationCanceledException MUST run cleanup on
-        // a fresh token so the pending row never lingers.
+        var phase = MintPhase.PreRemote;
+        ClaimRecord? active = null;
+
         try
         {
-            // Step 2 — ADO projection outside SQLite tx.
+            phase = MintPhase.RemoteInFlight;
             var projected = await input.AdoProjection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
             if (!projected.IsSuccess)
             {
-                var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, ct).ConfigureAwait(false);
+                phase = MintPhase.RemoteFailed;
+                var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, CancellationToken.None).ConfigureAwait(false);
                 if (!abort.IsSuccess)
                 {
                     if (abort.Error == AttachmentStorageFailure.ClaimCasMismatch)
@@ -125,57 +110,119 @@ internal sealed class LocalClaimService : ILocalClaimService
                 return new ClaimMintOutcome.AdoProjectionFailed(projected.Error);
             }
 
-            // Step 3 — activation under CAS. On CAS mismatch, run
-            // compensation: read the current tuple state and re-project.
+            phase = MintPhase.RemoteCommitted;
             var activation = await ActivatePendingAsync(pending, ct).ConfigureAwait(false);
             if (activation.Outcome is { } activationError)
             {
-                if (activationError is ClaimMintOutcome.ConcurrentClaimWrite ccw)
-                    await CompensateTupleAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                // Post-remote, pre-commit failure: converge ADO to whatever
+                // the fresh tuple state is (do NOT re-abort against the
+                // stale pending CAS).
+                var comp = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                if (!comp.IsSuccess && activationError is ClaimMintOutcome.ConcurrentClaimWrite ccw)
+                    return new ClaimMintOutcome.ConcurrentClaimWrite($"{ccw.Underlying}; compensation-failed:{comp.Error}");
                 return activationError;
             }
-            var active = activation.Claim!;
+            active = activation.Claim!;
+            phase = MintPhase.LocalCommitted;
 
-            // Step 4 — attachment link under expected-revision CAS.
+            // Link with expected-revision CAS.
             var linked = await _attachment.LinkClaimAsync(
                 active.ClaimId, active.ActivatedAt!.Value,
                 input.PrimaryScopeKind, workItemId, expectedAttachmentRevision, ct).ConfigureAwait(false);
             if (!linked.IsSuccess)
                 return new ClaimMintOutcome.AttachmentLinkFailed(linked.Error, active);
+
+            // Post-link verification: our row must still be active with the
+            // exact CAS token we activated with. A concurrent release that
+            // terminalized between activation and link would leave a stale
+            // attachment reference otherwise. If mismatch, unlink and
+            // return ConcurrentClaimWrite.
+            var verifyLive = await VerifyRowStillLiveAsync(active, expectedAttachmentRevision + 1, ct).ConfigureAwait(false);
+            if (!verifyLive.IsSuccess)
+            {
+                var undo = await _attachment.UnlinkClaimAsync(active.ClaimId, expectedAttachmentRevision + 1, CancellationToken.None).ConfigureAwait(false);
+                var comp = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var msg = $"{verifyLive.Error}; unlink={(undo.IsSuccess ? "ok" : undo.Error)}; compensation={(comp.IsSuccess ? "ok" : comp.Error)}";
+                return new ClaimMintOutcome.ConcurrentClaimWrite(msg);
+            }
             return new ClaimMintOutcome.Succeeded(active);
         }
         catch (OperationCanceledException)
         {
-            // Non-cancelable cleanup: attempt to terminalize the pending
-            // reservation and clear ADO. Failures are appended into the
-            // exception's Data dictionary so a caller inspecting the
-            // exception sees why cleanup stranded, rather than the row
-            // silently persisting.
-            var cleanup = await CleanupPendingAsync(pending, input.AdoProjection, input.PrimaryScopeId).ConfigureAwait(false);
-            if (!cleanup.IsSuccess)
-                throw new AggregateException(
-                    $"mint canceled and cleanup failed: {cleanup.Error}",
-                    new OperationCanceledException(),
-                    new InvalidOperationException(cleanup.Error));
+            await HandleMintCancellationAsync(phase, pending, active, input, workItemId).ConfigureAwait(false);
             throw;
         }
     }
 
-    private async Task<Result> CleanupPendingAsync(ClaimRecord pending, IAdoClaimProjection ado, string primaryScopeId)
+    /// <summary>
+    /// Phase-aware cancellation cleanup for mint. Each phase demands a
+    /// different reconciliation:
+    /// <list type="bullet">
+    ///   <item><c>PreRemote</c>: abort pending against its original CAS.</item>
+    ///   <item><c>RemoteInFlight</c> or <c>RemoteCommitted</c>: converge
+    ///     from the FRESH tuple state — never use the stale pending CAS
+    ///     because the row may have moved to active or superseded under
+    ///     us. Compensation runs the ADO reconciliation.</item>
+    ///   <item><c>LocalCommitted</c>: the local row is active with a
+    ///     fresh CAS; the pending CAS is stale. Compensation converges
+    ///     ADO to the fresh active row.</item>
+    /// </list>
+    /// Any cleanup failure is wrapped in an
+    /// <see cref="AggregateException"/> so the caller sees why cleanup
+    /// stranded rather than a silently-persisting row.
+    /// </summary>
+    private async Task HandleMintCancellationAsync(MintPhase phase, ClaimRecord pending, ClaimRecord? active, MintClaimInput input, int workItemId)
     {
-        // Fresh CancellationToken.None so cleanup runs even after the
-        // caller's token fired.
         var ct = CancellationToken.None;
-        // Best-effort ADO clear — safe if ADO was never written to; the
-        // clear path itself is idempotent (already-empty returns Ok).
-        var clear = await ado.ClearHolderAsync(primaryScopeId, ct).ConfigureAwait(false);
-        var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, ct).ConfigureAwait(false);
-        if (!abort.IsSuccess)
-            return Result.Fail($"pending-terminalize-failed:{abort.Error}; ado-clear={(clear.IsSuccess ? "ok" : clear.Error)}");
-        if (!clear.IsSuccess)
-            return Result.Fail($"ado-clear-failed:{clear.Error}");
-        return Result.Ok();
+        Result cleanup;
+        switch (phase)
+        {
+            case MintPhase.PreRemote:
+                cleanup = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, ct).ConfigureAwait(false);
+                break;
+            case MintPhase.RemoteInFlight:
+            case MintPhase.RemoteCommitted:
+                // Try to abort using the pending CAS; if that fails
+                // (because activation raced), fall through to
+                // compensation from fresh state.
+                var abort = await AbortPendingAsync(pending, ClaimReleaseReasons.MintAbort, ct).ConfigureAwait(false);
+                if (abort.IsSuccess)
+                {
+                    cleanup = Result.Ok();
+                }
+                else
+                {
+                    var comp = await CompensateTupleAsync(
+                        input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                        input.AdoProjection, ct).ConfigureAwait(false);
+                    cleanup = comp.IsSuccess ? Result.Ok() : Result.Fail($"abort-failed:{abort.Error}; compensation-failed:{comp.Error}");
+                }
+                break;
+            case MintPhase.LocalCommitted:
+                // The local row is active. Never use the stale pending
+                // CAS. Converge ADO to whatever the fresh active row is.
+                cleanup = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, ct).ConfigureAwait(false);
+                break;
+            default:
+                cleanup = Result.Ok();
+                break;
+        }
+        if (!cleanup.IsSuccess)
+        {
+            throw new AggregateException(
+                $"mint canceled and phase-{phase} cleanup failed: {cleanup.Error}",
+                new OperationCanceledException(),
+                new InvalidOperationException(cleanup.Error));
+        }
     }
+
+    private enum MintPhase { PreRemote, RemoteInFlight, RemoteCommitted, RemoteFailed, LocalCommitted }
 
     // ── Reclaim ───────────────────────────────────────────────────────
 
@@ -186,7 +233,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (!TryParseWorkItemId(input.PrimaryScopeId, out var workItemId))
             return new ClaimReclaimOutcome.InvalidRequest("primaryScopeId must be a positive integer.");
 
-        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, input.HolderUniqueName, ct).ConfigureAwait(false);
+        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, ct).ConfigureAwait(false);
         if (!holderResult.IsSuccess)
             return new ClaimReclaimOutcome.HolderUnavailable(holderResult.Error);
         var holder = holderResult.Value;
@@ -195,7 +242,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         {
             var mintInput = new MintClaimInput(
                 input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId,
-                input.WorktreeFingerprint, holder.Identity, holder.DisplayName, holder.UniqueName,
+                input.WorktreeFingerprint, holder.Identity, holder.DisplayName,
                 input.Label, input.Notes, input.AdoProjection);
             var mintResult = await MintAsync(mintInput, ct).ConfigureAwait(false);
             return TranslateMintToReclaim(mintResult, supersededClaim: null);
@@ -215,7 +262,6 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimReclaimOutcome.SchemaDrift(driftVersion);
         var predecessorClaim = ProjectClaim(predecessorDoc!, predecessorRow.CasToken);
 
-        // Read attachment with expected revision (scope-match precheck).
         var attachmentRes = await _attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!attachmentRes.IsSuccess)
             return new ClaimReclaimOutcome.AttachmentLinkFailed(attachmentRes.Error, predecessorClaim);
@@ -224,91 +270,151 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimReclaimOutcome.AttachmentLinkFailed(AttachmentStorageFailure.AttachmentScopeMismatch, predecessorClaim);
         var expectedAttachmentRevision = attachmentRes.Value.Revision;
 
-        // Step 2 — ADO projection with our holder outside SQLite tx.
-        var projected = await input.AdoProjection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
-        if (!projected.IsSuccess)
-            return new ClaimReclaimOutcome.AdoProjectionFailed(projected.Error);
+        var phase = ReclaimPhase.PreRemote;
+        ClaimRecord? newActive = null;
 
-        // Step 3' — atomic supersede + activate under CAS. Compensate on
-        // CAS mismatch: another writer superseded us / released us; read
-        // fresh state and re-project.
-        var now = _clock.GetUtcNow();
-        var newClaimId = _idGen.NewClaimId();
-        var newCas = _casGen.NewCasToken();
-        var newCasPredecessor = _casGen.NewCasToken();
-
-        var newActive = new ClaimRecord(
-            SchemaVersion: ClaimRecordDocument.CurrentSchemaVersion,
-            ClaimId: newClaimId,
-            Label: input.Label,
-            ConnectionRef: input.ConnectionRef,
-            PrimaryScopeId: input.PrimaryScopeId,
-            PrimaryScopeKind: input.PrimaryScopeKind,
-            HolderIdentity: holder.Identity,
-            HolderDisplay: holder.DisplayName,
-            HolderUniqueName: holder.UniqueName,
-            WorktreeFingerprint: input.WorktreeFingerprint,
-            State: ClaimStates.Active,
-            Origin: ClaimOrigins.Local,
-            LeaseGeneration: 0,
-            ExpiresAt: null,
-            CreatedAt: now,
-            ActivatedAt: now,
-            ReleasedAt: null,
-            SupersededByClaimId: null,
-            ReleaseReason: null,
-            Notes: input.Notes,
-            CasToken: newCas);
-        var newJson = SerializeClaim(newActive);
-
-        var supersededPredecessor = predecessorClaim with
+        try
         {
-            State = ClaimStates.Superseded,
-            ReleasedAt = now,
-            ReleaseReason = ClaimReleaseReasons.ExplicitReclaim,
-            SupersededByClaimId = newClaimId,
-            CasToken = newCasPredecessor,
-        };
-        var predecessorJson = SerializeClaim(supersededPredecessor);
+            phase = ReclaimPhase.RemoteInFlight;
+            var projected = await input.AdoProjection.ProjectHolderAsync(input.PrimaryScopeId, holder, ct).ConfigureAwait(false);
+            if (!projected.IsSuccess)
+                return new ClaimReclaimOutcome.AdoProjectionFailed(projected.Error);
 
-        var supersede = await _registry.SupersedeAndActivateClaimAsync(
-            newClaimId: newClaimId,
-            newCasToken: newCas,
-            connectionRef: input.ConnectionRef,
-            worktreeFingerprint: input.WorktreeFingerprint,
-            primaryScopeKind: input.PrimaryScopeKind,
-            workItemId: workItemId,
-            newRecordJson: newJson,
-            predecessorClaimId: predecessorClaim.ClaimId,
-            predecessorExpectedCasToken: predecessorClaim.CasToken,
-            predecessorNewCasToken: newCasPredecessor,
-            predecessorRecordJson: predecessorJson,
-            transitionAt: now,
-            ct: ct).ConfigureAwait(false);
-        if (!supersede.IsSuccess)
-        {
-            // Compensate: our ADO write no longer represents the tuple
-            // authority; re-project whoever won.
-            await CompensateTupleAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
-            if (supersede.Error == AttachmentStorageFailure.ClaimCasMismatch)
-                return new ClaimReclaimOutcome.ConcurrentClaimWrite(supersede.Error);
-            if (supersede.Error.StartsWith(AttachmentStorageFailure.ClaimDuplicateReserved, StringComparison.Ordinal))
+            phase = ReclaimPhase.RemoteCommitted;
+            var now = _clock.GetUtcNow();
+            var newClaimId = _idGen.NewClaimId();
+            var newCas = _casGen.NewCasToken();
+            var newCasPredecessor = _casGen.NewCasToken();
+
+            newActive = new ClaimRecord(
+                SchemaVersion: ClaimRecordDocument.CurrentSchemaVersion,
+                ClaimId: newClaimId,
+                Label: input.Label,
+                ConnectionRef: input.ConnectionRef,
+                PrimaryScopeId: input.PrimaryScopeId,
+                PrimaryScopeKind: input.PrimaryScopeKind,
+                HolderIdentity: holder.Identity,
+                HolderDisplay: holder.DisplayName,
+                WorktreeFingerprint: input.WorktreeFingerprint,
+                State: ClaimStates.Active,
+                Origin: ClaimOrigins.Local,
+                LeaseGeneration: 0,
+                ExpiresAt: null,
+                CreatedAt: now,
+                ActivatedAt: now,
+                ReleasedAt: null,
+                SupersededByClaimId: null,
+                ReleaseReason: null,
+                Notes: input.Notes,
+                CasToken: newCas);
+            var newJson = SerializeClaim(newActive);
+
+            var supersededPredecessor = predecessorClaim with
             {
-                var incumbent = await _registry.FindReservedClaimAsync(input.ConnectionRef, input.PrimaryScopeKind, workItemId, ReservedStates, ct).ConfigureAwait(false);
-                if (incumbent.IsSuccess && incumbent.Value is { } incumbentRow)
-                    return new ClaimReclaimOutcome.PrimaryScopeAlreadyClaimed(incumbentRow.ClaimId, incumbentRow.State);
-                return new ClaimReclaimOutcome.PrimaryScopeAlreadyClaimed("unknown", "unknown");
-            }
-            return new ClaimReclaimOutcome.StorageUnavailable(supersede.Error);
-        }
+                State = ClaimStates.Superseded,
+                ReleasedAt = now,
+                ReleaseReason = ClaimReleaseReasons.ExplicitReclaim,
+                SupersededByClaimId = newClaimId,
+                CasToken = newCasPredecessor,
+            };
+            var predecessorJson = SerializeClaim(supersededPredecessor);
 
-        var linked = await _attachment.LinkClaimAsync(
-            newActive.ClaimId, newActive.ActivatedAt!.Value,
-            input.PrimaryScopeKind, workItemId, expectedAttachmentRevision, ct).ConfigureAwait(false);
-        if (!linked.IsSuccess)
-            return new ClaimReclaimOutcome.AttachmentLinkFailed(linked.Error, newActive);
-        return new ClaimReclaimOutcome.Succeeded(newActive, supersededPredecessor);
+            var supersede = await _registry.SupersedeAndActivateClaimAsync(
+                newClaimId: newClaimId,
+                newCasToken: newCas,
+                connectionRef: input.ConnectionRef,
+                worktreeFingerprint: input.WorktreeFingerprint,
+                primaryScopeKind: input.PrimaryScopeKind,
+                workItemId: workItemId,
+                newRecordJson: newJson,
+                predecessorClaimId: predecessorClaim.ClaimId,
+                predecessorExpectedCasToken: predecessorClaim.CasToken,
+                predecessorNewCasToken: newCasPredecessor,
+                predecessorRecordJson: predecessorJson,
+                transitionAt: now,
+                ct: ct).ConfigureAwait(false);
+            if (!supersede.IsSuccess)
+            {
+                var comp = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                if (supersede.Error == AttachmentStorageFailure.ClaimCasMismatch)
+                    return new ClaimReclaimOutcome.ConcurrentClaimWrite(comp.IsSuccess ? supersede.Error : $"{supersede.Error}; compensation-failed:{comp.Error}");
+                if (supersede.Error.StartsWith(AttachmentStorageFailure.ClaimDuplicateReserved, StringComparison.Ordinal))
+                {
+                    var incumbent = await _registry.FindReservedClaimAsync(input.ConnectionRef, input.PrimaryScopeKind, workItemId, ReservedStates, ct).ConfigureAwait(false);
+                    if (incumbent.IsSuccess && incumbent.Value is { } incumbentRow)
+                        return new ClaimReclaimOutcome.PrimaryScopeAlreadyClaimed(incumbentRow.ClaimId, incumbentRow.State);
+                    return new ClaimReclaimOutcome.PrimaryScopeAlreadyClaimed("unknown", "unknown");
+                }
+                return new ClaimReclaimOutcome.StorageUnavailable(supersede.Error);
+            }
+
+            phase = ReclaimPhase.LocalCommitted;
+            var linked = await _attachment.LinkClaimAsync(
+                newActive.ClaimId, newActive.ActivatedAt!.Value,
+                input.PrimaryScopeKind, workItemId, expectedAttachmentRevision, ct).ConfigureAwait(false);
+            if (!linked.IsSuccess)
+                return new ClaimReclaimOutcome.AttachmentLinkFailed(linked.Error, newActive);
+
+            var verifyLive = await VerifyRowStillLiveAsync(newActive, expectedAttachmentRevision + 1, ct).ConfigureAwait(false);
+            if (!verifyLive.IsSuccess)
+            {
+                var undo = await _attachment.UnlinkClaimAsync(newActive.ClaimId, expectedAttachmentRevision + 1, CancellationToken.None).ConfigureAwait(false);
+                var comp = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                var msg = $"{verifyLive.Error}; unlink={(undo.IsSuccess ? "ok" : undo.Error)}; compensation={(comp.IsSuccess ? "ok" : comp.Error)}";
+                return new ClaimReclaimOutcome.ConcurrentClaimWrite(msg);
+            }
+            return new ClaimReclaimOutcome.Succeeded(newActive, supersededPredecessor);
+        }
+        catch (OperationCanceledException)
+        {
+            await HandleReclaimCancellationAsync(phase, predecessorClaim, newActive, input, workItemId).ConfigureAwait(false);
+            throw;
+        }
     }
+
+    private async Task HandleReclaimCancellationAsync(ReclaimPhase phase, ClaimRecord predecessor, ClaimRecord? newActive, ReclaimClaimInput input, int workItemId)
+    {
+        var ct = CancellationToken.None;
+        Result cleanup;
+        switch (phase)
+        {
+            case ReclaimPhase.PreRemote:
+                cleanup = Result.Ok(); // nothing committed
+                break;
+            case ReclaimPhase.RemoteInFlight:
+            case ReclaimPhase.RemoteCommitted:
+                // Remote may have written our holder but local supersede
+                // did not commit. Converge from fresh tuple state.
+                cleanup = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, ct).ConfigureAwait(false);
+                break;
+            case ReclaimPhase.LocalCommitted:
+                // Predecessor is superseded; new active row exists. Never
+                // rewind — the new row is authoritative. Compensation
+                // reconciles ADO with whatever active row survived.
+                cleanup = await CompensateTupleAsync(
+                    input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId,
+                    input.AdoProjection, ct).ConfigureAwait(false);
+                break;
+            default:
+                cleanup = Result.Ok();
+                break;
+        }
+        if (!cleanup.IsSuccess)
+        {
+            throw new AggregateException(
+                $"reclaim canceled and phase-{phase} cleanup failed: {cleanup.Error}",
+                new OperationCanceledException(),
+                new InvalidOperationException(cleanup.Error));
+        }
+    }
+
+    private enum ReclaimPhase { PreRemote, RemoteInFlight, RemoteCommitted, LocalCommitted }
 
     // ── Release ───────────────────────────────────────────────────────
 
@@ -338,44 +444,90 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimReleaseOutcome.AttachmentUnlinkFailed(attachmentRes.Error, current);
         var expectedAttachmentRevision = attachmentRes.Value.Revision;
 
-        // Step 1 — ADO clear outside SQLite tx.
-        var cleared = await input.AdoProjection.ClearHolderAsync(current.PrimaryScopeId, ct).ConfigureAwait(false);
-        if (!cleared.IsSuccess)
-            return new ClaimReleaseOutcome.ReleaseAdoProjectionFailed(cleared.Error);
+        var phase = ReleasePhase.PreRemote;
+        try
+        {
+            phase = ReleasePhase.RemoteInFlight;
+            var cleared = await input.AdoProjection.ClearHolderAsync(current.PrimaryScopeId, ct).ConfigureAwait(false);
+            if (!cleared.IsSuccess)
+                return new ClaimReleaseOutcome.ReleaseAdoProjectionFailed(cleared.Error);
 
-        // Step 2 — CAS-guarded terminalize. Compensate on CAS mismatch:
-        // a concurrent reclaim already superseded us and re-projected its
-        // holder to ADO between our clear and our CAS — re-project that
-        // successor rather than leaving ADO cleared.
-        var now = _clock.GetUtcNow();
-        var newCas = _casGen.NewCasToken();
-        var terminal = current with
-        {
-            State = ClaimStates.Released,
-            ReleasedAt = now,
-            ReleaseReason = ClaimReleaseReasons.ExplicitRelease,
-            CasToken = newCas,
-        };
-        var json = SerializeClaim(terminal);
-        var write = await _registry.UpdateClaimStateAsync(
-            current.ClaimId, current.CasToken, newCas, ClaimStates.Released, now, json, ct).ConfigureAwait(false);
-        if (!write.IsSuccess)
-        {
-            if (write.Error == AttachmentStorageFailure.ClaimCasMismatch)
+            phase = ReleasePhase.RemoteCommitted;
+            var now = _clock.GetUtcNow();
+            var newCas = _casGen.NewCasToken();
+            var terminal = current with
             {
-                await CompensateTupleAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
-                return new ClaimReleaseOutcome.ConcurrentClaimWrite(write.Error);
+                State = ClaimStates.Released,
+                ReleasedAt = now,
+                ReleaseReason = ClaimReleaseReasons.ExplicitRelease,
+                CasToken = newCas,
+            };
+            var json = SerializeClaim(terminal);
+            var write = await _registry.UpdateClaimStateAsync(
+                current.ClaimId, current.CasToken, newCas, ClaimStates.Released, now, json, ct).ConfigureAwait(false);
+            if (!write.IsSuccess)
+            {
+                if (write.Error == AttachmentStorageFailure.ClaimCasMismatch)
+                {
+                    var comp = await CompensateTupleAsync(current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId), input.AdoProjection, CancellationToken.None).ConfigureAwait(false);
+                    return new ClaimReleaseOutcome.ConcurrentClaimWrite(comp.IsSuccess ? write.Error : $"{write.Error}; compensation-failed:{comp.Error}");
+                }
+                return new ClaimReleaseOutcome.StorageUnavailable(write.Error);
             }
-            return new ClaimReleaseOutcome.StorageUnavailable(write.Error);
-        }
 
-        var unlink = await _attachment.UnlinkClaimAsync(current.ClaimId, expectedAttachmentRevision, ct).ConfigureAwait(false);
-        if (!unlink.IsSuccess)
-            return new ClaimReleaseOutcome.AttachmentUnlinkFailed(unlink.Error, terminal);
-        return new ClaimReleaseOutcome.Succeeded(terminal);
+            phase = ReleasePhase.LocalCommitted;
+            var unlink = await _attachment.UnlinkClaimAsync(current.ClaimId, expectedAttachmentRevision, ct).ConfigureAwait(false);
+            if (!unlink.IsSuccess)
+                return new ClaimReleaseOutcome.AttachmentUnlinkFailed(unlink.Error, terminal);
+            return new ClaimReleaseOutcome.Succeeded(terminal);
+        }
+        catch (OperationCanceledException)
+        {
+            await HandleReleaseCancellationAsync(phase, current, input).ConfigureAwait(false);
+            throw;
+        }
     }
 
-    // ── Validate ──────────────────────────────────────────────────────
+    private async Task HandleReleaseCancellationAsync(ReleasePhase phase, ClaimRecord current, ReleaseClaimInput input)
+    {
+        var ct = CancellationToken.None;
+        Result cleanup;
+        switch (phase)
+        {
+            case ReleasePhase.PreRemote:
+                cleanup = Result.Ok();
+                break;
+            case ReleasePhase.RemoteInFlight:
+            case ReleasePhase.RemoteCommitted:
+                // ADO may have been cleared but local state unchanged.
+                // Converge from fresh tuple state; do NOT reuse the stale
+                // current CAS.
+                cleanup = await CompensateTupleAsync(
+                    current.ConnectionRef, current.PrimaryScopeKind, current.PrimaryScopeId, TryParseInt(current.PrimaryScopeId),
+                    input.AdoProjection, ct).ConfigureAwait(false);
+                break;
+            case ReleasePhase.LocalCommitted:
+                // Local terminalized; attachment may still reference the
+                // (now-released) claim id. Best-effort unlink; state is
+                // already consistent.
+                cleanup = Result.Ok();
+                break;
+            default:
+                cleanup = Result.Ok();
+                break;
+        }
+        if (!cleanup.IsSuccess)
+        {
+            throw new AggregateException(
+                $"release canceled and phase-{phase} cleanup failed: {cleanup.Error}",
+                new OperationCanceledException(),
+                new InvalidOperationException(cleanup.Error));
+        }
+    }
+
+    private enum ReleasePhase { PreRemote, RemoteInFlight, RemoteCommitted, LocalCommitted }
+
+    // ── Validate / Lookup / UpdateLabel (unchanged) ─────────────────────
 
     public async Task<ClaimValidationOutcome> ValidateAsync(ClaimValidationInput input, CancellationToken ct = default)
     {
@@ -410,8 +562,6 @@ internal sealed class LocalClaimService : ILocalClaimService
         return new ClaimValidationOutcome.Succeeded(record);
     }
 
-    // ── LookupByTuple ─────────────────────────────────────────────────
-
     public async Task<ClaimLookupOutcome> LookupByTupleAsync(ClaimTupleQuery query, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query.ConnectionRef)
@@ -434,8 +584,6 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimLookupOutcome.SchemaDrift(driftVersion);
         return new ClaimLookupOutcome.Found(ProjectClaim(doc!, row.CasToken));
     }
-
-    // ── UpdateLabel ───────────────────────────────────────────────────
 
     public async Task<ClaimLabelUpdateOutcome> UpdateLabelAsync(UpdateClaimLabelInput input, CancellationToken ct = default)
     {
@@ -473,47 +621,103 @@ internal sealed class LocalClaimService : ILocalClaimService
     // ── Internals ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Compensation for a lost CAS on release/reclaim: read the current
-    /// state of the tuple and re-project (or clear) ADO to match. This
-    /// is the readback half of the "conditional commit + compensation"
-    /// protocol — the tuple's ADO surface converges to the winner's
-    /// holder regardless of ordering.
+    /// Verify the row for <paramref name="active"/> is still in state
+    /// <see cref="ClaimStates.Active"/> with the exact CAS token we
+    /// activated with. AB#739 §Link stability: a concurrent release that
+    /// terminalized between our activation and our attachment link would
+    /// otherwise leave a stale link. The mint/reclaim paths call this
+    /// AFTER the successful link and, on mismatch, unlink and compensate.
     /// </summary>
-    private async Task CompensateTupleAsync(
+    private async Task<Result> VerifyRowStillLiveAsync(ClaimRecord active, long attachmentRevisionAfterLink, CancellationToken ct)
+    {
+        _ = attachmentRevisionAfterLink; // reserved for future epoch checks
+        var rowResult = await _registry.FindClaimAsync(active.ClaimId, ct).ConfigureAwait(false);
+        if (!rowResult.IsSuccess)
+            return Result.Fail($"post-link-row-read-failed:{rowResult.Error}");
+        if (rowResult.Value is null)
+            return Result.Fail("post-link-row-missing");
+        var row = rowResult.Value;
+        if (!string.Equals(row.State, ClaimStates.Active, StringComparison.Ordinal))
+            return Result.Fail($"post-link-row-state:{row.State}");
+        if (!string.Equals(row.CasToken, active.CasToken, StringComparison.Ordinal))
+            return Result.Fail($"post-link-row-cas-drift");
+        return Result.Ok();
+    }
+
+    /// <summary>
+    /// Compensation runs after a lost CAS on release/reclaim or after a
+    /// post-link stale-row detection. AB#739 review requires:
+    /// <list type="bullet">
+    ///   <item>NEVER clear/project on registry read failure. Only a
+    ///     successful authoritative read may drive a decision; a read
+    ///     failure surfaces as a <see cref="Result"/> failure so the
+    ///     caller may include it in the outcome.</item>
+    ///   <item>After projection or clear, re-read the tuple and confirm
+    ///     the winner's <c>claimId</c> + <c>casToken</c> is stable. If it
+    ///     moved, iterate — bounded by
+    ///     <see cref="CompensationMaxIterations"/>.</item>
+    ///   <item>Every observed failure is surfaced through the returned
+    ///     <see cref="Result"/>.</item>
+    /// </list>
+    /// </summary>
+    private async Task<Result> CompensateTupleAsync(
         string connectionRef, string primaryScopeKind, string primaryScopeId,
         int workItemId, IAdoClaimProjection ado, CancellationToken ct)
     {
-        try
+        string? lastWinnerId = null;
+        string? lastWinnerCas = null;
+        for (var iter = 0; iter < CompensationMaxIterations; iter++)
         {
-            var reserved = await _registry.FindReservedClaimAsync(connectionRef, primaryScopeKind, workItemId, ActiveOnlyStates, ct).ConfigureAwait(false);
-            if (reserved.IsSuccess && reserved.Value is { } activeRow)
+            var readBefore = await _registry.FindReservedClaimAsync(connectionRef, primaryScopeKind, workItemId, ActiveOnlyStates, ct).ConfigureAwait(false);
+            if (!readBefore.IsSuccess)
+                return Result.Fail($"compensation-read-failed:{readBefore.Error}");
+
+            Result adoOp;
+            string? intendedWinnerId = null;
+            string? intendedWinnerCas = null;
+            if (readBefore.Value is { } activeRow)
             {
-                var doc = TryDeserialize(activeRow, out var d, out _);
-                if (doc is not null)
-                {
-                    var winner = ProjectClaim(d!, activeRow.CasToken);
-                    var winnerHolder = new ClaimHolderDescriptor(
-                        winner.HolderIdentity,
-                        winner.HolderDisplay,
-                        winner.HolderUniqueName);
-                    await ado.ProjectHolderAsync(primaryScopeId, winnerHolder, ct).ConfigureAwait(false);
-                    return;
-                }
+                var doc = TryDeserialize(activeRow, out var d, out var driftV);
+                if (doc is null)
+                    return Result.Fail($"compensation-drift:{driftV}");
+                var winner = ProjectClaim(d!, activeRow.CasToken);
+                intendedWinnerId = winner.ClaimId;
+                intendedWinnerCas = activeRow.CasToken;
+                var winnerHolder = new ClaimHolderDescriptor(winner.HolderIdentity, winner.HolderDisplay);
+                adoOp = await ado.ProjectHolderAsync(primaryScopeId, winnerHolder, ct).ConfigureAwait(false);
             }
-            await ado.ClearHolderAsync(primaryScopeId, ct).ConfigureAwait(false);
+            else
+            {
+                adoOp = await ado.ClearHolderAsync(primaryScopeId, ct).ConfigureAwait(false);
+            }
+            if (!adoOp.IsSuccess)
+                return Result.Fail($"compensation-ado-failed:{adoOp.Error}");
+
+            var readAfter = await _registry.FindReservedClaimAsync(connectionRef, primaryScopeKind, workItemId, ActiveOnlyStates, ct).ConfigureAwait(false);
+            if (!readAfter.IsSuccess)
+                return Result.Fail($"compensation-verify-read-failed:{readAfter.Error}");
+
+            string? actualWinnerId = readAfter.Value?.ClaimId;
+            string? actualWinnerCas = readAfter.Value?.CasToken;
+            if (string.Equals(actualWinnerId, intendedWinnerId, StringComparison.Ordinal)
+                && string.Equals(actualWinnerCas, intendedWinnerCas, StringComparison.Ordinal))
+            {
+                // Stable — ADO now reflects the winner and the winner has
+                // not moved. Converged.
+                return Result.Ok();
+            }
+
+            // Tuple changed under us. Re-iterate.
+            lastWinnerId = actualWinnerId;
+            lastWinnerCas = actualWinnerCas;
         }
-        catch
-        {
-            // Compensation is best-effort; a failure here does not
-            // surface into the outcome (the CAS-mismatch outcome
-            // already tells the caller their write did not land).
-        }
+        return Result.Fail($"compensation-not-converged:last-winner-id={lastWinnerId ?? "<none>"}");
     }
 
-    private async Task<Result<ClaimHolderDescriptor>> ResolveHolderAsync(string? callerIdentity, string? callerDisplay, string? callerUniqueName, CancellationToken ct)
+    private async Task<Result<ClaimHolderDescriptor>> ResolveHolderAsync(string? callerIdentity, string? callerDisplay, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(callerIdentity) && !string.IsNullOrWhiteSpace(callerUniqueName))
-            return Result.Ok(new ClaimHolderDescriptor(callerIdentity!, callerDisplay, callerUniqueName));
+        if (!string.IsNullOrWhiteSpace(callerIdentity))
+            return Result.Ok(new ClaimHolderDescriptor(callerIdentity!, callerDisplay));
         return await _holderResolver.ResolveAsync(ct).ConfigureAwait(false);
     }
 
@@ -539,7 +743,6 @@ internal sealed class LocalClaimService : ILocalClaimService
             PrimaryScopeKind: input.PrimaryScopeKind,
             HolderIdentity: holder.Identity,
             HolderDisplay: holder.DisplayName,
-            HolderUniqueName: holder.UniqueName,
             WorktreeFingerprint: input.WorktreeFingerprint,
             State: ClaimStates.Pending,
             Origin: ClaimOrigins.Local,
@@ -662,6 +865,14 @@ internal sealed class LocalClaimService : ILocalClaimService
         return validated;
     }
 
+    /// <summary>
+    /// AB#737 §Record shape + AB#739 §Duplicated authoritative fields:
+    /// every value that appears BOTH in the JSON document AND on the SQL
+    /// row MUST match byte-exact. Any drift is a corruption signal that
+    /// maps to <c>SchemaDrift</c>. Load-bearing holder identity is
+    /// validated as non-empty (the ADO projection compares it exactly on
+    /// readback; empty would silently pass any check).
+    /// </summary>
     private static bool ValidateRecordInvariants(ClaimRecordDocument parsed, SystemClaimRow row, out ClaimRecordDocument? doc)
     {
         doc = null;
@@ -732,10 +943,16 @@ internal sealed class LocalClaimService : ILocalClaimService
             && parsed.ReleaseReason is not (ClaimReleaseReasons.ExplicitRelease or ClaimReleaseReasons.ExplicitReclaim or ClaimReleaseReasons.MintAbort))
             return false;
 
+        // Row-vs-document consistency for every duplicated authoritative
+        // field. Any drift signals corruption or an under-CAS write from a
+        // buggy peer, and MUST fail as SchemaDrift rather than being
+        // silently trusted.
         if (!string.Equals(parsed.ClaimId, row.ClaimId, StringComparison.Ordinal)) return false;
         if (!string.Equals(parsed.ConnectionRef, row.ConnectionRef, StringComparison.Ordinal)) return false;
         if (!string.Equals(parsed.State, row.State, StringComparison.Ordinal)) return false;
         if (!string.Equals(parsed.PrimaryScopeKind, row.PrimaryScopeKind, StringComparison.Ordinal)) return false;
+        if (!string.Equals(parsed.WorktreeFingerprint, row.WorktreeFingerprint, StringComparison.Ordinal)) return false;
+        if (!string.Equals(parsed.CasToken, row.CasToken, StringComparison.Ordinal)) return false;
         if (!int.TryParse(parsed.PrimaryScopeId, System.Globalization.NumberStyles.Integer,
                 System.Globalization.CultureInfo.InvariantCulture, out var parsedWi) || parsedWi != row.WorkItemId) return false;
 
@@ -751,7 +968,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         DateTimeOffset? expires = ParseNullableTimestamp(doc.ExpiresAt);
         return new ClaimRecord(
             doc.SchemaVersion, doc.ClaimId!, doc.Label, doc.ConnectionRef!,
-            doc.PrimaryScopeId!, doc.PrimaryScopeKind!, doc.HolderIdentity!, doc.HolderDisplay, doc.HolderUniqueName,
+            doc.PrimaryScopeId!, doc.PrimaryScopeKind!, doc.HolderIdentity!, doc.HolderDisplay,
             doc.WorktreeFingerprint!, doc.State!, doc.Origin!, doc.LeaseGeneration,
             expires, created, activated, released, doc.SupersededByClaimId,
             doc.ReleaseReason, doc.Notes,
@@ -770,7 +987,6 @@ internal sealed class LocalClaimService : ILocalClaimService
             PrimaryScopeKind: input.PrimaryScopeKind,
             HolderIdentity: holder.Identity,
             HolderDisplay: holder.DisplayName,
-            HolderUniqueName: holder.UniqueName,
             WorktreeFingerprint: input.WorktreeFingerprint,
             State: ClaimStates.Pending,
             Origin: ClaimOrigins.Local,
@@ -796,7 +1012,6 @@ internal sealed class LocalClaimService : ILocalClaimService
             PrimaryScopeKind: claim.PrimaryScopeKind,
             HolderIdentity: claim.HolderIdentity,
             HolderDisplay: claim.HolderDisplay,
-            HolderUniqueName: claim.HolderUniqueName,
             WorktreeFingerprint: claim.WorktreeFingerprint,
             State: claim.State,
             Origin: claim.Origin,

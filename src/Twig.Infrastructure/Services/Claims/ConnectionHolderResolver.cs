@@ -52,8 +52,7 @@ internal sealed class ConnectionHolderResolver : IClaimHolderResolver
         // readback) key on a stable token, not a rendering.
         return Result.Ok(new ClaimHolderDescriptor(
             Identity: identity.UniqueName!,
-            DisplayName: identity.DisplayName,
-            UniqueName: identity.UniqueName));
+            DisplayName: identity.DisplayName));
     }
 
     private static string SanitizeMessage(string? message)

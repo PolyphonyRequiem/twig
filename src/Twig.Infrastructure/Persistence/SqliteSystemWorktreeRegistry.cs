@@ -380,6 +380,181 @@ SELECT current_epoch, winning_claim_id, winning_cas_token
         }, ct);
 
 
+    public Task<Result> ActivateClaimAndCommitEpochAsync(
+        string claimId, string expectedCasToken, string newCasToken,
+        DateTimeOffset activatedAt, string recordJson,
+        string connectionRef, string primaryScopeKind, int workItemId,
+        long expectedEpoch, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            var stamp = activatedAt.ToUniversalTime().ToString("o");
+            using (var upd = connection.CreateCommand())
+            {
+                upd.Transaction = tx;
+                upd.CommandText = @"
+UPDATE claims
+   SET state = 'active',
+       cas_token = $newTok,
+       ended_at = NULL,
+       record_json = $json
+ WHERE claim_id = $id AND cas_token = $expTok;";
+                upd.Parameters.AddWithValue("$id", claimId);
+                upd.Parameters.AddWithValue("$expTok", expectedCasToken);
+                upd.Parameters.AddWithValue("$newTok", newCasToken);
+                upd.Parameters.AddWithValue("$json", recordJson);
+                var rows = await upd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
+            }
+            using (var epoch = connection.CreateCommand())
+            {
+                epoch.Transaction = tx;
+                epoch.CommandText = @"
+UPDATE tuple_epochs
+   SET winning_claim_id = $cid,
+       winning_cas_token = $cas
+ WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
+   AND work_item_id = $wi
+   AND current_epoch = $epoch;";
+                epoch.Parameters.AddWithValue("$ref", connectionRef);
+                epoch.Parameters.AddWithValue("$kind", primaryScopeKind);
+                epoch.Parameters.AddWithValue("$wi", workItemId);
+                epoch.Parameters.AddWithValue("$epoch", expectedEpoch);
+                epoch.Parameters.AddWithValue("$cid", claimId);
+                epoch.Parameters.AddWithValue("$cas", newCasToken);
+                var rows = await epoch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimTupleEpochMismatch);
+            }
+            _ = stamp;
+            return Result.Ok();
+        }, ct);
+
+    public Task<Result> SupersedeAndActivateClaimAndCommitEpochAsync(
+        string newClaimId, string newCasToken,
+        string connectionRef, string worktreeFingerprint,
+        string primaryScopeKind, int workItemId, string newRecordJson,
+        string predecessorClaimId, string predecessorExpectedCasToken,
+        string predecessorNewCasToken, string predecessorRecordJson,
+        DateTimeOffset transitionAt, long expectedEpoch, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            var stamp = transitionAt.ToUniversalTime().ToString("o");
+            using (var supersede = connection.CreateCommand())
+            {
+                supersede.Transaction = tx;
+                supersede.CommandText = @"
+UPDATE claims
+   SET state = 'superseded',
+       cas_token = $newTok,
+       ended_at = $endedAt,
+       record_json = $json
+ WHERE claim_id = $id AND cas_token = $expTok;";
+                supersede.Parameters.AddWithValue("$id", predecessorClaimId);
+                supersede.Parameters.AddWithValue("$expTok", predecessorExpectedCasToken);
+                supersede.Parameters.AddWithValue("$newTok", predecessorNewCasToken);
+                supersede.Parameters.AddWithValue("$endedAt", stamp);
+                supersede.Parameters.AddWithValue("$json", predecessorRecordJson);
+                var rows = await supersede.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
+            }
+            try
+            {
+                using var insert = connection.CreateCommand();
+                insert.Transaction = tx;
+                insert.CommandText = @"
+INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json)
+VALUES ($id, $ref, $fp, $kind, $wi, 'active', $tok, $now, NULL, $json);";
+                insert.Parameters.AddWithValue("$id", newClaimId);
+                insert.Parameters.AddWithValue("$ref", connectionRef);
+                insert.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                insert.Parameters.AddWithValue("$kind", primaryScopeKind);
+                insert.Parameters.AddWithValue("$wi", workItemId);
+                insert.Parameters.AddWithValue("$tok", newCasToken);
+                insert.Parameters.AddWithValue("$now", stamp);
+                insert.Parameters.AddWithValue("$json", newRecordJson);
+                await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
+            {
+                return Result.Fail($"{AttachmentStorageFailure.ClaimDuplicateReserved}: {ex.Message}");
+            }
+            using (var epoch = connection.CreateCommand())
+            {
+                epoch.Transaction = tx;
+                epoch.CommandText = @"
+UPDATE tuple_epochs
+   SET winning_claim_id = $cid,
+       winning_cas_token = $cas
+ WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
+   AND work_item_id = $wi
+   AND current_epoch = $epoch;";
+                epoch.Parameters.AddWithValue("$ref", connectionRef);
+                epoch.Parameters.AddWithValue("$kind", primaryScopeKind);
+                epoch.Parameters.AddWithValue("$wi", workItemId);
+                epoch.Parameters.AddWithValue("$epoch", expectedEpoch);
+                epoch.Parameters.AddWithValue("$cid", newClaimId);
+                epoch.Parameters.AddWithValue("$cas", newCasToken);
+                var rows = await epoch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimTupleEpochMismatch);
+            }
+            return Result.Ok();
+        }, ct);
+
+    public Task<Result> TerminalizeClaimAndCommitEpochAsync(
+        string claimId, string expectedCasToken, string newCasToken,
+        DateTimeOffset endedAt, string recordJson,
+        string connectionRef, string primaryScopeKind, int workItemId,
+        long expectedEpoch, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            var stamp = endedAt.ToUniversalTime().ToString("o");
+            using (var upd = connection.CreateCommand())
+            {
+                upd.Transaction = tx;
+                upd.CommandText = @"
+UPDATE claims
+   SET state = 'released',
+       cas_token = $newTok,
+       ended_at = $endedAt,
+       record_json = $json
+ WHERE claim_id = $id AND cas_token = $expTok;";
+                upd.Parameters.AddWithValue("$id", claimId);
+                upd.Parameters.AddWithValue("$expTok", expectedCasToken);
+                upd.Parameters.AddWithValue("$newTok", newCasToken);
+                upd.Parameters.AddWithValue("$endedAt", stamp);
+                upd.Parameters.AddWithValue("$json", recordJson);
+                var rows = await upd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
+            }
+            using (var epoch = connection.CreateCommand())
+            {
+                epoch.Transaction = tx;
+                // Release: no winning claim id (tuple is released).
+                epoch.CommandText = @"
+UPDATE tuple_epochs
+   SET winning_claim_id = NULL,
+       winning_cas_token = NULL
+ WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
+   AND work_item_id = $wi
+   AND current_epoch = $epoch;";
+                epoch.Parameters.AddWithValue("$ref", connectionRef);
+                epoch.Parameters.AddWithValue("$kind", primaryScopeKind);
+                epoch.Parameters.AddWithValue("$wi", workItemId);
+                epoch.Parameters.AddWithValue("$epoch", expectedEpoch);
+                var rows = await epoch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (rows == 0)
+                    return Result.Fail(AttachmentStorageFailure.ClaimTupleEpochMismatch);
+            }
+            return Result.Ok();
+        }, ct);
+
     public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default)
         => ExecuteReadAsync<SystemProfileCacheRow?>(async connection =>
         {

@@ -813,5 +813,16 @@ public sealed class LocalClaimServiceTests : IDisposable
         public Task<Result<long>> ReserveTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok(1L));
         public Task<Result> CommitTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, string winningClaimId, string winningCasToken, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result<TupleEpochRow>> GetTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok(new TupleEpochRow(0, null, null)));
+        public Task<Result> ActivateClaimAndCommitEpochAsync(string claimId, string expectedCasToken, string newCasToken, DateTimeOffset activatedAt, string recordJson, string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, CancellationToken ct = default)
+        {
+            _updateCount++;
+            if (_abortStorageError is not null)
+                return Task.FromResult(Result.Fail(_abortStorageError));
+            if (_bumpCasBeforeAbort)
+                return Task.FromResult(Result.Fail(AttachmentStorageFailure.ClaimCasMismatch));
+            return Task.FromResult(Result.Ok());
+        }
+        public Task<Result> SupersedeAndActivateClaimAndCommitEpochAsync(string newClaimId, string newCasToken, string connectionRef, string worktreeFingerprint, string primaryScopeKind, int workItemId, string newRecordJson, string predecessorClaimId, string predecessorExpectedCasToken, string predecessorNewCasToken, string predecessorRecordJson, DateTimeOffset transitionAt, long expectedEpoch, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> TerminalizeClaimAndCommitEpochAsync(string claimId, string expectedCasToken, string newCasToken, DateTimeOffset endedAt, string recordJson, string connectionRef, string primaryScopeKind, int workItemId, long expectedEpoch, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 }

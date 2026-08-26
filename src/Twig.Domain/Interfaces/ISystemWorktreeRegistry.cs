@@ -129,6 +129,67 @@ internal interface ISystemWorktreeRegistry
     /// a losing lifecycle operation can converge ADO to the authoritative
     /// winner. Missing row returns
     /// <see cref="TupleEpochRow"/> with <c>Epoch = 0</c>.</summary>
+
+    // ── Atomic transition + epoch commit (§9.4, AB#739) ────────────────
+
+    /// <summary>Atomic mint activation: CAS-transitions the pending
+    /// claim to active AND CAS-commits the tuple epoch in the same
+    /// <c>BEGIN IMMEDIATE</c> transaction. On any CAS failure the whole
+    /// transaction rolls back — the row never activates unless the
+    /// caller was the recorded winner at
+    /// <paramref name="expectedEpoch"/>. Closes the "activate then a
+    /// later reserver raised the epoch" race.
+    /// <para>Failure codes: <c>claim-cas-mismatch</c> for a mismatched
+    /// pending CAS token; <c>claim-tuple-epoch-mismatch</c> when the
+    /// epoch moved between reserve and commit; storage failures pass
+    /// through verbatim.</para></summary>
+    Task<Result> ActivateClaimAndCommitEpochAsync(
+        string claimId,
+        string expectedCasToken,
+        string newCasToken,
+        DateTimeOffset activatedAt,
+        string recordJson,
+        string connectionRef,
+        string primaryScopeKind,
+        int workItemId,
+        long expectedEpoch,
+        CancellationToken ct = default);
+
+    /// <summary>Atomic reclaim supersede+activate+epoch commit in one
+    /// <c>BEGIN IMMEDIATE</c> transaction. Combines the predecessor
+    /// active→superseded CAS, the new active insert, and the tuple
+    /// epoch commit. If any of the three steps fails the whole
+    /// transaction rolls back.</summary>
+    Task<Result> SupersedeAndActivateClaimAndCommitEpochAsync(
+        string newClaimId,
+        string newCasToken,
+        string connectionRef,
+        string worktreeFingerprint,
+        string primaryScopeKind,
+        int workItemId,
+        string newRecordJson,
+        string predecessorClaimId,
+        string predecessorExpectedCasToken,
+        string predecessorNewCasToken,
+        string predecessorRecordJson,
+        DateTimeOffset transitionAt,
+        long expectedEpoch,
+        CancellationToken ct = default);
+
+    /// <summary>Atomic release terminalization + epoch commit. Combines
+    /// the active→released CAS on the claim row and the tuple epoch
+    /// commit in one <c>BEGIN IMMEDIATE</c> transaction.</summary>
+    Task<Result> TerminalizeClaimAndCommitEpochAsync(
+        string claimId,
+        string expectedCasToken,
+        string newCasToken,
+        DateTimeOffset endedAt,
+        string recordJson,
+        string connectionRef,
+        string primaryScopeKind,
+        int workItemId,
+        long expectedEpoch,
+        CancellationToken ct = default);
     Task<Result<TupleEpochRow>> GetTupleEpochAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default);
 
     // ── ProfileCache (§9.4, AB#727) ───────────────────────────────────

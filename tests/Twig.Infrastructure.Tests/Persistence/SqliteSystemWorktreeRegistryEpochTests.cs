@@ -108,4 +108,43 @@ public sealed class SqliteSystemWorktreeRegistryEpochTests : IDisposable
         row.Value.WinningClaimId.ShouldBeNull();
         row.Value.WinningCasToken.ShouldBeNull();
     }
+
+    //
+    // Two lifecycle operations reserve overlapping epochs. The atomic
+    // transition+epoch commit ensures the losing operation's claim row
+    // is rolled back — the tuple never carries an active non-winner
+    // row.
+
+    [Fact]
+    public async Task Atomic_activate_rolls_back_when_epoch_moved_between_reserve_and_commit()
+    {
+        await SeedAsync();
+        (await _registry.UpsertWorktreeAsync("fp-e", "ref-e", "/wt")).IsSuccess.ShouldBeTrue();
+
+        // Insert pending row for claim X (epoch e1 reserved by X).
+        (await _registry.InsertClaimAsync("CLM-X", "ref-e", "fp-e", Kind, 555, "pending", "cas-X", "{}")).IsSuccess.ShouldBeTrue();
+        var e1 = await _registry.ReserveTupleEpochAsync("ref-e", Kind, 555);
+        e1.IsSuccess.ShouldBeTrue();
+
+        // A concurrent operation reserves e2 (higher).
+        var e2 = await _registry.ReserveTupleEpochAsync("ref-e", Kind, 555);
+        e2.Value.ShouldBeGreaterThan(e1.Value);
+
+        // X attempts atomic activate+epoch commit at e1: MUST fail on epoch mismatch.
+        var atomic = await _registry.ActivateClaimAndCommitEpochAsync(
+            "CLM-X", "cas-X", "cas-X-new", DateTimeOffset.UtcNow, "{}",
+            "ref-e", Kind, 555, e1.Value);
+        atomic.IsSuccess.ShouldBeFalse();
+        atomic.Error.ShouldBe(AttachmentStorageFailure.ClaimTupleEpochMismatch);
+
+        // Row was rolled back — still pending, NOT active.
+        var find = await _registry.FindClaimAsync("CLM-X");
+        find.Value.ShouldNotBeNull();
+        find.Value!.State.ShouldBe("pending");
+        find.Value.CasToken.ShouldBe("cas-X"); // unchanged
+
+        // Epoch row has no winner.
+        var row = await _registry.GetTupleEpochAsync("ref-e", Kind, 555);
+        row.Value.WinningClaimId.ShouldBeNull();
+    }
 }

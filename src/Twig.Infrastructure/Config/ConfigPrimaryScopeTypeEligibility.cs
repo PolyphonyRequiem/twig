@@ -1,19 +1,25 @@
+using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Attachment;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Infrastructure.Config;
 
 /// <summary>
-/// Default type-eligibility resolver: consults the workspace's configured
-/// primary-scope allow-set and returns <c>true</c> when the type is in the
-/// set. An empty or missing set is permissive: every type is eligible. This
-/// matches the "runtime policy/profile data" contract in AB#738 — the gate
-/// exists to be tightened by configuration, not to hard-code any allow-list.
+/// Default type-eligibility resolver. Consults the active profile's primary-scope
+/// allow-set (as materialized into <see cref="WorkspaceConfig.PrimaryScopeTypes"/>
+/// from the profile pinned in <c>twig.json</c>) and returns
+/// <see cref="Result{T}"/>-carrying <c>true</c> only when the type is in the
+/// set.
 /// <para>
-/// The allow-set lives on <see cref="WorkspaceConfig.PrimaryScopeTypes"/>. It is
-/// process-agnostic — a value is any string the process description recognises
-/// as a work-item type. Case-insensitive comparison mirrors the rest of the
-/// codebase (see <c>StatePairComparer</c>, <c>WorkItemTypeComparer</c>).
+/// Fails closed when the allow-set cannot be resolved: an empty or missing set
+/// surfaces <c>eligibility-unavailable</c> (see
+/// <see cref="AttachmentStorageFailure.EligibilityUnavailable"/>). Silent
+/// permit-all — the defect the review flagged — would let every managed
+/// worktree without an explicit workspace policy attach any type; a repository
+/// that has never bound a profile MUST refuse rather than adopt the
+/// convention-less path. Type-name comparison is case-insensitive, mirroring
+/// <c>StatePairComparer</c> and <c>WorkItemTypeComparer</c>.
 /// </para>
 /// </summary>
 internal sealed class ConfigPrimaryScopeTypeEligibility : IPrimaryScopeTypeEligibility
@@ -25,17 +31,17 @@ internal sealed class ConfigPrimaryScopeTypeEligibility : IPrimaryScopeTypeEligi
         _config = config;
     }
 
-    public bool IsEligible(WorkItemType type)
+    public Result<bool> Evaluate(WorkItemType type)
     {
         var allow = _config.Workspace?.PrimaryScopeTypes;
         if (allow is null || allow.Count == 0)
-            return true;
+            return Result.Fail<bool>(AttachmentStorageFailure.EligibilityUnavailable);
 
         for (var i = 0; i < allow.Count; i++)
         {
             if (string.Equals(allow[i], type.Value, StringComparison.OrdinalIgnoreCase))
-                return true;
+                return Result.Ok(true);
         }
-        return false;
+        return Result.Ok(false);
     }
 }

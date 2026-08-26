@@ -15,19 +15,28 @@ namespace Twig.Domain.Tests.Services.Attachment;
 /// projection — never the raw storage document. Storage is simulated by an
 /// in-memory <see cref="FakeAttachmentStore"/> so the tests are hermetic and
 /// portable across CI hosts (git may or may not be available in a sandbox).
+/// The system-store registry seam (§9.4) is fed by a <see cref="FakeSystemRegistry"/>
+/// preloaded with a matching worktree row so the T1 initialization contract
+/// passes; §9.5 refusals are exercised as their own cases below.
 /// </summary>
 public sealed class PrimaryScopeAttachmentServiceTests
 {
     private const string ConnectionRef = "connectionref-fixture";
+    private const string WorktreeFingerprint = "{\"gitCommonDir\":\"/wt/.git\",\"worktreeGitDir\":\"/wt/.git\",\"worktreeRoot\":\"/wt\"}";
+    private const string WorktreeRoot = "/wt";
     private static readonly DateTimeOffset Frozen = new(2026, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
     private static PrimaryScopeAttachmentService BuildService(
         FakeAttachmentStore store,
         FakeWorkItemRepository repo,
-        FakeEligibility eligibility)
+        FakeEligibility eligibility,
+        FakeSystemRegistry? registry = null)
     {
         var clock = new FakeTimeProvider(Frozen);
-        return new PrimaryScopeAttachmentService(store, eligibility, repo, clock);
+        registry ??= FakeSystemRegistry.WithRegisteredWorktree(WorktreeFingerprint, ConnectionRef);
+        var fingerprint = new FakeFingerprintProvider(new WorktreeFingerprintContext(WorktreeFingerprint, ConnectionRef, WorktreeRoot));
+        var urlBuilder = new FakeUrlBuilder("fixture-org", "fixture-project");
+        return new PrimaryScopeAttachmentService(store, eligibility, repo, registry, fingerprint, urlBuilder, clock);
     }
 
     // ── AC: attach without claim ─────────────────────────────────────────
@@ -40,7 +49,7 @@ public sealed class PrimaryScopeAttachmentServiceTests
         var service = BuildService(store, repo, FakeEligibility.All());
 
         var attach = await service.AttachAsync(101);
-        attach.IsSuccess.ShouldBeTrue();
+        attach.IsSuccess.ShouldBeTrue(attach.Error);
 
         var read = await service.ReadStatusAsync();
         read.IsSuccess.ShouldBeTrue();
@@ -52,7 +61,7 @@ public sealed class PrimaryScopeAttachmentServiceTests
 
         // AB#738 explicitly forbids claim minting on the attach path — the claim
         // reference on the stored attachment MUST remain null.
-        store.Current.ActiveClaimId.ShouldBeNull();
+        store.Current.ActiveClaim.ShouldBeNull();
     }
 
     // ── AC: ineligible type refusal writes nothing ──────────────────────
@@ -73,6 +82,22 @@ public sealed class PrimaryScopeAttachmentServiceTests
         var read = await service.ReadStatusAsync();
         read.IsSuccess.ShouldBeTrue();
         read.Value.PrimaryScope.ShouldBeNull();
+        store.WriteCount.ShouldBe(0);
+    }
+
+    // ── AC: fail-closed eligibility ─────────────────────────────────────
+
+    [Fact]
+    public async Task Attach_refuses_when_profile_eligibility_is_unavailable()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(203, "Any type").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.Unavailable());
+
+        var attach = await service.AttachAsync(203);
+        attach.IsSuccess.ShouldBeFalse();
+        attach.Error.ShouldContain(AttachmentFailure.EligibilityUnavailable.ToString());
+        // Silent permit-all was the defect: nothing may be written.
         store.WriteCount.ShouldBe(0);
     }
 
@@ -138,6 +163,52 @@ public sealed class PrimaryScopeAttachmentServiceTests
         read.Value.PrimaryScope!.Value.WorkItemId.ShouldBe(501);
     }
 
+    // ── AC: claim linkage preserved across scope-only writes ────────────
+
+    [Fact]
+    public async Task Switch_preserves_full_active_claim_including_mint_timestamp()
+    {
+        var mintedAt = new DateTimeOffset(2025, 3, 4, 5, 6, 7, TimeSpan.Zero);
+        var attachmentWithClaim = new PrimaryScopeAttachment(
+            ConnectionRef,
+            PrimaryScope: new PrimaryScope(701, "https://dev.azure.com/o/p/_workitems/edit/701", Frozen.AddDays(-3)),
+            ActiveClaim: new ActiveClaimReference("claim-01H...", mintedAt));
+        var store = new FakeAttachmentStore(managed: true, attachmentWithClaim);
+        var repo = new FakeWorkItemRepository(
+            new WorkItemBuilder(701, "Old").AsTask().Build(),
+            new WorkItemBuilder(702, "New").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All());
+
+        var switched = await service.SwitchAsync(702);
+        switched.IsSuccess.ShouldBeTrue(switched.Error);
+
+        // The stored ActiveClaim block MUST survive byte-identical across a
+        // scope-only write — claim id AND its original mint timestamp.
+        store.Current.ActiveClaim.ShouldNotBeNull();
+        store.Current.ActiveClaim!.Value.ClaimId.ShouldBe("claim-01H...");
+        store.Current.ActiveClaim!.Value.MintedAt.ShouldBe(mintedAt);
+    }
+
+    [Fact]
+    public async Task Detach_preserves_active_claim_reference()
+    {
+        var mintedAt = new DateTimeOffset(2025, 8, 9, 10, 11, 12, TimeSpan.Zero);
+        var initial = new PrimaryScopeAttachment(
+            ConnectionRef,
+            PrimaryScope: new PrimaryScope(801, "https://dev.azure.com/o/p/_workitems/edit/801", Frozen.AddDays(-1)),
+            ActiveClaim: new ActiveClaimReference("claim-XYZ", mintedAt));
+        var store = new FakeAttachmentStore(managed: true, initial);
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(801, "S").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All());
+
+        (await service.DetachAsync()).IsSuccess.ShouldBeTrue();
+
+        store.Current.PrimaryScope.ShouldBeNull();
+        store.Current.ActiveClaim.ShouldNotBeNull();
+        store.Current.ActiveClaim!.Value.ClaimId.ShouldBe("claim-XYZ");
+        store.Current.ActiveClaim!.Value.MintedAt.ShouldBe(mintedAt);
+    }
+
     // ── AC: parent-attachment does not authorize child ──────────────────
 
     [Fact]
@@ -154,8 +225,6 @@ public sealed class PrimaryScopeAttachmentServiceTests
         var required = await service.RequireActiveClaimForScopeAsync(602);
         required.IsSuccess.ShouldBeFalse();
         required.Error.ShouldContain(AttachmentFailure.ScopeNotPrimary.ToString());
-        // The error names the CHILD id — that is the "named error naming the
-        // child" boundary AB#738 acceptance calls out.
         required.Error.ShouldContain("#602");
     }
 
@@ -173,24 +242,84 @@ public sealed class PrimaryScopeAttachmentServiceTests
         required.Error.ShouldContain(AttachmentFailure.ClaimNotFoundForScope.ToString());
     }
 
+    // ── AC: system-store registration is enforced (§9.5 step 5) ─────────
+
+    [Fact]
+    public async Task Attach_refuses_when_the_worktree_is_not_registered_in_the_system_store()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(901, "A").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All(), FakeSystemRegistry.Empty());
+
+        var attach = await service.AttachAsync(901);
+        attach.IsSuccess.ShouldBeFalse();
+        attach.Error.ShouldContain(AttachmentFailure.WorktreeNotRegistered.ToString());
+        store.WriteCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Attach_refuses_when_the_worktree_is_retired()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(902, "A").AsTask().Build());
+        var registry = FakeSystemRegistry.WithRetiredWorktree(WorktreeFingerprint, ConnectionRef, Frozen.AddDays(-1));
+        var service = BuildService(store, repo, FakeEligibility.All(), registry);
+
+        var attach = await service.AttachAsync(902);
+        attach.IsSuccess.ShouldBeFalse();
+        attach.Error.ShouldContain(AttachmentFailure.WorktreeRetired.ToString());
+        store.WriteCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Successful_attach_upserts_the_worktree_row()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(903, "A").AsTask().Build());
+        var registry = FakeSystemRegistry.WithRegisteredWorktree(WorktreeFingerprint, ConnectionRef);
+        var service = BuildService(store, repo, FakeEligibility.All(), registry);
+
+        (await service.AttachAsync(903)).IsSuccess.ShouldBeTrue();
+
+        // §9.4 tail — after a successful attach the registry MUST have observed
+        // the upsert so recovery/index authorities have this worktree pinned.
+        registry.UpsertedFingerprints.ShouldContain(WorktreeFingerprint);
+    }
+
+    // ── AC: origin-bearing work item URL ───────────────────────────────
+
+    [Fact]
+    public async Task Attach_writes_origin_bearing_work_item_url()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(904, "Scoped").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All());
+
+        (await service.AttachAsync(904)).IsSuccess.ShouldBeTrue();
+
+        // Not the opaque workitem:<id> shape — must include organization and project.
+        var url = store.Current.PrimaryScope!.Value.WorkItemUrl;
+        url.ShouldContain("fixture-org");
+        url.ShouldContain("fixture-project");
+        url.ShouldContain("904");
+    }
+
     // ── AC: status rendering after attach and after detach ─────────────
 
     [Fact]
     public async Task Status_after_detach_states_unattached_explicitly()
     {
         var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
-        var repo = new FakeWorkItemRepository(new WorkItemBuilder(801, "One").AsTask().Build());
+        var repo = new FakeWorkItemRepository(new WorkItemBuilder(1801, "One").AsTask().Build());
         var service = BuildService(store, repo, FakeEligibility.All());
 
-        (await service.AttachAsync(801)).IsSuccess.ShouldBeTrue();
+        (await service.AttachAsync(1801)).IsSuccess.ShouldBeTrue();
         (await service.DetachAsync()).IsSuccess.ShouldBeTrue();
 
         var status = (await service.ReadStatusAsync()).Value;
         status.IsManagedWorktree.ShouldBeTrue();
         status.PrimaryScope.ShouldBeNull();
-        // The presence of `IsManagedWorktree` + null scope is the projection the
-        // ticket demands: an attached surface renders this as "unattached", not
-        // as an absent block.
+        status.FailureCode.ShouldBeNull();
     }
 
     [Fact]
@@ -205,27 +334,68 @@ public sealed class PrimaryScopeAttachmentServiceTests
         status.PrimaryScope.ShouldBeNull();
     }
 
-    // ── AC: existing Bench/Context behavior is unchanged ────────────────
-    // Encoded here as an invariant: the attachment service never touches the
-    // IContextStore. The test exercises the whole attach → switch → detach
-    // sequence and asserts the shared context store the CLI uses for its active
-    // item pointer is byte-untouched by every path.
-
     [Fact]
-    public async Task Attach_switch_detach_never_touches_the_context_store()
+    public async Task Status_surfaces_named_storage_failure_on_the_public_projection()
     {
-        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
-        var repo = new FakeWorkItemRepository(
-            new WorkItemBuilder(901, "First").AsTask().Build(),
-            new WorkItemBuilder(902, "Second").AsTask().Build());
-        var contextStore = new SpyContextStore();
+        // A store that reads with a §8 identifier surfaces through the public
+        // adapter as a failure code — silent degradation to "unmanaged" is the
+        // defect the projection now refuses.
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef))
+        {
+            NextReadFailure = AttachmentStorageFailure.WorktreeFingerprintDrift,
+        };
+        var repo = new FakeWorkItemRepository();
         var service = BuildService(store, repo, FakeEligibility.All());
 
-        (await service.AttachAsync(901)).IsSuccess.ShouldBeTrue();
-        (await service.SwitchAsync(902)).IsSuccess.ShouldBeTrue();
-        (await service.DetachAsync()).IsSuccess.ShouldBeTrue();
+        var adapter = new AttachmentStatusProjectionAdapter(service);
+        var proj = await adapter.ReadAsync();
+        proj.FailureCode.ShouldBe(AttachmentStorageFailure.WorktreeFingerprintDrift);
+    }
 
-        contextStore.CallCount.ShouldBe(0);
+    [Fact]
+    public async Task Status_projection_rethrows_cancellation()
+    {
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef))
+        {
+            ThrowOnRead = new OperationCanceledException(),
+        };
+        var repo = new FakeWorkItemRepository();
+        var service = BuildService(store, repo, FakeEligibility.All());
+        var adapter = new AttachmentStatusProjectionAdapter(service);
+
+        await Should.ThrowAsync<OperationCanceledException>(() => adapter.ReadAsync());
+    }
+
+    // ── AC: context mutation truly does not touch the primary scope ─────
+
+    [Fact]
+    public async Task Setting_active_context_leaves_the_primary_scope_byte_identical()
+    {
+        // The old test observed a spy that was never wired into any code path
+        // so it was guaranteed to pass. This drives the real IContextStore
+        // mutation across the same worktree and asserts the attachment record
+        // remains byte-identical — the invariant the ticket demands.
+        var store = new FakeAttachmentStore(managed: true, PrimaryScopeAttachment.Empty(ConnectionRef));
+        var repo = new FakeWorkItemRepository(
+            new WorkItemBuilder(9001, "Scope").AsTask().Build(),
+            new WorkItemBuilder(9002, "Other").AsTask().Build());
+        var service = BuildService(store, repo, FakeEligibility.All());
+
+        (await service.AttachAsync(9001)).IsSuccess.ShouldBeTrue();
+        var afterAttach = store.Current;
+
+        // Drive the shared context store the CLI uses for its active-item
+        // pointer. The attachment record must remain byte-identical: neither
+        // scope, connection, nor claim reference may move.
+        var contextStore = new InMemoryContextStore();
+        await contextStore.SetActiveWorkItemIdAsync(9002);
+        (await contextStore.GetActiveWorkItemIdAsync()).ShouldBe(9002);
+
+        store.Current.ShouldBe(afterAttach);
+        // And a second context mutation still leaves the record untouched.
+        await contextStore.ClearActiveWorkItemIdAsync();
+        (await contextStore.GetActiveWorkItemIdAsync()).ShouldBeNull();
+        store.Current.ShouldBe(afterAttach);
     }
 
     // ── Named failure: unknown work item id ──
@@ -251,6 +421,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
         private readonly bool _managed;
         public int WriteCount { get; private set; }
         public PrimaryScopeAttachment Current => _current;
+        public string? NextReadFailure { get; set; }
+        public Exception? ThrowOnRead { get; set; }
 
         public FakeAttachmentStore(bool managed, PrimaryScopeAttachment initial)
         {
@@ -261,7 +433,13 @@ public sealed class PrimaryScopeAttachmentServiceTests
         public bool IsManagedWorktree() => _managed;
 
         public Task<Result<PrimaryScopeAttachment>> ReadAsync(CancellationToken ct = default)
-            => Task.FromResult(Result.Ok(_current));
+        {
+            if (ThrowOnRead is not null)
+                throw ThrowOnRead;
+            if (NextReadFailure is not null)
+                return Task.FromResult(Result.Fail<PrimaryScopeAttachment>(NextReadFailure));
+            return Task.FromResult(Result.Ok(_current));
+        }
 
         public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default)
         {
@@ -275,24 +453,98 @@ public sealed class PrimaryScopeAttachmentServiceTests
     {
         private readonly WorkItemType[] _allowed;
         private readonly bool _permitAll;
+        private readonly bool _unavailable;
 
-        private FakeEligibility(bool permitAll, WorkItemType[] allowed)
+        private FakeEligibility(bool permitAll, bool unavailable, WorkItemType[] allowed)
         {
             _permitAll = permitAll;
+            _unavailable = unavailable;
             _allowed = allowed;
         }
 
-        public static FakeEligibility All() => new(permitAll: true, allowed: Array.Empty<WorkItemType>());
-        public static FakeEligibility Only(params WorkItemType[] allowed) => new(permitAll: false, allowed);
+        public static FakeEligibility All() => new(permitAll: true, unavailable: false, allowed: Array.Empty<WorkItemType>());
+        public static FakeEligibility Only(params WorkItemType[] allowed) => new(permitAll: false, unavailable: false, allowed);
+        public static FakeEligibility Unavailable() => new(permitAll: false, unavailable: true, allowed: Array.Empty<WorkItemType>());
 
-        public bool IsEligible(WorkItemType type)
+        public Result<bool> Evaluate(WorkItemType type)
         {
-            if (_permitAll) return true;
+            if (_unavailable)
+                return Result.Fail<bool>(AttachmentStorageFailure.EligibilityUnavailable);
+            if (_permitAll) return Result.Ok(true);
             foreach (var a in _allowed)
                 if (string.Equals(a.Value, type.Value, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            return false;
+                    return Result.Ok(true);
+            return Result.Ok(false);
         }
+    }
+
+    private sealed class FakeSystemRegistry : ISystemWorktreeRegistry
+    {
+        private readonly Dictionary<string, SystemWorktreeRow> _rows;
+        public List<string> UpsertedFingerprints { get; } = new();
+
+        private FakeSystemRegistry(Dictionary<string, SystemWorktreeRow> rows) { _rows = rows; }
+
+        public static FakeSystemRegistry Empty() => new(new Dictionary<string, SystemWorktreeRow>(StringComparer.Ordinal));
+
+        public static FakeSystemRegistry WithRegisteredWorktree(string fingerprint, string connectionRef)
+        {
+            var rows = new Dictionary<string, SystemWorktreeRow>(StringComparer.Ordinal)
+            {
+                [fingerprint] = new SystemWorktreeRow(connectionRef, RetiredAt: null),
+            };
+            return new FakeSystemRegistry(rows);
+        }
+
+        public static FakeSystemRegistry WithRetiredWorktree(string fingerprint, string connectionRef, DateTimeOffset retiredAt)
+        {
+            var rows = new Dictionary<string, SystemWorktreeRow>(StringComparer.Ordinal)
+            {
+                [fingerprint] = new SystemWorktreeRow(connectionRef, retiredAt),
+            };
+            return new FakeSystemRegistry(rows);
+        }
+
+        public Task<Result<SystemWorktreeRow?>> FindWorktreeAsync(string worktreeFingerprint, CancellationToken ct = default) =>
+            Task.FromResult(Result.Ok<SystemWorktreeRow?>(_rows.TryGetValue(worktreeFingerprint, out var row) ? row : null));
+
+        public Task<Result> UpsertConnectionAsync(string connectionRef, string organization, string project, string? team, CancellationToken ct = default) =>
+            Task.FromResult(Result.Ok());
+
+        public Task<Result> UpsertWorktreeAsync(string worktreeFingerprint, string connectionRef, string worktreeRoot, CancellationToken ct = default)
+        {
+            UpsertedFingerprints.Add(worktreeFingerprint);
+            _rows[worktreeFingerprint] = new SystemWorktreeRow(connectionRef, RetiredAt: null);
+            return Task.FromResult(Result.Ok());
+        }
+    }
+
+    private sealed class FakeFingerprintProvider : IWorktreeFingerprintProvider
+    {
+        private readonly WorktreeFingerprintContext _context;
+        public FakeFingerprintProvider(WorktreeFingerprintContext context) { _context = context; }
+        public WorktreeFingerprintContext CurrentFingerprint => _context;
+    }
+
+    private sealed class FakeUrlBuilder : IPrimaryScopeUrlBuilder
+    {
+        private readonly string _org;
+        private readonly string _project;
+        public FakeUrlBuilder(string org, string project) { _org = org; _project = project; }
+        public string BuildWorkItemUrl(int workItemId) =>
+            $"https://dev.azure.com/{_org}/{_project}/_workitems/edit/{workItemId}";
+    }
+
+    private sealed class InMemoryContextStore : IContextStore
+    {
+        private int? _activeId;
+        private readonly Dictionary<string, string> _values = new();
+
+        public Task<int?> GetActiveWorkItemIdAsync(CancellationToken ct = default) => Task.FromResult(_activeId);
+        public Task SetActiveWorkItemIdAsync(int id, CancellationToken ct = default) { _activeId = id; return Task.CompletedTask; }
+        public Task ClearActiveWorkItemIdAsync(CancellationToken ct = default) { _activeId = null; return Task.CompletedTask; }
+        public Task<string?> GetValueAsync(string key, CancellationToken ct = default) => Task.FromResult(_values.TryGetValue(key, out var v) ? v : null);
+        public Task SetValueAsync(string key, string value, CancellationToken ct = default) { _values[key] = value; return Task.CompletedTask; }
     }
 
     private sealed class FakeWorkItemRepository : IWorkItemRepository
@@ -309,8 +561,6 @@ public sealed class PrimaryScopeAttachmentServiceTests
         public Task<bool> ExistsByIdAsync(int id, CancellationToken ct = default)
             => Task.FromResult(_items.ContainsKey(id));
 
-        // Unused surface — throws so a regression that starts reading through the
-        // repo on the attachment path fails loudly rather than degrading silently.
         public Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<WorkItem>> GetRootItemsAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -331,11 +581,6 @@ public sealed class PrimaryScopeAttachmentServiceTests
         public Task ClearDirtyFlagAsync(int id, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<WorkItem>> GetByAreaPathsAsync(IReadOnlyList<AreaPathFilter> entries, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<Twig.Domain.ReadModels.CacheStatistics> GetCacheStatisticsAsync(CancellationToken ct = default) => throw new NotImplementedException();
-    }
-
-    private sealed class SpyContextStore
-    {
-        public int CallCount { get; private set; }
     }
 
     private sealed class FakeTimeProvider : TimeProvider

@@ -152,14 +152,30 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
             new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
                 sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(sp =>
+            new Twig.Infrastructure.Persistence.ConfiguredPrimaryScopeUrlBuilder(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(sp =>
+            new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
+                Path.Combine(Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath, "system.db"),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
             new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(),
                 sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemRepository>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentService>(sp =>
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>());
         services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
-            new Twig.Domain.Services.Attachment.AttachmentStatusProjection(
+            new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
 
         AddConnectionDomainServices(services);

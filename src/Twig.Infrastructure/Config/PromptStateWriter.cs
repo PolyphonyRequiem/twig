@@ -133,7 +133,13 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         try
         {
             var read = await _attachment.ReadStatusAsync();
-            return read.IsSuccess ? read.Value : PrimaryScopeAttachmentStatus.NotManaged();
+            return read.IsSuccess ? read.Value : PrimaryScopeAttachmentStatus.Failed(read.Error);
+        }
+        catch (OperationCanceledException)
+        {
+            // The parent command owns cancellation semantics; the prompt file
+            // is advisory and must never swallow a caller-driven stop.
+            throw;
         }
         catch
         {
@@ -222,12 +228,22 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     /// </summary>
     internal static void WriteAttachmentBlock(Utf8JsonWriter writer, PrimaryScopeAttachmentStatus attachment)
     {
-        if (!attachment.IsManagedWorktree)
+        if (!attachment.IsManagedWorktree && attachment.FailureCode is null)
             return;
 
         writer.WritePropertyName("primaryScope");
         writer.WriteStartObject();
-        if (attachment.PrimaryScope is { } scope)
+        if (attachment.FailureCode is { } failure)
+        {
+            // AB#738 acceptance: a named storage failure (§8) is surfaced on
+            // the machine status surface as a repair hint rather than silently
+            // degraded to "unmanaged". The identifier is opaque to the
+            // consumer; twig-mcp forwards it verbatim.
+            writer.WriteBoolean("attached", false);
+            writer.WriteString("status", "failed");
+            writer.WriteString("failureCode", failure);
+        }
+        else if (attachment.PrimaryScope is { } scope)
         {
             writer.WriteBoolean("attached", true);
             writer.WriteNumber("workItemId", scope.WorkItemId);

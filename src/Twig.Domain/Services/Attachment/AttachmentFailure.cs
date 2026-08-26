@@ -28,6 +28,10 @@ internal enum AttachmentFailure
     /// <summary>The requested work item exists but the profile's primary-scope type
     /// allow-set rejected its type. Nothing is written.</summary>
     IneligibleType,
+    /// <summary>The selected profile cannot supply an allow-set yet and workspace
+    /// configuration carries none: the gate fails closed rather than silently
+    /// permit every type. Nothing is written.</summary>
+    EligibilityUnavailable,
     /// <summary>The requested work item id is unknown to the local cache and could
     /// not be resolved.</summary>
     WorkItemUnknown,
@@ -38,6 +42,14 @@ internal enum AttachmentFailure
     /// <summary>The current primary scope carries no active local claim reference.
     /// AB#739 mints; AB#738 only observes.</summary>
     ClaimNotFoundForScope,
+    /// <summary>System store §9.4 has no row for this worktree fingerprint —
+    /// managed init has not yet registered the worktree, or the row is
+    /// present under a different connection binding.</summary>
+    WorktreeNotRegistered,
+    /// <summary>System store §9.4 has a row for this worktree fingerprint but
+    /// its <c>retiredAt</c> is non-null: a legacy-layout reinit archived it
+    /// and the operator must re-initialize before AB#738 can attach.</summary>
+    WorktreeRetired,
     /// <summary>Underlying storage returned a named error (AB#736 §8). The opaque
     /// identifier is preserved in the human-readable message.</summary>
     StorageUnavailable,

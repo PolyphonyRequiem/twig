@@ -262,7 +262,13 @@ public sealed class ShowCommand(
         if (!IsMachineFormat(outputFormat) && attachmentStatus is not null)
         {
             var proj = await attachmentStatus.ReadAsync(ct);
-            if (proj.IsManagedWorktree)
+            if (proj.FailureCode is { } failure)
+            {
+                // Named §8 storage failure — surface it as a repair hint on the
+                // human status line rather than degrading silently to "unmanaged".
+                Console.WriteLine($"Primary Scope: (unavailable — {failure})");
+            }
+            else if (proj.IsManagedWorktree)
             {
                 if (proj.HasPrimaryScope)
                 {

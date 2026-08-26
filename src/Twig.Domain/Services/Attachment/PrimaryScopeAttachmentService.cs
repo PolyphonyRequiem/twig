@@ -19,29 +19,49 @@ namespace Twig.Domain.Services.Attachment;
 /// attachment reference and fails loud when it does not authorize the requested
 /// scope. AB#739 will attach the mint/reclaim/release actions on top.
 /// </para>
+/// <para>
+/// Every attach/switch/detach path runs the AB#736 §9.5 initialization contract
+/// against the system store before touching the worktree-local file: the
+/// worktree fingerprint MUST be registered with the same connection binding
+/// (§9.4 <c>FindWorktree</c>), and a successful attach performs the required
+/// <c>UpsertWorktree</c> after the write. A missing/retired registry row
+/// surfaces as <see cref="AttachmentFailure.WorktreeNotRegistered"/> /
+/// <see cref="AttachmentFailure.WorktreeRetired"/> and refuses fail-closed.
+/// </para>
 /// </summary>
 /// <remarks>
 /// The type is <c>internal</c> because the attachment surface is invoked through
 /// DI from every surface (CLI status projection, MCP status tool, prompt writer)
-/// and never rendered as a public verb. This satisfies the contract's "no
-/// invented public verbs — expose a service interface through DI" rule.
+/// and never rendered as a public verb; the surface-neutral seam is the public
+/// <see cref="IPrimaryScopeAttachmentService"/> interface. This satisfies the
+/// contract's "no invented public verbs — expose a service interface through
+/// DI" rule.
 /// </remarks>
-internal sealed class PrimaryScopeAttachmentService
+internal sealed class PrimaryScopeAttachmentService : IPrimaryScopeAttachmentService
 {
     private readonly IPrimaryScopeAttachmentStore _store;
     private readonly IPrimaryScopeTypeEligibility _eligibility;
     private readonly IWorkItemRepository _workItems;
+    private readonly ISystemWorktreeRegistry _registry;
+    private readonly IWorktreeFingerprintProvider _fingerprint;
+    private readonly IPrimaryScopeUrlBuilder _urlBuilder;
     private readonly TimeProvider _clock;
 
     public PrimaryScopeAttachmentService(
         IPrimaryScopeAttachmentStore store,
         IPrimaryScopeTypeEligibility eligibility,
         IWorkItemRepository workItems,
+        ISystemWorktreeRegistry registry,
+        IWorktreeFingerprintProvider fingerprint,
+        IPrimaryScopeUrlBuilder urlBuilder,
         TimeProvider clock)
     {
         _store = store;
         _eligibility = eligibility;
         _workItems = workItems;
+        _registry = registry;
+        _fingerprint = fingerprint;
+        _urlBuilder = urlBuilder;
         _clock = clock;
     }
 
@@ -50,7 +70,10 @@ internal sealed class PrimaryScopeAttachmentService
     /// — surfaces receive <see cref="PrimaryScopeAttachmentStatus.NotManaged"/> so
     /// they can omit the block cleanly. Managed but unattached becomes
     /// <see cref="PrimaryScopeAttachmentStatus.Unattached"/>, which the ticket
-    /// requires to be stated explicitly.
+    /// requires to be stated explicitly. A named storage failure (§8) surfaces
+    /// as <see cref="PrimaryScopeAttachmentStatus.Failed"/> carrying the
+    /// identifier so the surface renders the repair hint rather than silently
+    /// degrading to "unmanaged".
     /// </summary>
     public async Task<Result<PrimaryScopeAttachmentStatus>> ReadStatusAsync(CancellationToken ct = default)
     {
@@ -59,7 +82,7 @@ internal sealed class PrimaryScopeAttachmentService
 
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
-            return Result.Fail<PrimaryScopeAttachmentStatus>(read.Error);
+            return Result.Ok(PrimaryScopeAttachmentStatus.Failed(read.Error));
 
         var attachment = read.Value;
         if (attachment.PrimaryScope is not { } scope)
@@ -108,6 +131,10 @@ internal sealed class PrimaryScopeAttachmentService
         if (!_store.IsManagedWorktree())
             return NamedFailure(AttachmentFailure.NotManagedWorktree, string.Empty);
 
+        var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
+        if (!registry.IsSuccess)
+            return Result.Fail(registry.Error);
+
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
             return NamedFailure(AttachmentFailure.StorageUnavailable, read.Error);
@@ -116,6 +143,8 @@ internal sealed class PrimaryScopeAttachmentService
         if (current.PrimaryScope is null)
             return Result.Ok();
 
+        // Scope-only write: MUST leave the ActiveClaim block byte-identical so
+        // AB#739's mint timestamp / opaque id survives an AB#738 detach.
         var write = await _store.WriteAsync(current.WithoutPrimaryScope(), ct).ConfigureAwait(false);
         return write.IsSuccess ? Result.Ok() : NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
     }
@@ -146,10 +175,19 @@ internal sealed class PrimaryScopeAttachmentService
             return NamedFailure(AttachmentFailure.ScopeNotPrimary,
                 $"#{workItemId} is not the primary scope (attached: #{scope.WorkItemId}).");
 
-        if (string.IsNullOrWhiteSpace(attachment.ActiveClaimId))
+        if (attachment.ActiveClaim is null)
             return NamedFailure(AttachmentFailure.ClaimNotFoundForScope, $"#{workItemId}");
 
         return Result.Ok();
+    }
+
+    async Task<StatusProjection> IPrimaryScopeAttachmentService.ReadStatusAsync(CancellationToken ct)
+    {
+        var read = await ReadStatusAsync(ct).ConfigureAwait(false);
+        // ReadStatusAsync itself never returns a failure Result — every named
+        // storage failure is folded into a Failed StatusProjection above — so
+        // the only branch here is the success projection.
+        return ProjectStatus(read.Value);
     }
 
     private async Task<Result> AttachInternalAsync(int workItemId, bool allowReplace, CancellationToken ct)
@@ -159,6 +197,10 @@ internal sealed class PrimaryScopeAttachmentService
 
         if (!_store.IsManagedWorktree())
             return NamedFailure(AttachmentFailure.NotManagedWorktree, string.Empty);
+
+        var registry = await CheckSystemRegistryAsync(ct).ConfigureAwait(false);
+        if (!registry.IsSuccess)
+            return Result.Fail(registry.Error);
 
         var read = await _store.ReadAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess)
@@ -173,32 +215,103 @@ internal sealed class PrimaryScopeAttachmentService
         if (workItem is null)
             return NamedFailure(AttachmentFailure.WorkItemUnknown, $"#{workItemId}");
 
-        if (!_eligibility.IsEligible(workItem.Type))
+        var eligibility = _eligibility.Evaluate(workItem.Type);
+        if (!eligibility.IsSuccess)
+            return NamedFailure(AttachmentFailure.EligibilityUnavailable, eligibility.Error);
+        if (!eligibility.Value)
             return NamedFailure(AttachmentFailure.IneligibleType,
                 $"work-item type '{workItem.Type.Value}' is not an eligible primary scope on this worktree.");
 
         var scope = new PrimaryScope(
             workItem.Id,
-            WorkItemUrl: BuildWorkItemUrl(workItem.Id),
+            WorkItemUrl: _urlBuilder.BuildWorkItemUrl(workItem.Id),
             AttachedAt: _clock.GetUtcNow());
 
+        // Scope-only write: preserve the current ActiveClaim block untouched
+        // (§9.3 "consumers set one field without disturbing the other").
         var next = current.WithPrimaryScope(scope);
         var write = await _store.WriteAsync(next, ct).ConfigureAwait(false);
-        return write.IsSuccess ? Result.Ok() : NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
+        if (!write.IsSuccess)
+            return NamedFailure(AttachmentFailure.StorageUnavailable, write.Error);
+
+        // §9.5 step 5 tail: after a successful attach, refresh the system-store
+        // row so recovery/index authorities see this worktree bound to the
+        // current connectionRef. Storage failure here is fatal — the on-disk
+        // attachment is out of sync with the registry until a retry lands.
+        var fingerprint = _fingerprint.CurrentFingerprint;
+        var upsert = await _registry.UpsertWorktreeAsync(
+            fingerprint.CanonicalJson, fingerprint.ConnectionRef, fingerprint.WorktreeRoot, ct).ConfigureAwait(false);
+        if (!upsert.IsSuccess)
+            return NamedFailure(AttachmentFailure.StorageUnavailable, upsert.Error);
+        return Result.Ok();
     }
 
     /// <summary>
-    /// Renders a deterministic work-item URL. The value is opaque provenance for
-    /// stolen-<c>.twig/</c> detection (§4.2.2), never a live navigation target.
-    /// Kept process-agnostic — the connection binding is resolved from
-    /// <c>twig.json</c> at storage-write time (§9.3) so this string does not
-    /// duplicate the organization or project.
+    /// AB#736 §9.5 step 5: the current worktree fingerprint MUST resolve to a
+    /// non-retired system-store row bound to the same connectionRef. A missing
+    /// row raises <c>worktree-not-registered</c>; a row with non-null
+    /// <c>retiredAt</c> raises <c>worktree-retired</c>; a row bound to a
+    /// different connection surfaces as <c>attachment-connection-mismatch</c>
+    /// (same identifier the file-tier check uses).
     /// </summary>
-    private static string BuildWorkItemUrl(int workItemId) =>
-        $"workitem:{workItemId}";
+    private async Task<Result> CheckSystemRegistryAsync(CancellationToken ct)
+    {
+        var fingerprint = _fingerprint.CurrentFingerprint;
+        var row = await _registry.FindWorktreeAsync(fingerprint.CanonicalJson, ct).ConfigureAwait(false);
+        if (!row.IsSuccess)
+            return NamedFailure(AttachmentFailure.StorageUnavailable, row.Error);
+        if (row.Value is null)
+            return NamedFailure(AttachmentFailure.WorktreeNotRegistered, AttachmentStorageFailure.WorktreeNotRegistered);
+        if (row.Value.RetiredAt is not null)
+            return NamedFailure(AttachmentFailure.WorktreeRetired, AttachmentStorageFailure.WorktreeRetired);
+        if (!string.Equals(row.Value.ConnectionRef, fingerprint.ConnectionRef, StringComparison.Ordinal))
+            return NamedFailure(AttachmentFailure.StorageUnavailable, AttachmentStorageFailure.AttachmentConnectionMismatch);
+        return Result.Ok();
+    }
+
+    /// <summary>Projects the internal status record to the public
+    /// <see cref="StatusProjection"/> the surfaces render.</summary>
+    internal static StatusProjection ProjectStatus(PrimaryScopeAttachmentStatus status)
+    {
+        if (status.FailureCode is not null)
+            return new StatusProjection(true, false, null, null, null, status.FailureCode);
+        if (!status.IsManagedWorktree)
+            return new StatusProjection(false, false, null, null, null);
+        if (status.PrimaryScope is not { } scope)
+            return new StatusProjection(true, false, null, null, null);
+        return new StatusProjection(true, true, scope.WorkItemId, status.WorkItemTitle, status.WorkItemType);
+    }
 
     private static Result NamedFailure(AttachmentFailure code, string detail) =>
         Result.Fail(string.IsNullOrEmpty(detail)
             ? code.ToString()
             : $"{code}: {detail}");
+}
+
+/// <summary>
+/// Snapshot of the current worktree fingerprint + resolved connection binding.
+/// Held here as an injected seam so the attachment service can perform §9.5
+/// checks without shelling out to git on every call and without the
+/// service knowing how <c>twig.json</c> is loaded.
+/// </summary>
+internal readonly record struct WorktreeFingerprintContext(
+    string CanonicalJson,
+    string ConnectionRef,
+    string WorktreeRoot);
+
+/// <summary>Read-only accessor for the current worktree's canonical
+/// fingerprint (§3.2 tuple + §5.1 connectionRef). Rebuilds every access so a
+/// mid-process reconfiguration surfaces immediately.</summary>
+internal interface IWorktreeFingerprintProvider
+{
+    WorktreeFingerprintContext CurrentFingerprint { get; }
+}
+
+/// <summary>Builds an origin-bearing ADO work-item URL from the checked-in
+/// connection binding. AB#736 §4.2.2 requires the stored <c>workItemUrl</c> to
+/// carry the organization/project origin so the file-tier consistency check
+/// runs before the system store answers.</summary>
+internal interface IPrimaryScopeUrlBuilder
+{
+    string BuildWorkItemUrl(int workItemId);
 }

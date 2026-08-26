@@ -1,4 +1,5 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Attachment;
 
 namespace Twig.Domain.Services.Attachment;
 
@@ -8,18 +9,23 @@ namespace Twig.Domain.Services.Attachment;
 /// service surface is deliberately internal (deep module); this adapter is the
 /// single public read-only shim the CLI and MCP consume.
 /// <para>
-/// Errors are collapsed to "not managed" here: the projection is presentational,
-/// and a failed underlying read (drift, layout marker missing, etc.) is
-/// indistinguishable from an unmanaged checkout from the human's point of view.
-/// The service itself surfaces the named failures for write paths; the read
-/// surface is best-effort so a stale worktree never breaks status rendering.
+/// Named storage failures (§8 of AB#736 — <c>layout-marker-missing</c>,
+/// <c>worktree-fingerprint-drift</c>, <c>attachment-connection-mismatch</c>,
+/// <c>worktree-not-registered</c>, and so on) are carried through on
+/// <see cref="StatusProjection.FailureCode"/>. The surface renders the
+/// identifier as a repair hint rather than falling through to "unmanaged" —
+/// silently degrading a corrupted or moved managed worktree to an unmanaged
+/// checkout was the exact defect this projection had to fix.
+/// <see cref="OperationCanceledException"/> propagates unchanged; every other
+/// exception (unlikely — the service returns Results) folds into a synthetic
+/// named failure so the surface never crashes.
 /// </para>
 /// </summary>
-internal sealed class AttachmentStatusProjection : IAttachmentStatusProjection
+internal sealed class AttachmentStatusProjectionAdapter : IAttachmentStatusProjection
 {
     private readonly PrimaryScopeAttachmentService _service;
 
-    public AttachmentStatusProjection(PrimaryScopeAttachmentService service)
+    public AttachmentStatusProjectionAdapter(PrimaryScopeAttachmentService service)
     {
         _service = service;
     }
@@ -30,18 +36,23 @@ internal sealed class AttachmentStatusProjection : IAttachmentStatusProjection
         {
             var read = await _service.ReadStatusAsync(ct).ConfigureAwait(false);
             if (!read.IsSuccess)
-                return new StatusProjection(false, false, null, null, null);
+                return new StatusProjection(true, false, null, null, null, read.Error);
 
-            var status = read.Value;
-            if (!status.IsManagedWorktree)
-                return new StatusProjection(false, false, null, null, null);
-            if (status.PrimaryScope is not { } scope)
-                return new StatusProjection(true, false, null, null, null);
-            return new StatusProjection(true, true, scope.WorkItemId, status.WorkItemTitle, status.WorkItemType);
+            return PrimaryScopeAttachmentService.ProjectStatus(read.Value);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            return new StatusProjection(false, false, null, null, null);
+            // Cancellation is a caller signal, never storage state — rethrow so
+            // the surface handles it the same as any other cancellation.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Every other exception folds into a synthetic named failure so the
+            // status surface renders a repair hint; the service normally returns
+            // Results, but a corrupt underlying store may still throw on read.
+            return new StatusProjection(true, false, null, null, null,
+                $"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.GetType().Name}");
         }
     }
 }

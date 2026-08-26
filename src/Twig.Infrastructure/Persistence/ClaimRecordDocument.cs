@@ -17,37 +17,40 @@ namespace Twig.Infrastructure.Persistence;
 /// the wire keys match the design spec's <c>lowerCamelCase</c> field names.
 /// </para>
 /// <para>
+/// Every required string is declared nullable at the shape level so a
+/// malformed record — missing a required field — deserializes to
+/// <c>null</c> instead of throwing before validation runs. The reader in
+/// <c>LocalClaimService.TryDeserialize</c> then rejects any missing required
+/// value with <c>SchemaDrift</c>. Coupled with
 /// <see cref="System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute"/>
-/// with <see cref="System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow"/>
-/// realizes the "unknown fields on read are rejected" rule at the
-/// serializer boundary — the deserialize call throws a
-/// <see cref="System.Text.Json.JsonException"/> and the claim service
-/// translates that to <c>SchemaDrift</c>. AB#737 §JSON encoding forbids
-/// silently ignoring unknown fields.
+/// set to <see cref="System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow"/>,
+/// this realizes both "unknown fields on read are rejected" and "missing
+/// required fields on read are rejected" as named schema drift rather than
+/// as exceptions leaking past the storage seam.
 /// </para>
 /// </summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record ClaimRecordDocument(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
-    [property: JsonPropertyName("claimId")] string ClaimId,
+    [property: JsonPropertyName("claimId")] string? ClaimId,
     [property: JsonPropertyName("label")] string? Label,
-    [property: JsonPropertyName("connectionRef")] string ConnectionRef,
-    [property: JsonPropertyName("primaryScopeId")] string PrimaryScopeId,
-    [property: JsonPropertyName("primaryScopeKind")] string PrimaryScopeKind,
-    [property: JsonPropertyName("holderIdentity")] string HolderIdentity,
+    [property: JsonPropertyName("connectionRef")] string? ConnectionRef,
+    [property: JsonPropertyName("primaryScopeId")] string? PrimaryScopeId,
+    [property: JsonPropertyName("primaryScopeKind")] string? PrimaryScopeKind,
+    [property: JsonPropertyName("holderIdentity")] string? HolderIdentity,
     [property: JsonPropertyName("holderDisplay")] string? HolderDisplay,
-    [property: JsonPropertyName("worktreeFingerprint")] string WorktreeFingerprint,
-    [property: JsonPropertyName("state")] string State,
-    [property: JsonPropertyName("origin")] string Origin,
+    [property: JsonPropertyName("worktreeFingerprint")] string? WorktreeFingerprint,
+    [property: JsonPropertyName("state")] string? State,
+    [property: JsonPropertyName("origin")] string? Origin,
     [property: JsonPropertyName("leaseGeneration")] int LeaseGeneration,
     [property: JsonPropertyName("expiresAt")] string? ExpiresAt,
-    [property: JsonPropertyName("createdAt")] string CreatedAt,
+    [property: JsonPropertyName("createdAt")] string? CreatedAt,
     [property: JsonPropertyName("activatedAt")] string? ActivatedAt,
     [property: JsonPropertyName("releasedAt")] string? ReleasedAt,
     [property: JsonPropertyName("supersededByClaimId")] string? SupersededByClaimId,
     [property: JsonPropertyName("releaseReason")] string? ReleaseReason,
     [property: JsonPropertyName("notes")] string? Notes,
-    [property: JsonPropertyName("casToken")] string CasToken)
+    [property: JsonPropertyName("casToken")] string? CasToken)
 {
     /// <summary>Current on-disk schema version this reader/writer understands.</summary>
     public const int CurrentSchemaVersion = 1;

@@ -202,8 +202,7 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimCasTokenGenerator, Twig.Infrastructure.Persistence.GuidClaimCasTokenGenerator>();
         services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimHolderResolver>(sp =>
             new Twig.Infrastructure.Services.Claims.ConnectionHolderResolver(
-                sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>(),
-                sp.GetRequiredService<TwigConfiguration>()));
+                sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>()));
         services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
             new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>()));

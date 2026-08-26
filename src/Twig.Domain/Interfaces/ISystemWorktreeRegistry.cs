@@ -44,6 +44,7 @@ internal interface ISystemWorktreeRegistry
         string claimId,
         string connectionRef,
         string worktreeFingerprint,
+        string primaryScopeKind,
         int workItemId,
         string state,
         string casToken,
@@ -66,7 +67,7 @@ internal interface ISystemWorktreeRegistry
         CancellationToken ct = default);
 
     Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default);
-    Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default);
+    Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, string primaryScopeKind, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default);
 
     /// <summary>Enumerate every row (in any state) whose composite tuple
     /// (<paramref name="connectionRef"/>,
@@ -74,7 +75,7 @@ internal interface ISystemWorktreeRegistry
     /// AB#737 §Validation path when the caller wants to distinguish
     /// <c>ClaimNotFound</c> from <c>ClaimNotActive</c> — it never
     /// authorizes anything. Returned rows are unordered.</summary>
-    Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default);
+    Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default);
 
     /// <summary>Atomic supersession: within one storage transaction,
     /// CAS-rewrites <paramref name="predecessorClaimId"/> from
@@ -95,6 +96,7 @@ internal interface ISystemWorktreeRegistry
         string newCasToken,
         string connectionRef,
         string worktreeFingerprint,
+        string primaryScopeKind,
         int workItemId,
         string newRecordJson,
         string predecessorClaimId,
@@ -119,6 +121,7 @@ internal sealed record SystemClaimRow(
     string ClaimId,
     string ConnectionRef,
     string WorktreeFingerprint,
+    string PrimaryScopeKind,
     int WorkItemId,
     string State,
     string CasToken,

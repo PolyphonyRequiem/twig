@@ -1,19 +1,22 @@
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Claims;
-using Twig.Infrastructure.Config;
 
 namespace Twig.Infrastructure.Services.Claims;
 
 /// <summary>
 /// Resolves the authenticated ADO holder (identity + display name) from the
 /// existing connection surface. AB#737 §Cross-cutting rules requires
-/// authorization never be inferred from OS username or an ambient default;
-/// the resolver reads the connection's authenticated user via
-/// <see cref="IIterationService.GetAuthenticatedUserDisplayNameAsync"/> and,
-/// when supplied, falls back to the workspace configuration's
-/// <c>User.DisplayName</c> — the canonical holder value <c>twig sync</c>
-/// already uses to key the workspace projection.
+/// authorization never be inferred from OS username, a config default, or
+/// any other ambient identity: the resolver reads the connection's
+/// authenticated user via
+/// <see cref="IIterationService.GetAuthenticatedUserDisplayNameAsync"/>
+/// and returns <see cref="ClaimHolderDescriptor"/> only when that surface
+/// yields a non-empty identity. Every other outcome — network failure,
+/// authentication failure, or an empty response — surfaces as a
+/// <see cref="Result"/> failure so the caller reports
+/// <c>HolderUnavailable</c> instead of minting under a stale or fabricated
+/// display name.
 /// <para>
 /// The resolver runs at mint time and its result is captured verbatim into
 /// the claim record. Downstream validation never re-resolves — a stored
@@ -24,17 +27,15 @@ namespace Twig.Infrastructure.Services.Claims;
 internal sealed class ConnectionHolderResolver : IClaimHolderResolver
 {
     private readonly IIterationService _iteration;
-    private readonly TwigConfiguration _config;
 
-    public ConnectionHolderResolver(IIterationService iteration, TwigConfiguration config)
+    public ConnectionHolderResolver(IIterationService iteration)
     {
         _iteration = iteration;
-        _config = config;
     }
 
     public async Task<Result<ClaimHolderDescriptor>> ResolveAsync(CancellationToken ct = default)
     {
-        string? displayName = null;
+        string? displayName;
         try
         {
             displayName = await _iteration.GetAuthenticatedUserDisplayNameAsync(ct).ConfigureAwait(false);
@@ -45,21 +46,27 @@ internal sealed class ConnectionHolderResolver : IClaimHolderResolver
         }
         catch (Exception ex)
         {
-            // Network / auth failures fall back to the configured default so
-            // an offline mint can still capture a stable holder identity
-            // AB#737 §Cross-cutting rules names as authoritative.
-            _ = ex;
+            // AB#737 §Cross-cutting rules: authorization MUST NOT fall back
+            // to a configured display name, OS username, or any other
+            // ambient identity. An auth/network failure is
+            // HolderUnavailable — a mint that reaches this branch has
+            // observed the runtime connection identity as unresolvable and
+            // MUST refuse.
+            return Result.Fail<ClaimHolderDescriptor>($"holder-resolver-unavailable: {ex.GetType().Name}: {SanitizeMessage(ex.Message)}");
         }
 
-        // Preferred identity precedence: authenticated user → configured
-        // user → nothing (fail-loud).
-        var configured = _config.User?.DisplayName;
-        var identity = !string.IsNullOrWhiteSpace(displayName) ? displayName
-            : !string.IsNullOrWhiteSpace(configured) ? configured
-            : null;
-        if (string.IsNullOrWhiteSpace(identity))
-            return Result.Fail<ClaimHolderDescriptor>("no authenticated holder available.");
-        var display = !string.IsNullOrWhiteSpace(displayName) ? displayName : identity;
-        return Result.Ok(new ClaimHolderDescriptor(identity!, display));
+        if (string.IsNullOrWhiteSpace(displayName))
+            return Result.Fail<ClaimHolderDescriptor>("holder-resolver-empty");
+
+        // The connection reports one authoritative name; use it verbatim as
+        // both identity and display so downstream ADO writes and local
+        // storage round-trip byte-identically.
+        return Result.Ok(new ClaimHolderDescriptor(displayName, displayName));
+    }
+
+    private static string SanitizeMessage(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return "unknown";
+        return message.Replace('\r', ' ').Replace('\n', ' ');
     }
 }

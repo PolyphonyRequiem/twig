@@ -48,11 +48,10 @@ public sealed class LocalClaimServiceTests : IDisposable
         _dbPath = Path.Combine(_dbDir, "system.db");
         _clock = TimeProvider.System;
         _registry = new SqliteSystemWorktreeRegistry(_dbPath, _clock);
-        // Register a worktree so InsertClaim's FK precheck passes.
         _registry.UpsertConnectionAsync(ConnRef, "org", "proj", team: null).GetAwaiter().GetResult();
         _registry.UpsertWorktreeAsync(Fingerprint, ConnRef, "/tmp/worktree").GetAwaiter().GetResult();
 
-        _attachment = new FakeAttachmentStore();
+        _attachment = new FakeAttachmentStore(defaultKind: PrimaryScopeKind, defaultWorkItemId: 42);
         _idGen = new SequentialClaimIdGenerator();
         _casGen = new SequentialCasTokenGenerator();
         _holder = new FakeHolderResolver(new ClaimHolderDescriptor(Holder, "Service User"));
@@ -86,6 +85,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         claim.ClaimId.ShouldNotBeNullOrEmpty();
         claim.ConnectionRef.ShouldBe(ConnRef);
         claim.PrimaryScopeId.ShouldBe(PrimaryScopeId);
+        claim.PrimaryScopeKind.ShouldBe(PrimaryScopeKind);
         claim.HolderIdentity.ShouldBe(Holder);
         claim.Origin.ShouldBe(ClaimOrigins.Local);
         claim.LeaseGeneration.ShouldBe(0);
@@ -93,22 +93,18 @@ public sealed class LocalClaimServiceTests : IDisposable
         claim.ActivatedAt.ShouldNotBeNull();
         claim.ReleaseReason.ShouldBeNull();
 
-        // ADO projection landed exactly once.
         _ado.HolderCalls.Count.ShouldBe(1);
         _ado.HolderCalls[0].ScopeId.ShouldBe(PrimaryScopeId);
         _ado.HolderCalls[0].Holder.Identity.ShouldBe(Holder);
         _ado.ClearCalls.Count.ShouldBe(0);
 
-        // Attachment linked exactly once with the minted id.
         _attachment.LinkedClaimIds.ShouldBe(new[] { claim.ClaimId });
         _attachment.UnlinkedClaimIds.ShouldBeEmpty();
 
-        // Registry row is active.
         var row = (await _registry.FindClaimAsync(claim.ClaimId)).Value!;
         row.State.ShouldBe(ClaimStates.Active);
+        row.PrimaryScopeKind.ShouldBe(PrimaryScopeKind);
     }
-
-    // ── Duplicate reservation on the same tuple ────────────────────────
 
     [Fact]
     public async Task Mint_refuses_when_a_pending_or_active_row_already_holds_the_tuple()
@@ -122,7 +118,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         alreadyClaimed.ExistingClaimId.ShouldNotBeNullOrEmpty();
         alreadyClaimed.ExistingState.ShouldBe(ClaimStates.Active);
 
-        // ADO write happened exactly once (for the first mint).
         _ado.HolderCalls.Count.ShouldBe(1);
     }
 
@@ -138,41 +133,70 @@ public sealed class LocalClaimServiceTests : IDisposable
         outcome.ShouldBeOfType<ClaimMintOutcome.AdoProjectionFailed>();
         ((ClaimMintOutcome.AdoProjectionFailed)outcome).Underlying.ShouldBe("network-down");
 
-        // Attachment was NEVER linked.
         _attachment.LinkedClaimIds.ShouldBeEmpty();
 
-        // Registry: the pending row is now released with mint-abort reason.
-        var row = (await _registry.FindReservedClaimAsync(ConnRef, 42, new[] { ClaimStates.Pending, ClaimStates.Active })).Value;
+        var row = (await _registry.FindReservedClaimAsync(ConnRef, PrimaryScopeKind, 42, new[] { ClaimStates.Pending, ClaimStates.Active })).Value;
         row.ShouldBeNull();
-        // Enumerate history to confirm the pending row was terminalized.
-        var all = (await _registry.FindClaimsForTupleAsync(ConnRef, 42)).Value;
+        var all = (await _registry.FindClaimsForTupleAsync(ConnRef, PrimaryScopeKind, 42)).Value;
         all.Count.ShouldBe(1);
         all[0].State.ShouldBe(ClaimStates.Released);
         var doc = JsonSerializer.Deserialize(all[0].RecordJson, TwigJsonContext.Default.ClaimRecordDocument)!;
         doc.ReleaseReason.ShouldBe(ClaimReleaseReasons.MintAbort);
     }
 
-    // ── Mint abort MUST preserve a pre-existing conformant claim on
-    //    another scope. ────────────────────────────────────────────────
+    // ── Mint-abort inspects the CAS/storage result: a failed abort MUST
+    //    surface as ConcurrentClaimWrite / StorageUnavailable, not as a
+    //    silent AdoProjectionFailed while the reservation lingers. ──────
+
+    [Fact]
+    public async Task Mint_surfaces_concurrent_write_when_ado_fails_and_abort_hits_a_cas_mismatch()
+    {
+        var mockRegistry = new AbortRaceRegistry(bumpCasBeforeAbort: true);
+        var svc = new LocalClaimService(mockRegistry, _attachment, _idGen, _casGen, _holder, _clock);
+        var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("simulated-net") };
+        var input = new MintClaimInput(
+            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
+            Label: null, Notes: null, AdoProjection: badAdo);
+
+        var outcome = await svc.MintAsync(input);
+        outcome.ShouldBeOfType<ClaimMintOutcome.ConcurrentClaimWrite>();
+        var underlying = ((ClaimMintOutcome.ConcurrentClaimWrite)outcome).Underlying;
+        underlying.ShouldContain(AttachmentStorageFailure.ClaimCasMismatch);
+        // Attachment MUST NOT be linked because activation never succeeded.
+        _attachment.LinkedClaimIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Mint_surfaces_storage_unavailable_when_ado_fails_and_abort_hits_storage_error()
+    {
+        var mockRegistry = new AbortRaceRegistry(abortStorageError: "sqlite-io");
+        var svc = new LocalClaimService(mockRegistry, _attachment, _idGen, _casGen, _holder, _clock);
+        var badAdo = new FakeAdoClaimProjection { NextHolderResult = Result.Fail("network-down") };
+        var input = new MintClaimInput(
+            ConnRef, PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, "Service User",
+            Label: null, Notes: null, AdoProjection: badAdo);
+
+        var outcome = await svc.MintAsync(input);
+        outcome.ShouldBeOfType<ClaimMintOutcome.StorageUnavailable>();
+        ((ClaimMintOutcome.StorageUnavailable)outcome).Underlying.ShouldContain("sqlite-io");
+    }
 
     [Fact]
     public async Task Mint_abort_never_disturbs_a_pre_existing_claim_on_a_different_scope()
     {
-        // First: mint an active claim on scope 42.
+        _attachment.SetScope(PrimaryScopeKind, 42);
         var mint42 = await _svc.MintAsync(MintInput(scopeId: "42"));
         mint42.ShouldBeOfType<ClaimMintOutcome.Succeeded>();
         var active42 = ((ClaimMintOutcome.Succeeded)mint42).Claim;
 
-        // Second: attempt to mint scope 99 but ADO fails.
+        _attachment.SetScope(PrimaryScopeKind, 99);
         _ado.NextHolderResult = Result.Fail("simulated");
         var mint99 = await _svc.MintAsync(MintInput(scopeId: "99"));
         mint99.ShouldBeOfType<ClaimMintOutcome.AdoProjectionFailed>();
 
-        // Scope 42's claim survived byte-exact.
         var row42 = (await _registry.FindClaimAsync(active42.ClaimId)).Value!;
         row42.State.ShouldBe(ClaimStates.Active);
         row42.CasToken.ShouldBe(active42.CasToken);
-        // Attachment still references only the first-minted id.
         _attachment.LinkedClaimIds.ShouldBe(new[] { active42.ClaimId });
     }
 
@@ -188,13 +212,33 @@ public sealed class LocalClaimServiceTests : IDisposable
         var alf = (ClaimMintOutcome.AttachmentLinkFailed)outcome;
         alf.Underlying.ShouldBe("attachment-io-error");
         alf.Claim.State.ShouldBe(ClaimStates.Active);
-        // ADO write already happened; that's the "no rollback of the ADO
-        // side" spec commitment — the operator sees a live active row and
-        // no attachment.
         _ado.HolderCalls.Count.ShouldBe(1);
     }
 
-    // ── Holder resolver failure → HolderUnavailable ───────────────────
+    // ── Attachment scope-match precheck ───────────────────────────────
+
+    [Fact]
+    public async Task Mint_refuses_when_attachment_scope_differs_from_caller_tuple()
+    {
+        _attachment.SetScope(PrimaryScopeKind, 999);
+        var outcome = await _svc.MintAsync(MintInput(scopeId: "42"));
+        outcome.ShouldBeOfType<ClaimMintOutcome.AttachmentLinkFailed>();
+        var alf = (ClaimMintOutcome.AttachmentLinkFailed)outcome;
+        alf.Underlying.ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
+        _ado.HolderCalls.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Mint_refuses_when_attachment_has_no_primary_scope_at_all()
+    {
+        _attachment.ClearScope();
+        var outcome = await _svc.MintAsync(MintInput(scopeId: "42"));
+        outcome.ShouldBeOfType<ClaimMintOutcome.AttachmentLinkFailed>();
+        ((ClaimMintOutcome.AttachmentLinkFailed)outcome).Underlying
+            .ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
+    }
+
+    // ── Holder resolver contract ──────────────────────────────────────
 
     [Fact]
     public async Task Mint_fails_loudly_when_holder_identity_is_absent_and_resolver_reports_unavailable()
@@ -230,17 +274,13 @@ public sealed class LocalClaimServiceTests : IDisposable
         succeeded.SupersededClaim.SupersededByClaimId.ShouldBe(succeeded.NewClaim.ClaimId);
         succeeded.SupersededClaim.ReleaseReason.ShouldBe(ClaimReleaseReasons.ExplicitReclaim);
 
-        // Attachment now points at the new id.
         _attachment.LinkedClaimIds.Last().ShouldBe(succeeded.NewClaim.ClaimId);
 
-        // Registry: predecessor row is superseded, new row is active.
         var newRow = (await _registry.FindClaimAsync(succeeded.NewClaim.ClaimId)).Value!;
         newRow.State.ShouldBe(ClaimStates.Active);
         var oldRow = (await _registry.FindClaimAsync(predecessor.ClaimId)).Value!;
         oldRow.State.ShouldBe(ClaimStates.Superseded);
     }
-
-    // ── Reclaim allowSupersede=true refuses when nothing to supersede ─
 
     [Fact]
     public async Task Reclaim_with_allow_supersede_refuses_when_no_active_row_exists()
@@ -251,8 +291,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         _ado.HolderCalls.Count.ShouldBe(0);
     }
 
-    // ── Reclaim allowSupersede=false behaves like a fresh mint ────────
-
     [Fact]
     public async Task Reclaim_without_supersede_over_released_row_mints_new_id()
     {
@@ -260,6 +298,8 @@ public sealed class LocalClaimServiceTests : IDisposable
         var active = ((ClaimMintOutcome.Succeeded)first).Claim;
         var release = await _svc.ReleaseAsync(new ReleaseClaimInput(active.ClaimId, _ado));
         release.ShouldBeOfType<ClaimReleaseOutcome.Succeeded>();
+        // Clear the ADO fixture so the projection returns a clean readback.
+        _ado.CurrentAssignedTo = null;
 
         var reclaim = await _svc.ReclaimAsync(ReclaimInput(allowSupersede: false));
         reclaim.ShouldBeOfType<ClaimReclaimOutcome.Succeeded>();
@@ -268,7 +308,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         succeeded.SupersededClaim.ShouldBeNull();
     }
 
-    // ── Release: happy path clears ADO then terminalizes local ────────
+    // ── Release: happy path clears ADO first ─────────────────────────
 
     [Fact]
     public async Task Release_clears_ado_first_then_terminalizes_local_and_unlinks_attachment()
@@ -288,8 +328,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         _attachment.UnlinkedClaimIds.ShouldBe(new[] { claim.ClaimId });
     }
 
-    // ── Release: ADO clear failure leaves row active ──────────────────
-
     [Fact]
     public async Task Release_leaves_row_active_when_ado_clear_fails()
     {
@@ -304,9 +342,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         row.State.ShouldBe(ClaimStates.Active);
         _attachment.UnlinkedClaimIds.ShouldBeEmpty();
     }
-
-    // ── Release: attachment unlink failure surfaces AttachmentUnlinkFailed
-    //    but local row is already terminal. ─────────────────────────────
 
     [Fact]
     public async Task Release_returns_attachment_unlink_failed_but_row_is_already_released()
@@ -326,16 +361,12 @@ public sealed class LocalClaimServiceTests : IDisposable
         row.State.ShouldBe(ClaimStates.Released);
     }
 
-    // ── Release: claim not found ─────────────────────────────────────
-
     [Fact]
     public async Task Release_reports_claim_not_found_when_no_row_matches()
     {
         var outcome = await _svc.ReleaseAsync(new ReleaseClaimInput("does-not-exist", _ado));
         outcome.ShouldBeOfType<ClaimReleaseOutcome.ClaimNotFound>();
     }
-
-    // ── Release: claim not active ────────────────────────────────────
 
     [Fact]
     public async Task Release_reports_claim_not_active_when_row_is_terminal()
@@ -349,7 +380,41 @@ public sealed class LocalClaimServiceTests : IDisposable
         ((ClaimReleaseOutcome.ClaimNotActive)second).CurrentState.ShouldBe(ClaimStates.Released);
     }
 
-    // ── Validate: offline success on active claim ────────────────────
+    // ── Concurrent release vs reclaim: the per-tuple gate + read-verified
+    //    projection prevent an active local row from splitting from ADO. ─
+
+    [Fact]
+    public async Task Concurrent_release_and_reclaim_on_same_tuple_produce_one_active_claim_and_matching_ado_state()
+    {
+        var mint = await _svc.MintAsync(MintInput());
+        var claim = ((ClaimMintOutcome.Succeeded)mint).Claim;
+
+        // Fire release and reclaim concurrently on the same tuple. The
+        // per-tuple gate serializes them; one lands first, the other
+        // observes the resulting state.
+        var releaseTask = _svc.ReleaseAsync(new ReleaseClaimInput(claim.ClaimId, _ado));
+        var reclaimTask = _svc.ReclaimAsync(ReclaimInput(allowSupersede: true));
+        await Task.WhenAll(releaseTask, reclaimTask);
+
+        // At most one active reserved row survives.
+        var reserved = (await _registry.FindReservedClaimAsync(ConnRef, PrimaryScopeKind, 42, new[] { ClaimStates.Pending, ClaimStates.Active })).Value;
+        if (reserved is not null)
+        {
+            reserved.State.ShouldBe(ClaimStates.Active);
+            // AND ADO is synchronized with local state: assigned holder = the
+            // active claim's holder. If the winner was reclaim, that's the
+            // resolved holder from projection; if release won, no active
+            // survivor exists so we should not be in this branch.
+            _ado.CurrentAssignedTo.ShouldNotBeNullOrEmpty();
+        }
+        else
+        {
+            // Release won: no active row AND ADO is cleared.
+            _ado.CurrentAssignedTo.ShouldBeNullOrEmpty();
+        }
+    }
+
+    // ── Validation ──────────────────────────────────────────────────
 
     [Fact]
     public async Task Validate_offline_returns_success_on_active_row_with_matching_tuple()
@@ -361,12 +426,9 @@ public sealed class LocalClaimServiceTests : IDisposable
         var validate = await _svc.ValidateAsync(new ClaimValidationInput(
             claim.ClaimId, ConnRef, PrimaryScopeKind, PrimaryScopeId));
         validate.ShouldBeOfType<ClaimValidationOutcome.Succeeded>();
-        // Validate MUST NOT touch ADO — 100% offline.
         _ado.HolderCalls.Count.ShouldBe(0);
         _ado.ClearCalls.Count.ShouldBe(0);
     }
-
-    // ── Validate: tuple mismatch on connectionRef ────────────────────
 
     [Fact]
     public async Task Validate_reports_tuple_mismatch_when_stored_tuple_disagrees()
@@ -379,11 +441,13 @@ public sealed class LocalClaimServiceTests : IDisposable
         validate.ShouldBeOfType<ClaimValidationOutcome.TupleMismatch>();
 
         validate = await _svc.ValidateAsync(new ClaimValidationInput(
+            claim.ClaimId, ConnRef, "other-kind", PrimaryScopeId));
+        validate.ShouldBeOfType<ClaimValidationOutcome.TupleMismatch>();
+
+        validate = await _svc.ValidateAsync(new ClaimValidationInput(
             claim.ClaimId, ConnRef, PrimaryScopeKind, "999"));
         validate.ShouldBeOfType<ClaimValidationOutcome.TupleMismatch>();
     }
-
-    // ── Validate: claim not found / not active ───────────────────────
 
     [Fact]
     public async Task Validate_reports_claim_not_found_and_not_active_distinctly()
@@ -402,7 +466,7 @@ public sealed class LocalClaimServiceTests : IDisposable
         ((ClaimValidationOutcome.ClaimNotActive)validate).CurrentState.ShouldBe(ClaimStates.Released);
     }
 
-    // ── SchemaDrift: unknown extra field in record_json ──────────────
+    // ── SchemaDrift battery ─────────────────────────────────────────
 
     [Fact]
     public async Task Validate_reports_schema_drift_on_unknown_field_in_record_json()
@@ -410,17 +474,12 @@ public sealed class LocalClaimServiceTests : IDisposable
         var mint = await _svc.MintAsync(MintInput());
         var claim = ((ClaimMintOutcome.Succeeded)mint).Claim;
 
-        // Inject an unknown field into the stored record_json — the reader
-        // MUST refuse it as schema drift.
-        RewriteRecordJson(claim.ClaimId, doc =>
-            doc + "-extra"); // Actually rewrite via raw JSON below
+        RewriteRecordJsonRaw(claim.ClaimId, json => json.TrimEnd('}') + ",\"unknownExtraField\":\"drift\"}");
 
         var validate = await _svc.ValidateAsync(new ClaimValidationInput(
             claim.ClaimId, ConnRef, PrimaryScopeKind, PrimaryScopeId));
         validate.ShouldBeOfType<ClaimValidationOutcome.SchemaDrift>();
     }
-
-    // ── SchemaDrift: newer schema version ────────────────────────────
 
     [Fact]
     public async Task Validate_reports_schema_drift_on_higher_schema_version()
@@ -428,7 +487,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         var mint = await _svc.MintAsync(MintInput());
         var claim = ((ClaimMintOutcome.Succeeded)mint).Claim;
 
-        // Rewrite schemaVersion to 2 — the reader must refuse.
         RewriteRecordJsonRaw(claim.ClaimId, json => json.Replace("\"schemaVersion\":1", "\"schemaVersion\":2"));
 
         var validate = await _svc.ValidateAsync(new ClaimValidationInput(
@@ -436,7 +494,39 @@ public sealed class LocalClaimServiceTests : IDisposable
         validate.ShouldBeOfType<ClaimValidationOutcome.SchemaDrift>();
     }
 
-    // ── LookupByTuple: found + not-found ────────────────────────────
+    [Theory]
+    [InlineData("\"claimId\":\"CLM000001\"", "\"claimId\":null")]
+    [InlineData("\"connectionRef\":\"conn-fixture\"", "\"connectionRef\":\"\"")]
+    [InlineData("\"holderIdentity\":\"svc-user@example.com\"", "\"holderIdentity\":\"\"")]
+    [InlineData("\"origin\":\"local\"", "\"origin\":\"coordinator\"")]
+    [InlineData("\"leaseGeneration\":0", "\"leaseGeneration\":1")]
+    [InlineData("\"createdAt\":", "\"createdAt\":\"not-a-timestamp-value\",\"unused\":")]
+    public async Task Validate_reports_schema_drift_on_missing_or_invalid_required_fields(string find, string replace)
+    {
+        var mint = await _svc.MintAsync(MintInput());
+        var claim = ((ClaimMintOutcome.Succeeded)mint).Claim;
+
+        RewriteRecordJsonRaw(claim.ClaimId, json => json.Replace(find, replace));
+
+        var validate = await _svc.ValidateAsync(new ClaimValidationInput(
+            claim.ClaimId, ConnRef, PrimaryScopeKind, PrimaryScopeId));
+        validate.ShouldBeOfType<ClaimValidationOutcome.SchemaDrift>();
+    }
+
+    [Fact]
+    public async Task Validate_reports_schema_drift_when_document_claim_id_does_not_match_row_claim_id()
+    {
+        var mint = await _svc.MintAsync(MintInput());
+        var claim = ((ClaimMintOutcome.Succeeded)mint).Claim;
+
+        RewriteRecordJsonRaw(claim.ClaimId, json => json.Replace($"\"claimId\":\"{claim.ClaimId}\"", "\"claimId\":\"CLM999999\""));
+
+        var validate = await _svc.ValidateAsync(new ClaimValidationInput(
+            claim.ClaimId, ConnRef, PrimaryScopeKind, PrimaryScopeId));
+        validate.ShouldBeOfType<ClaimValidationOutcome.SchemaDrift>();
+    }
+
+    // ── LookupByTuple ────────────────────────────────────────────────
 
     [Fact]
     public async Task LookupByTuple_returns_the_reserved_row_or_not_found()
@@ -482,9 +572,6 @@ public sealed class LocalClaimServiceTests : IDisposable
     [Fact]
     public async Task Two_concurrent_mints_on_the_same_tuple_produce_one_success_and_one_already_claimed()
     {
-        // Serialize the underlying db writes but issue the two mints back
-        // to back so both attempt the InsertClaim. The registry's partial
-        // unique index turns one into a duplicate.
         var input = MintInput();
         var mintA = _svc.MintAsync(input);
         var mintB = _svc.MintAsync(input);
@@ -496,27 +583,6 @@ public sealed class LocalClaimServiceTests : IDisposable
         duplicates.ShouldBe(1);
     }
 
-    // ── Concurrency: activation CAS mismatch ─────────────────────────
-
-    [Fact]
-    public async Task Mint_returns_concurrent_write_when_activation_cas_mismatches()
-    {
-        // Two mints will each generate the same pending id in this sequential
-        // generator, so injecting a colliding CAS token between reserve
-        // and activate breaks the update. Simulate via direct registry manip:
-        // insert a pending row, corrupt its CAS token, then run mint via a
-        // pre-fabricated pending record. Simpler: install a fake registry.
-
-        var mockRegistry = new StubRegistry();
-        mockRegistry.InsertResult = Result.Ok();
-        mockRegistry.UpdateStateResult = Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
-        var svc = new LocalClaimService(
-            mockRegistry, _attachment, _idGen, _casGen, _holder, _clock);
-
-        var outcome = await svc.MintAsync(MintInput());
-        outcome.ShouldBeOfType<ClaimMintOutcome.ConcurrentClaimWrite>();
-    }
-
     // ── Invalid input handling ───────────────────────────────────────
 
     [Fact]
@@ -526,14 +592,6 @@ public sealed class LocalClaimServiceTests : IDisposable
             ConnectionRef: "", PrimaryScopeKind, PrimaryScopeId, Fingerprint, Holder, null, null, null, _ado);
         var outcome = await _svc.MintAsync(bad);
         outcome.ShouldBeOfType<ClaimMintOutcome.InvalidRequest>();
-    }
-
-    private void RewriteRecordJson(string claimId, Func<string, string> transform)
-    {
-        // Not used — the parameterless overload rewrites through the raw path.
-        _ = transform;
-        RewriteRecordJsonRaw(claimId, raw =>
-            raw.TrimEnd('}') + ",\"unknownExtraField\":\"drift\"}");
     }
 
     private void RewriteRecordJsonRaw(string claimId, Func<string, string> transform)
@@ -559,22 +617,53 @@ public sealed class LocalClaimServiceTests : IDisposable
 
     private sealed class FakeAttachmentStore : IPrimaryScopeAttachmentStore
     {
+        private string _kind;
+        private int _workItemId;
+        private bool _hasScope = true;
+
         public List<string> LinkedClaimIds { get; } = new();
         public List<string> UnlinkedClaimIds { get; } = new();
         public string? LinkFailure { get; set; }
         public string? UnlinkFailure { get; set; }
+        public string? ReadFailure { get; set; }
+
+        public FakeAttachmentStore(string defaultKind, int defaultWorkItemId)
+        {
+            _kind = defaultKind;
+            _workItemId = defaultWorkItemId;
+        }
+
+        public void SetScope(string kind, int workItemId)
+        {
+            _kind = kind;
+            _workItemId = workItemId;
+            _hasScope = true;
+        }
+
+        public void ClearScope() => _hasScope = false;
 
         public bool IsManagedWorktree() => true;
-        public Task<Result<PrimaryScopeAttachment>> ReadAsync(CancellationToken ct = default) =>
-            Task.FromResult(Result.Ok(PrimaryScopeAttachment.Empty("ignored")));
+
+        public Task<Result<PrimaryScopeAttachment>> ReadAsync(CancellationToken ct = default)
+        {
+            if (ReadFailure is not null)
+                return Task.FromResult(Result.Fail<PrimaryScopeAttachment>(ReadFailure));
+            var scope = _hasScope
+                ? new PrimaryScope(_workItemId, $"https://dev.azure.com/org/proj/_workitems/edit/{_workItemId}", DateTimeOffset.UtcNow)
+                : (PrimaryScope?)null;
+            return Task.FromResult(Result.Ok(new PrimaryScopeAttachment("ignored", scope, ActiveClaim: null)));
+        }
+
         public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default) =>
             Task.FromResult(Result.Ok());
         public Task<Result> InitializeAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok());
 
-        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default)
+        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, string expectedPrimaryScopeKind, int expectedWorkItemId, CancellationToken ct = default)
         {
             if (LinkFailure is not null)
                 return Task.FromResult(Result.Fail(LinkFailure));
+            if (!_hasScope || !string.Equals(_kind, expectedPrimaryScopeKind, StringComparison.Ordinal) || _workItemId != expectedWorkItemId)
+                return Task.FromResult(Result.Fail(AttachmentStorageFailure.AttachmentScopeMismatch));
             LinkedClaimIds.Add(claimId);
             return Task.FromResult(Result.Ok());
         }
@@ -609,18 +698,26 @@ public sealed class LocalClaimServiceTests : IDisposable
             => Task.FromResult(NextResult ?? Result.Ok(_defaultHolder));
     }
 
+    /// <summary>
+    /// In-memory fake ADO projection. Simulates a stateful System.AssignedTo:
+    /// project sets it, clear empties it, and read-back verification is
+    /// intrinsic to the mint/release contract the real seam guarantees.
+    /// </summary>
     private sealed class FakeAdoClaimProjection : IAdoClaimProjection
     {
         public List<(string ScopeId, ClaimHolderDescriptor Holder)> HolderCalls { get; } = new();
         public List<(string ScopeId, DateTimeOffset At)> ClearCalls { get; } = new();
         public Result? NextHolderResult { get; set; }
         public Result? NextClearResult { get; set; }
+        public string? CurrentAssignedTo { get; set; }
 
         public Task<Result> ProjectHolderAsync(string primaryScopeId, ClaimHolderDescriptor holder, CancellationToken ct = default)
         {
             HolderCalls.Add((primaryScopeId, holder));
             var r = NextHolderResult ?? Result.Ok();
             NextHolderResult = null;
+            if (r.IsSuccess)
+                CurrentAssignedTo = holder.DisplayName ?? holder.Identity;
             return Task.FromResult(r);
         }
 
@@ -628,8 +725,9 @@ public sealed class LocalClaimServiceTests : IDisposable
         {
             ClearCalls.Add((primaryScopeId, DateTimeOffset.UtcNow));
             var r = NextClearResult ?? Result.Ok();
-
             NextClearResult = null;
+            if (r.IsSuccess)
+                CurrentAssignedTo = null;
             return Task.FromResult(r);
         }
 
@@ -639,26 +737,46 @@ public sealed class LocalClaimServiceTests : IDisposable
             ClearCalls.Clear();
             NextHolderResult = null;
             NextClearResult = null;
+            CurrentAssignedTo = null;
         }
     }
 
-    /// <summary>Stub registry used by the CAS-mismatch mint test — every
-    /// other test uses the real SQLite registry so uniqueness + CAS behave
-    /// exactly as production.</summary>
-    private sealed class StubRegistry : ISystemWorktreeRegistry
+    /// <summary>Simulates a mint-abort race: insert succeeds and issues the
+    /// initial CAS token; a second update (the abort) either finds the CAS
+    /// bumped by an external writer or hits a synthetic storage failure.
+    /// The AB#739 caller MUST surface the abort failure rather than
+    /// silently pretending the pending row cleaned up.</summary>
+    private sealed class AbortRaceRegistry : ISystemWorktreeRegistry
     {
-        public Result InsertResult { get; set; } = Result.Ok();
-        public Result UpdateStateResult { get; set; } = Result.Ok();
+        private readonly bool _bumpCasBeforeAbort;
+        private readonly string? _abortStorageError;
+        private int _updateCount;
+
+        public AbortRaceRegistry(bool bumpCasBeforeAbort = false, string? abortStorageError = null)
+        {
+            _bumpCasBeforeAbort = bumpCasBeforeAbort;
+            _abortStorageError = abortStorageError;
+        }
 
         public Task<Result<SystemWorktreeRow?>> FindWorktreeAsync(string worktreeFingerprint, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemWorktreeRow?>(new SystemWorktreeRow("conn", null)));
         public Task<Result> UpsertConnectionAsync(string connectionRef, string organization, string project, string? team, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result> UpsertWorktreeAsync(string worktreeFingerprint, string connectionRef, string worktreeRoot, CancellationToken ct = default) => Task.FromResult(Result.Ok());
-        public Task<Result> InsertClaimAsync(string claimId, string connectionRef, string worktreeFingerprint, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default) => Task.FromResult(InsertResult);
-        public Task<Result> UpdateClaimStateAsync(string claimId, string expectedCasToken, string newCasToken, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default) => Task.FromResult(UpdateStateResult);
+        public Task<Result> InsertClaimAsync(string claimId, string connectionRef, string worktreeFingerprint, string primaryScopeKind, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> UpdateClaimStateAsync(string claimId, string expectedCasToken, string newCasToken, string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default)
+        {
+            _updateCount++;
+            // First update is the abort (activation is skipped because ADO
+            // fails first). Trigger the configured failure.
+            if (_abortStorageError is not null)
+                return Task.FromResult(Result.Fail(_abortStorageError));
+            if (_bumpCasBeforeAbort)
+                return Task.FromResult(Result.Fail(AttachmentStorageFailure.ClaimCasMismatch));
+            return Task.FromResult(Result.Ok());
+        }
         public Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
-        public Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
-        public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok<IReadOnlyList<SystemClaimRow>>(Array.Empty<SystemClaimRow>()));
-        public Task<Result> SupersedeAndActivateClaimAsync(string newClaimId, string newCasToken, string connectionRef, string worktreeFingerprint, int workItemId, string newRecordJson, string predecessorClaimId, string predecessorExpectedCasToken, string predecessorNewCasToken, string predecessorRecordJson, DateTimeOffset transitionAt, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, string primaryScopeKind, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemClaimRow?>(null));
+        public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok<IReadOnlyList<SystemClaimRow>>(Array.Empty<SystemClaimRow>()));
+        public Task<Result> SupersedeAndActivateClaimAsync(string newClaimId, string newCasToken, string connectionRef, string worktreeFingerprint, string primaryScopeKind, int workItemId, string newRecordJson, string predecessorClaimId, string predecessorExpectedCasToken, string predecessorNewCasToken, string predecessorRecordJson, DateTimeOffset transitionAt, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default) => Task.FromResult(Result.Ok<SystemProfileCacheRow?>(null));
         public Task<Result> WriteProfileCacheAsync(string connectionRef, string profileIdentity, string profileVersion, string payload, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }

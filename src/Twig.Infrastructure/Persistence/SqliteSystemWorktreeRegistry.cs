@@ -13,17 +13,40 @@ namespace Twig.Infrastructure.Persistence;
 /// On open the store distinguishes a truly new database from an existing
 /// one: if the file existed before this process opened it, the layout_meta
 /// row is exact-matched against <see cref="SchemaVersion"/> BEFORE any DDL
-/// runs, and a mismatch surfaces <c>system-store-schema-mismatch</c>
-/// permanently. Only a genuinely new file triggers schema initialization —
-/// existing databases are inspected read-only until validation passes.
+/// runs, and a mismatch surfaces <c>system-store-schema-mismatch</c>. The
+/// mismatch is NOT sticky against a concurrent init race — if the file
+/// existed but layout_meta was still absent (another process created the
+/// file but had not yet committed the schema transaction), we retry
+/// validation up to a short bounded window before giving up. Only a
+/// mismatch against a fully-committed prior schema is fatal for the
+/// process lifetime; concurrent initialization succeeds.
+/// </para>
+/// <para>
+/// Every command executes inside a <c>BEGIN IMMEDIATE</c> transaction and
+/// its <see cref="SqliteCommand.Transaction"/> property is bound explicitly
+/// to the outer <see cref="SqliteTransaction"/> so a stray unbound command
+/// cannot leak past the CAS/rollback boundary. Read-only commands share
+/// the same connection but never open a transaction — the reader is
+/// materialized before the caller returns and the connection stays
+/// serialized through <see cref="_writeGate"/>.
 /// </para>
 /// </summary>
 internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
 {
     private const int SchemaVersion = 1;
+    private const int OpenValidationRetryCount = 20;
+    private const int OpenValidationRetryDelayMs = 25;
+
     private readonly string _dbPath;
     private readonly TimeProvider _clock;
     private readonly object _connectionGate = new();
+    // Every write serializes through this async gate so a concurrent
+    // reclaim/release/mint cannot interleave commands from different
+    // logical transactions on the shared connection. SQLite would already
+    // serialize the transactions at the file level via
+    // <c>BEGIN IMMEDIATE</c>, but the ADO.NET connection object is not
+    // thread-safe for parallel command execution — the gate matches that.
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private SqliteConnection? _connection;
     private string? _openFailure;
     private bool _disposed;
@@ -35,7 +58,7 @@ internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, ID
     }
 
     public Task<Result<SystemWorktreeRow?>> FindWorktreeAsync(string worktreeFingerprint, CancellationToken ct = default)
-        => ExecuteAsync<SystemWorktreeRow?>(async connection =>
+        => ExecuteReadAsync<SystemWorktreeRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT connection_ref, retired_at FROM worktrees WHERE worktree_fingerprint = $fp LIMIT 1;";
@@ -49,10 +72,11 @@ internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, ID
         }, ct);
 
     public Task<Result> UpsertConnectionAsync(string connectionRef, string organization, string project, string? team, CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             var now = _clock.GetUtcNow().ToString("o");
             using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 INSERT INTO connections (connection_ref, organization, project, team, first_seen_at, last_seen_at)
 VALUES ($ref, $org, $project, $team, $now, $now)
@@ -71,10 +95,11 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         }, ct);
 
     public Task<Result> UpsertWorktreeAsync(string worktreeFingerprint, string connectionRef, string worktreeRoot, CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             var now = _clock.GetUtcNow().ToString("o");
             using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 INSERT INTO worktrees (worktree_fingerprint, connection_ref, worktree_root, initialized_at, last_seen_at, retired_at)
 VALUES ($fp, $ref, $root, $now, $now, NULL)
@@ -93,13 +118,14 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
 
     public Task<Result> InsertClaimAsync(
         string claimId, string connectionRef, string worktreeFingerprint,
-        int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        string primaryScopeKind, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             // FK precheck — return a named error instead of the opaque
             // constraint failure the raw INSERT would raise.
             using (var check = connection.CreateCommand())
             {
+                check.Transaction = tx;
                 check.CommandText = "SELECT 1 FROM worktrees WHERE worktree_fingerprint = $fp LIMIT 1;";
                 check.Parameters.AddWithValue("$fp", worktreeFingerprint);
                 var exists = await check.ExecuteScalarAsync(ct).ConfigureAwait(false);
@@ -111,12 +137,14 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
             try
             {
                 using var cmd = connection.CreateCommand();
+                cmd.Transaction = tx;
                 cmd.CommandText = @"
-INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json)
-VALUES ($id, $ref, $fp, $wi, $state, $tok, $now, NULL, $json);";
+INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json)
+VALUES ($id, $ref, $fp, $kind, $wi, $state, $tok, $now, NULL, $json);";
                 cmd.Parameters.AddWithValue("$id", claimId);
                 cmd.Parameters.AddWithValue("$ref", connectionRef);
                 cmd.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
                 cmd.Parameters.AddWithValue("$wi", workItemId);
                 cmd.Parameters.AddWithValue("$state", state);
                 cmd.Parameters.AddWithValue("$tok", casToken);
@@ -127,25 +155,17 @@ VALUES ($id, $ref, $fp, $wi, $state, $tok, $now, NULL, $json);";
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
             {
-                // Either the (connection_ref, work_item_id) partial unique
-                // index tripped — another pending/active row exists — or the
-                // primary key collided. The AB#739 caller decides which is
-                // fatal; storage carries the named identifier and the
-                // low-level message.
-                var msg = ex.Message ?? string.Empty;
-                var code = msg.Contains("idx_claims_unique_reserved", StringComparison.Ordinal)
-                    ? AttachmentStorageFailure.ClaimDuplicateReserved
-                    : AttachmentStorageFailure.ClaimDuplicateReserved;
-                return Result.Fail($"{code}: {msg}");
+                return Result.Fail($"{AttachmentStorageFailure.ClaimDuplicateReserved}: {ex.Message}");
             }
         }, ct);
 
     public Task<Result> UpdateClaimStateAsync(
         string claimId, string expectedCasToken, string newCasToken,
         string state, DateTimeOffset? endedAt, string recordJson, CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 UPDATE claims
    SET state = $state,
@@ -166,10 +186,10 @@ UPDATE claims
         }, ct);
 
     public Task<Result<SystemClaimRow?>> FindClaimAsync(string claimId, CancellationToken ct = default)
-        => ExecuteAsync<SystemClaimRow?>(async connection =>
+        => ExecuteReadAsync<SystemClaimRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json FROM claims WHERE claim_id = $id LIMIT 1;";
+            cmd.CommandText = "SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json FROM claims WHERE claim_id = $id LIMIT 1;";
             cmd.Parameters.AddWithValue("$id", claimId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -177,11 +197,11 @@ UPDATE claims
             return Result.Ok<SystemClaimRow?>(ReadClaimRow(reader));
         }, ct);
 
-    public async Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default)
+    public async Task<Result<SystemClaimRow?>> FindReservedClaimAsync(string connectionRef, string primaryScopeKind, int workItemId, IReadOnlyList<string> reservedStates, CancellationToken ct = default)
     {
         if (reservedStates.Count == 0)
             return Result.Ok<SystemClaimRow?>(null);
-        return await ExecuteAsync<SystemClaimRow?>(async connection =>
+        return await ExecuteReadAsync<SystemClaimRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
             var placeholders = new List<string>(reservedStates.Count);
@@ -192,13 +212,15 @@ UPDATE claims
                 cmd.Parameters.AddWithValue(pname, reservedStates[i]);
             }
             cmd.CommandText = $@"
-SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json
+SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json
   FROM claims
  WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
    AND work_item_id = $wi
    AND state IN ({string.Join(", ", placeholders)})
  LIMIT 1;";
             cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
             cmd.Parameters.AddWithValue("$wi", workItemId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -207,16 +229,18 @@ SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_
         }, ct).ConfigureAwait(false);
     }
 
-    public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, int workItemId, CancellationToken ct = default)
-        => ExecuteAsync<IReadOnlyList<SystemClaimRow>>(async connection =>
+    public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default)
+        => ExecuteReadAsync<IReadOnlyList<SystemClaimRow>>(async connection =>
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = @"
-SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json
+SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json
   FROM claims
  WHERE connection_ref = $ref
+   AND primary_scope_kind = $kind
    AND work_item_id = $wi;";
             cmd.Parameters.AddWithValue("$ref", connectionRef);
+            cmd.Parameters.AddWithValue("$kind", primaryScopeKind);
             cmd.Parameters.AddWithValue("$wi", workItemId);
             var rows = new List<SystemClaimRow>();
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -230,6 +254,7 @@ SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_
         string newCasToken,
         string connectionRef,
         string worktreeFingerprint,
+        string primaryScopeKind,
         int workItemId,
         string newRecordJson,
         string predecessorClaimId,
@@ -238,13 +263,12 @@ SELECT claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_
         string predecessorRecordJson,
         DateTimeOffset transitionAt,
         CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             var stamp = transitionAt.ToUniversalTime().ToString("o");
-            // Step A: CAS predecessor active → superseded. Zero rows is a
-            // CAS mismatch on the predecessor row; the whole tx rolls back.
             using (var supersede = connection.CreateCommand())
             {
+                supersede.Transaction = tx;
                 supersede.CommandText = @"
 UPDATE claims
    SET state = 'superseded',
@@ -262,21 +286,17 @@ UPDATE claims
                     return Result.Fail(AttachmentStorageFailure.ClaimCasMismatch);
             }
 
-            // Step B: INSERT the new claim in `active` state. The partial
-            // unique index now permits this because the predecessor row's
-            // state moved to `superseded` in step A within the same
-            // transaction. Any residual constraint violation surfaces as
-            // duplicate-reserved so the caller can distinguish it from a
-            // CAS race.
             try
             {
                 using var insert = connection.CreateCommand();
+                insert.Transaction = tx;
                 insert.CommandText = @"
-INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, work_item_id, state, cas_token, minted_at, ended_at, record_json)
-VALUES ($id, $ref, $fp, $wi, 'active', $tok, $now, NULL, $json);";
+INSERT INTO claims (claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_item_id, state, cas_token, minted_at, ended_at, record_json)
+VALUES ($id, $ref, $fp, $kind, $wi, 'active', $tok, $now, NULL, $json);";
                 insert.Parameters.AddWithValue("$id", newClaimId);
                 insert.Parameters.AddWithValue("$ref", connectionRef);
                 insert.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                insert.Parameters.AddWithValue("$kind", primaryScopeKind);
                 insert.Parameters.AddWithValue("$wi", workItemId);
                 insert.Parameters.AddWithValue("$tok", newCasToken);
                 insert.Parameters.AddWithValue("$now", stamp);
@@ -292,7 +312,7 @@ VALUES ($id, $ref, $fp, $wi, 'active', $tok, $now, NULL, $json);";
         }, ct);
 
     public Task<Result<SystemProfileCacheRow?>> ReadProfileCacheAsync(string connectionRef, CancellationToken ct = default)
-        => ExecuteAsync<SystemProfileCacheRow?>(async connection =>
+        => ExecuteReadAsync<SystemProfileCacheRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT connection_ref, profile_identity, profile_version, payload, fetched_at FROM profile_cache WHERE connection_ref = $ref LIMIT 1;";
@@ -306,10 +326,11 @@ VALUES ($id, $ref, $fp, $wi, 'active', $tok, $now, NULL, $json);";
         }, ct);
 
     public Task<Result> WriteProfileCacheAsync(string connectionRef, string profileIdentity, string profileVersion, string payload, CancellationToken ct = default)
-        => ExecuteWriteAsync(async connection =>
+        => ExecuteWriteAsync(async (connection, tx) =>
         {
             var now = _clock.GetUtcNow().ToString("o");
             using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 INSERT INTO profile_cache (connection_ref, profile_identity, profile_version, payload, fetched_at)
 VALUES ($ref, $id, $ver, $pl, $now)
@@ -332,15 +353,17 @@ ON CONFLICT(connection_ref) DO UPDATE SET
             ClaimId: reader.GetString(0),
             ConnectionRef: reader.GetString(1),
             WorktreeFingerprint: reader.GetString(2),
-            WorkItemId: reader.GetInt32(3),
-            State: reader.GetString(4),
-            CasToken: reader.GetString(5),
-            MintedAt: DateTimeOffset.Parse(reader.GetString(6)).ToUniversalTime(),
-            EndedAt: reader.IsDBNull(7) ? null : DateTimeOffset.Parse(reader.GetString(7)).ToUniversalTime(),
-            RecordJson: reader.GetString(8));
+            PrimaryScopeKind: reader.GetString(3),
+            WorkItemId: reader.GetInt32(4),
+            State: reader.GetString(5),
+            CasToken: reader.GetString(6),
+            MintedAt: DateTimeOffset.Parse(reader.GetString(7)).ToUniversalTime(),
+            EndedAt: reader.IsDBNull(8) ? null : DateTimeOffset.Parse(reader.GetString(8)).ToUniversalTime(),
+            RecordJson: reader.GetString(9));
 
-    private async Task<Result<T>> ExecuteAsync<T>(Func<SqliteConnection, Task<Result<T>>> body, CancellationToken ct)
+    private async Task<Result<T>> ExecuteReadAsync<T>(Func<SqliteConnection, Task<Result<T>>> body, CancellationToken ct)
     {
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             if (!TryEnsureOpen(out var connection, out var openFailure))
@@ -350,22 +373,31 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         catch (OperationCanceledException) { throw; }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 5) { return Result.Fail<T>(AttachmentStorageFailure.SystemStoreLocked); }
         catch (SqliteException ex) { return Result.Fail<T>($"{AttachmentStorageFailure.SystemStoreSchemaMismatch}: {ex.Message}"); }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
-    private async Task<Result> ExecuteWriteAsync(Func<SqliteConnection, Task<Result>> body, CancellationToken ct)
+    private async Task<Result> ExecuteWriteAsync(Func<SqliteConnection, SqliteTransaction, Task<Result>> body, CancellationToken ct)
     {
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             if (!TryEnsureOpen(out var connection, out var openFailure))
                 return Result.Fail(openFailure!);
             using var tx = connection!.BeginTransaction(deferred: false);
-            var result = await body(connection).ConfigureAwait(false);
+            var result = await body(connection, tx).ConfigureAwait(false);
             if (result.IsSuccess) tx.Commit(); else tx.Rollback();
             return result;
         }
         catch (OperationCanceledException) { throw; }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 5) { return Result.Fail(AttachmentStorageFailure.SystemStoreLocked); }
         catch (SqliteException ex) { return Result.Fail($"{AttachmentStorageFailure.SystemStoreSchemaMismatch}: {ex.Message}"); }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     private bool TryEnsureOpen(out SqliteConnection? connection, out string? failure)
@@ -379,10 +411,6 @@ ON CONFLICT(connection_ref) DO UPDATE SET
             var dir = Path.GetDirectoryName(_dbPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-            // Snapshot file existence BEFORE opening — SqliteOpenMode.ReadWriteCreate
-            // will create the file, so this is our one and only signal that
-            // this is a fresh initialization vs an existing store we must
-            // validate before touching.
             var isNewDb = !File.Exists(_dbPath);
 
             var cs = new SqliteConnectionStringBuilder
@@ -408,9 +436,12 @@ ON CONFLICT(connection_ref) DO UPDATE SET
             else
             {
                 // Existing DB — validate BEFORE running any DDL that would
-                // mutate layout_meta. On mismatch, the connection is disposed
-                // and the failure is sticky for the process lifetime.
-                if (!ValidateExistingSchema(newConnection))
+                // mutate layout_meta. A truly older schema (layout_meta
+                // rows with a different version) is sticky-fatal; but an
+                // in-flight init race — the file exists because another
+                // process is mid-schema-transaction — is transient. Retry
+                // validation briefly before declaring a mismatch.
+                if (!WaitForCommittedSchema(newConnection))
                 {
                     _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
                     newConnection.Dispose();
@@ -423,30 +454,44 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         }
     }
 
-    private static bool ValidateExistingSchema(SqliteConnection connection)
+    private static bool WaitForCommittedSchema(SqliteConnection connection)
     {
-        // Check layout_meta table exists.
+        for (var attempt = 0; attempt < OpenValidationRetryCount; attempt++)
+        {
+            var (present, version) = ProbeLayoutMeta(connection);
+            if (present)
+                return version == SchemaVersion;
+            Thread.Sleep(OpenValidationRetryDelayMs);
+        }
+        return false;
+    }
+
+    private static (bool present, int version) ProbeLayoutMeta(SqliteConnection connection)
+    {
         using (var cmd = connection.CreateCommand())
         {
             cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='layout_meta' LIMIT 1;";
             var exists = cmd.ExecuteScalar();
-            if (exists is null) return false;
+            if (exists is null) return (false, 0);
         }
-        // Exact-match the version.
         using (var cmd = connection.CreateCommand())
         {
             cmd.CommandText = "SELECT version FROM layout_meta WHERE id = 1;";
             var raw = cmd.ExecuteScalar();
-            if (raw is null) return false;
-            return Convert.ToInt32(raw) == SchemaVersion;
+            if (raw is null) return (false, 0);
+            return (true, Convert.ToInt32(raw));
         }
     }
 
     private void EnsureSchema(SqliteConnection connection)
     {
+        // BEGIN IMMEDIATE so a concurrent opener that races on isNewDb sees
+        // a locked file and either waits (busy_timeout) or observes our
+        // completed schema on retry — never a half-materialized layout.
         using var tx = connection.BeginTransaction(deferred: false);
         using (var cmd = connection.CreateCommand())
         {
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 CREATE TABLE IF NOT EXISTS layout_meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -475,6 +520,7 @@ CREATE TABLE IF NOT EXISTS claims (
     claim_id TEXT PRIMARY KEY,
     connection_ref TEXT NOT NULL REFERENCES connections(connection_ref) ON DELETE RESTRICT,
     worktree_fingerprint TEXT NOT NULL REFERENCES worktrees(worktree_fingerprint) ON DELETE RESTRICT,
+    primary_scope_kind TEXT NOT NULL,
     work_item_id INTEGER NOT NULL,
     state TEXT NOT NULL,
     cas_token TEXT NOT NULL,
@@ -483,13 +529,14 @@ CREATE TABLE IF NOT EXISTS claims (
     record_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_claims_worktree_fingerprint ON claims(worktree_fingerprint);
-CREATE INDEX IF NOT EXISTS idx_claims_connection_work_item ON claims(connection_ref, work_item_id);
+CREATE INDEX IF NOT EXISTS idx_claims_connection_kind_work_item ON claims(connection_ref, primary_scope_kind, work_item_id);
 CREATE INDEX IF NOT EXISTS idx_claims_state ON claims(state);
 -- Partial unique index: enforces at most one pending or active claim per
--- (connection_ref, work_item_id) at the storage layer, matching the T1
--- v1 reserved-state kinds. Released/superseded/retired rows are excluded.
+-- (connection_ref, primary_scope_kind, work_item_id) at the storage
+-- layer. Two claims sharing the same numeric id but a different
+-- primary_scope_kind (a future non-ADO scope) do not collide.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_unique_reserved
-    ON claims(connection_ref, work_item_id)
+    ON claims(connection_ref, primary_scope_kind, work_item_id)
     WHERE state IN ('pending', 'active');
 CREATE TABLE IF NOT EXISTS profile_cache (
     connection_ref TEXT PRIMARY KEY REFERENCES connections(connection_ref) ON DELETE RESTRICT,
@@ -502,6 +549,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         }
         using (var cmd = connection.CreateCommand())
         {
+            cmd.Transaction = tx;
             cmd.CommandText = @"
 INSERT INTO layout_meta (id, version, initialized_at, created_by)
 VALUES (1, $version, $now, 'twig-cli/system')
@@ -521,5 +569,6 @@ ON CONFLICT(id) DO NOTHING;";
             _connection = null;
             _disposed = true;
         }
+        _writeGate.Dispose();
     }
 }

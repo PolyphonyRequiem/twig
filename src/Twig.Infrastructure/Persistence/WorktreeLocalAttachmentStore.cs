@@ -2,6 +2,7 @@ using System.Text.Json;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
+using Twig.Domain.Services.Claims;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
@@ -31,12 +32,25 @@ namespace Twig.Infrastructure.Persistence;
 /// power-loss between rename and further writes leaves the new version intact
 /// rather than a rename-visible but content-empty target.
 /// </para>
+/// <para>
+/// Link/unlink coordinate through a monotonic revision counter on the
+/// attachment document. Every write increments the counter; link/unlink
+/// perform read → mutate → write inside <see cref="_writeGate"/>, and
+/// refuse if the revision advanced between read and write —
+/// <c>attachment-version-mismatch</c>. Link additionally verifies the
+/// caller's expected primary scope tuple still matches byte-exact and
+/// refuses with <c>attachment-scope-mismatch</c> otherwise. The gate is
+/// in-process serialization; cross-process contention is compounded by
+/// SQLite's system-store transactions, which serialize the underlying
+/// claim writes at the process boundary.
+/// </para>
 /// </summary>
-internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStore
+internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStore, IDisposable
 {
     private readonly TwigPaths _paths;
     private readonly TwigConfiguration _config;
     private readonly TimeProvider _clock;
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
 
     // Files this store reads and writes. Named as constants so a change to the
     // §4.2 layout is a single-line touch rather than a scavenger hunt.
@@ -72,156 +86,18 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
     public async Task<Result<PrimaryScopeAttachment>> ReadAsync(CancellationToken ct = default)
     {
-        ct.ThrowIfCancellationRequested();
-
-        // §6.4 step 1 — detect roots. Failure here is fatal for every managed
-        // read; the store never returns an empty attachment as a substitute
-        // for a valid anchor.
-        if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
-            return Result.Fail<PrimaryScopeAttachment>(anchorFailure);
-
-        // Legacy layout check: an ancestor <c>.twig/&lt;org&gt;/&lt;project&gt;/twig.db</c>
-        // tree is exactly the "silently adopt an old checkout" scenario §7
-        // forbids. Refuse fail-closed with the §8 identifier.
-        if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.LegacyLayoutPresent);
-
-        // §6.4 step 3 — layout marker is the observable "new layout" flag.
-        var layoutPath = Path.Combine(_paths.TwigDir, LayoutFileName);
-        if (!File.Exists(layoutPath))
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.LayoutMarkerMissing);
-
-        // §6.4 step 4 — worktree fingerprint MUST match the live rev-parse
-        // tuple byte-equal. A missing or unparseable file, or a fabricated
-        // empty tuple, is drift.
-        var driftError = await ValidateFingerprintAsync(anchor, ct).ConfigureAwait(false);
-        if (driftError is not null)
-            return Result.Fail<PrimaryScopeAttachment>(driftError);
-
-        var connectionRef = ConnectionRefResolver.Compute(_config);
-        var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
-        if (!File.Exists(attachmentPath))
-        {
-            // Marker present, attachment.json missing → partial init. Managed
-            // init writes an empty attachment at step 7; its absence here
-            // matches the layout-marker-missing symptom §8 covers.
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.LayoutMarkerMissing);
-        }
-
-        AttachmentDocument? doc;
-        try
-        {
-            await using var stream = File.OpenRead(attachmentPath);
-            doc = await JsonSerializer.DeserializeAsync(
-                stream, TwigJsonContext.Default.AttachmentDocument, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (JsonException)
-        {
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.CheckedInConfigInvalid);
-        }
-        catch (IOException ex)
-        {
-            return Result.Fail<PrimaryScopeAttachment>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
-
-        if (doc is null)
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.CheckedInConfigInvalid);
-
-        if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
-            return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.AttachmentConnectionMismatch);
-
-        PrimaryScope? scope = null;
-        if (doc.PrimaryScope is { } ps
-            && DateTimeOffset.TryParse(ps.AttachedAt, out var attachedAt))
-        {
-            // §4.2.2: the workItemUrl origin MUST match the checked-in
-            // connection. A copied .twig/ carrying a forged connectionRef
-            // still trips this because the URL origin cannot be forged
-            // without also editing every downstream visible link.
-            if (!AdoWorkItemUrlValidator.OriginMatches(ps.WorkItemUrl, _config.Organization, _config.Project))
-                return Result.Fail<PrimaryScopeAttachment>(AttachmentStorageFailure.AttachmentConnectionMismatch);
-
-            scope = new PrimaryScope(ps.WorkItemId, ps.WorkItemUrl, attachedAt);
-        }
-
-        ActiveClaimReference? claim = null;
-        if (doc.ActiveClaim is { } ac && DateTimeOffset.TryParse(ac.MintedAt, out var mintedAt))
-            claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
-
-        return Result.Ok(new PrimaryScopeAttachment(
-            ConnectionRef: doc.ConnectionRef,
-            PrimaryScope: scope,
-            ActiveClaim: claim));
+        var res = await ReadInternalAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccess)
+            return Result.Fail<PrimaryScopeAttachment>(res.Error);
+        return Result.Ok(res.Value.Projection);
     }
 
-    public async Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
-            return Result.Fail(anchorFailure);
-
-        if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
-            return Result.Fail(AttachmentStorageFailure.LegacyLayoutPresent);
-
-        // Writes NEVER bootstrap markers. If the layout marker is absent the
-        // caller must run managed init first; adopting an existing .twig/
-        // silently was the exact defect §7 fixes.
-        var layoutPath = Path.Combine(_paths.TwigDir, LayoutFileName);
-        if (!File.Exists(layoutPath))
-            return Result.Fail(AttachmentStorageFailure.LayoutMarkerMissing);
-
-        var driftError = await ValidateFingerprintAsync(anchor, ct).ConfigureAwait(false);
-        if (driftError is not null)
-            return Result.Fail(driftError);
-
-        var expectedRef = ConnectionRefResolver.Compute(_config);
-        if (!string.Equals(attachment.ConnectionRef, expectedRef, StringComparison.Ordinal))
-            return Result.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
-
-        try
-        {
-            var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
-            var doc = new AttachmentDocument(
-                Schema: AttachmentDocument.CurrentSchema,
-                Version: AttachmentDocument.CurrentVersion,
-                ConnectionRef: attachment.ConnectionRef,
-                PrimaryScope: attachment.PrimaryScope is { } scope
-                    ? new AttachmentPrimaryScope(
-                        scope.WorkItemId,
-                        scope.WorkItemUrl,
-                        scope.AttachedAt.ToUniversalTime().ToString("o"))
-                    : null,
-                // AB#736 §9.3: consumers set one field without disturbing the
-                // other. AB#738 writes primary scope only; the ActiveClaim
-                // block is carried through byte-identical (opaque id +
-                // original mint timestamp) so an AB#739-minted record
-                // survives an AB#738 switch or detach.
-                ActiveClaim: attachment.ActiveClaim is { } claim
-                    ? new AttachmentActiveClaim(claim.ClaimId, claim.MintedAt.ToUniversalTime().ToString("o"))
-                    : null);
-
-            await WriteJsonAtomicAsync(attachmentPath, doc, TwigJsonContext.Default.AttachmentDocument, ct)
-                .ConfigureAwait(false);
-            return Result.Ok();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (IOException ex)
-        {
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
-        }
-    }
+    public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, CancellationToken ct = default)
+        => WriteWithReadCheckAsync(
+            expectedRevision: null,
+            build: _ => attachment,
+            scopeCheck: null,
+            ct: ct);
 
     /// <summary>
     /// Explicit managed-init hook: creates <c>.twig/layout.json</c>,
@@ -239,6 +115,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
             return Result.Fail(AttachmentStorageFailure.LegacyLayoutPresent);
 
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             Directory.CreateDirectory(_paths.TwigDir);
@@ -266,52 +143,247 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         {
             return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
         }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
-    /// <summary>
-    /// Bind the given active-claim reference onto the current attachment
-    /// (AB#737 §Interface consumed by #739, step 4 of mint/reclaim). Reads
-    /// the current record, replaces the <c>ActiveClaim</c> block with the
-    /// new (id, mint-timestamp) pair, and re-runs
-    /// <see cref="WriteAsync"/> — the whole read/validate/write sequence
-    /// so the connectionRef, layout-marker, and fingerprint checks apply.
-    /// The primary-scope block is preserved byte-for-byte.
-    /// </summary>
-    public async Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default)
+    public Task<Result> LinkClaimAsync(
+        string claimId,
+        DateTimeOffset mintedAt,
+        string expectedPrimaryScopeKind,
+        int expectedWorkItemId,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(claimId))
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: claimId is required.");
-        var read = await ReadAsync(ct).ConfigureAwait(false);
-        if (!read.IsSuccess)
-            return Result.Fail(read.Error);
-        var next = read.Value with { ActiveClaim = new ActiveClaimReference(claimId, mintedAt) };
-        return await WriteAsync(next, ct).ConfigureAwait(false);
+            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: claimId is required."));
+        if (string.IsNullOrEmpty(expectedPrimaryScopeKind))
+            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedPrimaryScopeKind is required."));
+        if (expectedWorkItemId <= 0)
+            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedWorkItemId must be positive."));
+
+        return WriteWithReadCheckAsync(
+            expectedRevision: null,
+            build: current => current with { ActiveClaim = new ActiveClaimReference(claimId, mintedAt) },
+            scopeCheck: current =>
+            {
+                if (current.PrimaryScope is not { } scope)
+                    return AttachmentStorageFailure.AttachmentScopeMismatch;
+                if (scope.WorkItemId != expectedWorkItemId)
+                    return AttachmentStorageFailure.AttachmentScopeMismatch;
+                // The on-disk record carries the primary scope kind
+                // explicitly (AttachmentPrimaryScope.Kind). The projection
+                // stripped it into an internal marker; we compare against
+                // the raw doc read via scopeCheckSide.
+                return null;
+            },
+            requireScopeKind: expectedPrimaryScopeKind,
+            ct: ct);
     }
 
-    /// <summary>
-    /// Drop the active-claim reference when it points at
-    /// <paramref name="expectedClaimId"/>. If the record already carries no
-    /// claim, or references a different id, the call is a success — release
-    /// is idempotent from the attachment's perspective (AB#737 §Named
-    /// release outcomes preserves the "unlink after terminalize" ordering
-    /// even when the attachment has already been cleared by another writer).
-    /// </summary>
-    public async Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default)
+    public Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(expectedClaimId))
-            return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required.");
-        var read = await ReadAsync(ct).ConfigureAwait(false);
-        if (!read.IsSuccess)
-            return Result.Fail(read.Error);
-        var current = read.Value;
-        if (current.ActiveClaim is null
-            || !string.Equals(current.ActiveClaim.Value.ClaimId, expectedClaimId, StringComparison.Ordinal))
-        {
-            return Result.Ok();
-        }
-        var next = current with { ActiveClaim = null };
-        return await WriteAsync(next, ct).ConfigureAwait(false);
+            return Task.FromResult(Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: expectedClaimId is required."));
+
+        return WriteWithReadCheckAsync(
+            expectedRevision: null,
+            build: current =>
+            {
+                if (current.ActiveClaim is null
+                    || !string.Equals(current.ActiveClaim.Value.ClaimId, expectedClaimId, StringComparison.Ordinal))
+                {
+                    // Idempotent from the attachment's perspective — no
+                    // change to write. Return the same record so the
+                    // caller-side WriteWithReadCheck short-circuits.
+                    return current;
+                }
+                return current with { ActiveClaim = null };
+            },
+            scopeCheck: null,
+            ct: ct);
     }
+
+    // ── Internals ────────────────────────────────────────────────────
+
+    private readonly record struct ReadOutcome(PrimaryScopeAttachment Projection, AttachmentDocument Document);
+
+    private async Task<Result<ReadOutcome>> ReadInternalAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
+            return Result.Fail<ReadOutcome>(anchorFailure);
+
+        if (LegacyLayoutDetector.IsLegacyLayoutPresent(_paths.TwigDir))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LegacyLayoutPresent);
+
+        var layoutPath = Path.Combine(_paths.TwigDir, LayoutFileName);
+        if (!File.Exists(layoutPath))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
+
+        var driftError = await ValidateFingerprintAsync(anchor, ct).ConfigureAwait(false);
+        if (driftError is not null)
+            return Result.Fail<ReadOutcome>(driftError);
+
+        var connectionRef = ConnectionRefResolver.Compute(_config);
+        var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
+        if (!File.Exists(attachmentPath))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
+
+        AttachmentDocument? doc;
+        try
+        {
+            await using var stream = File.OpenRead(attachmentPath);
+            doc = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.AttachmentDocument, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (JsonException)
+        {
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        }
+        catch (IOException ex)
+        {
+            return Result.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
+        }
+
+        if (doc is null)
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (doc.Revision < 0)
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (string.IsNullOrEmpty(doc.ConnectionRef))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+
+        if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
+
+        PrimaryScope? scope = null;
+        if (doc.PrimaryScope is { } ps)
+        {
+            // Reject malformed present primary-scope block with a NAMED
+            // schema failure. A silent skip would let a hand-crafted
+            // attachment.json (nonpositive id, invalid timestamp, invalid
+            // URL) reach the claim path as "no primary scope" — one of
+            // the exact fail-closed defects §7 forbids.
+            if (ps.WorkItemId <= 0)
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ps.Kind))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (!DateTimeOffset.TryParse(ps.AttachedAt, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var attachedAt))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (string.IsNullOrEmpty(ps.WorkItemUrl))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (!AdoWorkItemUrlValidator.OriginMatches(ps.WorkItemUrl, _config.Organization, _config.Project))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
+            scope = new PrimaryScope(ps.WorkItemId, ps.WorkItemUrl, attachedAt);
+        }
+
+        ActiveClaimReference? claim = null;
+        if (doc.ActiveClaim is { } ac)
+        {
+            if (string.IsNullOrEmpty(ac.ClaimId))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            if (!DateTimeOffset.TryParse(ac.MintedAt, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var mintedAt))
+                return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+            claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
+        }
+
+        var projection = new PrimaryScopeAttachment(
+            ConnectionRef: doc.ConnectionRef,
+            PrimaryScope: scope,
+            ActiveClaim: claim);
+        return Result.Ok(new ReadOutcome(projection, doc));
+    }
+
+    private async Task<Result> WriteWithReadCheckAsync(
+        long? expectedRevision,
+        Func<PrimaryScopeAttachment, PrimaryScopeAttachment> build,
+        Func<PrimaryScopeAttachment, string?>? scopeCheck,
+        string? requireScopeKind = null,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var readRes = await ReadInternalAsync(ct).ConfigureAwait(false);
+            if (!readRes.IsSuccess)
+                return Result.Fail(readRes.Error);
+            var currentProjection = readRes.Value.Projection;
+            var currentDoc = readRes.Value.Document;
+
+            if (expectedRevision.HasValue && currentDoc.Revision != expectedRevision.Value)
+                return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
+
+            if (scopeCheck is not null)
+            {
+                var scopeErr = scopeCheck(currentProjection);
+                if (scopeErr is not null)
+                    return Result.Fail(scopeErr);
+            }
+            if (requireScopeKind is not null)
+            {
+                var storedKind = currentDoc.PrimaryScope?.Kind;
+                if (!string.Equals(storedKind, requireScopeKind, StringComparison.Ordinal))
+                    return Result.Fail(AttachmentStorageFailure.AttachmentScopeMismatch);
+            }
+
+            var next = build(currentProjection);
+            if (ReferenceEquals(next, currentProjection) || next.Equals(currentProjection))
+            {
+                // No change to apply. Signal success without a write —
+                // idempotent unlink over an unlinked record, for example.
+                return Result.Ok();
+            }
+
+            var expectedRef = ConnectionRefResolver.Compute(_config);
+            if (!string.Equals(next.ConnectionRef, expectedRef, StringComparison.Ordinal))
+                return Result.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
+
+            var nextDoc = BuildDocument(next, currentDoc.Revision + 1);
+            var attachmentPath = Path.Combine(_paths.TwigDir, AttachmentFileName);
+            try
+            {
+                await WriteJsonAtomicAsync(attachmentPath, nextDoc, TwigJsonContext.Default.AttachmentDocument, ct)
+                    .ConfigureAwait(false);
+                return Result.Ok();
+            }
+            catch (IOException ex)
+            {
+                return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
+            }
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    private static AttachmentDocument BuildDocument(PrimaryScopeAttachment attachment, long nextRevision) =>
+        new(
+            Schema: AttachmentDocument.CurrentSchema,
+            Version: AttachmentDocument.CurrentVersion,
+            Revision: nextRevision,
+            ConnectionRef: attachment.ConnectionRef,
+            PrimaryScope: attachment.PrimaryScope is { } scope
+                ? new AttachmentPrimaryScope(
+                    Kind: PrimaryScopeKinds.AdoWorkItem,
+                    WorkItemId: scope.WorkItemId,
+                    WorkItemUrl: scope.WorkItemUrl,
+                    AttachedAt: scope.AttachedAt.ToUniversalTime().ToString("o"))
+                : null,
+            ActiveClaim: attachment.ActiveClaim is { } claim
+                ? new AttachmentActiveClaim(claim.ClaimId, claim.MintedAt.ToUniversalTime().ToString("o"))
+                : null);
 
     private async Task EnsureLayoutMarkerAsync(CancellationToken ct)
     {
@@ -351,10 +423,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             doc = await JsonSerializer.DeserializeAsync(
                 stream, TwigJsonContext.Default.WorktreeFingerprintDocument, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) { throw; }
         catch
         {
             return AttachmentStorageFailure.WorktreeFingerprintDrift;
@@ -364,9 +433,6 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             return AttachmentStorageFailure.WorktreeFingerprintDrift;
 
         var stored = doc.WorktreeFingerprint;
-        // An empty stored tuple is not "unverifiable" — §3.1 forbids managed
-        // init from ever producing one. Treat it as drift so a hand-crafted
-        // or half-init fingerprint fails closed rather than silently passing.
         if (string.IsNullOrEmpty(stored.WorktreeRoot)
             || string.IsNullOrEmpty(stored.GitCommonDir)
             || string.IsNullOrEmpty(stored.WorktreeGitDir))
@@ -391,15 +457,6 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         return comparer.Equals(Path.GetFullPath(a), Path.GetFullPath(b));
     }
 
-    /// <summary>
-    /// Atomic write with a durable fsync boundary. Opens the temp file with
-    /// <see cref="FileOptions.WriteThrough"/> so writes hit the storage
-    /// stack directly and calls <see cref="FileStream.Flush(bool)"/>(<c>true</c>)
-    /// before <see cref="File.Move(string, string, bool)"/>, matching §6.1's
-    /// "write temp, fsync, rename" success boundary. Rename is atomic on
-    /// POSIX and via <c>MoveFileExW</c>+<c>MOVEFILE_REPLACE_EXISTING</c> on
-    /// Windows (the runtime default).
-    /// </summary>
     private async Task WriteJsonAtomicAsync<T>(
         string targetPath,
         T value,
@@ -423,8 +480,6 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             {
                 await JsonSerializer.SerializeAsync(stream, value, typeInfo, ct).ConfigureAwait(false);
                 await stream.FlushAsync(ct).ConfigureAwait(false);
-                // Managed flush + WriteThrough is not the same as fsync on
-                // every platform; force the durable path explicitly per §6.1.
                 stream.Flush(flushToDisk: true);
             }
             File.Move(tmpPath, targetPath, overwrite: true);
@@ -435,6 +490,8 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             throw;
         }
     }
+
+    public void Dispose() => _writeGate.Dispose();
 }
 
 /// <summary>
@@ -445,15 +502,13 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 /// </summary>
 internal static class LegacyLayoutDetector
 {
-    public static bool IsLegacyLayoutPresent(string twigDir)
+    public static bool IsLegacyLayoutPresent(string? twigDir)
     {
         if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
             return false;
-        // Managed layout is authoritative: once §4.2.1 layout.json is present
-        // the checkout is on the new layout, and disposable cache directories
-        // under the old `.twig/<org>/<project>/` shape are just interim state
-        // rather than "legacy layout". Refusing here would make managed init
-        // reject its own run once the SqliteCacheStore fills the cache path.
+        // Managed layout is authoritative: once §4.2.1 layout.json is
+        // present the checkout is on the new layout and disposable cache
+        // directories under the old shape are just interim state.
         if (File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)))
             return false;
         try
@@ -464,7 +519,6 @@ internal static class LegacyLayoutDetector
                 if (string.Equals(name, WorktreeLocalAttachmentStore.TmpDirName, StringComparison.Ordinal)
                     || name.StartsWith('.'))
                     continue;
-                // Any nested <org>/<project>/twig.db is the legacy shape §7 forbids.
                 foreach (var projectDir in Directory.EnumerateDirectories(orgDir))
                 {
                     if (File.Exists(Path.Combine(projectDir, "twig.db")))
@@ -472,14 +526,8 @@ internal static class LegacyLayoutDetector
                 }
             }
         }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
         return false;
     }
 }
@@ -489,14 +537,11 @@ internal static class LegacyLayoutDetector
 /// the current connection binding. AB#736 §4.2.2 requires this check ahead of
 /// the system-store answer so a stolen or copied <c>.twig/</c> whose
 /// <c>connectionRef</c> forgery matches still trips on the visible URL
-/// origin. The URL shape Twig writes is
-/// <c>https://dev.azure.com/{org}/{project}/_workitems/edit/{id}</c>; the
-/// validator accepts equivalent legacy shapes (<c>{org}.visualstudio.com</c>)
-/// so a repo migrated from the old hostname continues to round-trip.
+/// origin.
 /// </summary>
 internal static class AdoWorkItemUrlValidator
 {
-    public static bool OriginMatches(string? url, string organization, string project)
+    public static bool OriginMatches(string? url, string? organization, string? project)
     {
         if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(organization) || string.IsNullOrEmpty(project))
             return false;
@@ -505,24 +550,18 @@ internal static class AdoWorkItemUrlValidator
         if (uri.Scheme is not ("https" or "http"))
             return false;
 
-        // The configured organization may arrive as either a slug ("contoso")
-        // or a full URI ("https://dev.azure.com/contoso" or
-        // "https://contoso.visualstudio.com"). Normalize once so a mismatched
-        // storage-versus-config shape does not surface as a false
-        // attachment-connection-mismatch.
         var orgSlug = OrganizationNormalizer.ToSlug(organization);
         var host = uri.Host;
         var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
 
         if (string.Equals(host, "dev.azure.com", StringComparison.OrdinalIgnoreCase))
         {
-            // {org}/{project}/_workitems/edit/{id}
             return segments.Length >= 2
                 && string.Equals(segments[0], orgSlug, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(segments[1], project, StringComparison.OrdinalIgnoreCase);
         }
 
-        var legacySuffix = ".visualstudio.com";
+        const string legacySuffix = ".visualstudio.com";
         if (host.EndsWith(legacySuffix, StringComparison.OrdinalIgnoreCase))
         {
             var orgFromHost = host[..^legacySuffix.Length];

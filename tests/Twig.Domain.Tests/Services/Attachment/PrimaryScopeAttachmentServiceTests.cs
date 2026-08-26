@@ -476,7 +476,7 @@ public sealed class PrimaryScopeAttachmentServiceTests
         }
 
         public Task<Result> InitializeAsync(CancellationToken ct = default) => Task.FromResult(Result.Ok());
-        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default) => Task.FromResult(Result.Ok());
+        public Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, string expectedPrimaryScopeKind, int expectedWorkItemId, CancellationToken ct = default) => Task.FromResult(Result.Ok());
         public Task<Result> UnlinkClaimAsync(string expectedClaimId, CancellationToken ct = default) => Task.FromResult(Result.Ok());
     }
 

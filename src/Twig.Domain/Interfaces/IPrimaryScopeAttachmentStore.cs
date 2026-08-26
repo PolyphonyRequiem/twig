@@ -51,11 +51,27 @@ internal interface IPrimaryScopeAttachmentStore
     /// <summary>Bind the given active-claim reference (opaque id + mint
     /// timestamp) onto the current attachment record without disturbing the
     /// primary-scope block. Realizes AB#737 §Interface's <c>link</c> at
-    /// mint step 4 and reclaim step 4. The write is atomic (§6.1 temp +
-    /// rename); a failure surfaces the AB#736 §8 identifier verbatim so the
-    /// claim service maps it to
+    /// mint step 4 and reclaim step 4.
+    /// <para>
+    /// Callers supply the primary-scope kind and id they minted against;
+    /// the store re-reads the attachment, verifies the primary-scope block
+    /// still matches byte-exact, and refuses the write with
+    /// <c>attachment-scope-mismatch</c> if the scope was switched or
+    /// detached mid-mint. The attachment document also carries a monotonic
+    /// revision counter — a bump between the caller's read and the write
+    /// (a lost-update coordination signal) surfaces as
+    /// <c>attachment-version-mismatch</c> so the caller retries with a
+    /// fresh read rather than clobbering another writer.
+    /// </para>
+    /// A generic storage failure surfaces the AB#736 §8 identifier verbatim
+    /// so the claim service maps it to
     /// <see cref="Twig.Domain.Services.Claims.ClaimMintOutcome.AttachmentLinkFailed"/>.</summary>
-    Task<Result> LinkClaimAsync(string claimId, DateTimeOffset mintedAt, CancellationToken ct = default);
+    Task<Result> LinkClaimAsync(
+        string claimId,
+        DateTimeOffset mintedAt,
+        string expectedPrimaryScopeKind,
+        int expectedWorkItemId,
+        CancellationToken ct = default);
 
     /// <summary>Drop the active-claim reference from the current attachment
     /// record when it points at <paramref name="expectedClaimId"/>. Realizes

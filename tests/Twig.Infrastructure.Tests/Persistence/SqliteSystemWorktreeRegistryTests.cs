@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
+using Twig.Domain.Services.Claims;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
@@ -8,6 +9,8 @@ namespace Twig.Infrastructure.Tests.Persistence;
 
 public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
 {
+    private const string Kind = PrimaryScopeKinds.AdoWorkItem;
+
     private readonly string _dir;
     private readonly SqliteSystemWorktreeRegistry _registry;
 
@@ -51,6 +54,7 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         var insert = await _registry.InsertClaimAsync(
             claimId: "claim-x", connectionRef: "ref-c",
             worktreeFingerprint: "fp-does-not-exist",
+            primaryScopeKind: Kind,
             workItemId: 42, state: "active", casToken: "tok0", recordJson: "{}");
         insert.IsSuccess.ShouldBeFalse();
         insert.Error.ShouldBe(AttachmentStorageFailure.WorktreeNotRegistered);
@@ -61,24 +65,23 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-d", "org-d", "proj-d", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-d", "ref-d", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-01", "ref-d", "fp-d", 42, "active", "tok0", "{\"a\":1}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-01", "ref-d", "fp-d", Kind, 42, "active", "tok0", "{\"a\":1}")).IsSuccess.ShouldBeTrue();
 
         var find = await _registry.FindClaimAsync("claim-01");
         find.Value.ShouldNotBeNull();
         find.Value!.State.ShouldBe("active");
         find.Value.CasToken.ShouldBe("tok0");
+        find.Value.PrimaryScopeKind.ShouldBe(Kind);
     }
-
-    // ── Partial unique index: at most one pending|active per (conn, wi) ─
 
     [Fact]
     public async Task Partial_unique_index_refuses_a_second_reserved_claim_for_the_same_work_item()
     {
         (await _registry.UpsertConnectionAsync("ref-u", "org-u", "proj-u", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-u", "ref-u", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-a", "ref-u", "fp-u", 500, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-a", "ref-u", "fp-u", Kind, 500, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
 
-        var dup = await _registry.InsertClaimAsync("claim-b", "ref-u", "fp-u", 500, "pending", "tok0", "{}");
+        var dup = await _registry.InsertClaimAsync("claim-b", "ref-u", "fp-u", Kind, 500, "pending", "tok0", "{}");
         dup.IsSuccess.ShouldBeFalse();
         dup.Error.ShouldContain(AttachmentStorageFailure.ClaimDuplicateReserved);
     }
@@ -88,10 +91,62 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-v", "org-v", "proj-v", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-v", "ref-v", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-a", "ref-v", "fp-v", 600, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
-        // released ∉ {pending, active} so a new mint is permitted.
+        (await _registry.InsertClaimAsync("claim-a", "ref-v", "fp-v", Kind, 600, "active", "tok0", "{}")).IsSuccess.ShouldBeTrue();
         (await _registry.UpdateClaimStateAsync("claim-a", "tok0", "tok1", "released", DateTimeOffset.UtcNow, "{}")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-b", "ref-v", "fp-v", 600, "pending", "tok2", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-b", "ref-v", "fp-v", Kind, 600, "pending", "tok2", "{}")).IsSuccess.ShouldBeTrue();
+    }
+
+    // ── Two kinds with the same work_item_id do NOT collide on the
+    //    partial unique index — AB#739 §Tuple storage requires the tuple
+    //    to include primaryScopeKind so a future non-ADO scope can share
+    //    the numeric id space without cross-supersession. ────────────────
+
+    [Fact]
+    public async Task Partial_unique_index_scopes_uniqueness_by_kind_so_two_kinds_can_share_a_work_item_id()
+    {
+        (await _registry.UpsertConnectionAsync("ref-k", "org-k", "proj-k", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-k", "ref-k", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-ado", "ref-k", "fp-k", Kind, 900, "active", "t0", "{}")).IsSuccess.ShouldBeTrue();
+        // Different kind, same numeric id — MUST NOT collide.
+        (await _registry.InsertClaimAsync("claim-other", "ref-k", "fp-k", "other-kind", 900, "active", "t1", "{}")).IsSuccess.ShouldBeTrue();
+
+        var adoRow = await _registry.FindReservedClaimAsync("ref-k", Kind, 900, new[] { "pending", "active" });
+        adoRow.Value.ShouldNotBeNull();
+        adoRow.Value!.ClaimId.ShouldBe("claim-ado");
+
+        var otherRow = await _registry.FindReservedClaimAsync("ref-k", "other-kind", 900, new[] { "pending", "active" });
+        otherRow.Value.ShouldNotBeNull();
+        otherRow.Value!.ClaimId.ShouldBe("claim-other");
+    }
+
+    [Fact]
+    public async Task Supersede_and_activate_scopes_by_kind_so_a_second_kind_row_is_untouched()
+    {
+        (await _registry.UpsertConnectionAsync("ref-s", "org-s", "proj-s", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-s", "ref-s", "/wt")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-a-ado", "ref-s", "fp-s", Kind, 555, "active", "casA", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-a-other", "ref-s", "fp-s", "other-kind", 555, "active", "casX", "{}")).IsSuccess.ShouldBeTrue();
+
+        var supersede = await _registry.SupersedeAndActivateClaimAsync(
+            newClaimId: "claim-b-ado",
+            newCasToken: "casB",
+            connectionRef: "ref-s",
+            worktreeFingerprint: "fp-s",
+            primaryScopeKind: Kind,
+            workItemId: 555,
+            newRecordJson: "{}",
+            predecessorClaimId: "claim-a-ado",
+            predecessorExpectedCasToken: "casA",
+            predecessorNewCasToken: "casA-sup",
+            predecessorRecordJson: "{}",
+            transitionAt: DateTimeOffset.UtcNow);
+        supersede.IsSuccess.ShouldBeTrue(supersede.Error);
+
+        // The ADO row moved to superseded and a new active row exists.
+        (await _registry.FindClaimAsync("claim-a-ado")).Value!.State.ShouldBe("superseded");
+        (await _registry.FindClaimAsync("claim-b-ado")).Value!.State.ShouldBe("active");
+        // The other-kind row is untouched.
+        (await _registry.FindClaimAsync("claim-a-other")).Value!.State.ShouldBe("active");
     }
 
     [Fact]
@@ -99,14 +154,14 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-e", "org-e", "proj-e", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-e", "ref-e", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-p", "ref-e", "fp-e", 100, "pending", "t0", "{}")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-r", "ref-e", "fp-e", 101, "released", "t0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-p", "ref-e", "fp-e", Kind, 100, "pending", "t0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-r", "ref-e", "fp-e", Kind, 101, "released", "t0", "{}")).IsSuccess.ShouldBeTrue();
 
-        var pending = await _registry.FindReservedClaimAsync("ref-e", 100, new[] { "pending", "active" });
+        var pending = await _registry.FindReservedClaimAsync("ref-e", Kind, 100, new[] { "pending", "active" });
         pending.Value.ShouldNotBeNull();
         pending.Value!.ClaimId.ShouldBe("claim-p");
 
-        var released = await _registry.FindReservedClaimAsync("ref-e", 101, new[] { "pending", "active" });
+        var released = await _registry.FindReservedClaimAsync("ref-e", Kind, 101, new[] { "pending", "active" });
         released.Value.ShouldBeNull();
     }
 
@@ -117,7 +172,7 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-w", "org-w", "proj-w", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-w", "ref-w", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-cas", "ref-w", "fp-w", 700, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-cas", "ref-w", "fp-w", Kind, 700, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
 
         var endedAt = new DateTimeOffset(2026, 5, 5, 5, 5, 5, TimeSpan.Zero);
         var upd = await _registry.UpdateClaimStateAsync("claim-cas", "cas-v0", "cas-v1", "released", endedAt, "{\"reason\":\"done\"}");
@@ -134,13 +189,12 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     {
         (await _registry.UpsertConnectionAsync("ref-x", "org-x", "proj-x", team: null)).IsSuccess.ShouldBeTrue();
         (await _registry.UpsertWorktreeAsync("fp-x", "ref-x", "/wt")).IsSuccess.ShouldBeTrue();
-        (await _registry.InsertClaimAsync("claim-cas2", "ref-x", "fp-x", 800, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-cas2", "ref-x", "fp-x", Kind, 800, "active", "cas-v0", "{}")).IsSuccess.ShouldBeTrue();
 
         var upd = await _registry.UpdateClaimStateAsync("claim-cas2", "wrong-token", "cas-v1", "released", null, "{}");
         upd.IsSuccess.ShouldBeFalse();
         upd.Error.ShouldBe(AttachmentStorageFailure.ClaimCasMismatch);
 
-        // Row remains unchanged.
         var find = await _registry.FindClaimAsync("claim-cas2");
         find.Value!.State.ShouldBe("active");
         find.Value.CasToken.ShouldBe("cas-v0");
@@ -208,7 +262,6 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     public async Task Existing_db_missing_layout_meta_fails_closed()
     {
         var dbPath = Path.Combine(_dir, "system.db");
-        // Force schema creation, then hand-strip layout_meta table.
         (await _registry.UpsertConnectionAsync("ref-j", "org-j", "proj-j", team: null)).IsSuccess.ShouldBeTrue();
         _registry.Dispose();
         using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
@@ -222,5 +275,47 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         var find = await reopened.FindWorktreeAsync("anything");
         find.IsSuccess.ShouldBeFalse();
         find.Error.ShouldBe(AttachmentStorageFailure.SystemStoreSchemaMismatch);
+    }
+
+    // ── Concurrent open: a racing initializer succeeds once schema
+    //    commits, so a caller that observes a mid-init file does NOT
+    //    stick to schema-mismatch (AB#739 §Concurrency). ─────────────
+
+    [Fact]
+    public async Task Concurrent_open_of_a_new_db_does_not_stick_to_schema_mismatch()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "twig-sysreg-concurrent-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "system.db");
+        try
+        {
+            var registries = new List<SqliteSystemWorktreeRegistry>();
+            try
+            {
+                var barrier = new System.Threading.Barrier(4);
+                var tasks = new List<Task<bool>>();
+                for (var i = 0; i < 4; i++)
+                {
+                    var reg = new SqliteSystemWorktreeRegistry(dbPath, TimeProvider.System);
+                    registries.Add(reg);
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        barrier.SignalAndWait();
+                        var upsert = await reg.UpsertConnectionAsync("ref-conc", "org-conc", "proj-conc", team: null);
+                        return upsert.IsSuccess;
+                    }));
+                }
+                var results = await Task.WhenAll(tasks);
+                results.ShouldAllBe(r => r);
+            }
+            finally
+            {
+                foreach (var reg in registries) reg.Dispose();
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ }
+        }
     }
 }

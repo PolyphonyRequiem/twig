@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
+using Twig.Domain.Services.Claims;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
@@ -192,6 +193,7 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         // Rewrite attachment.json with a different connectionRef.
         var doc = new AttachmentDocument(
             AttachmentDocument.CurrentSchema, AttachmentDocument.CurrentVersion,
+            Revision: 0,
             ConnectionRef: "different-ref",
             PrimaryScope: null, ActiveClaim: null);
         var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
@@ -213,8 +215,10 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
 
         var doc = new AttachmentDocument(
             AttachmentDocument.CurrentSchema, AttachmentDocument.CurrentVersion,
+            Revision: 0,
             ConnectionRef: _ConnectionRef(),
             PrimaryScope: new AttachmentPrimaryScope(
+                Kind: PrimaryScopeKinds.AdoWorkItem,
                 WorkItemId: 1234,
                 // URL points at a DIFFERENT organization — the exact "stolen .twig/
                 // whose connectionRef forgery matches" shape §4.2.2 catches.
@@ -281,6 +285,136 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
 
         var tmpDir = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.TmpDirName);
         Directory.EnumerateFiles(tmpDir).ShouldBeEmpty();
+    }
+
+    // ── Link/unlink: scope-match precondition ─────────────────────────
+
+    [Fact]
+    public async Task LinkClaim_refuses_when_stored_scope_kind_differs_from_caller_expected_kind()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+
+        var attachment = new PrimaryScopeAttachment(
+            _ConnectionRef(),
+            PrimaryScope: new PrimaryScope(50,
+                AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 50),
+                DateTimeOffset.UtcNow),
+            ActiveClaim: null);
+        var store = NewStore();
+        (await store.WriteAsync(attachment)).IsSuccess.ShouldBeTrue();
+
+        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, "some-other-kind", 50);
+        link.IsSuccess.ShouldBeFalse();
+        link.Error.ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
+    }
+
+    [Fact]
+    public async Task LinkClaim_refuses_when_stored_work_item_id_differs()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+
+        var attachment = new PrimaryScopeAttachment(
+            _ConnectionRef(),
+            PrimaryScope: new PrimaryScope(50,
+                AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 50),
+                DateTimeOffset.UtcNow),
+            ActiveClaim: null);
+        var store = NewStore();
+        (await store.WriteAsync(attachment)).IsSuccess.ShouldBeTrue();
+
+        var link = await store.LinkClaimAsync("CLM-a", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, expectedWorkItemId: 51);
+        link.IsSuccess.ShouldBeFalse();
+        link.Error.ShouldBe(AttachmentStorageFailure.AttachmentScopeMismatch);
+    }
+
+    // ── Read validation: malformed present blocks are named schema failures ─
+
+    [Fact]
+    public async Task Read_reports_checked_in_config_invalid_when_primary_scope_workitem_id_is_nonpositive()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+
+        var doc = new AttachmentDocument(
+            AttachmentDocument.CurrentSchema, AttachmentDocument.CurrentVersion, Revision: 1,
+            ConnectionRef: _ConnectionRef(),
+            PrimaryScope: new AttachmentPrimaryScope(
+                Kind: PrimaryScopeKinds.AdoWorkItem, WorkItemId: 0,
+                WorkItemUrl: AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 1),
+                AttachedAt: DateTimeOffset.UtcNow.ToString("o")),
+            ActiveClaim: null);
+        var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+        await File.WriteAllTextAsync(attachmentPath, JsonSerializer.Serialize(doc, TwigJsonContext.Default.AttachmentDocument));
+
+        var read = await NewStore().ReadAsync();
+        read.IsSuccess.ShouldBeFalse();
+        read.Error.ShouldBe(AttachmentStorageFailure.CheckedInConfigInvalid);
+    }
+
+    [Fact]
+    public async Task Read_reports_checked_in_config_invalid_when_primary_scope_attached_at_is_invalid()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+
+        var doc = new AttachmentDocument(
+            AttachmentDocument.CurrentSchema, AttachmentDocument.CurrentVersion, Revision: 1,
+            ConnectionRef: _ConnectionRef(),
+            PrimaryScope: new AttachmentPrimaryScope(
+                Kind: PrimaryScopeKinds.AdoWorkItem, WorkItemId: 42,
+                WorkItemUrl: AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 42),
+                AttachedAt: "not-a-timestamp"),
+            ActiveClaim: null);
+        var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+        await File.WriteAllTextAsync(attachmentPath, JsonSerializer.Serialize(doc, TwigJsonContext.Default.AttachmentDocument));
+
+        var read = await NewStore().ReadAsync();
+        read.IsSuccess.ShouldBeFalse();
+        read.Error.ShouldBe(AttachmentStorageFailure.CheckedInConfigInvalid);
+    }
+
+    [Fact]
+    public async Task Read_reports_checked_in_config_invalid_when_active_claim_minted_at_is_invalid()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+
+        var doc = new AttachmentDocument(
+            AttachmentDocument.CurrentSchema, AttachmentDocument.CurrentVersion, Revision: 1,
+            ConnectionRef: _ConnectionRef(),
+            PrimaryScope: null,
+            ActiveClaim: new AttachmentActiveClaim("CLM-x", "not-a-timestamp"));
+        var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+        await File.WriteAllTextAsync(attachmentPath, JsonSerializer.Serialize(doc, TwigJsonContext.Default.AttachmentDocument));
+
+        var read = await NewStore().ReadAsync();
+        read.IsSuccess.ShouldBeFalse();
+        read.Error.ShouldBe(AttachmentStorageFailure.CheckedInConfigInvalid);
+    }
+
+    // ── Revision bumps monotonically on every write, so concurrent
+    //    writes observing the same on-disk revision surface as
+    //    version-mismatch on the losing writer. ──────────────────────
+
+    [Fact]
+    public async Task Write_and_link_bump_revision_monotonically()
+    {
+        if (!_gitAvailable) return;
+        await InitializeStoreAsync();
+        var store = NewStore();
+
+        var scope = new PrimaryScope(60, AdoWorkItemUrlValidator.BuildWorkItemUrl(_config.Organization, _config.Project, 60), DateTimeOffset.UtcNow);
+        (await store.WriteAsync(new PrimaryScopeAttachment(_ConnectionRef(), scope, ActiveClaim: null))).IsSuccess.ShouldBeTrue();
+        (await store.LinkClaimAsync("CLM-r1", DateTimeOffset.UtcNow, PrimaryScopeKinds.AdoWorkItem, 60)).IsSuccess.ShouldBeTrue();
+
+        var attachmentPath = Path.Combine(_paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+        var content = await File.ReadAllTextAsync(attachmentPath);
+        // Initial init writes revision=0; the two follow-up writes bump to 1
+        // then 2. Absolute values aren't the point — monotonic bump is.
+        var doc = JsonSerializer.Deserialize(content, TwigJsonContext.Default.AttachmentDocument)!;
+        doc.Revision.ShouldBeGreaterThanOrEqualTo(2);
     }
 
     private string _ConnectionRef() => ConnectionRefResolver.Compute(_config);

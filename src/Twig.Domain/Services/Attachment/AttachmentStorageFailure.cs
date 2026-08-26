@@ -34,4 +34,17 @@ internal static class AttachmentStorageFailure
     public const string ClaimCasMismatch = "claim-cas-mismatch";
     public const string SelectedProfileUnavailable = "selected-profile-unavailable";
     public const string EligibilityUnavailable = "eligibility-unavailable";
+
+    /// <summary>Attachment link/unlink observed the primary scope block
+    /// changed between the caller's read and the write — a lost-update
+    /// coordination race. AB#737 §Attachment link ordering requires the
+    /// mint/reclaim caller to abort rather than silently link into a
+    /// switched or detached scope.</summary>
+    public const string AttachmentScopeMismatch = "attachment-scope-mismatch";
+
+    /// <summary>Attachment link/unlink observed the attachment document's
+    /// version counter changed between the caller's read-verify snapshot
+    /// and its write — another writer landed. The caller retries with a
+    /// fresh read.</summary>
+    public const string AttachmentVersionMismatch = "attachment-version-mismatch";
 }

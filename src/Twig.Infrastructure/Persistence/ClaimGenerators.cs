@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Persistence;
 internal sealed class UlidClaimIdGenerator : IClaimIdGenerator
 {
     // Crockford's Base32 alphabet (no I, L, O, U).
-    private static readonly char[] Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".ToCharArray();
+    internal static readonly char[] Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".ToCharArray();
     private readonly TimeProvider _clock;
 
     public UlidClaimIdGenerator(TimeProvider clock)
@@ -24,36 +24,49 @@ internal sealed class UlidClaimIdGenerator : IClaimIdGenerator
 
     public string NewClaimId()
     {
-        // 48-bit millis-since-epoch high half (10 chars) + 80-bit random low
-        // half (16 chars) = 26 characters total. The value is opaque — the
-        // encoding matters only for byte-exact comparison downstream.
         var timestamp = _clock.GetUtcNow().ToUnixTimeMilliseconds();
         Span<byte> randomBytes = stackalloc byte[10];
         RandomNumberGenerator.Fill(randomBytes);
+        return Encode(timestamp, randomBytes);
+    }
+
+    /// <summary>Test seam: encode a caller-supplied 48-bit timestamp + 80-bit
+    /// random payload. Ensures every random bit round-trips into an output
+    /// character — the mutation tests flip one bit at a time and observe
+    /// exactly one character changes.</summary>
+    internal static string Encode(long timestamp, ReadOnlySpan<byte> randomBytes)
+    {
+        if (randomBytes.Length != 10)
+            throw new ArgumentException("random payload must be exactly 10 bytes (80 bits).", nameof(randomBytes));
 
         Span<char> chars = stackalloc char[26];
         // Encode 48-bit timestamp into the first 10 chars, big-endian.
+        var ts = timestamp;
         for (var i = 9; i >= 0; i--)
         {
-            chars[i] = Alphabet[(int)(timestamp & 0x1F)];
-            timestamp >>= 5;
+            chars[i] = Alphabet[(int)(ts & 0x1F)];
+            ts >>= 5;
         }
-        // Encode 80-bit random into the last 16 chars.
-        // Interpret randomBytes as a big-endian 80-bit integer, chunked into
-        // 16 groups of 5 bits from the low end.
+
+        // Treat the 80-bit random payload as a single big-endian integer split
+        // across a 16-bit `high` and a 64-bit `low`. Emit 16 base32 chars from
+        // LSB → MSB, shifting the whole 80-bit register right by 5 bits each
+        // iteration — the earlier implementation only carried `high` into
+        // `low` when `low` happened to zero out, which for typical random
+        // payloads left the top 16 bits stuck in `high` and produced a
+        // deterministic trailing-zero character in the low-order slot.
         ulong low = 0;
         for (var i = 2; i < 10; i++) low = (low << 8) | randomBytes[i];
         ulong high = ((ulong)randomBytes[0] << 8) | randomBytes[1];
         for (var i = 25; i >= 10; i--)
         {
-            var v = (int)(low & 0x1F);
-            chars[i] = Alphabet[v];
-            low >>= 5;
-            if (low == 0 && high != 0)
-            {
-                low = (high << 59) | low;
-                high >>= 5;
-            }
+            chars[i] = Alphabet[(int)(low & 0x1F)];
+            // Right-shift the 80-bit register by 5 bits, carrying the low
+            // 5 bits of `high` into the top of `low`. `low` has 64 bits →
+            // after (low >> 5) bit 58 is the highest occupied bit; place
+            // `high`'s low 5 bits at bits 63..59 with `<< 59`.
+            low = (low >> 5) | (high << 59);
+            high >>= 5;
         }
         return new string(chars);
     }

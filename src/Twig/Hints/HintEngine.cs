@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.ValueObjects;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
@@ -17,11 +18,16 @@ public sealed class HintEngine
 {
     private readonly bool _hintsEnabled;
     private readonly IProcessConfigurationProvider? _processConfigProvider;
+    private readonly IReferenceProfileProvider? _referenceProfileProvider;
 
-    public HintEngine(DisplayConfig displayConfig, IProcessConfigurationProvider? processConfigProvider = null)
+    public HintEngine(
+        DisplayConfig displayConfig,
+        IProcessConfigurationProvider? processConfigProvider = null,
+        IReferenceProfileProvider? referenceProfileProvider = null)
     {
         _hintsEnabled = displayConfig.Hints;
         _processConfigProvider = processConfigProvider;
+        _referenceProfileProvider = referenceProfileProvider;
     }
 
     /// <summary>
@@ -95,7 +101,7 @@ public sealed class HintEngine
 
                         if (allSiblingsDone)
                         {
-                            var completedStateName = stateEntries?.FirstOrDefault(e => e.Category == StateCategory.Completed).Name ?? "Done";
+                            var completedStateName = ResolveCompletedStateName(stateEntries);
                             hints.Add($"All sibling tasks complete. Consider: twig up then twig state {completedStateName}");
                         }
                     }
@@ -176,6 +182,32 @@ public sealed class HintEngine
         }
 
         return hints;
+    }
+
+
+    /// <summary>
+    /// Resolves the completed-state name for the "all siblings done" hint. Prefers
+    /// the live process's own name (via <paramref name="stateEntries"/>); on
+    /// unavailability falls back to the reference profile's declared name for the
+    /// Task role's Completed state (T3 AB#734). Never spells the state name in
+    /// code — that is exactly what the profile-lookup seam exists to route.
+    /// </summary>
+    private string ResolveCompletedStateName(IReadOnlyList<StateEntry>? stateEntries)
+    {
+        var live = stateEntries?.FirstOrDefault(e => e.Category == StateCategory.Completed).Name;
+        if (!string.IsNullOrEmpty(live)) return live;
+
+        var loaded = _referenceProfileProvider?.Load();
+        if (loaded is { IsSuccess: true } ok)
+        {
+            var taskStates = ok.Value.TypeByRole(Role.Task).States;
+            var declared = taskStates.FirstOrDefault(e => e.Category == StateCategory.Completed).Name;
+            if (!string.IsNullOrEmpty(declared)) return declared;
+        }
+
+        // Nothing to fall back on — return a generic placeholder rather than a
+        // process-template-specific literal.
+        return "<completed>";
     }
 
 }

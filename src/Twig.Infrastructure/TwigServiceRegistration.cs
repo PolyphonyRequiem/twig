@@ -14,6 +14,7 @@ using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Telemetry;
+using Twig.Infrastructure.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure;
 
@@ -103,6 +104,11 @@ public static class TwigServiceRegistration
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
+        // T3 (AB#734) profile-lookup seam. Single owning service; the loaded profile
+        // is cached per process (see EmbeddedReferenceProfileProvider). Registered
+        // beside IProcessConfigurationProvider because the two answer complementary
+        // questions ("reference" vs "live") and downstream services often need both.
+        services.AddSingleton<IReferenceProfileProvider>(_ => new EmbeddedReferenceProfileProvider());
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));

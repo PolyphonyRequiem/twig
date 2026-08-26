@@ -40,7 +40,8 @@ public sealed class ShowCommand(
     TwigPaths? twigPaths = null,
     IAdoGitService? adoGitService = null,
     TreeRenderingService? treeRenderingService = null,
-    RendererFactory? rendererFactory = null)
+    RendererFactory? rendererFactory = null,
+    IAttachmentStatusProjection? attachmentStatus = null)
 {
     private readonly IContextStore? _contextStore = contextStore;
     private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
@@ -252,6 +253,30 @@ public sealed class ShowCommand(
             }
         }
 
+
+        // AB#738 status projection. Emitted on human-audience surfaces only —
+        // the machine surface receives the same signal via .twig/prompt.json's
+        // `primaryScope` block (PromptStateWriter). Unattached checkouts state
+        // the fact explicitly per the ticket contract; unmanaged checkouts
+        // (rendering a work item outside a twig worktree) get no block at all.
+        if (!IsMachineFormat(outputFormat) && attachmentStatus is not null)
+        {
+            var proj = await attachmentStatus.ReadAsync(ct);
+            if (proj.IsManagedWorktree)
+            {
+                if (proj.HasPrimaryScope)
+                {
+                    var label = proj.PrimaryScopeTitle is { Length: > 0 }
+                        ? $"Primary Scope: #{proj.PrimaryScopeWorkItemId} {proj.PrimaryScopeTitle}"
+                        : $"Primary Scope: #{proj.PrimaryScopeWorkItemId}";
+                    Console.WriteLine(label);
+                }
+                else
+                {
+                    Console.WriteLine("Primary Scope: (not attached)");
+                }
+            }
+        }
         if (renderer is not null)
         {
             Task RenderStaticAsync() => renderer.RenderStatusAsync(

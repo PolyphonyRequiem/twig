@@ -413,3 +413,12 @@ virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
 Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
 Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void
+Twig.Domain.Interfaces.IAttachmentStatusProjection
+Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
+Twig.Domain.Interfaces.StatusProjection
+Twig.Domain.Interfaces.StatusProjection.StatusProjection(bool isManagedWorktree, bool hasPrimaryScope, int? primaryScopeWorkItemId, string? primaryScopeTitle, string? primaryScopeType) -> void
+Twig.Domain.Interfaces.StatusProjection.HasPrimaryScope.get -> bool
+Twig.Domain.Interfaces.StatusProjection.IsManagedWorktree.get -> bool
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeTitle.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeType.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeWorkItemId.get -> int?

@@ -32,3 +32,5 @@ Twig.Infrastructure.Plan.PlanLifecycleService.PlanLifecycleService(Twig.Infrastr
 Twig.Infrastructure.Plan.PlanLifecycleService.PreviewAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanPreviewResult!>!
 Twig.Infrastructure.Plan.PlanLifecycleService.StatusAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanStatusResult?>!
 Twig.Infrastructure.Plan.PlanLifecycleService.ValidateAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanValidationResult!>!
+Twig.Infrastructure.Config.WorkspaceConfig.PrimaryScopeTypes.get -> System.Collections.Generic.List<string!>?
+Twig.Infrastructure.Config.WorkspaceConfig.PrimaryScopeTypes.set -> void

@@ -138,7 +138,29 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<IProcessTypeStore>()));
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+
+        // AB#738 primary-scope attachment (deep module). Every surface (CLI status
+        // projection, MCP status tool, prompt writer) resolves the same service
+        // instance so attach/switch/detach behavior cannot diverge across surfaces.
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeLocalAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
+            new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
+            new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemRepository>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
+            new Twig.Domain.Services.Attachment.AttachmentStatusProjection(
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
 
         AddConnectionDomainServices(services);
 

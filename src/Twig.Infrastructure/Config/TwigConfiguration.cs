@@ -950,6 +950,16 @@ public sealed class WorkspaceConfig
     /// Each entry represents a subscribed sprint iteration that twig tracks.
     /// </summary>
     public List<SprintEntry>? Sprints { get; set; }
+
+    /// <summary>
+    /// Optional allow-set for primary-scope attachment (AB#738). When empty or
+    /// omitted every work-item type is eligible; when non-empty, only listed
+    /// type names may be attached as the worktree's primary scope. Comparison
+    /// is case-insensitive. The list is process-agnostic — values are opaque
+    /// strings the active process description defines. Runtime policy, not a
+    /// hard-coded allow-list; see <c>IPrimaryScopeTypeEligibility</c>.
+    /// </summary>
+    public List<string>? PrimaryScopeTypes { get; set; }
 }
 
 /// <summary>

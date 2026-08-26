@@ -43,13 +43,13 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoCommentRequest))]
 [JsonSerializable(typeof(AdoPatchOperation))]
 [JsonSerializable(typeof(List<AdoPatchOperation>))]
-[JsonSerializable(typeof(AdoIterationListResponse))]
-[JsonSerializable(typeof(AdoIterationResponse))]
-[JsonSerializable(typeof(AdoWorkItemTypeListResponse))]
 // Work item type CATEGORY DTOs (AB#656 — hidden/system type membership)
 [JsonSerializable(typeof(AdoWorkItemTypeCategoryListResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeCategoryResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeCategoryMemberResponse))]
+[JsonSerializable(typeof(AdoIterationListResponse))]
+[JsonSerializable(typeof(AdoIterationResponse))]
+[JsonSerializable(typeof(AdoWorkItemTypeListResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeIconResponse))]
 [JsonSerializable(typeof(AdoWorkItemStateColor))]
@@ -161,6 +161,13 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<TrackingFileEntry>))]
 [JsonSerializable(typeof(ExclusionFileEntry))]
 [JsonSerializable(typeof(List<ExclusionFileEntry>))]
+// Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintTuple))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentPrimaryScope))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

@@ -58,7 +58,8 @@ public static class CommandRegistrationModule
             twigPaths: sp.GetService<TwigPaths>(),
             adoGitService: sp.GetService<IAdoGitService>(),
             treeRenderingService: sp.GetService<TreeRenderingService>(),
-            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
+            attachmentStatus: sp.GetService<Twig.Domain.Interfaces.IAttachmentStatusProjection>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>

@@ -53,10 +53,11 @@ public sealed class Ab728FinalReviewPromptTests : IDisposable
         contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         await writer.WritePromptStateAsync();
 
-        var json = File.ReadAllText(Path.Combine(_twigDir, "prompt.json"));
-        json.ShouldContain("\"primaryScope\"");
-        json.ShouldContain("\"status\":\"failed\"");
-        json.ShouldContain("atomic-write-failed");
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(_twigDir, "prompt.json")));
+        var primaryScope = doc.RootElement.GetProperty("primaryScope");
+        primaryScope.GetProperty("attached").GetBoolean().ShouldBeFalse();
+        primaryScope.GetProperty("status").GetString().ShouldBe("failed");
+        primaryScope.GetProperty("failureCode").GetString().ShouldStartWith("atomic-write-failed");
     }
 
     [Fact]
@@ -75,9 +76,9 @@ public sealed class Ab728FinalReviewPromptTests : IDisposable
 
         contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         await writer.WritePromptStateAsync();
-
-        var json = File.ReadAllText(Path.Combine(_twigDir, "prompt.json"));
-        json.ShouldContain("\"failureCode\":\"worktree-fingerprint-drift\"");
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(_twigDir, "prompt.json")));
+        var primaryScope = doc.RootElement.GetProperty("primaryScope");
+        primaryScope.GetProperty("failureCode").GetString().ShouldBe("worktree-fingerprint-drift");
     }
 
     [Fact]

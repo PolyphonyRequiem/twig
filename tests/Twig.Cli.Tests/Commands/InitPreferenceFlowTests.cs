@@ -369,36 +369,22 @@ public sealed class InitPreferenceFlowTests : IDisposable
         loaded2.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamB");
     }
 
-    // ── Git worktree detection (.git as file) ──
+    // AB#728 §6.3: interactive .git-warning prompts were removed in favor
+    // of the strict fail-closed root check. Ab728InitRollbackTests carries
+    // the invalid-root refusal coverage. The prior sequences that started
+    // with the git-warning prompt collapse to just the mode + preference
+    // prompts.
 
     [Fact]
-    public async Task GitWarning_SkippedWhenGitIsFile()
+    public async Task GitInitFixture_ModePromptWorkspace_ThenNeither_ConfiguresWorkspace()
     {
-        // In git worktrees, .git is a file containing "gitdir: /path/to/worktree"
-        var gitFilePath = Path.Combine(_testDir, ".git");
-        await File.WriteAllTextAsync(gitFilePath, "gitdir: /some/path/.git/worktrees/branch1");
+        // AB#728 §6.3: fixture already git-inits _testDir. The prompt
+        // sequence is now (mode, preference) — no leading git-warning
+        // prompt.
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
-        // Only mode prompt (no git warning prompt)
-        consoleInput.ReadLine().Returns("");
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    // ── Git warning + mode prompt sequencing ──
-
-    [Fact]
-    public async Task GitWarning_ContinueY_ThenModePrompt_WorksCorrectly()
-    {
-        // No .git → git warning prompt, then mode prompt, then preference prompt
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        // Git warning → "y", Mode → "workspace", Preference → "4" (neither)
-        consoleInput.ReadLine().Returns("y", "workspace", "4");
+        // Mode → "workspace", Preference → "4" (neither)
+        consoleInput.ReadLine().Returns("workspace", "4");
         var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
@@ -411,15 +397,14 @@ public sealed class InitPreferenceFlowTests : IDisposable
     }
 
     [Fact]
-    public async Task GitWarning_ContinueY_ThenSprintPreference_ConfiguresSprint()
+    public async Task GitInitFixture_ModePromptDefault_ThenSprintOnly_ConfiguresSprint()
     {
-        // No .git → prompt, then mode, then preference
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
-        // Git warning → "y", Mode → "", Preference → "1" (sprint only)
-        consoleInput.ReadLine().Returns("y", "", "1");
+        // Mode → "" (sprint), Preference → "1" (sprint only)
+        consoleInput.ReadLine().Returns("", "1");
         var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
@@ -428,7 +413,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
         loaded.Workspace.Sprints.ShouldNotBeNull();
-        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints!.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
     }

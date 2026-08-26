@@ -48,10 +48,18 @@ public sealed class InitCommandProductionCliTests : IDisposable
         };
 
         await RunGitAsync("init", "--quiet");
+        await RunGitAsync("config", "user.email", "twig-tests@example.com");
+        await RunGitAsync("config", "user.name", "Twig Tests");
         await File.WriteAllTextAsync(
             Path.Combine(_repoRoot, ".gitignore"),
             $".twig/{Environment.NewLine}");
         await config.SaveSplitAsync(contextPaths);
+        // AB#728 §6.3: strict init trusts ONLY the tracked repo manifest.
+        // An untracked twig.json is discarded and overwritten with the CLI
+        // coordinates, which drops the Policy block. Committing it here
+        // makes the manifest authoritative for the ensuing init run.
+        await RunGitAsync("add", "--", WorkspaceDiscovery.RepoManifestFileName);
+        await RunGitAsync("commit", "--quiet", "-m", "Seed tracked manifest");
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
 
         var (exitCode, stdout, stderr) = await RunTwigAsync(
@@ -85,13 +93,15 @@ public sealed class InitCommandProductionCliTests : IDisposable
             "--project", project,
             "--team", team);
 
+        // AB#728 §6.3: managed-init failure rolls back local state — the
+        // user config file must be absent (nothing was preserved because
+        // this run created it), the cache DB must be absent, and the
+        // tracked manifest must be unchanged byte-for-byte.
         exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
-        File.Exists(contextPaths.ConfigPath).ShouldBeTrue();
-        Directory.Exists(Path.GetDirectoryName(contextPaths.DbPath)).ShouldBeTrue();
+        File.Exists(contextPaths.ConfigPath).ShouldBeFalse();
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
         (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
     }
-
     [Theory]
     [InlineData("organization")]
     [InlineData("project")]

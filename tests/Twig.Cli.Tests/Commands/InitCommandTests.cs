@@ -556,12 +556,14 @@ public class InitCommandTests : IDisposable
     }
 
     /// <summary>
-    /// Regression test: when a repo lives under a directory that already has a .twig/
-    /// ancestor (e.g., ~/projects/repo where ~/.twig exists), twig init should create
-    /// .twig/ in the current directory, not reuse the ancestor's workspace.
+    /// AB#728 §6.3: strict init refuses to reuse or write into an
+    /// ancestor's <c>.twig/</c>. When the invocation directory is not the
+    /// git worktree root (or when it is not a git worktree at all), init
+    /// MUST fail closed and leave both the invocation directory and the
+    /// ancestor untouched.
     /// </summary>
     [Fact]
-    public async Task Init_IgnoresAncestorTwigDir_CreatesInStartDir()
+    public async Task Init_RefusesWhenInvocationDirIsNotWorktreeRoot()
     {
         // Simulate: parent has .twig/ already (like ~/.twig)
         var parentDir = Path.Combine(Path.GetTempPath(), $"twig-walkup-parent-{Guid.NewGuid():N}");
@@ -572,8 +574,6 @@ public class InitCommandTests : IDisposable
 
         try
         {
-            // TwigPaths simulates what Program.cs would do after walk-up discovery:
-            // TwigDir points to the ancestor's .twig/, but StartDir is the child repo.
             var childTwigDir = Path.Combine(childDir, ".twig");
             var paths = new TwigPaths(
                 parentTwigDir,
@@ -584,10 +584,13 @@ public class InitCommandTests : IDisposable
             var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
-            result.ShouldBe(0);
-            // .twig/ should be created in the child dir, not reuse parent's
-            Directory.Exists(childTwigDir).ShouldBeTrue("Should create .twig in StartDir");
-            File.Exists(Path.Combine(childTwigDir, "config")).ShouldBeTrue("Config should be in child .twig");
+            // childDir is not a git worktree at all → fail-closed.
+            result.ShouldBe(1, "Not a git worktree at invocation directory — must refuse.");
+            Directory.Exists(childTwigDir).ShouldBeFalse("No .twig may be created in the invocation directory.");
+            // The ancestor's .twig/ is untouched too — nothing was written
+            // there by this refused run.
+            Directory.EnumerateFileSystemEntries(parentTwigDir).ShouldBeEmpty(
+                "Refused init MUST leave the ancestor's .twig/ untouched.");
         }
         finally
         {
@@ -662,78 +665,11 @@ public class InitCommandTests : IDisposable
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
-    // --- .git warning tests ---
-
-    [Fact]
-    public async Task Init_GitWarning_Aborts_WhenUserDeclinesWithN()
-    {
-        // No .git directory in _testDir
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        consoleInput.ReadLine().Returns("N");
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(1);
-        Directory.Exists(_twigDir).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_Aborts_WhenUserPressesEnter()
-    {
-        // No .git directory in _testDir — Enter means default N
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        consoleInput.ReadLine().Returns("");
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_Continues_WhenUserEntersY()
-    {
-        // No .git directory, but user confirms with 'y'
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        // First ReadLine for git warning → "y", second for mode prompt → ""
-        consoleInput.ReadLine().Returns("y", "");
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_SkippedInNonTTY()
-    {
-        // No .git directory, but non-TTY — should skip warning and proceed
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(true);
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_SkippedWhenNoConsoleInput()
-    {
-        // No .git directory, no consoleInput (null) — should skip warning and proceed
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
+    // AB#728 §6.3: the "no .git" scenarios are covered by the strict
+    // invalid-root refusal path in Ab728InitRollbackTests
+    // (Init_refuses_and_writes_no_state_when_invocation_directory_is_not_a_git_worktree).
+    // The interactive git-warning prompt was removed with the fail-closed
+    // root check, so the GitWarning_* fixtures that lived here are gone.
 
     // --- --sprint / --area flag tests ---
 

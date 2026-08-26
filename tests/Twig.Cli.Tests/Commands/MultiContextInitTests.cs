@@ -206,12 +206,11 @@ public class MultiContextInitTests : IDisposable
     // ── fail-closed against pre-T1 legacy layouts ───────────────────
 
     [Fact]
-    public async Task Init_LeavesPreT1FlatLegacyDbUntouched_AndWritesFreshCache()
+    public async Task Init_RefusesPreT1FlatLegacyDb_AndLeavesBytesUntouched()
     {
-        // AB#736 §9 explicitly forbids in-band migration. A stray legacy
-        // .twig/twig.db from a pre-T1 install must NOT be silently moved,
-        // read, or reinterpreted; the new run writes .twig/cache/twig.db
-        // fresh and the legacy file remains exactly where it was.
+        // AB#728 §7 hard refusal: a legacy .twig/twig.db at the workspace
+        // root triggers legacy-layout-present. Init MUST exit non-zero,
+        // write no fresh cache, and leave the legacy bytes byte-identical.
         Directory.CreateDirectory(_twigDir);
         var legacyDbPath = Path.Combine(_twigDir, "twig.db");
         File.WriteAllText(legacyDbPath, "legacy-residue-not-a-real-db");
@@ -223,23 +222,24 @@ public class MultiContextInitTests : IDisposable
         {
             var paths = PathsForTest();
             var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
-            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(1);
 
-            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue("Fresh cache DB must exist.");
+            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeFalse(
+                "Refused init writes no fresh cache; the operator must `twig init --reinitialize` to recover.");
             File.Exists(legacyDbPath).ShouldBeTrue(
                 "Legacy .twig/twig.db must remain — the T1 clean cutover forbids in-band migration.");
             File.ReadAllBytes(legacyDbPath).ShouldBe(legacyBytes,
-                "Legacy DB contents must be untouched.");
+                "Legacy DB contents must be byte-identical after a refused init.");
         }
         finally { Directory.SetCurrentDirectory(originalCwd); }
     }
 
     [Fact]
-    public async Task Init_LeavesPreT1NestedLegacyLayoutUntouched()
+    public async Task Init_RefusesPreT1NestedLegacyLayout_AndLeavesBytesUntouched()
     {
         // Pre-T1 residue: .twig/{org}/{project}/twig.db written by an
-        // earlier binary. It must NOT be recognized as the cache, and the
-        // fresh init MUST NOT delete or rewrite it.
+        // earlier binary. Under AB#728 §7 the mixed tree triggers a hard
+        // refusal, and the fresh init MUST NOT delete or rewrite it.
         var nestedDir = Path.Combine(_twigDir, "OrgA", "ProjectA");
         Directory.CreateDirectory(nestedDir);
         var nestedDbPath = Path.Combine(nestedDir, "twig.db");
@@ -252,11 +252,10 @@ public class MultiContextInitTests : IDisposable
         {
             var paths = PathsForTest();
             var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
-            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(0);
+            (await cmd.ExecuteAsync("OrgA", "ProjectA")).ShouldBe(1);
 
-            paths.DbPath.ShouldBe(CanonicalDbPath(_twigDir),
-                "TwigPaths.DbPath is opaque to org/project — the nested layout is gone.");
-            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeTrue();
+            File.Exists(CanonicalDbPath(_twigDir)).ShouldBeFalse(
+                "Refused init writes no fresh cache; a mixed-tree legacy layout is refused fail-closed.");
             File.Exists(nestedDbPath).ShouldBeTrue(
                 "Nested legacy DB must remain untouched — no in-band migration.");
             File.ReadAllBytes(nestedDbPath).ShouldBe(nestedBytes);

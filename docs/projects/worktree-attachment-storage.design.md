@@ -583,8 +583,15 @@ Claims:
    Insert(claimId, connectionRef, worktreeFingerprint, workItemId, recordJson) -> void
    UpdateState(claimId, newState, endedAtOrNull, recordJson) -> void
    Find(claimId) -> ClaimRow?
-   FindActive(connectionRef, workItemId) -> ClaimRow?
-      # supports the "one active claim per (connection, primary scope)" invariant
+   FindReserved(connectionRef, workItemId) -> ClaimRow?
+      # returns the row for the given (connectionRef, workItemId) whose
+      # state is in the reserved set { pending, active }, or null.
+      # "pending" is AB#739's pre-projection reservation row (§4 of
+      # AB#737); "active" is a fully minted claim. Reservation and
+      # active are the two states that MUST remain unique per
+      # (connectionRef, workItemId), so the enforcement lookup covers
+      # both in one call. Downstream callers never widen this set to
+      # released / superseded / retired rows.
 
 ProfileCache:
    Read(connectionRef) -> ProfileCacheRow?
@@ -604,9 +611,10 @@ row does not inspect its contents beyond schema validation the AB#737
 layer runs independently.
 
 Consumers: AB#738 calls `UpsertWorktree` after a successful attach.
-AB#739 calls `FindActive` to enforce the local-duplicate rule
-(discovery decision "Local duplicate claim rule"), then `Insert` /
-`UpdateState` to mint / retire.
+AB#739 calls `FindReserved` to enforce the local-duplicate rule
+(discovery decision "Local duplicate claim rule") — a non-null result
+refuses a new mint whether the incumbent is a pending reservation or a
+fully active claim — then `Insert` / `UpdateState` to mint / retire.
 
 ### 9.5 Initialization contract for downstream tickets
 

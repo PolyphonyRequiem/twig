@@ -93,10 +93,19 @@ public sealed class LocalClaimServiceTests : IDisposable
         claim.ActivatedAt.ShouldNotBeNull();
         claim.ReleaseReason.ShouldBeNull();
 
-        _ado.HolderCalls.Count.ShouldBe(1);
+        // AB#739 durable epoch protocol: post-commit convergence
+        // intentionally re-projects the winner from the tuple epoch, so
+        // exact call counts are not observable-correctness. Assert
+        // observable-correctness: at least one holder write happened,
+        // it was addressed at the right scope with the right identity,
+        // no clear ever happened, and the final projected state matches
+        // the winner.
+        _ado.HolderCalls.Count.ShouldBeGreaterThanOrEqualTo(1);
         _ado.HolderCalls[0].ScopeId.ShouldBe(PrimaryScopeId);
         _ado.HolderCalls[0].Holder.Identity.ShouldBe(Holder);
+        _ado.HolderCalls.ShouldAllBe(h => h.ScopeId == PrimaryScopeId && h.Holder.Identity == Holder);
         _ado.ClearCalls.Count.ShouldBe(0);
+        _ado.CurrentAssignedTo.ShouldBe(Holder);
 
         _attachment.LinkedClaimIds.ShouldBe(new[] { claim.ClaimId });
         _attachment.UnlinkedClaimIds.ShouldBeEmpty();
@@ -112,13 +121,23 @@ public sealed class LocalClaimServiceTests : IDisposable
         var first = await _svc.MintAsync(MintInput());
         first.ShouldBeOfType<ClaimMintOutcome.Succeeded>();
 
+        // Delta: capture ADO mutation state after the first successful
+        // mint (which may include convergence re-projections), then
+        // issue the duplicate. The refused mint MUST NOT emit any
+        // additional ADO mutation.
+        var priorHolderCalls = _ado.HolderCalls.Count;
+        var priorClearCalls = _ado.ClearCalls.Count;
+        var priorAssignedTo = _ado.CurrentAssignedTo;
+
         var second = await _svc.MintAsync(MintInput());
         second.ShouldBeOfType<ClaimMintOutcome.PrimaryScopeAlreadyClaimed>();
         var alreadyClaimed = (ClaimMintOutcome.PrimaryScopeAlreadyClaimed)second;
         alreadyClaimed.ExistingClaimId.ShouldNotBeNullOrEmpty();
         alreadyClaimed.ExistingState.ShouldBe(ClaimStates.Active);
 
-        _ado.HolderCalls.Count.ShouldBe(1);
+        _ado.HolderCalls.Count.ShouldBe(priorHolderCalls);
+        _ado.ClearCalls.Count.ShouldBe(priorClearCalls);
+        _ado.CurrentAssignedTo.ShouldBe(priorAssignedTo);
     }
 
     // ── Mint abort: ADO projection fails ──────────────────────────────
@@ -212,7 +231,11 @@ public sealed class LocalClaimServiceTests : IDisposable
         var alf = (ClaimMintOutcome.AttachmentLinkFailed)outcome;
         alf.Underlying.ShouldBe("attachment-io-error");
         alf.Claim.State.ShouldBe(ClaimStates.Active);
-        _ado.HolderCalls.Count.ShouldBe(1);
+        // ADO holder must have been written at least once; convergence
+        // may re-project it, but the final projected identity is our
+        // winning holder.
+        _ado.HolderCalls.Count.ShouldBeGreaterThanOrEqualTo(1);
+        _ado.CurrentAssignedTo.ShouldBe(Holder);
     }
 
     // ── Attachment scope-match precheck ───────────────────────────────
@@ -323,7 +346,10 @@ public sealed class LocalClaimServiceTests : IDisposable
         released.ReleaseReason.ShouldBe(ClaimReleaseReasons.ExplicitRelease);
         released.ReleasedAt.ShouldNotBeNull();
 
-        _ado.ClearCalls.Count.ShouldBe(1);
+        // Release: at least one clear happened; final ADO state is
+        // cleared regardless of how many convergence re-clears fired.
+        _ado.ClearCalls.Count.ShouldBeGreaterThanOrEqualTo(1);
+        _ado.CurrentAssignedTo.ShouldBeNullOrEmpty();
         _ado.ClearCalls[0].ScopeId.ShouldBe(PrimaryScopeId);
         _attachment.UnlinkedClaimIds.ShouldBe(new[] { claim.ClaimId });
     }

@@ -139,7 +139,7 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+            sp.GetService<Twig.Domain.Interfaces.IAttachmentStatusProjection>()));
 
         // AB#738 primary-scope attachment (deep module). Every surface (CLI status
         // projection, MCP status tool, prompt writer) resolves the same service
@@ -163,9 +163,17 @@ public static class TwigServiceRegistration
             new Twig.Infrastructure.Persistence.ConfiguredPrimaryScopeUrlBuilder(
                 sp.GetRequiredService<TwigConfiguration>()));
         services.AddSingleton<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(sp =>
-            new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
-                Path.Combine(Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath, "system.db"),
-                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        {
+            // AB#736 §4.3 requires <system-root>/layout.json, system.db, and
+            // tmp/ to be present. The registry opens system.db and creates
+            // the file lazily; layout.json + tmp/ are materialized here so
+            // the tier is complete even before the first registry call.
+            var systemRoot = Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath;
+            Twig.Infrastructure.Persistence.SystemStoreLayout.EnsureRoot(systemRoot, TimeProvider.System);
+            return new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
+                Path.Combine(systemRoot, "system.db"),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System);
+        });
         services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
             new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),

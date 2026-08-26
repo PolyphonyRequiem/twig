@@ -126,11 +126,23 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
             using (var check = connection.CreateCommand())
             {
                 check.Transaction = tx;
-                check.CommandText = "SELECT 1 FROM worktrees WHERE worktree_fingerprint = $fp LIMIT 1;";
+                check.CommandText = "SELECT connection_ref, retired_at FROM worktrees WHERE worktree_fingerprint = $fp LIMIT 1;";
                 check.Parameters.AddWithValue("$fp", worktreeFingerprint);
-                var exists = await check.ExecuteScalarAsync(ct).ConfigureAwait(false);
-                if (exists is null)
+                await using var reader = await check.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                if (!await reader.ReadAsync(ct).ConfigureAwait(false))
                     return Result.Fail(AttachmentStorageFailure.WorktreeNotRegistered);
+                var storedConnectionRef = reader.GetString(0);
+                var retiredAtIsNull = reader.IsDBNull(1);
+                // Byte-match: the claim's connectionRef must equal the
+                // worktree row's stored connectionRef. Otherwise a caller
+                // holding a fingerprint registered to connection A could
+                // insert a claim tagged with connection B and cross the
+                // binding — a corruption path the fingerprint-only precheck
+                // silently allowed.
+                if (!string.Equals(storedConnectionRef, connectionRef, StringComparison.Ordinal))
+                    return Result.Fail(AttachmentStorageFailure.AttachmentConnectionMismatch);
+                if (!retiredAtIsNull)
+                    return Result.Fail(AttachmentStorageFailure.WorktreeRetired);
             }
 
             var now = _clock.GetUtcNow().ToString("o");

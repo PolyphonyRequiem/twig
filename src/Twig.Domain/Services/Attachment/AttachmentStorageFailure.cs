@@ -21,6 +21,7 @@ internal static class AttachmentStorageFailure
     public const string AttachmentConnectionMismatch = "attachment-connection-mismatch";
     public const string CheckedInConfigInvalid = "checked-in-config-invalid";
     public const string LegacyLayoutPresent = "legacy-layout-present";
+    public const string LegacyLayoutArchiveFailed = "legacy-layout-archive-failed";
     public const string SystemStoreLocked = "system-store-locked";
     public const string SystemStoreSchemaMismatch = "system-store-schema-mismatch";
     public const string WorktreeNotRegistered = "worktree-not-registered";

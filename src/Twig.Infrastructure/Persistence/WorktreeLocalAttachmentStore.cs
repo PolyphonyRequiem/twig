@@ -180,6 +180,10 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         if (!File.Exists(layoutPath))
             return Result.Fail<ReadOutcome>(AttachmentStorageFailure.LayoutMarkerMissing);
 
+        var layoutValidation = await ValidateLayoutMarkerAsync(layoutPath, ct).ConfigureAwait(false);
+        if (layoutValidation is not null)
+            return Result.Fail<ReadOutcome>(layoutValidation);
+
         var driftError = await ValidateFingerprintAsync(anchor, ct).ConfigureAwait(false);
         if (driftError is not null)
             return Result.Fail<ReadOutcome>(driftError);
@@ -201,6 +205,14 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         catch (IOException ex) { return Result.Fail<ReadOutcome>($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}"); }
 
         if (doc is null) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (!string.Equals(doc.Schema, AttachmentDocument.CurrentSchema, StringComparison.Ordinal)
+            || doc.Version != AttachmentDocument.CurrentVersion)
+        {
+            // AB#736 §Versioned persistence: an incompatible/newer document is
+            // fail-closed. Silently accepting it and rewriting it as v1 would
+            // drop fields this binary doesn't know about — a corruption path.
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        }
         if (doc.Revision < 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (string.IsNullOrEmpty(doc.ConnectionRef)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
@@ -361,6 +373,30 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         await WriteJsonAtomicAsync(path, doc, TwigJsonContext.Default.LayoutMarkerDocument, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Validates the on-disk <c>layout.json</c> marker's schema+version. A
+    /// mismatch surfaces <c>layout-marker-missing</c> so a caller with an
+    /// unrecognised or newer marker fails closed rather than adopting the
+    /// layout under an incompatible schema.
+    /// </summary>
+    private async Task<string?> ValidateLayoutMarkerAsync(string layoutPath, CancellationToken ct)
+    {
+        LayoutMarkerDocument? doc;
+        try
+        {
+            await using var stream = File.OpenRead(layoutPath);
+            doc = await JsonSerializer.DeserializeAsync(
+                stream, TwigJsonContext.Default.LayoutMarkerDocument, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return AttachmentStorageFailure.LayoutMarkerMissing; }
+        if (doc is null) return AttachmentStorageFailure.LayoutMarkerMissing;
+        if (!string.Equals(doc.Schema, LayoutMarkerDocument.CurrentSchema, StringComparison.Ordinal)
+            || doc.Version != LayoutMarkerDocument.CurrentVersion)
+            return AttachmentStorageFailure.LayoutMarkerMissing;
+        return null;
+    }
+
     private async Task WriteFingerprintAsync(WorktreeAnchor anchor, CancellationToken ct)
     {
         var path = Path.Combine(_paths.TwigDir, WorktreeFileName);
@@ -388,6 +424,13 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         catch { return AttachmentStorageFailure.WorktreeFingerprintDrift; }
 
         if (doc is null) return AttachmentStorageFailure.WorktreeFingerprintDrift;
+        // AB#736 §Versioned persistence: an incompatible fingerprint marker
+        // fails closed rather than silently accepting an unknown shape.
+        if (!string.Equals(doc.Schema, WorktreeFingerprintDocument.CurrentSchema, StringComparison.Ordinal)
+            || doc.Version != WorktreeFingerprintDocument.CurrentVersion)
+        {
+            return AttachmentStorageFailure.WorktreeFingerprintDrift;
+        }
 
         var stored = doc.WorktreeFingerprint;
         if (string.IsNullOrEmpty(stored.WorktreeRoot)
@@ -456,18 +499,30 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 /// </summary>
 internal static class LegacyLayoutDetector
 {
+    /// <summary>
+    /// Returns <c>true</c> when either legacy predicate matches — a nested
+    /// <c>{org}/{project}/twig.db</c> tree OR a flat pre-T1 <c>twig.db</c> at
+    /// the workspace root. Design §7 requires both predicates to be checked
+    /// independently EVEN when the current-shape <c>layout.json</c> marker
+    /// exists; a mixed tree is a corruption signal, not a valid workspace.
+    /// </summary>
     public static bool IsLegacyLayoutPresent(string? twigDir)
     {
         if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
             return false;
-        if (File.Exists(Path.Combine(twigDir, WorktreeLocalAttachmentStore.LayoutFileName)))
-            return false;
+        return HasNestedLegacyDb(twigDir) || HasFlatLegacyDb(twigDir);
+    }
+
+    /// <summary>Design §7 predicate #1: any <c>.twig/{org}/{project}/twig.db</c>.</summary>
+    public static bool HasNestedLegacyDb(string twigDir)
+    {
         try
         {
             foreach (var orgDir in Directory.EnumerateDirectories(twigDir))
             {
                 var name = Path.GetFileName(orgDir);
                 if (string.Equals(name, WorktreeLocalAttachmentStore.TmpDirName, StringComparison.Ordinal)
+                    || string.Equals(name, "cache", StringComparison.Ordinal)
                     || name.StartsWith('.'))
                     continue;
                 foreach (var projectDir in Directory.EnumerateDirectories(orgDir))
@@ -480,6 +535,50 @@ internal static class LegacyLayoutDetector
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
         return false;
+    }
+
+    /// <summary>Design §7 predicate #2: a flat pre-T1 <c>twig.db</c> at the workspace root.</summary>
+    public static bool HasFlatLegacyDb(string twigDir)
+    {
+        try { return File.Exists(Path.Combine(twigDir, "twig.db")); }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>
+    /// Atomically archives <c>.twig/</c> to
+    /// <c>.twig-legacy-&lt;timestamp&gt;/</c> as a whole-tree rename. No
+    /// conversion, no per-file migration — the point is a supported recovery
+    /// path for a legacy-detected checkout, not silent adoption. A rename
+    /// failure leaves the source intact and returns
+    /// <see cref="AttachmentStorageFailure.LegacyLayoutArchiveFailed"/>.
+    /// </summary>
+    public static Twig.Domain.Common.Result<string> ArchiveLegacyLayout(string twigDir, TimeProvider clock)
+    {
+        if (string.IsNullOrEmpty(twigDir) || !Directory.Exists(twigDir))
+            return Twig.Domain.Common.Result.Ok(string.Empty);
+        var parent = Path.GetDirectoryName(twigDir);
+        if (string.IsNullOrEmpty(parent))
+            return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
+        var stamp = clock.GetUtcNow().UtcDateTime.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
+        var target = Path.Combine(parent, $".twig-legacy-{stamp}");
+        // Uniqueness under fast-repeat: append a short suffix if the target
+        // exists. Same-second archives get a monotonic disambiguator rather
+        // than colliding.
+        var attempt = 0;
+        while (Directory.Exists(target) || File.Exists(target))
+        {
+            attempt++;
+            target = Path.Combine(parent, $".twig-legacy-{stamp}-{attempt}");
+            if (attempt > 32) return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed);
+        }
+        try
+        {
+            Directory.Move(twigDir, target);
+            return Twig.Domain.Common.Result.Ok(target);
+        }
+        catch (IOException) { return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
+        catch (UnauthorizedAccessException) { return Twig.Domain.Common.Result.Fail<string>(AttachmentStorageFailure.LegacyLayoutArchiveFailed); }
     }
 }
 

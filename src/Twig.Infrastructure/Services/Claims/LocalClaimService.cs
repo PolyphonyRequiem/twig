@@ -162,6 +162,9 @@ internal sealed class LocalClaimService : ILocalClaimService
                 return new ClaimMintOutcome.StorageUnavailable($"{atomic.Error}; converge={(conv.IsSuccess ? "ok" : conv.Error)}");
             }
             active = activeCandidate;
+            // Advance to LocalCommitted so any cancellation from here on runs
+            // the post-commit convergence path rather than a stale pending abort.
+            phase = MintPhase.LocalCommitted;
             // Post-commit ADO reconciliation: verify our winning ADO write
             // is still the current authoritative signal.
             var reconcile = await ConvergeToTupleWinnerAsync(input.ConnectionRef, input.PrimaryScopeKind, input.PrimaryScopeId, workItemId, input.AdoProjection, ct).ConfigureAwait(false);
@@ -591,6 +594,8 @@ internal sealed class LocalClaimService : ILocalClaimService
             return new ClaimLabelUpdateOutcome.InvalidRequest("claimId is required.");
         if (string.IsNullOrWhiteSpace(input.ExpectedCasToken))
             return new ClaimLabelUpdateOutcome.InvalidRequest("expectedCasToken is required.");
+        if (!ValidateClaimLabel(input.NewLabel, out var labelReason))
+            return new ClaimLabelUpdateOutcome.InvalidRequest(labelReason);
 
         var rowResult = await _registry.FindClaimAsync(input.ClaimId, ct).ConfigureAwait(false);
         if (!rowResult.IsSuccess) return new ClaimLabelUpdateOutcome.StorageUnavailable(rowResult.Error);
@@ -796,6 +801,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeId)) { reason = "primaryScopeId is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.WorktreeFingerprint)) { reason = "worktreeFingerprint is required."; return false; }
         if (input.AdoProjection is null) { reason = "adoProjection is required."; return false; }
+        if (!ValidateClaimLabel(input.Label, out var labelReason)) { reason = labelReason; return false; }
         reason = string.Empty; return true;
     }
 
@@ -806,7 +812,43 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (string.IsNullOrWhiteSpace(input.PrimaryScopeId)) { reason = "primaryScopeId is required."; return false; }
         if (string.IsNullOrWhiteSpace(input.WorktreeFingerprint)) { reason = "worktreeFingerprint is required."; return false; }
         if (input.AdoProjection is null) { reason = "adoProjection is required."; return false; }
+        if (!ValidateClaimLabel(input.Label, out var labelReason)) { reason = labelReason; return false; }
         reason = string.Empty; return true;
+    }
+
+    /// <summary>
+    /// Claim label schema (design §Human-readable label): at most 200 Unicode
+    /// code points, no control characters, no embedded newlines. Null/empty
+    /// is allowed — a claim without a label is not the same as an invalid
+    /// label. Returns <c>false</c> and a named reason on any violation so the
+    /// caller can surface an <c>InvalidRequest</c> without writing.
+    /// </summary>
+    internal static bool ValidateClaimLabel(string? label, out string reason)
+    {
+        reason = string.Empty;
+        if (label is null) return true;
+        var codePoints = 0;
+        var enumerator = System.Globalization.StringInfo.GetTextElementEnumerator(label);
+        while (enumerator.MoveNext())
+        {
+            var element = (string)enumerator.Current;
+            for (var i = 0; i < element.Length; i++)
+            {
+                var ch = element[i];
+                if (char.IsControl(ch) || ch == '\r' || ch == '\n')
+                {
+                    reason = "label must not contain control characters or newlines.";
+                    return false;
+                }
+            }
+            codePoints++;
+            if (codePoints > 200)
+            {
+                reason = "label exceeds 200 Unicode code points.";
+                return false;
+            }
+        }
+        return true;
     }
 
     private static bool TryParseWorkItemId(string primaryScopeId, out int workItemId)
@@ -847,6 +889,7 @@ internal sealed class LocalClaimService : ILocalClaimService
             return false;
         if (parsed.LeaseGeneration != 0) return false;
         if (!string.IsNullOrEmpty(parsed.ExpiresAt)) return false;
+        if (!ValidateClaimLabel(parsed.Label, out _)) return false;
 
         if (!TryParseTimestamp(parsed.CreatedAt!, out var created)) return false;
         DateTimeOffset? activated = null;

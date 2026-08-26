@@ -23,7 +23,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly IProcessTypeStore _processTypeStore;
-    private readonly PrimaryScopeAttachmentService? _attachment;
+    private readonly IAttachmentStatusProjection? _attachmentProjection;
 
     public PromptStateWriter(
         IContextStore contextStore,
@@ -31,14 +31,14 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         TwigConfiguration config,
         TwigPaths paths,
         IProcessTypeStore processTypeStore,
-        PrimaryScopeAttachmentService? attachment = null)
+        IAttachmentStatusProjection? attachmentProjection = null)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;
         _config = config;
         _paths = paths;
         _processTypeStore = processTypeStore;
-        _attachment = attachment;
+        _attachmentProjection = attachmentProjection;
     }
 
     public async Task WritePromptStateAsync()
@@ -126,25 +126,50 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     /// Best-effort attachment read. Never propagates a failure — the prompt
     /// state file is advisory and MUST NOT block the parent command.
     /// </summary>
+    /// <summary>
+    /// Best-effort attachment read. When an <see cref="IAttachmentStatusProjection"/>
+    /// is injected it is preferred — this is the same seam every public
+    /// surface consumes so the prompt file cannot report a different state
+    /// from <c>twig show</c>. A cache/store exception folds into a synthetic
+    /// <see cref="PrimaryScopeAttachmentStatus.Failed"/> carrying the named
+    /// <c>atomic-write-failed</c> identifier — the exact repair-hint path
+    /// AB#736 §8 requires — instead of collapsing to
+    /// <see cref="PrimaryScopeAttachmentStatus.NotManaged"/>, which would
+    /// hide corruption. Cancellation still propagates.
+    /// </summary>
     private async Task<PrimaryScopeAttachmentStatus> ResolveAttachmentStatusAsync()
     {
-        if (_attachment is null)
+        if (_attachmentProjection is not null)
+        {
+            try
+            {
+                var proj = await _attachmentProjection.ReadAsync();
+                return FromProjection(proj);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return PrimaryScopeAttachmentStatus.Failed($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.GetType().Name}");
+            }
+        }
+        // No projection injected: unmanaged fallback. The projection is the
+        // single seam for attachment status; a caller that skips it opts
+        // into the pre-AB#738 no-op behavior.
+        return PrimaryScopeAttachmentStatus.NotManaged();
+    }
+    private static PrimaryScopeAttachmentStatus FromProjection(Twig.Domain.Interfaces.StatusProjection projection)
+    {
+        if (projection.FailureCode is { } failure)
+            return PrimaryScopeAttachmentStatus.Failed(failure);
+        if (!projection.IsManagedWorktree)
             return PrimaryScopeAttachmentStatus.NotManaged();
-        try
-        {
-            var read = await _attachment.ReadStatusAsync();
-            return read.IsSuccess ? read.Value : PrimaryScopeAttachmentStatus.Failed(read.Error);
-        }
-        catch (OperationCanceledException)
-        {
-            // The parent command owns cancellation semantics; the prompt file
-            // is advisory and must never swallow a caller-driven stop.
-            throw;
-        }
-        catch
-        {
-            return PrimaryScopeAttachmentStatus.NotManaged();
-        }
+        if (!projection.HasPrimaryScope || projection.PrimaryScopeWorkItemId is not { } wi)
+            return PrimaryScopeAttachmentStatus.Unattached();
+        var scope = new Twig.Domain.ValueObjects.PrimaryScope(
+            WorkItemId: wi,
+            WorkItemUrl: string.Empty,
+            AttachedAt: DateTimeOffset.MinValue);
+        return PrimaryScopeAttachmentStatus.Attached(scope, projection.PrimaryScopeTitle, projection.PrimaryScopeType);
     }
 
     private static void WriteEmptyState(string targetPath, string tmpPath, PrimaryScopeAttachmentStatus attachment)

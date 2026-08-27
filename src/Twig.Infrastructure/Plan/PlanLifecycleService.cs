@@ -3,6 +3,7 @@ using System.Text;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
@@ -26,6 +27,12 @@ namespace Twig.Infrastructure.Plan;
 ///     is preview's job and gives the user a confirmable checkpoint.</item>
 ///   <item>Refuse if any pending row exists at apply time; preview's earlier snapshot is a
 ///     UI hint, not a race window — the pending journal is re-inspected here.</item>
+///   <item>Evaluate the authorization gate: the supplied
+///     <see cref="ProposalAuthorization"/> must be present, bound to this exact digest, carry
+///     the mode the session's steering requires, and name an authorizer. A refusal is
+///     top-level and nothing is confirmed. On a pass, the authorization and the canonical
+///     semantic review model are written to the journal's audit columns before the first
+///     operation runs.</item>
 ///   <item>Move the header and every operation Planned→Confirmed (idempotent), then walk
 ///     operations in declared order. For each: Confirmed→Applying (persist) → execute →
 ///     atomic Applying→Applied (state + applied_at + result_json in ONE row update; see
@@ -66,6 +73,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly TimeProvider _clock;
     private readonly PlanProcessRuleGate _ruleGate;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
+    private readonly ISessionSteeringModeProvider _steering;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -87,11 +95,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         IPublishIntentRepository publishIntent,
         TwigConfiguration config,
         TwigPaths paths,
-        TimeProvider clock)
+        TimeProvider clock,
+        ISessionSteeringModeProvider steering)
         : this(
             parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
-            config, paths, clock, ruleProvider: null)
+            config, paths, clock, steering, ruleProvider: null)
     {
     }
 
@@ -117,6 +126,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock,
+        ISessionSteeringModeProvider steering,
         IProcessRuleProvider? ruleProvider)
     {
         _parser = parser;
@@ -136,6 +146,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo);
+        _steering = steering;
     }
 
     /// <inheritdoc />
@@ -233,7 +244,11 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <inheritdoc />
-    public async Task<PlanApplyResult> ApplyAsync(string file, string confirmedDigest, CancellationToken ct = default)
+    public async Task<PlanApplyResult> ApplyAsync(
+        string file,
+        string confirmedDigest,
+        ProposalAuthorization? authorization,
+        CancellationToken ct = default)
     {
         var containment = TryResolveInsideWorkspace(file);
         if (containment.Error is { } containmentError)
@@ -268,6 +283,29 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(
                 confirmedDigest,
                 "No preview journal exists for this plan. Run `twig plan preview` first.");
+
+        // Authorization gate. Last of the top-level refusals and first thing after the journal
+        // is in hand: it must run before any Planned→Confirmed transition, because confirming a
+        // journal is already a claim that someone released this proposal.
+        var steering = _steering.Resolve();
+        var decision = ProposalAuthorizationGate.Evaluate(authorization, parsed.Digest, steering);
+        if (!decision.Authorized)
+            return TopLevelApplyFailure(confirmedDigest, decision.Refusal!);
+
+        // Record what released the proposal, and what the authorizer was shown, BEFORE the first
+        // operation runs. Recording it afterwards would leave a crashed apply having mutated the
+        // board with no record of who authorized it — the one window an audit trail cannot have.
+        // The model is rebuilt here rather than carried from preview: preview and apply are
+        // separate invocations, so the surviving artifact must come from this process, and the
+        // digest it embeds is the digest just verified against the file.
+        var authorizedModel = await _reviewModel.BuildAsync(
+            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct)
+            .ConfigureAwait(false);
+        await _journal.RecordAuthorizationAsync(
+            parsed.Digest,
+            authorization!,
+            ChangeProposalReviewModelJson.Serialize(authorizedModel),
+            ct).ConfigureAwait(false);
 
         var now = _clock.GetUtcNow();
 

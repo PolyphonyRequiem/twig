@@ -279,7 +279,14 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "file"),
                 GetStrictBool(args, "confirmed"),
                 GetRequiredString(args, "confirmedDigest"),
-                workspace, verbose: false, ct),
+                // Absent authorization arguments are forwarded as empty rather than thrown on
+                // here, so the tool's own validation ladder runs in its documented order — a
+                // confirmed:false call must still refuse with ConfirmationRequired rather than
+                // an argument exception about a field it never got as far as needing.
+                GetString(args, "authorizerIdentity") ?? string.Empty,
+                GetString(args, "authorizationDigest") ?? string.Empty,
+                GetString(args, "authorizationRationale"),
+                workspace, verbose: false, ct: ct),
 
             "twig_plan_status" or "twig_proposal_status" => planTools.PlanStatus(
                 GetRequiredString(args, "file"),

@@ -2,6 +2,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -22,9 +23,10 @@ public sealed class PlanCommandTests
     private readonly IPlanLifecycleService _lifecycle = Substitute.For<IPlanLifecycleService>();
     private readonly OutputFormatterFactory _formatterFactory =
         new(new HumanOutputFormatter());
+    private readonly ISessionSteeringModeProvider _steering = new UnresolvedSessionSteeringModeProvider();
 
     private PlanCommand CreateCommand(StringWriter stdout, StringWriter stderr)
-        => new(_lifecycle, _formatterFactory, new RendererFactory(), stdout, stderr);
+        => new(_lifecycle, _formatterFactory, _steering, TimeProvider.System, new RendererFactory(), stdout, stderr);
 
     // ── usage: missing arguments are exit 2 (never routed to lifecycle) ──
 
@@ -62,10 +64,10 @@ public sealed class PlanCommandTests
         var stderr = new StringWriter();
         var cmd = CreateCommand(stdout, stderr);
 
-        var exit = await cmd.ApplyAsync(file: null, confirmedDigest: "deadbeef", outputFormat: "human", ct: default);
+        var exit = await cmd.ApplyAsync(file: null, confirmedDigest: "deadbeef", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "human", ct: default);
 
         exit.ShouldBe(2);
-        await _lifecycle.DidNotReceive().ApplyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _lifecycle.DidNotReceive().ApplyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -75,11 +77,11 @@ public sealed class PlanCommandTests
         var stderr = new StringWriter();
         var cmd = CreateCommand(stdout, stderr);
 
-        var exit = await cmd.ApplyAsync(file: "plan.json", confirmedDigest: null, outputFormat: "human", ct: default);
+        var exit = await cmd.ApplyAsync(file: "plan.json", confirmedDigest: null, authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "human", ct: default);
 
         exit.ShouldBe(2);
         stderr.ToString().ShouldContain("--confirm");
-        await _lifecycle.DidNotReceive().ApplyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _lifecycle.DidNotReceive().ApplyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -261,7 +263,7 @@ public sealed class PlanCommandTests
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         _lifecycle
-            .ApplyAsync("plan.json", "abc", Arg.Any<CancellationToken>())
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = "abc",
@@ -281,7 +283,7 @@ public sealed class PlanCommandTests
             });
 
         var cmd = CreateCommand(stdout, stderr);
-        var exit = await cmd.ApplyAsync("plan.json", "abc", outputFormat: "json", ct: default);
+        var exit = await cmd.ApplyAsync("plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "json", ct: default);
 
         exit.ShouldBe(0);
         stdout.ToString().ShouldContain("Verified");
@@ -297,7 +299,7 @@ public sealed class PlanCommandTests
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         _lifecycle
-            .ApplyAsync("plan.json", "abc", Arg.Any<CancellationToken>())
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = "abc",
@@ -318,7 +320,7 @@ public sealed class PlanCommandTests
             });
 
         var cmd = CreateCommand(stdout, stderr);
-        var exit = await cmd.ApplyAsync("plan.json", "abc", outputFormat: "human", ct: default);
+        var exit = await cmd.ApplyAsync("plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "human", ct: default);
 
         exit.ShouldBe(0);
         var text = stdout.ToString();
@@ -334,7 +336,7 @@ public sealed class PlanCommandTests
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         _lifecycle
-            .ApplyAsync("plan.json", "abc", Arg.Any<CancellationToken>())
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = "abc",
@@ -355,7 +357,7 @@ public sealed class PlanCommandTests
             });
 
         var cmd = CreateCommand(stdout, stderr);
-        var exit = await cmd.ApplyAsync("plan.json", "abc", outputFormat: "json", ct: default);
+        var exit = await cmd.ApplyAsync("plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "json", ct: default);
 
         exit.ShouldBe(1);
         stdout.ToString().ShouldContain("digest mismatch");
@@ -496,7 +498,7 @@ public sealed class PlanCommandTests
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         _lifecycle
-            .ApplyAsync("plan.json", "abc", Arg.Any<CancellationToken>())
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = "abc",
@@ -517,7 +519,7 @@ public sealed class PlanCommandTests
             });
 
         var cmd = CreateCommand(stdout, stderr);
-        var exit = await cmd.ApplyAsync("plan.json", "abc", outputFormat: "json", ct: default);
+        var exit = await cmd.ApplyAsync("plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "json", ct: default);
 
         exit.ShouldBe(0);
         using var outerJson = System.Text.Json.JsonDocument.Parse(stdout.ToString());

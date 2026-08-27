@@ -1,3 +1,4 @@
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 
 namespace Twig.Domain.Interfaces;
@@ -43,6 +44,27 @@ public interface IPlanJournalRepository
 
     /// <summary>Returns the journal for a digest, or null when none exists.</summary>
     Task<PlanJournal?> GetAsync(string digest, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records the authorization that gated this proposal's apply, plus the canonical semantic
+    /// review model exactly as the authorizer was shown it (design record T2 §5.3).
+    /// <para>
+    /// <b>First authorization wins.</b> An apply resumed after an interrupted run re-presents the
+    /// same digest, and the fact that matters for audit is the authorization that originally
+    /// released the proposal — not the moment a crashed run was picked back up. Implementations
+    /// therefore write these columns only while they are still unset, and a later call on an
+    /// already-authorized digest is a no-op rather than an overwrite.
+    /// </para>
+    /// <para>
+    /// <paramref name="reviewModelJson"/> is stored beside, never instead of, the journal's
+    /// canonical JSON: the latter is what was authorized, this is what the authorizer saw.
+    /// </para>
+    /// </summary>
+    Task RecordAuthorizationAsync(
+        string digest,
+        ProposalAuthorization authorization,
+        string reviewModelJson,
+        CancellationToken ct = default);
 
     /// <summary>Marks the top-level plan as confirmed and stamps <paramref name="confirmedAt"/>.</summary>
     Task ConfirmAsync(string digest, DateTimeOffset confirmedAt, CancellationToken ct = default);

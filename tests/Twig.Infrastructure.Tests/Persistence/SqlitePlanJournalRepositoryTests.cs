@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
@@ -1227,6 +1228,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
                 // Roll the durable schema back to its pre-[8] shape so we can seed rows
                 // via the OLD table names, then let a reopen run migration [8] for real.
+                // The [9] audit columns are dropped too: a genuine v7 database never had
+                // them, and leaving them would make the reopen's ADD COLUMN collide.
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
@@ -1238,6 +1241,11 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         CREATE INDEX pending.idx_plan_journals_state ON plan_journals(state);
                         CREATE UNIQUE INDEX pending.idx_plan_operations_ordinal ON plan_operations(digest, ordinal);
                         CREATE INDEX pending.idx_plan_operations_state ON plan_operations(state);
+                        ALTER TABLE pending.plan_journals DROP COLUMN authorization_mode;
+                        ALTER TABLE pending.plan_journals DROP COLUMN authorizer_identity;
+                        ALTER TABLE pending.plan_journals DROP COLUMN rationale;
+                        ALTER TABLE pending.plan_journals DROP COLUMN review_model_json;
+                        ALTER TABLE pending.plan_journals DROP COLUMN authorized_at;
                         PRAGMA pending.user_version = 7;
                         """;
                     rollback.ExecuteNonQuery();
@@ -1383,6 +1391,207 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         {
             try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
         }
+    }
+
+    [Fact]
+    public async Task Migration_ToAuthorizationColumns_PreservesHistoricalRowsAndLeavesThemNull()
+    {
+        // AB#743 / design record T2 §5.3. The bug this test defends against: an audit
+        // migration that backfilled its new columns with a default would MANUFACTURE an
+        // authorization that never happened, and a reader could never tell the invented
+        // record from a real one. The durable store is never dropped, so rows written
+        // before authorization was recorded are genuine history — they must survive the
+        // migration with every pre-existing column intact and every new column NULL,
+        // because NULL is what "predates authorization recording" looks like.
+        //
+        // Strategy mirrors the [8] test: open a store (which lands at
+        // DurableSchemaVersion 9), drop the five audit columns and reset
+        // pending.user_version to 8 to recreate a genuine pre-[9] database, seed a
+        // realistic header via raw SQL, close, then reopen so migration [9] runs against
+        // real data.
+        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-auth-mig-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+
+        var plan = BuildTwoOpPlan();
+        var previewedAt = DateTimeOffset.Parse("2026-08-24T10:00:00Z").ToUniversalTime();
+        var completedAt = previewedAt.AddMinutes(5);
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                var conn = store.GetConnection();
+                using (var rollback = conn.CreateCommand())
+                {
+                    rollback.CommandText = """
+                        ALTER TABLE pending.proposal_journals DROP COLUMN authorization_mode;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN authorizer_identity;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN rationale;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN review_model_json;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN authorized_at;
+                        PRAGMA pending.user_version = 8;
+                        """;
+                    rollback.ExecuteNonQuery();
+                }
+
+                using (var header = conn.CreateCommand())
+                {
+                    header.CommandText = """
+                        INSERT INTO proposal_journals
+                            (digest, schema_version, organization, project, source_path,
+                             canonical_json, state, previewed_at, confirmed_at, completed_at, error)
+                        VALUES
+                            (@digest, 1, 'acme', 'cache', '/plans/p.json',
+                             @canonical, 'Verified', @previewedAt, NULL, @completedAt, NULL);
+                        """;
+                    header.Parameters.AddWithValue("@digest", plan.Digest);
+                    header.Parameters.AddWithValue("@canonical", plan.CanonicalJson);
+                    header.Parameters.AddWithValue("@previewedAt", previewedAt.ToString("o"));
+                    header.Parameters.AddWithValue("@completedAt", completedAt.ToString("o"));
+                    header.ExecuteNonQuery();
+                }
+
+                using (var ops = conn.CreateCommand())
+                {
+                    ops.CommandText = """
+                        INSERT INTO proposal_operations
+                            (digest, ordinal, op_id, kind, state, request_json,
+                             started_at, applied_at, verified_at, result_json, error, warning)
+                        VALUES
+                            (@digest, 0, @op0Id, 'Batch', 'Verified', '{}',
+                             @completedAt, @completedAt, @completedAt, '{"ok":true}', NULL, NULL);
+                        """;
+                    ops.Parameters.AddWithValue("@digest", plan.Digest);
+                    ops.Parameters.AddWithValue("@op0Id", plan.Plan.Operations[0].Id);
+                    ops.Parameters.AddWithValue("@completedAt", completedAt.ToString("o"));
+                    ops.ExecuteNonQuery();
+                }
+            }
+
+            using (var reopened = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                var conn = reopened.GetConnection();
+
+                using (var version = conn.CreateCommand())
+                {
+                    version.CommandText = "PRAGMA pending.user_version;";
+                    Convert.ToInt32(version.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+                }
+
+                using (var header = conn.CreateCommand())
+                {
+                    header.CommandText = """
+                        SELECT state, previewed_at, completed_at, canonical_json,
+                               authorization_mode, authorizer_identity, rationale,
+                               review_model_json, authorized_at
+                        FROM proposal_journals
+                        WHERE digest = @digest;
+                        """;
+                    header.Parameters.AddWithValue("@digest", plan.Digest);
+                    using var r = header.ExecuteReader();
+                    r.Read().ShouldBeTrue("the pre-migration header row must survive migration [9]");
+                    r.GetString(0).ShouldBe("Verified");
+                    DateTimeOffset.Parse(r.GetString(1)).ShouldBe(previewedAt);
+                    DateTimeOffset.Parse(r.GetString(2)).ShouldBe(completedAt);
+                    r.GetString(3).ShouldBe(plan.CanonicalJson);
+
+                    // Every audit column is NULL — never a backfilled default.
+                    r.IsDBNull(4).ShouldBeTrue();
+                    r.IsDBNull(5).ShouldBeTrue();
+                    r.IsDBNull(6).ShouldBeTrue();
+                    r.IsDBNull(7).ShouldBeTrue();
+                    r.IsDBNull(8).ShouldBeTrue();
+                }
+
+                CountDurableRows(reopened, "proposal_operations", "digest", plan.Digest).ShouldBe(1);
+
+                // The repository reads the migrated row without inventing an authorization:
+                // a historical row reports "no mode recorded", not a mode it guessed.
+                var repo = new SqlitePlanJournalRepository(reopened);
+                var journal = (await repo.GetAsync(plan.Digest)).ShouldNotBeNull();
+                journal.AuthorizationMode.ShouldBeNull();
+                journal.AuthorizerIdentity.ShouldBeNull();
+                journal.Rationale.ShouldBeNull();
+                journal.ReviewModelJson.ShouldBeNull();
+                journal.AuthorizedAt.ShouldBeNull();
+                journal.Operations.Count.ShouldBe(1);
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public async Task RecordAuthorization_PersistsEveryAuditFieldAndReadsBack()
+    {
+        var plan = BuildTwoOpPlan();
+        var previewedAt = Now();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/p.json", previewedAt);
+
+        var authorizedAt = DateTimeOffset.Parse("2026-08-27T12:34:56Z").ToUniversalTime();
+        var authorization = new ProposalAuthorization
+        {
+            Digest = plan.Digest,
+            Mode = ProposalAuthorizationMode.Model,
+            AuthorizerIdentity = "twig-agent",
+            Rationale = "Blockers cleared; operations match the ticket.",
+            AuthorizedAt = authorizedAt,
+        };
+
+        await _repo.RecordAuthorizationAsync(plan.Digest, authorization, """{"model":"twig.change-proposal.review"}""");
+
+        var journal = (await _repo.GetAsync(plan.Digest)).ShouldNotBeNull();
+        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Model);
+        journal.AuthorizerIdentity.ShouldBe("twig-agent");
+        journal.Rationale.ShouldBe("Blockers cleared; operations match the ticket.");
+        journal.ReviewModelJson.ShouldBe("""{"model":"twig.change-proposal.review"}""");
+        journal.AuthorizedAt.ShouldBe(authorizedAt);
+
+        // The proposal itself is untouched: canonical_json is what was authorized, and the
+        // review model is stored beside it rather than over it.
+        journal.CanonicalJson.ShouldBe(plan.CanonicalJson);
+        journal.Digest.ShouldBe(plan.Digest);
+    }
+
+    [Fact]
+    public async Task RecordAuthorization_IsWriteOnce_SoAResumedApplyCannotRewriteHistory()
+    {
+        // Defends against: an apply resumed after a crash overwriting the authorization that
+        // actually released the proposal with the moment someone restarted the run — which
+        // would erase the only record of who authorized the mutation.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/p.json", Now());
+
+        var first = new ProposalAuthorization
+        {
+            Digest = plan.Digest,
+            Mode = ProposalAuthorizationMode.Human,
+            AuthorizerIdentity = "Daniel Green",
+            Rationale = "original",
+            AuthorizedAt = DateTimeOffset.Parse("2026-08-27T09:00:00Z").ToUniversalTime(),
+        };
+        await _repo.RecordAuthorizationAsync(plan.Digest, first, """{"first":true}""");
+
+        await _repo.RecordAuthorizationAsync(
+            plan.Digest,
+            first with
+            {
+                Mode = ProposalAuthorizationMode.Model,
+                AuthorizerIdentity = "someone-else",
+                Rationale = "resumed",
+                AuthorizedAt = DateTimeOffset.Parse("2026-08-27T18:00:00Z").ToUniversalTime(),
+            },
+            """{"second":true}""");
+
+        var journal = (await _repo.GetAsync(plan.Digest)).ShouldNotBeNull();
+        journal.AuthorizationMode.ShouldBe(ProposalAuthorizationMode.Human);
+        journal.AuthorizerIdentity.ShouldBe("Daniel Green");
+        journal.Rationale.ShouldBe("original");
+        journal.ReviewModelJson.ShouldBe("""{"first":true}""");
+        journal.AuthorizedAt.ShouldBe(first.AuthorizedAt);
     }
 
     // ─── helpers ────────────────────────────────────────────────────────────────

@@ -552,6 +552,15 @@ public static class TwigServiceRegistration
         // digest is produced by the same canonicalization path the apply gate later checks,
         // so the two cannot drift.
         services.AddSingleton<Twig.Infrastructure.Plan.ChangeRecipeRenderer>();
+
+        // Session steering seam for the Change Proposal authorization gate (AB#743).
+        // Spec #729 defers where the mode actually comes from, so the production binding
+        // resolves Unresolved and every apply takes the human-steered path. That is the
+        // fail-closed answer, and it is deliberately NOT derived from a transport attachment —
+        // the worktree, agent session, or terminal host a session happens to run in says
+        // nothing about who is allowed to authorize a mutation from it.
+        services.AddSingleton<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider,
+            Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider>();
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
             new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
@@ -569,6 +578,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                 sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
                 // Runtime process-rule gate (AB#673). Optional in the object graph — if the
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.

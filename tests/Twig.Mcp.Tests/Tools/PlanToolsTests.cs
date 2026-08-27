@@ -4,6 +4,7 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
@@ -138,11 +139,11 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: false, confirmedDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: false, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.ConfirmationRequired);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default);
     }
 
     [Fact]
@@ -150,11 +151,11 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: "");
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: "", authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.InvalidInput);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default);
     }
 
     [Theory]
@@ -166,18 +167,18 @@ public sealed class PlanToolsTests
     {
         var (sut, lifecycle, _) = BuildSut();
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: digest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: digest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         result.IsError.ShouldBe(true);
         GetError(result).Code.ShouldBe(McpErrorCode.InvalidInput);
-        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default);
     }
 
     [Fact]
     public async Task Apply_HappyPath_ForwardsExactDigestAndReturnsResult()
     {
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -185,7 +186,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -201,7 +202,7 @@ public sealed class PlanToolsTests
         // must reach the caller AND must not flip failed/IsError — an agent that treats a
         // warning as a failure would re-drive a mutation that already succeeded.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -216,7 +217,7 @@ public sealed class PlanToolsTests
                 Failed = false,
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         result.IsError.ShouldBeNull();
         var data = ParseData(result);
@@ -233,7 +234,7 @@ public sealed class PlanToolsTests
         var (sut, lifecycle, _) = BuildSut();
         var appliedAt = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
         var startedAt = appliedAt.AddSeconds(-1);
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -267,7 +268,7 @@ public sealed class PlanToolsTests
                 Error = "One or more operations failed.",
             });
 
-        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest);
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
 
         // 🔴 Failure MUST carry the full journal payload (digest, failed:true, error,
         //   per-operation state/timings/errors) AND set the transport-level IsError
@@ -321,7 +322,7 @@ public sealed class PlanToolsTests
         //   only CallToolResult.IsError to gate fail-fast and captures the text
         //   content as StepResult.Error — proving both properties in one wire test.
         var (sut, lifecycle, _) = BuildSut();
-        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<CancellationToken>())
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
             .Returns(new PlanApplyResult
             {
                 Digest = ValidDigest,
@@ -341,6 +342,8 @@ public sealed class PlanToolsTests
                     ["file"] = "plan.json",
                     ["confirmed"] = true,
                     ["confirmedDigest"] = ValidDigest,
+                    ["authorizerIdentity"] = "Test Authorizer",
+                    ["authorizationDigest"] = ValidDigest,
                 }),
                 new StepNode(1, "twig_plan_status", new Dictionary<string, object?>
                 {
@@ -386,6 +389,8 @@ public sealed class PlanToolsTests
                 (string)args["file"]!,
                 (bool)args["confirmed"]!,
                 (string)args["confirmedDigest"]!,
+                (string)args["authorizerIdentity"]!,
+                (string)args["authorizationDigest"]!,
                 workspace: workspaceOverride,
                 ct: ct),
             "twig_plan_status" => await tools.PlanStatus(
@@ -670,6 +675,8 @@ public sealed class PlanToolsTests
             Path.GetTempPath(), TestConnection.Org, TestConnection.Project));
         services.AddSingleton(Substitute.For<IContextStore>());
         services.AddSingleton(Substitute.For<IWorkItemRepository>());
+        services.AddSingleton<ISessionSteeringModeProvider>(new UnresolvedSessionSteeringModeProvider());
+        services.AddSingleton(TimeProvider.System);
 
         var provider = services.BuildServiceProvider();
         var scope = new ConnectionScope(TestConnection, provider);

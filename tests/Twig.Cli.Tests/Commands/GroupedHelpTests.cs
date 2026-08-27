@@ -231,19 +231,37 @@ public sealed class GroupedHelpTests
             var rawName = cmdAttrData is null
                 ? method.Name.ToLowerInvariant()
                 : (string)cmdAttrData.ConstructorArguments[0].Value!;
-            var cliName = prefix is null ? rawName : $"{prefix} {rawName}";
 
-            if (isHidden)
+            // ConsoleAppFramework encodes command aliases in ONE attribute separated by '|'
+            // — e.g. [Command("proposal validate|plan validate")]. Every segment is a real,
+            // independently invocable command name, but they are not peers: the FIRST segment
+            // is the canonical verb and must appear in grouped help and carry examples, while
+            // the trailing segments are retained deprecated spellings. Those are classified
+            // as hidden, exactly like the repository's other backward-compatibility aliases,
+            // because listing a deprecated spelling beside its replacement in help is how a
+            // migrated vocabulary stops reading as migrated.
+            //
+            // Splitting matters either way: treating the raw attribute as one opaque name
+            // would exempt the whole family from both checks, which is how a user-invocable
+            // verb ends up with no help entry and no example.
+            var segments = rawName.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (var s = 0; s < segments.Length; s++)
             {
-                hidden.Add(cliName);
-            }
-            else if (aliases.Contains(method.Name))
-            {
-                // Documented inline on another entry (e.g., "workspace (alias: ws)")
-            }
-            else
-            {
-                nonHidden.Add(cliName);
+                var cliName = prefix is null ? segments[s] : $"{prefix} {segments[s]}";
+                var isAliasSpelling = s > 0;
+
+                if (isHidden || isAliasSpelling)
+                {
+                    hidden.Add(cliName);
+                }
+                else if (aliases.Contains(method.Name))
+                {
+                    // Documented inline on another entry (e.g., "workspace (alias: ws)")
+                }
+                else
+                {
+                    nonHidden.Add(cliName);
+                }
             }
         }
     }

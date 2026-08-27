@@ -453,30 +453,30 @@ internal static class CommandExamples
             "twig ohmyposh init         Output the oh-my-posh segment JSON for twig context",
             "twig ohmyposh init --output json  Same, explicitly requesting JSON output",
         ],
-        ["plan validate"] =
+        ["proposal validate"] =
         [
-            "twig plan validate --file plan.json    Validate a plan v1 file. No ADO calls.",
-            "twig plan validate --file plan.json --output json    Validate and emit issues/digest as JSON.",
+            "twig proposal validate --file proposal.json    Validate a proposal v1 file. No ADO calls.",
+            "twig proposal validate --file proposal.json --output json    Validate and emit issues/digest as JSON.",
         ],
-        ["plan preview"] =
+        ["proposal preview"] =
         [
-            "twig plan preview --file plan.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
-            "twig plan preview --file plan.json --output json    Emit machine preview for scripts.",
+            "twig proposal preview --file proposal.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
+            "twig proposal preview --file proposal.json --output json    Emit machine preview for scripts.",
         ],
-        ["plan apply"] =
+        ["proposal apply"] =
         [
-            "twig plan apply --file plan.json --confirm <digest>    Apply the plan; the digest MUST match.",
-            "twig plan apply --file plan.json --confirm <digest> --output json    Emit per-operation journal outcomes as JSON.",
+            "twig proposal apply --file proposal.json --confirm <digest>    Apply the proposal; the digest MUST match.",
+            "twig proposal apply --file proposal.json --confirm <digest> --output json    Emit per-operation journal outcomes as JSON.",
         ],
-        ["plan status"] =
+        ["proposal status"] =
         [
-            "twig plan status --file plan.json      Show journal state for the plan's digest.",
-            "twig plan status --file plan.json --output json    Emit the journal snapshot as JSON.",
+            "twig proposal status --file proposal.json      Show journal state for the proposal's digest.",
+            "twig proposal status --file proposal.json --output json    Emit the journal snapshot as JSON.",
         ],
-        ["plan seed"] =
+        ["proposal seed"] =
         [
-            "twig plan seed --id -42                Describe staged seed -42 (identity + fingerprint) for plan authoring.",
-            "twig plan seed --id -42 --output json  Emit descriptor as JSON to paste into a plan file.",
+            "twig proposal seed --id -42                    Describe staged seed -42 (identity + fingerprint) for proposal authoring.",
+            "twig proposal seed --id -42 --output json      Emit descriptor as JSON to paste into a proposal file.",
         ],
         ["pending"] =
         [

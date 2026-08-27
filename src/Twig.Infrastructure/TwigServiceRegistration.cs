@@ -542,10 +542,16 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>()));
 
-        // Shared plan-lifecycle service (twig plan native, wayfinder 0016). CLI + MCP +
-        // future TUI all route through this ONE service so validation, preview, apply,
-        // status and seed-descriptor semantics cannot drift between surfaces.
+        // Shared Change Proposal lifecycle service (twig proposal native, wayfinder 0016;
+        // `twig plan` remains a deprecated alias). CLI + MCP + future TUI all route through
+        // this ONE service so validation, preview, apply, status and seed-descriptor
+        // semantics cannot drift between surfaces.
         services.AddSingleton<Twig.Infrastructure.Plan.PlanDocumentParser>();
+
+        // Change Recipe rendering seam. Shares the parser deliberately: a rendered proposal's
+        // digest is produced by the same canonicalization path the apply gate later checks,
+        // so the two cannot drift.
+        services.AddSingleton<Twig.Infrastructure.Plan.ChangeRecipeRenderer>();
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
             new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),

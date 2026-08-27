@@ -65,6 +65,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
     private readonly TimeProvider _clock;
     private readonly PlanProcessRuleGate _ruleGate;
+    private readonly ChangeProposalReviewModelBuilder _reviewModel;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -134,6 +135,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             adoService, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo);
     }
 
     /// <inheritdoc />
@@ -198,14 +200,21 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 Path = string.Empty,
                 Message = ex.Message,
             };
+            var failedIssues = new List<PlanValidationIssue>(parsed.Issues) { issue };
             return new PlanPreviewResult
             {
                 Digest = parsed.Digest,
                 Operations = parsed.Plan.Operations,
-                Issues = [.. parsed.Issues, issue],
+                Issues = failedIssues,
                 Workspace = parsed.Plan.Workspace,
                 PendingChanges = pending,
                 CanApply = false,
+                // The document parsed into a real proposal, so it is still reviewable even
+                // though the journal refused it. Withholding the model here would leave the
+                // reviewer with an error string and no description of what was proposed.
+                ReviewModel = await _reviewModel.BuildAsync(
+                    parsed.Plan, parsed.Digest, failedIssues, pending, canApply: false, ct: ct)
+                    .ConfigureAwait(false),
             };
         }
 
@@ -217,6 +226,9 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             Workspace = parsed.Plan.Workspace,
             PendingChanges = pending,
             CanApply = pending.Count == 0,
+            ReviewModel = await _reviewModel.BuildAsync(
+                parsed.Plan, journal.Digest, parsed.Issues, pending, pending.Count == 0, ct: ct)
+                .ConfigureAwait(false),
         };
     }
 

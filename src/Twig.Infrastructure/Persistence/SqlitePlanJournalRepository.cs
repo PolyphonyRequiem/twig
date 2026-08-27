@@ -8,7 +8,7 @@ namespace Twig.Infrastructure.Persistence;
 
 /// <summary>
 /// SQLite-backed implementation of <see cref="IPlanJournalRepository"/> over the durable store's
-/// <c>plan_journals</c> / <c>plan_operations</c> tables (twig plan native, wayfinder 0016).
+/// <c>proposal_journals</c> / <c>proposal_operations</c> tables (twig plan native, wayfinder 0016).
 /// <para>
 /// The journal is the DURABLE half of "record intent before the call, record the outcome after
 /// it" (0001 §4). The source plan file is bound to the row here by canonical SHA-256 digest, and
@@ -82,7 +82,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 // without a primary-key exception. Two concurrent importers of an identical plan
                 // do not need to coordinate — the loser sees changes()=0 and reloads.
                 header.CommandText = """
-                    INSERT OR IGNORE INTO plan_journals
+                    INSERT OR IGNORE INTO proposal_journals
                         (digest, schema_version, organization, project, source_path,
                          canonical_json, state, previewed_at, confirmed_at, completed_at, error)
                     VALUES
@@ -116,7 +116,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                     using var opCmd = conn.CreateCommand();
                     opCmd.Transaction = tx;
                     opCmd.CommandText = """
-                        INSERT INTO plan_operations
+                        INSERT INTO proposal_operations
                             (digest, ordinal, op_id, kind, state, request_json,
                              started_at, applied_at, verified_at, result_json, error)
                         VALUES
@@ -344,7 +344,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         header.CommandText = """
             SELECT organization, project, source_path, canonical_json,
                    state, previewed_at, confirmed_at, completed_at, error
-            FROM plan_journals
+            FROM proposal_journals
             WHERE digest = @digest;
             """;
         header.Parameters.AddWithValue("@digest", digest);
@@ -392,7 +392,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.CommandText = """
             SELECT ordinal, op_id, kind, state, request_json,
                    started_at, applied_at, verified_at, result_json, error, warning
-            FROM plan_operations
+            FROM proposal_operations
             WHERE digest = @digest
             ORDER BY ordinal ASC;
             """;
@@ -432,7 +432,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // Planned → Confirmed conditional UPDATE captures that with the same atomic-guard shape as
         // the per-op transition.
         cmd.CommandText = """
-            UPDATE plan_journals
+            UPDATE proposal_journals
             SET state = @confirmed, confirmed_at = @timestamp
             WHERE digest = @digest AND state = @planned;
             """;
@@ -487,7 +487,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // COALESCE preserves an existing warning when a caller passes null, so a transition
         // that carries no warning never erases one an earlier transition recorded.
         cmd.CommandText = """
-            UPDATE plan_operations
+            UPDATE proposal_operations
             SET state = @toState,
                 started_at  = CASE WHEN @toState = @applyingState THEN @timestamp ELSE started_at  END,
                 applied_at  = CASE WHEN @toState = @appliedState  THEN @timestamp ELSE applied_at  END,
@@ -549,7 +549,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // past this call as a no-op, preserving the terminal outcome the previous run
         // committed.
         cmd.CommandText = """
-            UPDATE plan_operations
+            UPDATE proposal_operations
             SET result_json = @resultJson
             WHERE digest = @digest
               AND op_id = @opId
@@ -589,7 +589,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
-            UPDATE plan_operations
+            UPDATE proposal_operations
             SET state = @applied,
                 applied_at = @timestamp,
                 result_json = @resultJson
@@ -632,7 +632,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = """
-            UPDATE plan_operations
+            UPDATE proposal_operations
             SET state = @finalState,
                 error = @error,
                 applied_at  = CASE WHEN @finalState = @appliedState  THEN @timestamp ELSE applied_at  END,
@@ -680,7 +680,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // reopened by this API. Recovery starts from what is already written, not from a
         // rewriting caller.
         cmd.CommandText = """
-            UPDATE plan_journals
+            UPDATE proposal_journals
             SET state = @finalState,
                 completed_at = @timestamp,
                 error = @error

@@ -267,25 +267,25 @@ internal sealed class ToolDispatcher(
                 workspace, verbose: false, ct),
 
             // Plan tools
-            "twig_plan_validate" => planTools.PlanValidate(
+            "twig_plan_validate" or "twig_proposal_validate" => planTools.PlanValidate(
                 GetRequiredString(args, "file"),
                 workspace, verbose: false, ct),
 
-            "twig_plan_preview" => planTools.PlanPreview(
+            "twig_plan_preview" or "twig_proposal_preview" => planTools.PlanPreview(
                 GetRequiredString(args, "file"),
                 workspace, verbose: false, ct),
 
-            "twig_plan_apply" => planTools.PlanApply(
+            "twig_plan_apply" or "twig_proposal_apply" => planTools.PlanApply(
                 GetRequiredString(args, "file"),
                 GetStrictBool(args, "confirmed"),
                 GetRequiredString(args, "confirmedDigest"),
                 workspace, verbose: false, ct),
 
-            "twig_plan_status" => planTools.PlanStatus(
+            "twig_plan_status" or "twig_proposal_status" => planTools.PlanStatus(
                 GetRequiredString(args, "file"),
                 workspace, verbose: false, ct),
 
-            "twig_plan_seed" => planTools.PlanSeed(
+            "twig_plan_seed" or "twig_proposal_seed" => planTools.PlanSeed(
                 GetRequiredInt(args, "id"),
                 workspace, verbose: false, ct),
 

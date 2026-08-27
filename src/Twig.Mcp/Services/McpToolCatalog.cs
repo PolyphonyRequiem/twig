@@ -42,6 +42,11 @@ internal static class McpToolCatalog
         "twig_plan_seed",
         "twig_plan_status",
         "twig_plan_validate",
+        "twig_proposal_apply",
+        "twig_proposal_preview",
+        "twig_proposal_seed",
+        "twig_proposal_status",
+        "twig_proposal_validate",
         "twig_process",
         "twig_process_description",
         "twig_query",
@@ -100,6 +105,9 @@ internal static class McpToolCatalog
         "twig_plan_seed",
         "twig_plan_status",
         "twig_plan_validate",
+        "twig_proposal_seed",
+        "twig_proposal_status",
+        "twig_proposal_validate",
         "twig_process",
         "twig_process_description",
         "twig_query",
@@ -120,6 +128,7 @@ internal static class McpToolCatalog
         "twig_discard",
         "twig_patch",
         "twig_plan_apply",
+        "twig_proposal_apply",
         "twig_seed_discard",
         "twig_seed_edit",
         "twig_seed_publish",
@@ -137,6 +146,7 @@ internal static class McpToolCatalog
         "twig_link_artifact",
         "twig_link_branch",
         "twig_plan_preview",
+        "twig_proposal_preview",
         "twig_seed_discard",
         "twig_seed_edit",
         "twig_seed_reconcile",
@@ -154,6 +164,10 @@ internal static class McpToolCatalog
         "twig_plan_seed",
         "twig_plan_status",
         "twig_plan_validate",
+        "twig_proposal_preview",
+        "twig_proposal_seed",
+        "twig_proposal_status",
+        "twig_proposal_validate",
         "twig_process",
         "twig_seed_discard",
         "twig_seed_edit",
@@ -352,7 +366,11 @@ internal static class McpToolCatalog
         // {true}, and `confirmedDigest` is pinned to canonical lowercase-hex SHA-256. Both
         // are rechecked in the tool method (an MCP relay that skips schema validation still
         // gets a specific error, not a lifecycle exception).
-        if (toolName == "twig_plan_apply")
+        // 🔴 Normalize the incoming name to its canonical spelling once, then branch on the
+        // canonical name. Chosen over duplicating the literal in every branch so a future
+        // Change Proposal tool that adds another canonical/alias pair keeps the schema
+        // decisions in exactly one place — the branch expresses the RULE, not the naming.
+        if (CanonicalToolName(toolName) == "twig_proposal_apply")
         {
             if (properties["confirmed"] is JsonObject confirmed)
             {
@@ -369,6 +387,21 @@ internal static class McpToolCatalog
             }
         }
     }
+
+    /// <summary>
+    /// Collapses the legacy <c>twig_plan_*</c> aliases to their canonical
+    /// <c>twig_proposal_*</c> spelling so downstream schema and constraint decisions branch
+    /// on the rule, not the surface name. Every other tool name is returned unchanged.
+    /// </summary>
+    private static string CanonicalToolName(string toolName) => toolName switch
+    {
+        "twig_plan_apply" => "twig_proposal_apply",
+        "twig_plan_preview" => "twig_proposal_preview",
+        "twig_plan_seed" => "twig_proposal_seed",
+        "twig_plan_status" => "twig_proposal_status",
+        "twig_plan_validate" => "twig_proposal_validate",
+        _ => toolName,
+    };
 
     private static void ApplyConstraints(string toolName, JsonObject properties)
     {
@@ -442,12 +475,17 @@ internal static class McpToolCatalog
                 SetMinimum(properties, "types", 1, "minItems");
                 break;
             case "twig_plan_seed":
+            case "twig_proposal_seed":
                 SetMaximum(properties, "id", -1);
                 break;
             case "twig_plan_validate":
             case "twig_plan_preview":
             case "twig_plan_status":
             case "twig_plan_apply":
+            case "twig_proposal_validate":
+            case "twig_proposal_preview":
+            case "twig_proposal_status":
+            case "twig_proposal_apply":
                 SetMinimum(properties, "file", 1, "minLength");
                 break;
         }

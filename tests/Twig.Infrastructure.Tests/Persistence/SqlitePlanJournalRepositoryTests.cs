@@ -32,15 +32,15 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     public void Dispose() => _store.Dispose();
 
     [Fact]
-    public void Migration_CreatesPlanJournalsAndPlanOperationsInTheDurableSchema()
+    public void Migration_CreatesProposalJournalsAndProposalOperationsInTheDurableSchema()
     {
         // The durable store must actually contain the new tables under the ATTACHed pending
         // schema. A silent no-op migration would make every other test pass by accident.
-        AssertDurableTableExists("plan_journals");
-        AssertDurableTableExists("plan_operations");
-        AssertDurableIndexExists("idx_plan_journals_state");
-        AssertDurableIndexExists("idx_plan_operations_ordinal");
-        AssertDurableIndexExists("idx_plan_operations_state");
+        AssertDurableTableExists("proposal_journals");
+        AssertDurableTableExists("proposal_operations");
+        AssertDurableIndexExists("idx_proposal_journals_state");
+        AssertDurableIndexExists("idx_proposal_operations_ordinal");
+        AssertDurableIndexExists("idx_proposal_operations_state");
     }
 
     [Fact]
@@ -88,8 +88,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         again.PreviewedAt.ShouldBe(first.PreviewedAt);
 
         // Exactly one journal row and N op rows — the second call did not insert duplicates.
-        CountDurableRows(_store, "plan_journals", "digest", plan.Digest).ShouldBe(1);
-        CountDurableRows(_store, "plan_operations", "digest", plan.Digest).ShouldBe(2);
+        CountDurableRows(_store, "proposal_journals", "digest", plan.Digest).ShouldBe(1);
+        CountDurableRows(_store, "proposal_operations", "digest", plan.Digest).ShouldBe(2);
     }
 
     // ─── boundary binding: digest / canonical form / plan identity ──────────────
@@ -108,8 +108,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
         ex.Message.ShouldContain(wrongDigest);
         // Refusal happens before any DB write — no partial state left behind.
-        CountDurableRows(_store, "plan_journals", "digest", wrongDigest).ShouldBe(0);
-        CountDurableRows(_store, "plan_journals", "digest", plan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", wrongDigest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", plan.Digest).ShouldBe(0);
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.ImportAsync(plan, whitespaced, digestOfWhitespaced, "/p.json", Now()));
 
         ex.Message.ShouldContain("canonical form");
-        CountDurableRows(_store, "plan_journals", "digest", digestOfWhitespaced).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", digestOfWhitespaced).ShouldBe(0);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         await Should.ThrowAsync<InvalidOperationException>(() =>
             _repo.ImportAsync(plan, garbage, digestOfGarbage, "/p.json", Now()));
 
-        CountDurableRows(_store, "plan_journals", "digest", digestOfGarbage).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", digestOfGarbage).ShouldBe(0);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         await Should.ThrowAsync<InvalidOperationException>(() =>
             _repo.ImportAsync(plan, invalidPlanJson, digest, "/p.json", Now()));
 
-        CountDurableRows(_store, "plan_journals", "digest", digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", digest).ShouldBe(0);
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.ImportAsync(forgedDefinition, truePlan.CanonicalJson, truePlan.Digest, "/p.json", Now()));
 
         ex.Message.ShouldContain("workspace");
-        CountDurableRows(_store, "plan_journals", "digest", truePlan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", truePlan.Digest).ShouldBe(0);
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.ImportAsync(forgedDefinition, truePlan.CanonicalJson, truePlan.Digest, "/p.json", Now()));
 
         ex.Message.ShouldContain("operation count");
-        CountDurableRows(_store, "plan_journals", "digest", truePlan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", truePlan.Digest).ShouldBe(0);
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
         ex.Message.ShouldContain("ordinal 0");
         ex.Message.ShouldContain("kind");
-        CountDurableRows(_store, "plan_journals", "digest", truePlan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", truePlan.Digest).ShouldBe(0);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.ImportAsync(forgedDefinition, truePlan.CanonicalJson, truePlan.Digest, "/p.json", Now()));
 
         ex.Message.ShouldContain("workItemId");
-        CountDurableRows(_store, "plan_journals", "digest", truePlan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", truePlan.Digest).ShouldBe(0);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
         ex.Message.ShouldContain(expectedMessagePart);
         // Refusal happens before the transaction opens — no row lands.
-        CountDurableRows(_store, "plan_journals", "digest", truePlan.Digest).ShouldBe(0);
+        CountDurableRows(_store, "proposal_journals", "digest", truePlan.Digest).ShouldBe(0);
     }
 
     /// <summary>
@@ -610,8 +610,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
             // Exactly one header row + N op rows in the durable store.
             using var probe = new SqliteCacheStore($"Data Source={dbPath}");
-            CountDurableRows(probe, "plan_journals", "digest", plan.Digest).ShouldBe(1);
-            CountDurableRows(probe, "plan_operations", "digest", plan.Digest).ShouldBe(2);
+            CountDurableRows(probe, "proposal_journals", "digest", plan.Digest).ShouldBe(1);
+            CountDurableRows(probe, "proposal_operations", "digest", plan.Digest).ShouldBe(2);
         }
         finally
         {
@@ -683,8 +683,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             }
 
             using var probe = new SqliteCacheStore($"Data Source={dbPath}");
-            CountDurableRows(probe, "plan_journals", "digest", plan.Digest).ShouldBe(1);
-            CountDurableRows(probe, "plan_operations", "digest", plan.Digest).ShouldBe(2);
+            CountDurableRows(probe, "proposal_journals", "digest", plan.Digest).ShouldBe(1);
+            CountDurableRows(probe, "proposal_operations", "digest", plan.Digest).ShouldBe(2);
         }
         finally
         {
@@ -1190,6 +1190,201 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Migration_ToProposalTables_PreservesJournalAndOperationRows()
+    {
+        // AB#742 / design record T2. The bug this test defends against: a migration that
+        // recreated the tables under the new names would silently DISCARD real audit
+        // history — the pre-migration record of intents twig staged and outcomes it
+        // observed. The durable store is the only copy ADO does not hold, so a rebuilt
+        // table is unrecoverable data loss.
+        //
+        // Strategy: open a store (which lands at DurableSchemaVersion 8), then push the
+        // schema BACK to its pre-[8] shape — rename the tables and indexes to their
+        // old names and reset pending.user_version to 7. Seed a realistic header + two
+        // op rows via raw SQL, populating state and every timestamp column, then close.
+        // Reopen: SqliteCacheStore runs migration [8] against real data. Assert the
+        // rows survive under the new names with every column intact, and that GetAsync
+        // still reconstructs the journal through the repository API.
+        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-mig-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+
+        var plan = BuildTwoOpPlan();
+        var previewedAt = DateTimeOffset.Parse("2026-08-24T10:00:00Z").ToUniversalTime();
+        var confirmedAt = previewedAt.AddMinutes(1);
+        var op0StartedAt = previewedAt.AddMinutes(2);
+        var op1AppliedAt = previewedAt.AddMinutes(3);
+        var op1VerifiedAt = previewedAt.AddMinutes(4);
+        var op0Id = plan.Plan.Operations[0].Id;
+        var op1Id = plan.Plan.Operations[1].Id;
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                var conn = store.GetConnection();
+
+                // Roll the durable schema back to its pre-[8] shape so we can seed rows
+                // via the OLD table names, then let a reopen run migration [8] for real.
+                using (var rollback = conn.CreateCommand())
+                {
+                    rollback.CommandText = """
+                        ALTER TABLE pending.proposal_journals RENAME TO plan_journals;
+                        ALTER TABLE pending.proposal_operations RENAME TO plan_operations;
+                        DROP INDEX pending.idx_proposal_journals_state;
+                        DROP INDEX pending.idx_proposal_operations_ordinal;
+                        DROP INDEX pending.idx_proposal_operations_state;
+                        CREATE INDEX pending.idx_plan_journals_state ON plan_journals(state);
+                        CREATE UNIQUE INDEX pending.idx_plan_operations_ordinal ON plan_operations(digest, ordinal);
+                        CREATE INDEX pending.idx_plan_operations_state ON plan_operations(state);
+                        PRAGMA pending.user_version = 7;
+                        """;
+                    rollback.ExecuteNonQuery();
+                }
+
+                // Seed a Confirmed header row.
+                using (var header = conn.CreateCommand())
+                {
+                    header.CommandText = """
+                        INSERT INTO plan_journals
+                            (digest, schema_version, organization, project, source_path,
+                             canonical_json, state, previewed_at, confirmed_at, completed_at, error)
+                        VALUES
+                            (@digest, 1, 'acme', 'cache', '/plans/p.json',
+                             @canonical, 'Confirmed', @previewedAt, @confirmedAt, NULL, NULL);
+                        """;
+                    header.Parameters.AddWithValue("@digest", plan.Digest);
+                    header.Parameters.AddWithValue("@canonical", plan.CanonicalJson);
+                    header.Parameters.AddWithValue("@previewedAt", previewedAt.ToString("o"));
+                    header.Parameters.AddWithValue("@confirmedAt", confirmedAt.ToString("o"));
+                    header.ExecuteNonQuery();
+                }
+
+                // Seed two op rows in distinct non-Planned states, each carrying real
+                // timestamp columns and — for op-1 — a warning. The migration must
+                // preserve every one of these values.
+                using (var ops = conn.CreateCommand())
+                {
+                    ops.CommandText = """
+                        INSERT INTO plan_operations
+                            (digest, ordinal, op_id, kind, state, request_json,
+                             started_at, applied_at, verified_at, result_json, error, warning)
+                        VALUES
+                            (@digest, 0, @op0Id, 'batch', 'Applying', '{}',
+                             @op0StartedAt, NULL, NULL, NULL, NULL, NULL),
+                            (@digest, 1, @op1Id, 'batch', 'Verified', '{}',
+                             @op1AppliedAt, @op1AppliedAt, @op1VerifiedAt, '{"ok":true}', NULL, 'closedDate normalized');
+                        """;
+                    ops.Parameters.AddWithValue("@digest", plan.Digest);
+                    ops.Parameters.AddWithValue("@op0Id", op0Id);
+                    ops.Parameters.AddWithValue("@op1Id", op1Id);
+                    ops.Parameters.AddWithValue("@op0StartedAt", op0StartedAt.ToString("o"));
+                    ops.Parameters.AddWithValue("@op1AppliedAt", op1AppliedAt.ToString("o"));
+                    ops.Parameters.AddWithValue("@op1VerifiedAt", op1VerifiedAt.ToString("o"));
+                    ops.ExecuteNonQuery();
+                }
+            }
+
+            using (var reopened = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                var conn = reopened.GetConnection();
+
+                // Tables carry the new names. The old names are gone.
+                AssertDurableTableExists("proposal_journals");
+                AssertDurableTableExists("proposal_operations");
+                using (var oldGone = conn.CreateCommand())
+                {
+                    oldGone.CommandText = "SELECT COUNT(*) FROM pending.sqlite_master WHERE type='table' AND name IN ('plan_journals','plan_operations');";
+                    Convert.ToInt32(oldGone.ExecuteScalar()).ShouldBe(0);
+                }
+
+                // Header row survived with every column intact — state and both stamped
+                // timestamps included.
+                using (var header = conn.CreateCommand())
+                {
+                    header.CommandText = """
+                        SELECT organization, project, state, previewed_at, confirmed_at, completed_at, error
+                        FROM proposal_journals
+                        WHERE digest = @digest;
+                        """;
+                    header.Parameters.AddWithValue("@digest", plan.Digest);
+                    using var r = header.ExecuteReader();
+                    r.Read().ShouldBeTrue("the pre-migration header row must survive under proposal_journals");
+                    r.GetString(0).ShouldBe("acme");
+                    r.GetString(1).ShouldBe("cache");
+                    r.GetString(2).ShouldBe("Confirmed");
+                    DateTimeOffset.Parse(r.GetString(3)).ShouldBe(previewedAt);
+                    DateTimeOffset.Parse(r.GetString(4)).ShouldBe(confirmedAt);
+                    r.IsDBNull(5).ShouldBeTrue();
+                    r.IsDBNull(6).ShouldBeTrue();
+                }
+
+                // Both op rows survived. State, every stamped timestamp column, and the
+                // warning payload are all readable under the new table name.
+                using (var opsCmd = conn.CreateCommand())
+                {
+                    opsCmd.CommandText = """
+                        SELECT ordinal, op_id, state, started_at, applied_at, verified_at, result_json, warning
+                        FROM proposal_operations
+                        WHERE digest = @digest
+                        ORDER BY ordinal;
+                        """;
+                    opsCmd.Parameters.AddWithValue("@digest", plan.Digest);
+                    using var r = opsCmd.ExecuteReader();
+
+                    r.Read().ShouldBeTrue("op 0 must survive");
+                    r.GetInt32(0).ShouldBe(0);
+                    r.GetString(1).ShouldBe(op0Id);
+                    r.GetString(2).ShouldBe("Applying");
+                    DateTimeOffset.Parse(r.GetString(3)).ShouldBe(op0StartedAt);
+                    r.IsDBNull(4).ShouldBeTrue();
+                    r.IsDBNull(5).ShouldBeTrue();
+                    r.IsDBNull(7).ShouldBeTrue();
+
+                    r.Read().ShouldBeTrue("op 1 must survive");
+                    r.GetInt32(0).ShouldBe(1);
+                    r.GetString(1).ShouldBe(op1Id);
+                    r.GetString(2).ShouldBe("Verified");
+                    DateTimeOffset.Parse(r.GetString(3)).ShouldBe(op1AppliedAt);
+                    DateTimeOffset.Parse(r.GetString(4)).ShouldBe(op1AppliedAt);
+                    DateTimeOffset.Parse(r.GetString(5)).ShouldBe(op1VerifiedAt);
+                    r.GetString(6).ShouldBe("{\"ok\":true}");
+                    r.GetString(7).ShouldBe("closedDate normalized");
+                }
+
+                // And the cascade FK survived the rename — a delete of the parent still
+                // cascades to the child, which is the invariant apply's crash-recovery
+                // path relies on.
+                using (var fkOn = conn.CreateCommand())
+                {
+                    fkOn.CommandText = "PRAGMA foreign_keys = ON;";
+                    fkOn.ExecuteNonQuery();
+                }
+                using (var del = conn.CreateCommand())
+                {
+                    del.CommandText = "DELETE FROM proposal_journals WHERE digest = @digest;";
+                    del.Parameters.AddWithValue("@digest", plan.Digest);
+                    del.ExecuteNonQuery();
+                }
+                CountDurableRows(reopened, "proposal_operations", "digest", plan.Digest).ShouldBe(0);
+
+                // Restore the parent + child rows so the repository read path can be
+                // verified against surviving audit data. We re-seed via the repository
+                // to keep the check honest — GetAsync reading a hand-rolled row proves
+                // nothing about the migrated tables' compatibility with the SQL callers
+                // actually run.
+                var repo = new SqlitePlanJournalRepository(reopened);
+                await repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/p.json", previewedAt);
+                (await repo.GetAsync(plan.Digest)).ShouldNotBeNull();
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+
     // ─── helpers ────────────────────────────────────────────────────────────────
 
     private static DateTimeOffset Now() => DateTimeOffset.UtcNow;
@@ -1347,7 +1542,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // other test drives the API.
         using var cmd = _store.GetConnection().CreateCommand();
         cmd.CommandText = """
-            INSERT INTO plan_journals
+            INSERT INTO proposal_journals
                 (digest, schema_version, organization, project, source_path,
                  canonical_json, state, previewed_at, confirmed_at, completed_at, error)
             VALUES

@@ -1,3 +1,4 @@
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Services.Plan;
@@ -34,4 +35,16 @@ public sealed record PlanPreviewResult
     /// exists, and the journal has been imported successfully. False otherwise.
     /// </summary>
     public required bool CanApply { get; init; }
+
+    /// <summary>
+    /// The canonical semantic review model for this proposal — the sole source of truth for
+    /// what a reviewer must be shown before authorizing it.
+    /// <para>
+    /// Null only when the document did not parse into a proposal at all; there is then no
+    /// semantic content to describe, and <see cref="Issues"/> carries the reason. A valid
+    /// preview always populates it, including when <see cref="CanApply"/> is false — a
+    /// blocked proposal still has to be reviewable, and the blockers are part of the model.
+    /// </para>
+    /// </summary>
+    public ChangeProposalReviewModel? ReviewModel { get; init; }
 }

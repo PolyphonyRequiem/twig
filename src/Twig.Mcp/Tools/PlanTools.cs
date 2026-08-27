@@ -40,10 +40,10 @@ public sealed class PlanTools(ConnectionResolver resolver)
         "directory; the lifecycle resolves it to an absolute path and refuses paths outside " +
         "the current workspace root.";
 
-    // ── twig_plan_validate ──────────────────────────────────────────
+    // ── twig_proposal_validate (alias: twig_plan_validate) ──────────
 
-    [McpServerTool(Name = "twig_plan_validate"), Description(
-        "Validate a plan v1 file. No ADO mutation.")]
+    [McpServerTool(Name = "twig_proposal_validate"), Description(
+        "Validate a proposal v1 file. No ADO mutation.")]
     public async Task<CallToolResult> PlanValidate(
         [Description(PlanFileDescription)] string file,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
@@ -71,10 +71,21 @@ public sealed class PlanTools(ConnectionResolver resolver)
         }, verbose, ct);
     }
 
-    // ── twig_plan_preview ───────────────────────────────────────────
+    /// <summary>Legacy alias for <c>twig_proposal_validate</c>. Kept for backward compatibility.</summary>
+    [McpServerTool(Name = "twig_plan_validate"), Description(
+        "DEPRECATED alias for twig_proposal_validate. Prefer twig_proposal_validate; " +
+        "this name is retained for backward compatibility only.")]
+    public Task<CallToolResult> PlanValidateAlias(
+        [Description(PlanFileDescription)] string file,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+        => PlanValidate(file, workspace, verbose, ct);
 
-    [McpServerTool(Name = "twig_plan_preview"), Description(
-        "Preview a plan: import journal, snapshot pending changes, report digest & canApply. " +
+    // ── twig_proposal_preview (alias: twig_plan_preview) ────────────
+
+    [McpServerTool(Name = "twig_proposal_preview"), Description(
+        "Preview a proposal: import journal, snapshot pending changes, report digest & canApply. " +
         "No ADO mutation.")]
     public async Task<CallToolResult> PlanPreview(
         [Description(PlanFileDescription)] string file,
@@ -115,12 +126,25 @@ public sealed class PlanTools(ConnectionResolver resolver)
             PlanJsonWriter.WriteIssues(writer, preview.Issues);
             PlanJsonWriter.WriteOperationSummaries(writer, preview.Operations);
             PlanJsonWriter.WritePendingChanges(writer, preview.PendingChanges);
+            // Additive key: every pre-existing key keeps its meaning for current consumers.
+            PlanJsonWriter.WriteReviewModel(writer, preview.ReviewModel);
         }, verbose, ct);
     }
 
-    // ── twig_plan_apply ─────────────────────────────────────────────
+    /// <summary>Legacy alias for <c>twig_proposal_preview</c>. Kept for backward compatibility.</summary>
+    [McpServerTool(Name = "twig_plan_preview"), Description(
+        "DEPRECATED alias for twig_proposal_preview. Prefer twig_proposal_preview; " +
+        "this name is retained for backward compatibility only.")]
+    public Task<CallToolResult> PlanPreviewAlias(
+        [Description(PlanFileDescription)] string file,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+        => PlanPreview(file, workspace, verbose, ct);
 
-    [McpServerTool(Name = "twig_plan_apply"), Description(
+    // ── twig_proposal_apply (alias: twig_plan_apply) ────────────────
+
+    [McpServerTool(Name = "twig_proposal_apply"), Description(
         "Apply a plan. Requires confirmed:true AND confirmedDigest matching current file digest exactly.")]
     public async Task<CallToolResult> PlanApply(
         [Description(PlanFileDescription)] string file,
@@ -191,10 +215,29 @@ public sealed class PlanTools(ConnectionResolver resolver)
         }, verbose, isError: apply.Failed, ct);
     }
 
-    // ── twig_plan_status ────────────────────────────────────────────
+    /// <summary>Legacy alias for <c>twig_proposal_apply</c>. Kept for backward compatibility.</summary>
+    [McpServerTool(Name = "twig_plan_apply"), Description(
+        "DEPRECATED alias for twig_proposal_apply. Prefer twig_proposal_apply; " +
+        "this name is retained for backward compatibility only.")]
+    public Task<CallToolResult> PlanApplyAlias(
+        [Description(PlanFileDescription)] string file,
+        [Description(
+            "Strict boolean confirmation. MUST be exactly true; false or absent refuses.")]
+            bool confirmed,
+        [Description(
+            "Canonical proposal digest the caller is committing to. MUST equal the digest of " +
+            "the file at call time; a mismatch refuses without touching ADO. Lowercase " +
+            "64-character hex string.")]
+            string confirmedDigest,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+        => PlanApply(file, confirmed, confirmedDigest, workspace, verbose, ct);
 
-    [McpServerTool(Name = "twig_plan_status"), Description(
-        "Show journal state for a plan file. Returns null when the plan has never been previewed.")]
+    // ── twig_proposal_status (alias: twig_plan_status) ──────────────
+
+    [McpServerTool(Name = "twig_proposal_status"), Description(
+        "Show journal state for a proposal file. Returns null when the proposal has never been previewed.")]
     public async Task<CallToolResult> PlanStatus(
         [Description(PlanFileDescription)] string file,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
@@ -247,9 +290,20 @@ public sealed class PlanTools(ConnectionResolver resolver)
         }, verbose, ct);
     }
 
-    // ── twig_plan_seed ──────────────────────────────────────────────
+    /// <summary>Legacy alias for <c>twig_proposal_status</c>. Kept for backward compatibility.</summary>
+    [McpServerTool(Name = "twig_plan_status"), Description(
+        "DEPRECATED alias for twig_proposal_status. Prefer twig_proposal_status; " +
+        "this name is retained for backward compatibility only.")]
+    public Task<CallToolResult> PlanStatusAlias(
+        [Description(PlanFileDescription)] string file,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+        => PlanStatus(file, workspace, verbose, ct);
 
-    [McpServerTool(Name = "twig_plan_seed"), Description(
+    // ── twig_proposal_seed (alias: twig_plan_seed) ──────────────────
+
+    [McpServerTool(Name = "twig_proposal_seed"), Description(
         "Describe a staged seed (identity + fingerprint) for plan authoring. Requires a " +
         "negative alias; returns null for a positive id, an unknown alias, or an already-" +
         "published seed.")]
@@ -297,6 +351,20 @@ public sealed class PlanTools(ConnectionResolver resolver)
             writer.WriteEndObject();
         }, verbose, ct);
     }
+
+    /// <summary>Legacy alias for <c>twig_proposal_seed</c>. Kept for backward compatibility.</summary>
+    [McpServerTool(Name = "twig_plan_seed"), Description(
+        "DEPRECATED alias for twig_proposal_seed. Prefer twig_proposal_seed; " +
+        "this name is retained for backward compatibility only.")]
+    public Task<CallToolResult> PlanSeedAlias(
+        [Description(
+            "Negative display alias of a currently-staged seed. Positive ids are rejected " +
+            "at the schema — describe is a plan-authoring convenience for STAGED seeds only.")]
+            int id,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+        => PlanSeed(id, workspace, verbose, ct);
 
     // ── twig_pending ────────────────────────────────────────────────
 

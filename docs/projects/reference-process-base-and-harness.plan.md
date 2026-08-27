@@ -211,9 +211,14 @@ it as `processId.txt` under the harness evidence bundle.
 
 ### 2.2 Disable the inherited leaf types (human, REST)
 
-`PATCH /_apis/work/processes/{processId}/workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic`
-with `{ "isDisabled": true }`. Repeat for
-`Microsoft.VSTS.WorkItemTypes.Issue`. `Task` stays enabled (we reuse it in step 2.4).
+A system type cannot be patched directly — `PATCH .../workItemTypes/Microsoft.VSTS.WorkItemTypes.Epic`
+returns `VS402805 Cannot find work item type`. It must first be **derived**:
+`POST /_apis/work/processes/{processId}/workItemTypes` with
+`{ "inheritsFrom": "Microsoft.VSTS.WorkItemTypes.Epic", "isDisabled": true, "color": …, "icon": … }`
+(`color` is mandatory; reuse the inherited value). That mints
+`<ProcessName>.Epic` with `customization: inherited` and replaces the system type
+in the process. Repeat for `Microsoft.VSTS.WorkItemTypes.Issue`. `Task` stays
+enabled (we reuse it in step 2.4). Verified 2026-08-27.
 
 ### 2.3 Add the four custom types (human, REST)
 
@@ -226,11 +231,16 @@ with `{ "isDisabled": true }`. Repeat for
 | 2.3.c | `Feature` | `icon_trophy` | `#773B93` | Requirements-level product work. |
 | 2.3.d | `Bug` | `icon_insect` | `#CC293D` | Requirements-level defect work. |
 
-Reference names are minted as `Twig.Initiative`, `Twig.Investigation`, `Twig.Feature`,
-`Twig.Bug` (exact strings owned by #732; this design only fixes the ordering). Each
-type receives the three-state lifecycle Basic-inherited types get for free (`To Do`,
-`Doing`, `Done`). No new states, no state renames — that is what keeps Twig core's
-state-model discovery unchanged.
+Reference names are minted by ADO as `<ProcessName>.<TypeName>` — the prefix is the
+**process name**, not a free choice. A process named `Twig-Reference` therefore yields
+`Twig-Reference.Initiative`, `Twig-Reference.Investigation`, and so on. This is not
+load-bearing: `profile.json` binds types by `typeName` (display name), never by
+reference name. Each type receives the three-state lifecycle Basic-inherited types
+get for free. Note the casing ADO actually mints: custom types are created with
+`To do` while the inherited `Task` keeps Basic's `To Do`, and both are observable on
+one board. No new states, no state renames — that is what keeps Twig core's
+state-model discovery unchanged; Twig compares state names case-insensitively
+(AB#79/AB#369), so the mixed casing is tolerated by design. Verified 2026-08-27.
 
 ### 2.4 Assign backlog behaviors (human, REST)
 
@@ -253,16 +263,19 @@ Behavior assignment is what places a type onto a backlog. Because we never assig
 
 `GET /_apis/work/processes/{processId}/workItemTypes/{ref}/fields` for each new type
 and confirm no field is required beyond the ADO-mandated system fields
-(`System.Title`, `System.State`, `System.Reason`). Any inherited required field that
+(`System.Title`, `System.State`, `System.AreaId`, `System.IterationId` — verified
+2026-08-27; `System.Reason` is *not* in the required set). Any inherited required field that
 crept in — e.g. from a template that reused a legacy layout — is removed here. This
 step is why we did not pick CMMI or Agile as parent: they contribute required fields
 we would need to unrequire, and the profile diff has to encode those removals.
 
-### 2.6 Publish the process (human, REST or UI)
+### 2.6 Publish the process (not applicable)
 
-Inherited processes are Draft until published. `POST` the publish transition or use
-the Web UI "Publish" button. Publishing is the point at which a new project can be
-created against the process.
+**No publish step exists for inherited processes.** Publishing belongs to the legacy
+XML process-template model; a process created through
+`POST /_apis/work/processes` is live the moment it is created
+(`isEnabled: true`) and a project can be created against it immediately. Verified
+2026-08-27 — the step is retained only so the numbering in §3 stays stable.
 
 ### 2.7 Provision the Sandbox project (human, REST or UI)
 

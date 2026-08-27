@@ -194,8 +194,13 @@ public static class TwigServiceRegistration
         services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
             new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+        // T3 cutover (AB#727): the selected profile now resolves from the embedded
+        // reference profile. Registering UnavailableProfileRegistrySource here is what
+        // made `twig init` fail closed with selected-profile-unavailable in every fresh
+        // worktree; that stub is retained only as a failure-path test fixture.
         services.TryAddSingleton<Twig.Domain.Services.Attachment.IProfileRegistrySource>(sp =>
-            new Twig.Infrastructure.Persistence.UnavailableProfileRegistrySource());
+            new Twig.Infrastructure.Persistence.ReferenceProfileRegistrySource(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IReferenceProfileProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(sp =>
             new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),

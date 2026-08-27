@@ -62,6 +62,37 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
         result.IsSuccess.ShouldBeTrue(result.Error);
     }
 
+    /// <summary>
+    /// The casing ADO actually mints. Verified 2026-08-27 against the
+    /// Twig-Reference-Sandbox project (process a0afde20-50eb-4e30-b442-c9e7f13e752a):
+    /// custom types are created with "To do" while the inherited Task keeps
+    /// Basic's "To Do" — both observable on one board. Twig learned this the
+    /// hard way on AB#79/AB#369 for transitions; this pins the same tolerance
+    /// on the profile path so a future switch to an ordinal comparer cannot
+    /// silently reject every real sandbox built by the AB#733 §2 recipe.
+    /// </summary>
+    [Fact]
+    public void Shipped_profile_validates_when_live_custom_type_state_casing_differs()
+    {
+        StateEntry[] adoMintedCustomTypeStates =
+        [
+            new("To do", StateCategory.Proposed, Color: null),
+            new("Doing", StateCategory.InProgress, Color: null),
+            new("Done", StateCategory.Completed, Color: null),
+        ];
+
+        var live = LiveProviderFor(BuildLive(
+            ("Initiative", adoMintedCustomTypeStates),
+            ("Investigation", adoMintedCustomTypeStates),
+            ("Feature", adoMintedCustomTypeStates),
+            ("Bug", adoMintedCustomTypeStates),
+            ("Task", BasicStates)));
+
+        var result = new EmbeddedReferenceProfileProvider().ValidateAgainstLiveProcess(live);
+
+        result.IsSuccess.ShouldBeTrue(result.Error);
+    }
+
     [Fact]
     public void Type_name_missing_when_role_binding_absent()
     {

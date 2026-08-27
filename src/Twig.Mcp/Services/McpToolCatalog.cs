@@ -36,6 +36,12 @@ internal static class McpToolCatalog
         "twig_new",
         "twig_note",
         "twig_patch",
+        "twig_pending",
+        "twig_plan_apply",
+        "twig_plan_preview",
+        "twig_plan_seed",
+        "twig_plan_status",
+        "twig_plan_validate",
         "twig_process",
         "twig_process_description",
         "twig_query",
@@ -90,6 +96,10 @@ internal static class McpToolCatalog
         "twig_config",
         "twig_history",
         "twig_list_workspaces",
+        "twig_pending",
+        "twig_plan_seed",
+        "twig_plan_status",
+        "twig_plan_validate",
         "twig_process",
         "twig_process_description",
         "twig_query",
@@ -109,6 +119,7 @@ internal static class McpToolCatalog
         "twig_delete",
         "twig_discard",
         "twig_patch",
+        "twig_plan_apply",
         "twig_seed_discard",
         "twig_seed_edit",
         "twig_seed_publish",
@@ -125,6 +136,7 @@ internal static class McpToolCatalog
         "twig_discard",
         "twig_link_artifact",
         "twig_link_branch",
+        "twig_plan_preview",
         "twig_seed_discard",
         "twig_seed_edit",
         "twig_seed_reconcile",
@@ -137,6 +149,11 @@ internal static class McpToolCatalog
         "twig_cache_status",
         "twig_config",
         "twig_list_workspaces",
+        "twig_pending",
+        "twig_plan_preview",
+        "twig_plan_seed",
+        "twig_plan_status",
+        "twig_plan_validate",
         "twig_process",
         "twig_seed_discard",
         "twig_seed_edit",
@@ -329,6 +346,28 @@ internal static class McpToolCatalog
                     }),
             };
         }
+
+        // Apply is guarded at the schema so a caller cannot even reach the tool with
+        // confirmed:false or a missing digest: `confirmed` collapses to a single-value enum
+        // {true}, and `confirmedDigest` is pinned to canonical lowercase-hex SHA-256. Both
+        // are rechecked in the tool method (an MCP relay that skips schema validation still
+        // gets a specific error, not a lifecycle exception).
+        if (toolName == "twig_plan_apply")
+        {
+            if (properties["confirmed"] is JsonObject confirmed)
+            {
+                confirmed["type"] = "boolean";
+                confirmed["enum"] = new JsonArray(true);
+            }
+
+            if (properties["confirmedDigest"] is JsonObject digest)
+            {
+                digest["type"] = "string";
+                digest["pattern"] = "^[0-9a-f]{64}$";
+                digest["minLength"] = 64;
+                digest["maxLength"] = 64;
+            }
+        }
     }
 
     private static void ApplyConstraints(string toolName, JsonObject properties)
@@ -401,6 +440,15 @@ internal static class McpToolCatalog
             // document would be the most expensive possible reading of a probable mistake.
             case "twig_process_description":
                 SetMinimum(properties, "types", 1, "minItems");
+                break;
+            case "twig_plan_seed":
+                SetMaximum(properties, "id", -1);
+                break;
+            case "twig_plan_validate":
+            case "twig_plan_preview":
+            case "twig_plan_status":
+            case "twig_plan_apply":
+                SetMinimum(properties, "file", 1, "minLength");
                 break;
         }
 

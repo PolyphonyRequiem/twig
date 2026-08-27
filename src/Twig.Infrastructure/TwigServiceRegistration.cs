@@ -28,11 +28,11 @@ namespace Twig.Infrastructure;
 /// include <c>Twig.Tui</c>. An <c>internal</c> class would cause a compilation
 /// error in the TUI project.
 /// <para/>
-/// <b>LegacyDbMigrator exclusion</b>: <c>LegacyDbMigrator</c> is an
-/// <c>internal static class</c> in the CLI project and cannot be referenced
-/// from Infrastructure. CLI <c>Program.cs</c> must call
-/// <c>LegacyDbMigrator.MigrateIfNeeded()</c> directly after consuming
-/// <see cref="AddConnectionServices"/>.
+/// <b>Storage layout</b>: AB#736 pins one SQLite file per worktree at
+/// <c>.twig/cache/twig.db</c>. Migration from the pre-T1
+/// <c>.twig/{org}/{project}/twig.db</c> nested layout is deliberately not
+/// provided — the clean cutover requires <c>twig init --force</c> in each
+/// affected worktree; there is no in-band bridge.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -96,6 +96,11 @@ public static class TwigServiceRegistration
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));
+        // IPendingChangeReader aliases the same SqlitePendingChangeStore instance so
+        // read-only consumers (plan preview, MCP status) resolve without the mutating
+        // surface. Cast is safe: SqlitePendingChangeStore implements both.
+        services.AddSingleton<IPendingChangeReader>(sp =>
+            (IPendingChangeReader)sp.GetRequiredService<IPendingChangeStore>());
         services.AddSingleton<IUnitOfWork>(sp => new SqliteUnitOfWork(sp.GetRequiredService<SqliteCacheStore>()));
 
         // Domain services
@@ -115,6 +120,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<IStagedIdentityRegistry>(sp => new SqliteStagedIdentityRegistry(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IPlanJournalRepository>(sp => new SqlitePlanJournalRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         // ITrackingService is registered in AddConnectionDomainServices, AFTER the Bench pin
         // reader/writer it now depends on (ADO #146).
@@ -138,7 +144,156 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<IProcessTypeStore>()));
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetService<Twig.Domain.Interfaces.IAttachmentStatusProjection>()));
+
+        // AB#738 primary-scope attachment (deep module). Every surface (CLI status
+        // projection, MCP status tool, prompt writer) resolves the same service
+        // instance so attach/switch/detach behavior cannot diverge across surfaces.
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeLocalAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>(sp =>
+            new Twig.Infrastructure.Config.CheckedInProfilePolicySource(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
+            new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(sp =>
+            new Twig.Infrastructure.Persistence.WorktreeFingerprintProvider(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(sp =>
+            new Twig.Infrastructure.Persistence.ConfiguredPrimaryScopeUrlBuilder(
+                sp.GetRequiredService<TwigConfiguration>()));
+        services.AddSingleton<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(sp =>
+        {
+            // AB#736 §4.3 requires <system-root>/layout.json, system.db, and
+            // tmp/ to be present. The registry opens system.db and creates
+            // the file lazily; layout.json + tmp/ are materialized here so
+            // the tier is complete even before the first registry call.
+            var systemRoot = Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath;
+            Twig.Infrastructure.Persistence.SystemStoreLayout.EnsureRoot(systemRoot, TimeProvider.System);
+            return new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
+                Path.Combine(systemRoot, "system.db"),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System);
+        });
+        services.AddSingleton<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>(sp =>
+            new Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemRepository>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopeUrlBuilder>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Domain.Interfaces.IPrimaryScopeAttachmentService>(sp =>
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>());
+        services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
+            new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+        services.TryAddSingleton<Twig.Domain.Services.Attachment.IProfileRegistrySource>(sp =>
+            new Twig.Infrastructure.Persistence.UnavailableProfileRegistrySource());
+        services.AddSingleton<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(sp =>
+            new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
+
+        // AB#739 — local claim lifecycle. Every seam is registered here so
+        // any surface (CLI, MCP, TUI, integration test) resolves the same
+        // implementation through DI. The claim service is the sole owner
+        // of local claim state; downstream surfaces never open the system
+        // store or attachment file directly for claim reads/writes.
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimIdGenerator>(sp =>
+            new Twig.Infrastructure.Persistence.UlidClaimIdGenerator(
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimCasTokenGenerator, Twig.Infrastructure.Persistence.GuidClaimCasTokenGenerator>();
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IClaimHolderResolver>(sp =>
+            new Twig.Infrastructure.Services.Claims.ConnectionHolderResolver(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IIterationService>()));
+        services.TryAddSingleton<Twig.Domain.Services.Claims.IAdoClaimProjection>(sp =>
+            new Twig.Infrastructure.Services.Claims.AdoClaimProjection(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IAdoWorkItemService>(),
+                sp.GetRequiredService<Twig.Infrastructure.Ado.IAdoAssignedIdentityReader>()));
+        services.AddSingleton<Twig.Domain.Services.Claims.ILocalClaimService>(sp =>
+            new Twig.Infrastructure.Services.Claims.LocalClaimService(
+                sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimIdGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimCasTokenGenerator>(),
+                sp.GetRequiredService<Twig.Domain.Services.Claims.IClaimHolderResolver>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+
+        // AB#745 — host-neutral Transport Attachment core seam. All
+        // registrations are singletons because the contract (§7.2) fixes
+        // the registry as populated at DI composition time. The
+        // factory-lambda pattern matches AB#736 / AB#738's
+        // AddConnectionServices template so a surface swapping DI
+        // primitives sees a single deep-module seam.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAttachmentStore>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.WorktreeLocalTransportAttachmentStore(
+                sp.GetRequiredService<TwigPaths>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // Mandatory null adapter per §7.3 — the "no live host" path
+        // AB#745 requires. Always registered.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter,
+            Twig.Infrastructure.Persistence.Transport.NullTransportAdapter>();
+        // AB#747 — Windows Terminal adapter per contract §12.3.
+        // Declares no §3.3 optional capabilities; callers reach the
+        // per-operation absent-capability degradation for status,
+        // liveness, close, and partial close through the dispatcher.
+        // Registered alongside the null adapter via the same
+        // ITransportAdapter enumerable; the registry composes both.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter,
+            Twig.Infrastructure.Persistence.Transport.WindowsTerminalTransportAdapter>();
+        // AB#746 — Herdr transport adapter per contract §12.2. Declares
+        // every §3.3 optional capability
+        // { StatusReporting, LivenessProbe, Detach, Close, PartialClose }.
+        // The adapter depends on IHerdrHostSurface, wired to the
+        // process-shelling implementation in production; tests inject
+        // a synthetic surface so no live herdr broker is required.
+        // Registered alongside the null and Windows Terminal adapters
+        // via the same ITransportAdapter enumerable; the registry
+        // composes all three.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.IHerdrHostSurface>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.HerdrProcessHostSurface(
+                herdrExecutable: "herdr",
+                clock: sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapter>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.HerdrTransportAdapter(
+                host: sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.Adapters.Herdr.IHerdrHostSurface>(),
+                clock: sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.TransportAdapterRegistry(
+                sp.GetServices<Twig.Infrastructure.Persistence.Transport.ITransportAdapter>()));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.TransportAdapterDispatcher(
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAttachmentStore>(),
+                sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // §10.2 presentation-support registry: AB#745 registers no
+        // rich-adapter entries at baseline — the terminal/text fallback
+        // is unconditional (§10.4) and is the sole path. Downstream
+        // renderer builds add rich-adapter entries in their own DI
+        // composition when they implement them.
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.IChangeProposalPresentationSupportRegistry>(_ =>
+            new Twig.Infrastructure.Persistence.Transport.ChangeProposalPresentationSupportRegistry(
+                System.Array.Empty<Twig.Infrastructure.Persistence.Transport.RichAdapterId>()));
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.ITerminalTextChangeProposalRenderer,
+            Twig.Infrastructure.Persistence.Transport.TerminalTextChangeProposalRenderer>();
+        services.AddSingleton<Twig.Infrastructure.Persistence.Transport.IChangeProposalRenderer>(sp =>
+            new Twig.Infrastructure.Persistence.Transport.ChangeProposalRenderer(
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.IChangeProposalPresentationSupportRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITransportAdapterRegistry>(),
+                sp.GetRequiredService<Twig.Infrastructure.Persistence.Transport.ITerminalTextChangeProposalRenderer>(),
+                () => sp.GetServices<Twig.Infrastructure.Persistence.Transport.IRichChangeProposalRenderer>()));
 
         AddConnectionDomainServices(services);
 
@@ -392,6 +547,32 @@ public static class TwigServiceRegistration
         services.AddSingleton<WorkItemFetcher>(sp => new WorkItemFetcher(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>()));
+
+        // Shared plan-lifecycle service (twig plan native, wayfinder 0016). CLI + MCP +
+        // future TUI all route through this ONE service so validation, preview, apply,
+        // status and seed-descriptor semantics cannot drift between surfaces.
+        services.AddSingleton<Twig.Infrastructure.Plan.PlanDocumentParser>();
+        services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
+            new Twig.Infrastructure.Plan.PlanLifecycleService(
+                sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
+                sp.GetRequiredService<IPlanJournalRepository>(),
+                sp.GetRequiredService<IPendingChangeReader>(),
+                sp.GetRequiredService<IFieldDefinitionStore>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
+                sp.GetRequiredService<SeedPublishOrchestrator>(),
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<ISeedLinkRepository>(),
+                sp.GetRequiredService<IStagedIdentityRegistry>(),
+                sp.GetRequiredService<IPublishIdMapRepository>(),
+                sp.GetRequiredService<IPublishIntentRepository>(),
+                sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>(),
+                sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
+                sp.GetRequiredService<TimeProvider>(),
+                // Runtime process-rule gate (AB#673). Optional in the object graph — if the
+                // network module has not registered a rule provider the gate no-ops and the
+                // executor's strict-CAS remains the sole enforcement, as before.
+                sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>()));
 
         return services;
     }

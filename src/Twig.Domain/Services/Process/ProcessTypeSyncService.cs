@@ -45,6 +45,7 @@ public static class ProcessTypeSyncService
                 ValidChildTypes = children ?? [],
                 ColorHex = wit.Color,
                 IconId = wit.IconId,
+                CategoryReferenceNames = wit.CategoryReferenceNames,
             }, ct);
         }
 

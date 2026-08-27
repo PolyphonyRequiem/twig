@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Attachment;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
@@ -22,19 +23,22 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IAttachmentStatusProjection? _attachmentProjection;
 
     public PromptStateWriter(
         IContextStore contextStore,
         IWorkItemRepository workItemRepo,
         TwigConfiguration config,
         TwigPaths paths,
-        IProcessTypeStore processTypeStore)
+        IProcessTypeStore processTypeStore,
+        IAttachmentStatusProjection? attachmentProjection = null)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;
         _config = config;
         _paths = paths;
         _processTypeStore = processTypeStore;
+        _attachmentProjection = attachmentProjection;
     }
 
     public async Task WritePromptStateAsync()
@@ -54,30 +58,30 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         var targetPath = Path.Combine(_paths.TwigDir, "prompt.json");
         var tmpPath = targetPath + ".tmp";
 
+        var attachmentStatus = await ResolveAttachmentStatusAsync();
+
         var activeId = await _contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
         {
-            WriteEmptyState(targetPath, tmpPath);
+            WriteEmptyState(targetPath, tmpPath, attachmentStatus);
             return;
         }
 
         var workItem = await _workItemRepo.GetByIdAsync(activeId.Value);
         if (workItem is null)
         {
-            WriteEmptyState(targetPath, tmpPath);
+            WriteEmptyState(targetPath, tmpPath, attachmentStatus);
             return;
         }
 
         var typeName = workItem.Type.Value;
 
-        // Resolve badge using the full resolution chain (ADO iconId → hardcoded type → first-char fallback)
         var iconMode = _config.Display.Icons;
         var typeIconIds = _config.TypeAppearances?
             .Where(a => !string.IsNullOrEmpty(a.IconId))
             .ToDictionary(a => a.Name, a => a.IconId!);
         var badge = IconSet.ResolveTypeBadge(iconMode, typeName, typeIconIds);
 
-        // Resolve state category using process type entries when available
         IReadOnlyList<StateEntry>? stateEntries = null;
         try
         {
@@ -92,7 +96,6 @@ internal sealed class PromptStateWriter : IPromptStateWriter
 
         var stateCategory = StateCategoryResolver.Resolve(workItem.State, stateEntries);
 
-        // Resolve state color from process type entries
         string? stateColor = null;
         if (stateEntries is not null)
         {
@@ -115,25 +118,87 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         var text = FormatPlain(badge, workItem.Id, title, workItem.State, workItem.IsDirty);
 
         WriteFullState(targetPath, tmpPath, text, workItem.Id, typeName, badge, title,
-            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, typeTextColor, stateColorNorm, branch);
+            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, typeTextColor, stateColorNorm, branch,
+            attachmentStatus);
     }
 
-    private void WriteEmptyState(string targetPath, string tmpPath)
+    /// <summary>
+    /// Best-effort attachment read. Never propagates a failure — the prompt
+    /// state file is advisory and MUST NOT block the parent command.
+    /// </summary>
+    /// <summary>
+    /// Best-effort attachment read. When an <see cref="IAttachmentStatusProjection"/>
+    /// is injected it is preferred — this is the same seam every public
+    /// surface consumes so the prompt file cannot report a different state
+    /// from <c>twig show</c>. A cache/store exception folds into a synthetic
+    /// <see cref="PrimaryScopeAttachmentStatus.Failed"/> carrying the named
+    /// <c>atomic-write-failed</c> identifier — the exact repair-hint path
+    /// AB#736 §8 requires — instead of collapsing to
+    /// <see cref="PrimaryScopeAttachmentStatus.NotManaged"/>, which would
+    /// hide corruption. Cancellation still propagates.
+    /// </summary>
+    private async Task<PrimaryScopeAttachmentStatus> ResolveAttachmentStatusAsync()
     {
-        File.WriteAllText(tmpPath, "{}");
+        if (_attachmentProjection is not null)
+        {
+            try
+            {
+                var proj = await _attachmentProjection.ReadAsync();
+                return FromProjection(proj);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return PrimaryScopeAttachmentStatus.Failed($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.GetType().Name}");
+            }
+        }
+        // No projection injected: unmanaged fallback. The projection is the
+        // single seam for attachment status; a caller that skips it opts
+        // into the pre-AB#738 no-op behavior.
+        return PrimaryScopeAttachmentStatus.NotManaged();
+    }
+    private static PrimaryScopeAttachmentStatus FromProjection(Twig.Domain.Interfaces.StatusProjection projection)
+    {
+        if (projection.FailureCode is { } failure)
+            return PrimaryScopeAttachmentStatus.Failed(failure);
+        if (!projection.IsManagedWorktree)
+            return PrimaryScopeAttachmentStatus.NotManaged();
+        if (!projection.HasPrimaryScope || projection.PrimaryScopeWorkItemId is not { } wi)
+            return PrimaryScopeAttachmentStatus.Unattached();
+        var scope = new Twig.Domain.ValueObjects.PrimaryScope(
+            WorkItemId: wi,
+            WorkItemUrl: string.Empty,
+            AttachedAt: DateTimeOffset.MinValue);
+        return PrimaryScopeAttachmentStatus.Attached(scope, projection.PrimaryScopeTitle, projection.PrimaryScopeType);
+    }
+
+    private static void WriteEmptyState(string targetPath, string tmpPath, PrimaryScopeAttachmentStatus attachment)
+    {
+        using (var stream = File.Create(tmpPath))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            Indented = true,
+        }))
+        {
+            writer.WriteStartObject();
+            WriteAttachmentBlock(writer, attachment);
+            writer.WriteEndObject();
+        }
         File.Move(tmpPath, targetPath, overwrite: true);
     }
 
     /// <summary>
     /// Writes the full prompt state JSON using <see cref="Utf8JsonWriter"/> (AOT-compatible, no reflection).
     /// Schema fields: text, id, type, typeBadge, title, state, stateCategory, isDirty,
-    /// typeColor, stateColor, branch, generatedAt.
+    /// typeColor, stateColor, branch, generatedAt, primaryScope (AB#738).
     /// </summary>
     private static void WriteFullState(
         string targetPath, string tmpPath,
         string text, int id, string type, string typeBadge, string title,
         string state, string stateCategory, bool isDirty,
-        string? typeColor, string? typeTextColor, string? stateColor, string? branch)
+        string? typeColor, string? typeTextColor, string? stateColor, string? branch,
+        PrimaryScopeAttachmentStatus attachment)
     {
         using (var stream = File.Create(tmpPath))
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -173,10 +238,57 @@ internal sealed class PromptStateWriter : IPromptStateWriter
                 writer.WriteNull("branch");
 
             writer.WriteString("generatedAt", DateTime.UtcNow.ToString("o"));
+            WriteAttachmentBlock(writer, attachment);
             writer.WriteEndObject();
         }
 
         File.Move(tmpPath, targetPath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Emits the <c>primaryScope</c> block that AB#738 requires on the machine
+    /// status surface. The block is always present on a managed worktree so
+    /// consumers can distinguish "attached" from "unattached" without a schema
+    /// probe; on an unmanaged checkout it is omitted entirely.
+    /// </summary>
+    internal static void WriteAttachmentBlock(Utf8JsonWriter writer, PrimaryScopeAttachmentStatus attachment)
+    {
+        if (!attachment.IsManagedWorktree && attachment.FailureCode is null)
+            return;
+
+        writer.WritePropertyName("primaryScope");
+        writer.WriteStartObject();
+        if (attachment.FailureCode is { } failure)
+        {
+            // AB#738 acceptance: a named storage failure (§8) is surfaced on
+            // the machine status surface as a repair hint rather than silently
+            // degraded to "unmanaged". The identifier is opaque to the
+            // consumer; twig-mcp forwards it verbatim.
+            writer.WriteBoolean("attached", false);
+            writer.WriteString("status", "failed");
+            writer.WriteString("failureCode", failure);
+        }
+        else if (attachment.PrimaryScope is { } scope)
+        {
+            writer.WriteBoolean("attached", true);
+            writer.WriteNumber("workItemId", scope.WorkItemId);
+            writer.WriteString("workItemUrl", scope.WorkItemUrl);
+            writer.WriteString("attachedAt", scope.AttachedAt.ToUniversalTime().ToString("o"));
+            if (attachment.WorkItemTitle is not null)
+                writer.WriteString("title", attachment.WorkItemTitle);
+            else
+                writer.WriteNull("title");
+            if (attachment.WorkItemType is not null)
+                writer.WriteString("type", attachment.WorkItemType);
+            else
+                writer.WriteNull("type");
+        }
+        else
+        {
+            writer.WriteBoolean("attached", false);
+            writer.WriteString("status", "unattached");
+        }
+        writer.WriteEndObject();
     }
 
     /// <summary>

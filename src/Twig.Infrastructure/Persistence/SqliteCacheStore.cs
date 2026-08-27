@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 13;
+    internal const int SchemaVersion = 14;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 5;
+    internal const int DurableSchemaVersion = 7;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -468,6 +468,85 @@ public sealed class SqliteCacheStore : IDisposable
                 switched_at TEXT NOT NULL
             );
             """,
+
+        // Twig plan native — foundational storage for a declarative Plan document. The plan
+        // file is bound to its canonical SHA-256 digest (the primary key here), and the journal
+        // is the DURABLE side of the "record intent before the call, record the outcome after
+        // it" contract (0001 §4). ADO has never heard of it, so a mirror rebuild must not be
+        // able to reach it — hence this schema.
+        //
+        // Two tables, one relationship. plan_journals is the header the source file digest maps
+        // to; plan_operations is the per-op ledger. Together they give strict crash recovery:
+        // reopening the store observes exactly the last committed state of each operation, so
+        // apply can resume from wherever a previous run halted.
+        //
+        // 🔴 ORDINAL: the plan file lists operations in a definite order, and apply MUST walk
+        // them in that order. Ordinal is that order, stored explicitly and enforced UNIQUE per
+        // journal. The PRIMARY KEY is (digest, op_id) because op_id is the caller-facing
+        // identifier; (digest, ordinal) is the ordering key.
+        //
+        // 🔴 STATE: mirrored between the header and each op, and each is authoritative for its
+        // scope. The header's state is the plan-level lifecycle (Planned → Confirmed → …); each
+        // operation's state advances independently under the atomic compare-and-transition
+        // guard implemented by SqlitePlanJournalRepository.TryTransitionOperationAsync. The
+        // source file NEVER stores statuses — states live only here.
+        //
+        // FK is declared for documentation and future enforcement; SQLite honours it only when
+        // PRAGMA foreign_keys is on, matching the existing bench_selectors precedent.
+        [6] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.plan_journals (
+                digest TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL,
+                organization TEXT NOT NULL,
+                project TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                canonical_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                previewed_at TEXT NOT NULL,
+                confirmed_at TEXT,
+                completed_at TEXT,
+                error TEXT
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_plan_journals_state
+                ON plan_journals(state);
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.plan_operations (
+                digest TEXT NOT NULL REFERENCES plan_journals(digest) ON DELETE CASCADE,
+                ordinal INTEGER NOT NULL,
+                op_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                state TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                started_at TEXT,
+                applied_at TEXT,
+                verified_at TEXT,
+                result_json TEXT,
+                error TEXT,
+                PRIMARY KEY (digest, op_id)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS {DurableSchema}.idx_plan_operations_ordinal
+                ON plan_operations(digest, ordinal);
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_plan_operations_state
+                ON plan_operations(state);
+            """,
+
+        // AB#754 / spec #753 — warning detail alongside a Verified plan operation.
+        //
+        // WHY A COLUMN AND NOT A STATE: `Verified` remains the SOLE landed-success state. A
+        // post-PATCH readback can now prove the intended mutation landed while ADO has
+        // rewritten a field its own revision machinery owns (ClosedDate/ClosedBy,
+        // ChangedDate/ChangedBy, StateChangeDate). That is a successful apply with a caveat,
+        // not a fourth outcome, so the caveat is a nullable column on the existing row.
+        //
+        // WHY NOT REUSE `error`: every consumer treats a non-null error as a failed operation.
+        // Writing a warning there would make a Verified row read as failed to CLI, MCP, and
+        // the header-completion scan that propagates the first row error.
+        //
+        // Additive ALTER, per this store's never-dropped contract. Existing rows get NULL,
+        // which is exactly "no normalization observed".
+        [7] = $"""
+            ALTER TABLE {DurableSchema}.plan_operations ADD COLUMN warning TEXT;
+            """,
     };
 
     private bool SchemaExists()
@@ -558,6 +637,11 @@ public sealed class SqliteCacheStore : IDisposable
             valid_child_types_json TEXT,
             color_hex TEXT,
             icon_id TEXT,
+            -- AB#656. Reference names of every category this type belongs to, from
+            -- _apis/wit/workitemtypecategories. A JSON array because the relation is
+            -- many-to-many; Microsoft.HiddenCategory membership is what marks a type as
+            -- ADO tooling rather than user-creatable vocabulary. NULL predates the column.
+            category_reference_names_json TEXT,
             last_synced_at TEXT NOT NULL
         );
 

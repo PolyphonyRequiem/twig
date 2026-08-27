@@ -57,10 +57,29 @@ public sealed class InitPreferenceFlowTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
 
+        InitCommandTestFixture.InitTempWorktree(_testDir);
+        (_systemRegistry, _profileRegistry) = InitCommandTestFixture.CreateSeams(_testDir);
+
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
+
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource _profileRegistry;
+
+    private InitCommand CreateInitCommand(
+        IIterationService iterationService,
+        TwigPaths paths,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
+        ITelemetryClient? telemetryClient = null)
+        => InitCommandTestFixture.CreateInitCommand(
+            _systemRegistry, _profileRegistry,
+            iterationService, paths, formatterFactory, hintEngine,
+            globalProfileStore, consoleInput, telemetryClient);
 
     public void Dispose()
     {
@@ -80,7 +99,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\AutoTeam", true) });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current", area: @"MyProject\ManualTeam");
@@ -100,7 +119,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NonInteractive_BothFlags_MultipleExpressions()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current;@current-1", area: @"MyProject\TeamA;MyProject\TeamB:exact");
@@ -122,7 +141,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NonInteractive_InvalidSprintFlag_FailsBeforeAreaProcessing()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@invalid", area: @"MyProject\TeamA");
@@ -133,7 +152,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NonInteractive_ModeDefaultsToSprint()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -154,7 +173,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Only one ReadLine for mode prompt; preference prompt should be skipped
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current", area: @"MyProject\ManualTeam");
@@ -183,7 +202,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "workspace", Preference → "1" (sprint only)
         consoleInput.ReadLine().Returns("workspace", "1");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -206,7 +225,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "workspace", Preference → "3" (both)
         consoleInput.ReadLine().Returns("workspace", "3");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -230,7 +249,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "workspace", Preference → "4" (neither)
         consoleInput.ReadLine().Returns("workspace", "4");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -254,7 +273,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns(modeInput);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -274,7 +293,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns(modeInput);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -290,7 +309,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
         // First init (non-interactive)
-        var cmd1 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd1 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result1 = await cmd1.ExecuteAsync("https://dev.azure.com/org", "MyProject");
         result1.ShouldBe(0);
 
@@ -307,7 +326,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "workspace", Preference → "3" (both)
         consoleInput.ReadLine().Returns("workspace", "3");
-        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd2 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result2 = await cmd2.ExecuteAsync("https://dev.azure.com/org", "MyProject", force: true);
 
@@ -325,7 +344,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
         // First init with sprint flag
-        var cmd1 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd1 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result1 = await cmd1.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
         result1.ShouldBe(0);
 
@@ -336,7 +355,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
         // Force reinit with area flag only (no sprint)
-        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd2 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result2 = await cmd2.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             force: true, area: @"MyProject\TeamB");
 
@@ -350,37 +369,23 @@ public sealed class InitPreferenceFlowTests : IDisposable
         loaded2.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamB");
     }
 
-    // ── Git worktree detection (.git as file) ──
+    // AB#728 §6.3: interactive .git-warning prompts were removed in favor
+    // of the strict fail-closed root check. Ab728InitRollbackTests carries
+    // the invalid-root refusal coverage. The prior sequences that started
+    // with the git-warning prompt collapse to just the mode + preference
+    // prompts.
 
     [Fact]
-    public async Task GitWarning_SkippedWhenGitIsFile()
+    public async Task GitInitFixture_ModePromptWorkspace_ThenNeither_ConfiguresWorkspace()
     {
-        // In git worktrees, .git is a file containing "gitdir: /path/to/worktree"
-        var gitFilePath = Path.Combine(_testDir, ".git");
-        await File.WriteAllTextAsync(gitFilePath, "gitdir: /some/path/.git/worktrees/branch1");
+        // AB#728 §6.3: fixture already git-inits _testDir. The prompt
+        // sequence is now (mode, preference) — no leading git-warning
+        // prompt.
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
-        // Only mode prompt (no git warning prompt)
-        consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    // ── Git warning + mode prompt sequencing ──
-
-    [Fact]
-    public async Task GitWarning_ContinueY_ThenModePrompt_WorksCorrectly()
-    {
-        // No .git → git warning prompt, then mode prompt, then preference prompt
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        // Git warning → "y", Mode → "workspace", Preference → "4" (neither)
-        consoleInput.ReadLine().Returns("y", "workspace", "4");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        // Mode → "workspace", Preference → "4" (neither)
+        consoleInput.ReadLine().Returns("workspace", "4");
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -392,16 +397,15 @@ public sealed class InitPreferenceFlowTests : IDisposable
     }
 
     [Fact]
-    public async Task GitWarning_ContinueY_ThenSprintPreference_ConfiguresSprint()
+    public async Task GitInitFixture_ModePromptDefault_ThenSprintOnly_ConfiguresSprint()
     {
-        // No .git → prompt, then mode, then preference
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
-        // Git warning → "y", Mode → "", Preference → "1" (sprint only)
-        consoleInput.ReadLine().Returns("y", "", "1");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        // Mode → "" (sprint), Preference → "1" (sprint only)
+        consoleInput.ReadLine().Returns("", "1");
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -409,7 +413,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
         loaded.Workspace.Sprints.ShouldNotBeNull();
-        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints!.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
     }
@@ -426,7 +430,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode prompt → "" (sprint); preference prompt skipped because --sprint flag provided
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current;@current-1");
@@ -450,7 +454,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode prompt → ""; preference prompt skipped because --area flag provided
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             area: @"MyProject\ManualTeam:exact");
@@ -471,7 +475,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(true);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current", area: @"MyProject\TeamA");
@@ -493,7 +497,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(true);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -510,7 +514,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NullConsoleInput_WithSprintFlag_ConfiguresSprint()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current");
@@ -527,7 +531,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NullConsoleInput_WithAreaFlag_ConfiguresArea()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             area: @"MyProject\TeamA;MyProject\TeamB:exact");
@@ -544,7 +548,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NullConsoleInput_BothFlags_ConfiguresBoth()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current", area: @"MyProject\TeamA");
@@ -562,7 +566,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     [Fact]
     public async Task NonInteractive_SprintFlag_AbsoluteAndRelativeMixed()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: @"MyProject\Sprint 5;@current");
@@ -592,7 +596,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "", Preference → "2" (area paths only)
         consoleInput.ReadLine().Returns("", "2");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -618,7 +622,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         // the inline refresh resolves sprints via SprintIterationResolver, not currentIteration.
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new Twig.Infrastructure.Ado.Exceptions.AdoException("No current iteration"));
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current");
@@ -635,7 +639,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         // When no sprints or area paths are configured, the inline refresh block
         // should be skipped entirely — GetTeamIterationsAsync should not be called.
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -651,7 +655,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
     {
         // Multiple sprint expressions should all be persisted and available for
         // the inline refresh to resolve into multi-sprint WIQL.
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: @"@current;@current-1;MyProject\Sprint 3");
@@ -677,7 +681,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode → "", Preference → "3" (both)
         consoleInput.ReadLine().Returns("", "3");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 

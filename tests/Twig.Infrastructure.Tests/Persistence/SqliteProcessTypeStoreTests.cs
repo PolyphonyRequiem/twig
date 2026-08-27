@@ -383,4 +383,69 @@ public class SqliteProcessTypeStoreTests : IDisposable
         var result = await _processTypeStore.GetProcessConfigurationDataAsync();
         result.ShouldBeNull();
     }
+
+    /// <summary>
+    /// AB#656. The category membership is the domain fact the machine surface derives
+    /// <c>isHidden</c> from, and it is persisted — so it has to survive the round trip whole.
+    /// Both a multi-category hidden type and an ordinary single-category one are asserted:
+    /// checking only the hidden one would pass against a store that marked everything hidden.
+    /// </summary>
+    [Fact]
+    public async Task SaveAsync_RoundTripsCategoryMembership_ForHiddenAndOrdinaryTypes()
+    {
+        // Measured on the live Hyperbright process — membership is many-to-many, and
+        // 'Bug' being outside Microsoft.BugCategory is why it cannot be inferred by name.
+        await _processTypeStore.SaveAsync(new ProcessTypeRecord
+        {
+            TypeName = "Issue",
+            States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+            CategoryReferenceNames =
+            [
+                "Microsoft.HiddenCategory",
+                "Microsoft.BugCategory",
+                "Microsoft.RequirementCategory",
+            ],
+        });
+        await _processTypeStore.SaveAsync(new ProcessTypeRecord
+        {
+            TypeName = "Bug",
+            States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+            CategoryReferenceNames = ["Microsoft.RequirementCategory"],
+        });
+
+        var issue = await _processTypeStore.GetByNameAsync("Issue");
+        var bug = await _processTypeStore.GetByNameAsync("Bug");
+
+        issue.ShouldNotBeNull();
+        bug.ShouldNotBeNull();
+
+        issue!.CategoryReferenceNames.ShouldBe(
+            ["Microsoft.HiddenCategory", "Microsoft.BugCategory", "Microsoft.RequirementCategory"],
+            ignoreOrder: true);
+        issue.IsHidden.ShouldBeTrue();
+
+        bug!.CategoryReferenceNames.ShouldBe(["Microsoft.RequirementCategory"]);
+        bug.IsHidden.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// AB#656. A type in no category is a real answer, not an error — it must read back as an
+    /// empty set rather than throwing or being reported hidden.
+    /// </summary>
+    [Fact]
+    public async Task SaveAsync_NoCategories_RoundTripsAsEmptyAndNotHidden()
+    {
+        await _processTypeStore.SaveAsync(new ProcessTypeRecord
+        {
+            TypeName = "Task",
+            States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+            CategoryReferenceNames = [],
+        });
+
+        var task = await _processTypeStore.GetByNameAsync("Task");
+
+        task.ShouldNotBeNull();
+        task!.CategoryReferenceNames.ShouldBeEmpty();
+        task.IsHidden.ShouldBeFalse();
+    }
 }

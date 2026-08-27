@@ -638,6 +638,73 @@ public class AdoIterationServiceTests
         states.ShouldBe(new[] { "Draft", "Active", "Review", "Done" });
     }
 
+    /// <summary>
+    /// AB#656. The categories route is category-major and its relation is many-to-many, so
+    /// the inversion must ACCUMULATE. Assigning would keep whichever category row came last
+    /// and silently discard the rest — for a type like <c>Issue</c> that would drop its
+    /// hidden membership, which is the whole point of the fetch.
+    /// </summary>
+    [Fact]
+    public async Task GetWorkItemTypesWithStatesAsync_AccumulatesMultipleCategoryMemberships()
+    {
+        var handler = new FakeHandler();
+        handler.SetWorkItemTypesResponseWithStates(
+            ("Issue", "AABBCC", "icon_issue", false, [("To Do", "Proposed")]),
+            ("Bug", "CC293D", "icon_insect", false, [("To Do", "Proposed")]),
+            ("Task", "F2CB1D", "icon_clipboard", false, [("To Do", "Proposed")]));
+        // The measured Hyperbright shape: Issue is in three categories including Hidden,
+        // Bug is in RequirementCategory but NOT BugCategory, Task is in none of these.
+        handler.SetWorkItemTypeCategoriesResponse(
+            ("Microsoft.HiddenCategory", ["Issue"]),
+            ("Microsoft.BugCategory", ["Issue"]),
+            ("Microsoft.RequirementCategory", ["Issue", "Bug"]));
+        var service = CreateService(handler);
+
+        var result = await service.GetWorkItemTypesWithStatesAsync();
+
+        // Every type survives — categories enrich the roster, they do not filter it.
+        result.Count.ShouldBe(3);
+
+        var issue = result.Single(t => t.Name == "Issue");
+        var bug = result.Single(t => t.Name == "Bug");
+        var task = result.Single(t => t.Name == "Task");
+
+        issue.CategoryReferenceNames.ShouldBe(
+            ["Microsoft.HiddenCategory", "Microsoft.BugCategory", "Microsoft.RequirementCategory"],
+            ignoreOrder: true);
+        bug.CategoryReferenceNames.ShouldBe(["Microsoft.RequirementCategory"]);
+        task.CategoryReferenceNames.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// AB#656. Categories are an ENRICHMENT of the type list. If the categories route fails,
+    /// twig must still return the process vocabulary — degrading a cosmetic gap into a broken
+    /// <c>twig sync</c> would be a far worse defect than the one being fixed.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 This test exists because the first implementation got it wrong in exactly the way
+    /// it guards: the catch filter listed <c>HttpRequestException</c> but not
+    /// <see cref="AdoException"/>, which is what <c>AdoErrorHandler</c> actually throws — so a
+    /// 404 on the new route took down six existing tests. The suite caught it; this pins it.
+    /// </remarks>
+    [Fact]
+    public async Task GetWorkItemTypesWithStatesAsync_CategoriesRouteFails_StillReturnsTypes()
+    {
+        var handler = new FakeHandler();
+        handler.SetWorkItemTypesResponseWithStates(
+            ("Bug", "CC293D", "icon_insect", false, [("To Do", "Proposed")]));
+        // No categories stub registered at all — the fake answers 404, which is what the
+        // real AdoErrorHandler turns into an AdoNotFoundException.
+        var service = CreateService(handler);
+
+        var result = await service.GetWorkItemTypesWithStatesAsync();
+
+        result.Count.ShouldBe(1);
+        result[0].Name.ShouldBe("Bug");
+        // Degrades to "no categories known" rather than throwing or inventing membership.
+        result[0].CategoryReferenceNames.ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task GetWorkItemTypesWithStatesAsync_DisabledTypesExcluded()
     {

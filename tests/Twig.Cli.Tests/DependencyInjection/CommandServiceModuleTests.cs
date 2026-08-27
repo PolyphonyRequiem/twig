@@ -37,6 +37,7 @@ public sealed class CommandServiceModuleTests
         services.AddSingleton(Substitute.For<IUnitOfWork>());
         services.AddSingleton(Substitute.For<IConsoleInput>());
         services.AddSingleton(Substitute.For<IWorkItemLinkRepository>());
+        services.AddSingleton(Substitute.For<IAttachmentStatusProjection>());
         services.AddSingleton(new OutputFormatterFactory(new HumanOutputFormatter()));
         services.AddSingleton(Substitute.For<IAsyncRenderer>());
         services.AddSingleton<RenderingPipelineFactory>();

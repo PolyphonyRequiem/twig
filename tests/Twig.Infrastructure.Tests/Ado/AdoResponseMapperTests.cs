@@ -44,6 +44,31 @@ public sealed class AdoResponseMapperTests
     }
 
     [Fact]
+    public void MapToAuthoritativeSnapshot_RetainsSystemFieldsExcludedFromCacheProjection()
+    {
+        // Plan gates evaluate makeRequired rules. System.AreaId is normally omitted from the
+        // cache projection, but it is a known populated server field and must not look empty
+        // to an authoritative rule snapshot.
+        var dto = CreateWorkItemDto(id: 42, rev: 5, type: "Task", title: "Gate", state: "Doing");
+        dto.Fields!["System.AreaId"] = JsonElement(123);
+
+        var result = AdoResponseMapper.MapToAuthoritativeSnapshot(dto);
+
+        result.Fields["System.AreaId"].ShouldBe("123");
+    }
+
+    [Fact]
+    public void MapToAuthoritativeSnapshot_MissingFieldsPayload_IsUnknown()
+    {
+        var dto = new AdoWorkItemResponse { Id = 42, Rev = 5, Fields = null };
+
+        var error = Should.Throw<InvalidOperationException>(
+            () => AdoResponseMapper.MapToAuthoritativeSnapshot(dto));
+
+        error.Message.ShouldContain("no fields payload");
+    }
+
+    [Fact]
     public void MapToSnapshot_WithParentRelation_ExtractsParentId()
     {
         var dto = CreateWorkItemDto(id: 100, rev: 1, type: "Task", title: "Sub task", state: "New");
@@ -120,6 +145,55 @@ public sealed class AdoResponseMapperTests
         var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.AssignedTo.ShouldBe("Jane Smith");
+    }
+
+    // ── ExtractAssignedUniqueName ──────────────────────────────────
+    // AB#728 identity read seam. The general AssignedTo projection above
+    // returns the display name only — the byte-comparable UPN travels via
+    // ExtractAssignedUniqueName for the AB#739 claim-projection readback.
+
+    [Fact]
+    public void ExtractAssignedUniqueName_IdentityObject_ReturnsUniqueName()
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement(new { displayName = "Jane Smith", uniqueName = "jane@example.com" }),
+        };
+
+        var result = AdoResponseMapper.ExtractAssignedUniqueName(fields);
+
+        result.ShouldBe("jane@example.com");
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_IdentityObjectWithoutUniqueName_ReturnsNull()
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement(new { displayName = "Jane Smith" }),
+        };
+
+        AdoResponseMapper.ExtractAssignedUniqueName(fields).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_BareStringValue_ReturnsNull()
+    {
+        // A legacy display-only string carries no stable identity —
+        // callers MUST treat this as a projection failure, not as a
+        // display-name fallback.
+        var fields = new Dictionary<string, object?>
+        {
+            ["System.AssignedTo"] = JsonElement("Jane Smith"),
+        };
+
+        AdoResponseMapper.ExtractAssignedUniqueName(fields).ShouldBeNull();
+    }
+
+    [Fact]
+    public void ExtractAssignedUniqueName_MissingField_ReturnsNull()
+    {
+        AdoResponseMapper.ExtractAssignedUniqueName(new Dictionary<string, object?>()).ShouldBeNull();
     }
 
     [Fact]

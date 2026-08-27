@@ -32,6 +32,13 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     // Lazy-initialized caches — safe because CLI is single-threaded
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
+
+    /// <summary>
+    /// AB#656. Type name → the reference names of every category it belongs to. Cached per
+    /// service instance like its neighbours, because a sync resolves categories once and then
+    /// asks about every type.
+    /// </summary>
+    private Task<IReadOnlyDictionary<string, IReadOnlyList<string>>>? _typeCategoriesCache;
     // 🔴 The PROCESS's roster, distinct from _workItemTypesCache's PROJECT roster. They
     // disagree on the reference name of every inherited type — see FetchFormLayoutAsync.
     private Task<AdoProcessWorkItemTypeListResponse?>? _processWorkItemTypesCache;
@@ -170,6 +177,11 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         if (result?.Value is null || result.Value.Count == 0)
             return Array.Empty<WorkItemTypeWithStates>();
 
+        // AB#656. Category membership lives on its own route; neither type list carries it.
+        // A failure here must not lose the type list, so this degrades to "no categories
+        // known" rather than throwing — see FetchWorkItemTypeCategoriesAsync.
+        var categoriesByTypeName = await (_typeCategoriesCache ??= FetchWorkItemTypeCategoriesAsync(ct));
+
         var types = new List<WorkItemTypeWithStates>();
         foreach (var type in result.Value)
         {
@@ -190,6 +202,9 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
                 Color = type.Color,
                 IconId = type.Icon?.Id,
                 States = sortedStates,
+                CategoryReferenceNames = categoriesByTypeName.TryGetValue(type.Name, out var cats)
+                    ? cats
+                    : Array.Empty<string>(),
             });
         }
 
@@ -286,6 +301,27 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         }
     }
 
+    public async Task<(string? DisplayName, string? UniqueName)> GetAuthenticatedUserIdentityAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var url = $"https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version={AdoApiVersions.Profile}";
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProfileResponse, ct);
+            // emailAddress is the stable UPN ADO reflects back on
+            // System.AssignedTo.uniqueName. AB#739 §Identity readback
+            // treats it as the byte-comparable identity — display name
+            // is projection-only.
+            return (result?.DisplayName, result?.EmailAddress);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
     /// <summary>
     /// Sorts states by category rank (Proposed=0, InProgress=1, Resolved=2, Completed=3, Removed=4, Unknown=5),
     /// preserving original within-category order via stable sort on original index.
@@ -340,6 +376,80 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoWorkItemTypeListResponse, ct);
+    }
+
+    /// <summary>
+    /// AB#656. Fetches <c>_apis/wit/workitemtypecategories</c> and inverts it into a type
+    /// name → category reference names map.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The route is category-major (each row lists its member types) and the relation is
+    /// many-to-many, so the inversion accumulates rather than assigns: on the measured
+    /// Hyperbright process <c>Issue</c> collects three categories from three separate rows.
+    /// Assigning would keep whichever row came last and silently discard the rest —
+    /// including, for <c>Issue</c>, its hidden membership.
+    /// </para>
+    /// <para>
+    /// 🔴 <b>A failure here degrades to an empty map, it does not throw.</b> Categories are an
+    /// enrichment of the type list; losing the whole process vocabulary because one auxiliary
+    /// route was unavailable would turn a cosmetic gap into a broken <c>twig sync</c>. The
+    /// warning goes to stderr so the degradation is visible rather than silent — an empty
+    /// result that looks like a real answer is the false-green class AGENTS.md names.
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> FetchWorkItemTypeCategoriesAsync(
+        CancellationToken ct)
+    {
+        var empty = (IReadOnlyDictionary<string, IReadOnlyList<string>>)
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+
+        AdoWorkItemTypeCategoryListResponse? result;
+        try
+        {
+            var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypecategories" +
+                $"?api-version={AdoApiVersions.WorkItemTypeCategories}";
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            result = await JsonSerializer.DeserializeAsync(
+                stream,
+                TwigJsonContext.Default.AdoWorkItemTypeCategoryListResponse,
+                ct);
+        }
+        catch (Exception ex) when (ex is AdoException or HttpRequestException or JsonException or InvalidOperationException)
+        {
+            Console.Error.WriteLine(
+                $"⚠ Could not read work item type categories: {ex.Message}. Hidden/system types " +
+                "cannot be distinguished from usable ones until the next successful sync.");
+            return empty;
+        }
+
+        if (result?.Value is null || result.Value.Count == 0)
+            return empty;
+
+        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var category in result.Value)
+        {
+            if (string.IsNullOrWhiteSpace(category.ReferenceName) || category.WorkItemTypes is null)
+                continue;
+
+            foreach (var member in category.WorkItemTypes)
+            {
+                if (string.IsNullOrWhiteSpace(member.Name))
+                    continue;
+
+                if (!map.TryGetValue(member.Name, out var list))
+                    map[member.Name] = list = [];
+
+                if (!list.Contains(category.ReferenceName, StringComparer.OrdinalIgnoreCase))
+                    list.Add(category.ReferenceName);
+            }
+        }
+
+        return map.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (IReadOnlyList<string>)kvp.Value,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task<IReadOnlyList<ProcessRule>> FetchProcessRulesAsync(

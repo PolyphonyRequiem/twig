@@ -5,6 +5,7 @@ using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Ado.Exceptions;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -91,6 +92,152 @@ public sealed class AdoRestClientLinkTests
         handler.LastContentType!.ShouldContain("application/json-patch+json");
     }
 
+    // ── AB#620: the link COMMENT ─────────────────────────────────────
+    //
+    // The reason for a relationship lives in the relation's own attributes.comment, not in a
+    // work item comment. These assert the wire shape the card measured by hand against REST.
+
+    [Fact]
+    public async Task AddLinkWithCommentAsync_PutsCommentInRelationAttributes()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkWithCommentAsync(
+            sourceId: 619, targetId: 615,
+            adoLinkType: "System.LinkTypes.Related",
+            comment: "same root cause");
+
+        using var doc = JsonDocument.Parse(handler.LastRequestBody!);
+        var value = doc.RootElement[0].GetProperty("value");
+        value.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Related");
+        value.GetProperty("url").GetString().ShouldBe($"{OrgUrl}/_apis/wit/workitems/615");
+        value.GetProperty("attributes").GetProperty("comment").GetString().ShouldBe("same root cause");
+    }
+
+    /// <summary>
+    /// An empty <c>attributes</c> object is not the same request as no attributes at all, and
+    /// every pre-AB#620 caller now routes through this method. Emitting one would silently
+    /// change the wire shape of every existing link write.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AddLinkWithCommentAsync_NoComment_OmitsAttributesEntirely(string? comment)
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkWithCommentAsync(1, 2, "System.LinkTypes.Related", comment);
+
+        using var doc = JsonDocument.Parse(handler.LastRequestBody!);
+        doc.RootElement[0].GetProperty("value")
+            .TryGetProperty("attributes", out _).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The un-commented entry point must send BYTE-IDENTICAL JSON to the commentless path of
+    /// the new one — that equivalence is what makes routing every caller through the new method
+    /// a safe change rather than a silent request rewrite.
+    /// </summary>
+    [Fact]
+    public async Task AddLinkAsync_AndCommentlessAddLinkWithComment_SendIdenticalBodies()
+    {
+        var plainHandler = new LinkTrackingHandler();
+        await CreateClient(plainHandler).AddLinkAsync(7, 8, "System.LinkTypes.Related");
+
+        var commentHandler = new LinkTrackingHandler();
+        await CreateClient(commentHandler).AddLinkWithCommentAsync(7, 8, "System.LinkTypes.Related", comment: null);
+
+        commentHandler.LastRequestBody.ShouldBe(plainHandler.LastRequestBody);
+    }
+
+    // ── Strict CAS: AddLinkAtRevisionAsync ─────────────────────────
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_SendsIfMatchWithExpectedRevision()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 7);
+
+        handler.RequestCount.ShouldBe(1);
+        handler.LastMethod.ShouldBe("PATCH");
+        handler.LastIfMatch.ShouldBe("7");
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_SendsExactlyOneRequest_NoGetOrRetry()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 1, relationType: "System.LinkTypes.Related",
+            targetId: 2, expectedRevision: 3);
+
+        handler.RequestCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_BodyPrependsRevisionTestBeforeRelation()
+    {
+        var handler = new LinkTrackingHandler();
+        var client = CreateClient(handler);
+
+        await client.AddLinkAtRevisionAsync(
+            sourceId: 1, relationType: "System.LinkTypes.Dependency-Forward",
+            targetId: 2, expectedRevision: 1);
+
+        var body = handler.LastRequestBody;
+        body.ShouldNotBeNull();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetArrayLength().ShouldBe(2);
+
+        var revisionTest = doc.RootElement[0];
+        revisionTest.GetProperty("op").GetString().ShouldBe("test");
+        revisionTest.GetProperty("path").GetString().ShouldBe("/rev");
+        revisionTest.GetProperty("value").GetInt32().ShouldBe(1);
+
+        var relation = doc.RootElement[1];
+        relation.GetProperty("op").GetString().ShouldBe("add");
+        relation.GetProperty("path").GetString().ShouldBe("/relations/-");
+        var value = relation.GetProperty("value");
+        value.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Dependency-Forward");
+        value.GetProperty("url").GetString().ShouldBe($"{OrgUrl}/_apis/wit/workitems/2");
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_ReturnsNewRevisionFromResponse()
+    {
+        var handler = new LinkTrackingHandler { ResponseRev = 42 };
+        var client = CreateClient(handler);
+
+        var newRev = await client.AddLinkAtRevisionAsync(
+            sourceId: 100, relationType: "System.LinkTypes.Related",
+            targetId: 200, expectedRevision: 41);
+
+        newRev.ShouldBe(42);
+    }
+
+    [Fact]
+    public async Task AddLinkAtRevisionAsync_PreconditionFailed_ThrowsAdoConflictWithoutRetry()
+    {
+        var handler = new LinkTrackingHandler { StatusCode = HttpStatusCode.PreconditionFailed };
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => client.AddLinkAtRevisionAsync(
+                sourceId: 100, relationType: "System.LinkTypes.Related",
+                targetId: 200, expectedRevision: 5));
+
+        handler.RequestCount.ShouldBe(1);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
@@ -119,6 +266,10 @@ public sealed class AdoRestClientLinkTests
         public string? LastMethod { get; private set; }
         public string? LastRequestBody { get; private set; }
         public string? LastContentType { get; private set; }
+        public string? LastIfMatch { get; private set; }
+
+        public HttpStatusCode StatusCode { get; init; } = HttpStatusCode.OK;
+        public int ResponseRev { get; init; } = 2;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -129,14 +280,25 @@ public sealed class AdoRestClientLinkTests
             LastMethod = request.Method.Method;
             LastContentType = request.Content?.Headers.ContentType?.ToString();
 
+            if (request.Headers.TryGetValues("If-Match", out var ifMatch))
+                LastIfMatch = ifMatch.FirstOrDefault();
+
             if (request.Content is not null)
                 LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
 
-            // PATCH returns the updated work item
-            var responseJson = """{"id":1,"rev":2,"fields":{"System.WorkItemType":"Task","System.Title":"Test","System.State":"New"}}""";
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            if (StatusCode == HttpStatusCode.OK)
             {
-                Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
+                // PATCH returns the updated work item
+                var responseJson = $"{{\"id\":1,\"rev\":{ResponseRev},\"fields\":{{\"System.WorkItemType\":\"Task\",\"System.Title\":\"Test\",\"System.State\":\"New\"}}}}";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
+                };
+            }
+
+            return new HttpResponseMessage(StatusCode)
+            {
+                Content = new StringContent(string.Empty, Encoding.UTF8, "application/json"),
             };
         }
     }

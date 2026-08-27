@@ -10,6 +10,13 @@ public sealed class WorkItemTypeWithStates
     public string? Color { get; init; }
     public string? IconId { get; init; }
     public IReadOnlyList<WorkItemTypeState> States { get; init; } = Array.Empty<WorkItemTypeState>();
+
+    /// <summary>
+    /// Reference names of every work item type category this type belongs to (AB#656).
+    /// A SET, because ADO's relation is many-to-many — see
+    /// <see cref="WorkItemTypeCategories"/>.
+    /// </summary>
+    public IReadOnlyList<string> CategoryReferenceNames { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>

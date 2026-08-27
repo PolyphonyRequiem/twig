@@ -52,13 +52,13 @@ internal static class DependentFieldReconciler
         if (RuleTypeEquals(condition.ConditionType, "whenNot"))
             return !Equal(isState ? toState : currentValue, condition.Value);
         if (RuleTypeEquals(condition.ConditionType, "whenChanged"))
-            return isState;
+            return isState && !Equal(fromState, toState);
         if (RuleTypeEquals(condition.ConditionType, "whenNotChanged"))
-            return !isState;
+            return !isState || Equal(fromState, toState);
         if (RuleTypeEquals(condition.ConditionType, "whenWas"))
             return Equal(isState ? fromState : currentValue, condition.Value);
         if (RuleTypeEquals(condition.ConditionType, "whenStateChangedTo"))
-            return Equal(toState, condition.Value);
+            return !Equal(fromState, toState) && Equal(toState, condition.Value);
         if (RuleTypeEquals(condition.ConditionType, "whenValueIsDefined"))
             return !string.IsNullOrEmpty(currentValue);
         if (RuleTypeEquals(condition.ConditionType, "whenValueIsNotDefined"))

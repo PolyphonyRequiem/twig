@@ -1,6 +1,7 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
@@ -57,7 +58,10 @@ public sealed class ConnectionScopeCompletenessTests
         typeof(AdoMutationProvider),
         typeof(SprintIterationResolver),
         typeof(WorkItemFetcher),
+        typeof(IPlanLifecycleService),
+        typeof(IPendingChangeReader),
     ];
+
 
     [Theory]
     [MemberData(nameof(SurfaceNeutralServices))]

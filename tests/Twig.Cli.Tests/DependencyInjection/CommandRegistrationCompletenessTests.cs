@@ -55,6 +55,18 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IWorkItemRepository>());
         services.AddSingleton(Substitute.For<IAdoWorkItemService>());
         services.AddSingleton(Substitute.For<IPendingChangeStore>());
+        services.AddSingleton(Substitute.For<IPendingChangeReader>());
+        services.AddSingleton(Substitute.For<IPlanLifecycleService>());
+        // Wayfinder 0016. AddConnectionDomainServices below registers the shared
+        // IPlanLifecycleService via a factory that also demands IPlanJournalRepository
+        // (production: SqlitePlanJournalRepository, wired by AddConnectionServices) and
+        // IRevisionBoundAdoWorkItemService (production: the AdoRestClient cast in
+        // NetworkServiceModule). This fixture composes neither seam, so the two are
+        // substituted here alongside the other domain interfaces above — omitting them
+        // would make the plan-lifecycle factory unresolvable and this guard would
+        // report a wiring defect that does not exist in production.
+        services.AddSingleton(Substitute.For<IPlanJournalRepository>());
+        services.AddSingleton(Substitute.For<IRevisionBoundAdoWorkItemService>());
         services.AddSingleton(Substitute.For<IPendingChangeFlusher>());
         services.AddSingleton(Substitute.For<IProcessConfigurationProvider>());
         services.AddSingleton(Substitute.For<IProcessTypeStore>());
@@ -98,6 +110,13 @@ public sealed class CommandRegistrationCompletenessTests
         services.AddSingleton(Substitute.For<IStagedIdentityRegistry>());
         services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
         services.AddSingleton<Twig.Domain.Services.Seed.SeedDiscardOrchestrator>();
+        // AB#728: AB#736 storage / attachment seams. Production registers
+        // these in TwigServiceRegistration.AddConnectionServices, which this
+        // fixture deliberately does not compose (it stops at the domain
+        // module). Substituting them here matches production wiring where
+        // both InitCommand and CommandContext resolve them out of DI.
+        services.AddSingleton(Substitute.For<IManagedWorktreeInitializer>());
+        services.AddSingleton(Substitute.For<IAttachmentStatusProjection>());
 
         services.AddSingleton(new HttpClient());
         services.AddSingleton(new OutputFormatterFactory(new HumanOutputFormatter()));

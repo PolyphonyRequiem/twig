@@ -1,2 +1,51 @@
 #nullable enable
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.AdoRelationNotFoundException(int sourceId, string! relationType, int targetId, int expectedRevision) -> void
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.ExpectedRevision.get -> int
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.RelationType.get -> string!
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.SourceId.get -> int
+Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.TargetId.get -> int
+Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.CompleteAsync(string! digest, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset completedAt, string? error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.ConfirmAsync(string! digest, System.DateTimeOffset confirmedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.GetAsync(string! digest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanJournal?>!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.ImportAsync(Twig.Domain.Services.Plan.PlanDefinition! plan, string! canonicalJson, string! digest, string! sourcePath, System.DateTimeOffset previewedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanJournal!>!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.SaveOperationErrorAsync(string! digest, string! opId, string! error, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.SaveOperationResultAsync(string! digest, string! opId, string? resultJson, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.SqlitePlanJournalRepository(Twig.Infrastructure.Persistence.SqliteCacheStore! store) -> void
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.TryRecordAppliedAsync(string! digest, string! opId, string? resultJson, System.DateTimeOffset appliedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.TryTransitionOperationAsync(string! digest, string! opId, Twig.Domain.Services.Plan.PlanOperationState fromState, Twig.Domain.Services.Plan.PlanOperationState toState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? warning = null) -> System.Threading.Tasks.Task<bool>!
 Twig.Infrastructure.Persistence.SqliteWorkItemLinkRepository.GetLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!
+Twig.Infrastructure.Plan.PlanCanonicalizer
+Twig.Infrastructure.Plan.PlanDocumentParser
+Twig.Infrastructure.Plan.PlanDocumentParser.Parse(System.ReadOnlySpan<char> json) -> Twig.Domain.Services.Plan.PlanValidationResult!
+Twig.Infrastructure.Plan.PlanDocumentParser.Parse(string! json) -> Twig.Domain.Services.Plan.PlanValidationResult!
+Twig.Infrastructure.Plan.PlanDocumentParser.PlanDocumentParser() -> void
+static Twig.Infrastructure.Plan.PlanCanonicalizer.Canonicalize(System.Text.Json.JsonElement element) -> (string! CanonicalJson, string! Digest)
+static Twig.Infrastructure.Plan.PlanCanonicalizer.CanonicalizeToString(System.Text.Json.JsonElement element) -> string!
+static Twig.Infrastructure.Plan.PlanCanonicalizer.ComputeDigest(System.ReadOnlySpan<byte> canonical) -> string!
+Twig.Infrastructure.Plan.PlanLifecycleService
+Twig.Infrastructure.Plan.PlanLifecycleService.ApplyAsync(string! file, string! confirmedDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanApplyResult!>!
+Twig.Infrastructure.Plan.PlanLifecycleService.DescribeSeedAsync(int seedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanSeedDescriptor?>!
+Twig.Infrastructure.Plan.PlanLifecycleService.PlanLifecycleService(Twig.Infrastructure.Plan.PlanDocumentParser! parser, Twig.Domain.Interfaces.IPlanJournalRepository! journal, Twig.Domain.Interfaces.IPendingChangeReader! pendingReader, Twig.Domain.Interfaces.IFieldDefinitionStore! fieldDefinitionStore, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService! revisionBound, Twig.Domain.Services.Seed.SeedPublishOrchestrator! seedPublish, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IStagedIdentityRegistry! stagedRegistry, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMap, Twig.Domain.Interfaces.IPublishIntentRepository! publishIntent, Twig.Infrastructure.Config.TwigConfiguration! config, Twig.Infrastructure.Config.TwigPaths! paths, System.TimeProvider! clock) -> void
+Twig.Infrastructure.Plan.PlanLifecycleService.PreviewAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanPreviewResult!>!
+Twig.Infrastructure.Plan.PlanLifecycleService.StatusAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanStatusResult?>!
+Twig.Infrastructure.Plan.PlanLifecycleService.ValidateAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanValidationResult!>!
+Twig.Infrastructure.Config.PolicyConfig
+Twig.Infrastructure.Config.PolicyConfig.PolicyConfig() -> void
+Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.get -> System.Collections.Generic.List<string!>?
+Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.set -> void
+Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.get -> Twig.Infrastructure.Config.SelectedProfileBinding?
+Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.set -> void
+Twig.Infrastructure.Config.SelectedProfileBinding
+Twig.Infrastructure.Config.SelectedProfileBinding.SelectedProfileBinding() -> void
+Twig.Infrastructure.Config.SelectedProfileBinding.Identity.get -> string!
+Twig.Infrastructure.Config.SelectedProfileBinding.Identity.set -> void
+Twig.Infrastructure.Config.SelectedProfileBinding.Version.get -> string!
+Twig.Infrastructure.Config.SelectedProfileBinding.Version.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
+Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
+static Twig.Infrastructure.Config.TwigPaths.GetCacheDbPath(string! twigDir) -> string!
+Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void

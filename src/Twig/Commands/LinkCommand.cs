@@ -225,10 +225,19 @@ public sealed class LinkCommand(
     // Cycle detection is deliberately NOT implemented: only self-links are rejected.
     // A predecessor chain can still be made cyclic; ADO does not reject it and neither
     // does twig. Say so rather than implying the guard exists.
+    //
+    // ── Related links — AB#620 ──────────────────────────────────────
+    //
+    // `related` joins the same core rather than getting a parallel one. It is the third
+    // non-hierarchy edge in the SAME ADO family: LinkTypeMapper already resolved it,
+    // AdoResponseMapper already read it back, and WorkItemLink already modelled it — the
+    // CLI write path was the only gap, which is exactly twig#77's shape one edge over.
+    // A dedicated code path would have duplicated the target-exists, self-link and
+    // already-linked guards, and this file's own comment above says why that is refused.
 
     /// <summary>
-    /// Add a dependency link (<c>predecessor</c> or <c>successor</c>) from the active
-    /// (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
+    /// Add a non-hierarchy link (<c>predecessor</c>, <c>successor</c> or <c>related</c>)
+    /// from the active (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
     /// </summary>
     public async Task<int> DependencyAsync(
         string linkType,
@@ -238,14 +247,60 @@ public sealed class LinkCommand(
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await DependencyCoreAsync(linkType, targetId, id, remove: false, outputFormat, ct);
+        var exitCode = await DependencyCoreAsync(linkType, targetId, id, comment: null, remove: false, outputFormat, ct);
         TelemetryHelper.TrackCommand(telemetryClient, $"link-{linkType.ToLowerInvariant()}", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     /// <summary>
-    /// Remove a dependency link (<c>predecessor</c> or <c>successor</c>) from the active
-    /// (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
+    /// Add a symmetric <c>System.LinkTypes.Related</c> edge between the active (or
+    /// <paramref name="id"/>-specified) work item and <paramref name="targetId"/>,
+    /// carrying <paramref name="comment"/> as the relation's reason (AB#620).
+    /// </summary>
+    /// <remarks>
+    /// Related is NON-DIRECTIONAL: ADO materialises the reverse edge itself, so writing it
+    /// from either side makes it visible from both. That is why there is no "relate the other
+    /// way" verb and why both endpoints are resynced — the item that was not named locally
+    /// gained an edge too, and a cache that only knows about the named side is wrong.
+    /// </remarks>
+    public async Task<int> RelatedAsync(
+        int targetId,
+        int? id = null,
+        string? comment = null,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await DependencyCoreAsync(LinkTypes.Related, targetId, id, comment, remove: false, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-related", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    /// <summary>
+    /// Remove the symmetric related edge between the active (or <paramref name="id"/>-specified)
+    /// work item and <paramref name="targetId"/> (AB#620).
+    /// </summary>
+    /// <remarks>
+    /// A named verb as well as <c>twig link unlink related &lt;id&gt;</c>, which also works:
+    /// <c>unrelate</c> is the counterpart the card asked for and reads as the inverse of
+    /// <c>related</c>, while <c>unlink</c> stays the generic form. Both route here, so there is
+    /// one behaviour and not two.
+    /// </remarks>
+    public async Task<int> UnrelateAsync(
+        int targetId,
+        int? id = null,
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await DependencyCoreAsync(LinkTypes.Related, targetId, id, comment: null, remove: true, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-unrelate", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    /// <summary>
+    /// Remove a non-hierarchy link (<c>predecessor</c>, <c>successor</c> or <c>related</c>) from
+    /// the active (or <paramref name="id"/>-specified) work item to <paramref name="targetId"/>.
     /// </summary>
     public async Task<int> UnlinkDependencyAsync(
         string linkType,
@@ -255,7 +310,7 @@ public sealed class LinkCommand(
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await DependencyCoreAsync(linkType, targetId, id, remove: true, outputFormat, ct);
+        var exitCode = await DependencyCoreAsync(linkType, targetId, id, comment: null, remove: true, outputFormat, ct);
         TelemetryHelper.TrackCommand(telemetryClient, "link-unlink", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
@@ -264,19 +319,20 @@ public sealed class LinkCommand(
         string linkType,
         int targetId,
         int? id,
+        string? comment,
         bool remove,
         string outputFormat,
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // Only the dependency kinds route here; parent/child have dedicated verbs with
+        // Only the non-hierarchy kinds route here; parent/child have dedicated verbs with
         // their own guards, and accepting them here would give two divergent code paths
         // for the same operation.
-        if (!IsDependencyLinkType(linkType, out var friendly))
+        if (!IsNonHierarchyLinkType(linkType, out var friendly))
         {
             _stderr.WriteLine(fmt.FormatError(
-                $"Unknown dependency link type: '{linkType}'. Supported types: predecessor, successor. "
+                $"Unknown link type: '{linkType}'. Supported types: predecessor, successor, related. "
                 + "Use 'twig link parent' for hierarchy links."));
             return 1;
         }
@@ -327,7 +383,7 @@ public sealed class LinkCommand(
             if (remove)
                 await adoService.RemoveLinkAsync(item.Id, targetId, adoLinkType, ct);
             else
-                await adoService.AddLinkAsync(item.Id, targetId, adoLinkType, ct);
+                await adoService.AddLinkWithCommentAsync(item.Id, targetId, adoLinkType, comment, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -347,24 +403,22 @@ public sealed class LinkCommand(
     }
 
     /// <summary>
-    /// Accepts only the dependency half of <see cref="LinkTypeMapper"/>, normalising
+    /// Accepts only the non-hierarchy half of <see cref="LinkTypeMapper"/>, normalising
     /// case, and emits the canonical friendly name used in messages and link records.
     /// </summary>
-    private static bool IsDependencyLinkType(string? linkType, out string friendly)
+    private static bool IsNonHierarchyLinkType(string? linkType, out string friendly)
     {
         friendly = string.Empty;
         if (string.IsNullOrWhiteSpace(linkType)) return false;
 
         var normalized = linkType.Trim();
-        if (normalized.Equals(LinkTypes.Predecessor, StringComparison.OrdinalIgnoreCase))
+        foreach (var candidate in new[] { LinkTypes.Predecessor, LinkTypes.Successor, LinkTypes.Related })
         {
-            friendly = LinkTypes.Predecessor;
-            return true;
-        }
-        if (normalized.Equals(LinkTypes.Successor, StringComparison.OrdinalIgnoreCase))
-        {
-            friendly = LinkTypes.Successor;
-            return true;
+            if (normalized.Equals(candidate, StringComparison.OrdinalIgnoreCase))
+            {
+                friendly = candidate;
+                return true;
+            }
         }
         return false;
     }

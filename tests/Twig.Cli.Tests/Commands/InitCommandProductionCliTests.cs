@@ -36,13 +36,30 @@ public sealed class InitCommandProductionCliTests : IDisposable
             Organization = adoServer.BaseUrl,
             Project = project,
             Auth = new AuthConfig { Method = "pat" },
+            // AB#728 §6.3: managed init requires a checked-in Policy with a
+            // fully populated SelectedProfile + non-empty PrimaryScopeTypes.
+            // Otherwise the initializer surfaces
+            // `selected-profile-unavailable` and fails fatally.
+            Policy = new PolicyConfig
+            {
+                SelectedProfile = new SelectedProfileBinding { Identity = "Test.Profile", Version = "1.0" },
+                PrimaryScopeTypes = new List<string> { "Bug", "Task" },
+            },
         };
 
         await RunGitAsync("init", "--quiet");
+        await RunGitAsync("config", "user.email", "twig-tests@example.com");
+        await RunGitAsync("config", "user.name", "Twig Tests");
         await File.WriteAllTextAsync(
             Path.Combine(_repoRoot, ".gitignore"),
             $".twig/{Environment.NewLine}");
         await config.SaveSplitAsync(contextPaths);
+        // AB#728 §6.3: strict init trusts ONLY the tracked repo manifest.
+        // An untracked twig.json is discarded and overwritten with the CLI
+        // coordinates, which drops the Policy block. Committing it here
+        // makes the manifest authoritative for the ensuing init run.
+        await RunGitAsync("add", "--", WorkspaceDiscovery.RepoManifestFileName);
+        await RunGitAsync("commit", "--quiet", "-m", "Seed tracked manifest");
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
 
         var (exitCode, stdout, stderr) = await RunTwigAsync(
@@ -55,7 +72,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stderr.ShouldNotContain("already initialized");
         File.Exists(contextPaths.DbPath).ShouldBeTrue();
         File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
-        (await TwigConfiguration.LoadSplitAsync(contextPaths)).ProcessTemplate.ShouldBe("Basic");
+        var loaded = await TwigConfiguration.LoadSplitAsync(contextPaths);
+        loaded.ProcessTemplate.ShouldBeEmpty("tracked manifest fields remain authoritative");
+        loaded.Policy.ShouldNotBeNull();
+        loaded.Policy!.SelectedProfile.ShouldNotBeNull();
+        loaded.Policy.SelectedProfile!.Identity.ShouldBe("Test.Profile");
     }
 
     [Fact]
@@ -76,13 +97,15 @@ public sealed class InitCommandProductionCliTests : IDisposable
             "--project", project,
             "--team", team);
 
+        // AB#728 §6.3: managed-init failure rolls back local state — the
+        // user config file must be absent (nothing was preserved because
+        // this run created it), the cache DB must be absent, and the
+        // tracked manifest must be unchanged byte-for-byte.
         exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
-        File.Exists(contextPaths.ConfigPath).ShouldBeTrue();
-        Directory.Exists(Path.GetDirectoryName(contextPaths.DbPath)).ShouldBeTrue();
+        File.Exists(contextPaths.ConfigPath).ShouldBeFalse();
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
         (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
     }
-
     [Theory]
     [InlineData("organization")]
     [InlineData("project")]
@@ -150,6 +173,13 @@ public sealed class InitCommandProductionCliTests : IDisposable
               "project": "{{project}}",
               "team": "{{team}}",
               "processTemplate": "Basic",
+              "policy": {
+                "selectedProfile": {
+                  "identity": "Test.Profile",
+                  "version": "1.0"
+                },
+                "primaryScopeTypes": [ "Bug", "Task" ]
+              },
               "defaults": {
                 "areaPaths": [
                   "TestProject\\CloudVault"

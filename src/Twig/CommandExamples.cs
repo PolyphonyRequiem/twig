@@ -224,9 +224,21 @@ internal static class CommandExamples
             "twig link successor 66          Mark the active item as blocking #66",
             "twig link successor 66 --id 65  Mark #65 as blocking #66",
         ],
+        ["link related"] =
+        [
+            "twig link related 615           Relate the active item to #615",
+            "twig link related 615 --comment \"same root cause\"  Record WHY they relate",
+            "twig link related 615 --id 619  Relate #619 to #615",
+        ],
+        ["link unrelate"] =
+        [
+            "twig link unrelate 615          Remove the related link to #615",
+            "twig link unrelate 615 --id 619  Remove #619's related link to #615",
+        ],
         ["link unlink"] =
         [
             "twig link unlink predecessor 65   Remove the predecessor link to #65",
+            "twig link unlink related 615      Remove the related link to #615",
             "twig link unlink successor 66 --id 65  Remove #65's successor link to #66",
         ],
         ["link artifact"] =
@@ -239,6 +251,8 @@ internal static class CommandExamples
         [
             "twig note \"Investigated root cause\"          Add a note to the active item",
             "twig note --text \"Investigated root cause\"   The same, spelled with the option",
+            "twig note --file notes/findings.md           Read the note body from a file",
+            "cat findings.md | twig note --stdin          Read the note body from stdin",
             "twig note                                    Open editor to compose a note",
         ],
         ["update"] =
@@ -438,6 +452,36 @@ internal static class CommandExamples
         [
             "twig ohmyposh init         Output the oh-my-posh segment JSON for twig context",
             "twig ohmyposh init --output json  Same, explicitly requesting JSON output",
+        ],
+        ["plan validate"] =
+        [
+            "twig plan validate --file plan.json    Validate a plan v1 file. No ADO calls.",
+            "twig plan validate --file plan.json --output json    Validate and emit issues/digest as JSON.",
+        ],
+        ["plan preview"] =
+        [
+            "twig plan preview --file plan.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
+            "twig plan preview --file plan.json --output json    Emit machine preview for scripts.",
+        ],
+        ["plan apply"] =
+        [
+            "twig plan apply --file plan.json --confirm <digest>    Apply the plan; the digest MUST match.",
+            "twig plan apply --file plan.json --confirm <digest> --output json    Emit per-operation journal outcomes as JSON.",
+        ],
+        ["plan status"] =
+        [
+            "twig plan status --file plan.json      Show journal state for the plan's digest.",
+            "twig plan status --file plan.json --output json    Emit the journal snapshot as JSON.",
+        ],
+        ["plan seed"] =
+        [
+            "twig plan seed --id -42                Describe staged seed -42 (identity + fingerprint) for plan authoring.",
+            "twig plan seed --id -42 --output json  Emit descriptor as JSON to paste into a plan file.",
+        ],
+        ["pending"] =
+        [
+            "twig pending                           List raw staged pending changes in exact staging order.",
+            "twig pending --output json             Emit the raw pending rows as JSON — values preserved verbatim.",
         ],
     };
 

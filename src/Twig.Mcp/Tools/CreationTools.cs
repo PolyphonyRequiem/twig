@@ -146,6 +146,7 @@ public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedF
         [Description("Target work item ID")] int targetId,
         [Description("Relationship type (parent, child, related, predecessor, successor)")] string linkType,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("Why the two items are linked. Recorded on the link itself, not as a work item comment. Most valuable on 'related', where the edge otherwise asserts a relationship with no reason.")] string? comment = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -169,7 +170,7 @@ public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedF
 
         try
         {
-            await ctx.Get<IAdoWorkItemService>().AddLinkAsync(sourceId, targetId, adoLinkType, ct);
+            await ctx.Get<IAdoWorkItemService>().AddLinkWithCommentAsync(sourceId, targetId, adoLinkType, comment, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

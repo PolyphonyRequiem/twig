@@ -569,6 +569,38 @@ public sealed class McpResultBuilderTests
         root.GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    /// <summary>
+    /// AB#618: MCP gets <c>commentCount</c> too, and the divergence question is answered
+    /// deliberately rather than by default (CONTEXT.md §4 — MCP is an LLM toolkit, not a CLI
+    /// proxy, so parity is partly the wrong goal). It converges HERE because the reason for
+    /// the key is not "the CLI has it": an LLM calling <c>twig_note</c> is exactly the caller
+    /// that cannot verify its own write, and a toolkit whose mutations are unverifiable is
+    /// worse off than a CLI, not better.
+    /// </summary>
+    [Fact]
+    public void FormatWorkItem_EmitsCommentCount()
+    {
+        var item = new WorkItemBuilder(42, "Commented")
+            .WithField("System.CommentCount", "2")
+            .Build();
+
+        var root = ParseJson(McpResultBuilder.FormatWorkItem(item));
+
+        root.GetProperty("commentCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatWorkItem_EmitsZeroCommentCountWhenAbsent()
+    {
+        // Present-and-zero, never absent: an LLM must be able to tell "no comments" from
+        // "this surface does not report comments" without probing for the key.
+        var root = ParseJson(McpResultBuilder.FormatWorkItem(WorkItemBuilder.Simple(1, "Bare")));
+
+        root.TryGetProperty("commentCount", out var commentCount).ShouldBeTrue();
+        commentCount.ValueKind.ShouldBe(JsonValueKind.Number);
+        commentCount.GetInt32().ShouldBe(0);
+    }
+
     [Fact]
     public void FormatWorkItem_WithWorkspace_IncludesWorkspaceKey()
     {

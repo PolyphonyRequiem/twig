@@ -13,6 +13,52 @@ public sealed class McpResultBuilderProcessTests
 {
     // ── FormatProcessList ───────────────────────────────────────────
 
+    /// <summary>
+    /// AB#656. An agent is the consumer most likely to create a work item of a type ADO
+    /// reserves for its own tooling, so the MCP surface must carry the same distinction the
+    /// CLI does. Both a hidden and an ordinary type are asserted — a hidden-only assertion
+    /// would pass against a builder that marked everything hidden.
+    /// </summary>
+    [Fact]
+    public void FormatProcessList_CarriesHiddenAndCategoryMembership()
+    {
+        var result = McpResultBuilder.FormatProcessList([
+            new ProcessTypeRecord
+            {
+                TypeName = "Issue",
+                States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+                CategoryReferenceNames =
+                [
+                    "Microsoft.HiddenCategory",
+                    "Microsoft.BugCategory",
+                    "Microsoft.RequirementCategory",
+                ],
+            },
+            new ProcessTypeRecord
+            {
+                TypeName = "Bug",
+                States = [new StateEntry("To Do", StateCategory.Proposed, null)],
+                CategoryReferenceNames = ["Microsoft.RequirementCategory"],
+            },
+        ]);
+
+        var types = ParseJson(result).GetProperty("types").EnumerateArray().ToList();
+
+        // Ordinary types must remain represented, not filtered away.
+        types.Count.ShouldBe(2);
+
+        var issue = types.Single(t => t.GetProperty("typeName").GetString() == "Issue");
+        var bug = types.Single(t => t.GetProperty("typeName").GetString() == "Bug");
+
+        issue.GetProperty("isHidden").GetBoolean().ShouldBeTrue();
+        bug.GetProperty("isHidden").GetBoolean().ShouldBeFalse();
+
+        issue.GetProperty("categories").EnumerateArray().Select(c => c.GetString())
+            .ShouldContain("Microsoft.HiddenCategory");
+        bug.GetProperty("categories").EnumerateArray().Select(c => c.GetString())
+            .ShouldBe(["Microsoft.RequirementCategory"]);
+    }
+
     [Fact]
     public void FormatProcessList_EmptyList_ReturnsEmptyArray()
     {

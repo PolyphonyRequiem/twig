@@ -44,6 +44,10 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoCommentRequest))]
 [JsonSerializable(typeof(AdoPatchOperation))]
 [JsonSerializable(typeof(List<AdoPatchOperation>))]
+// Work item type CATEGORY DTOs (AB#656 — hidden/system type membership)
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryListResponse))]
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryResponse))]
+[JsonSerializable(typeof(AdoWorkItemTypeCategoryMemberResponse))]
 [JsonSerializable(typeof(AdoIterationListResponse))]
 [JsonSerializable(typeof(AdoIterationResponse))]
 [JsonSerializable(typeof(AdoWorkItemTypeListResponse))]
@@ -162,6 +166,25 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ReferenceProfileDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
+// Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintTuple))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentPrimaryScope))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.AttachmentActiveClaim))]
+// AB#739 claim record persistence
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.ClaimRecordDocument))]
+// AB#738 policy source
+[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
+// AB#745 transport-attachment envelope (contract §2.1) persisted at .twig/transport.json
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAttachmentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportRecordDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportWorktreeDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
+[JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -183,8 +206,10 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(SprintEntry))]
 [JsonSerializable(typeof(List<SprintEntry>))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

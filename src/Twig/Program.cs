@@ -59,10 +59,6 @@ var app = ConsoleApp.Create()
         var config = TwigConfiguration.LoadSplit(probePaths);
         services.AddConnectionServices(config, twigDir, startDir);
 
-        // ITEM-138: Migrate legacy flat twig.db → nested context path.
-        // LegacyDbMigrator is internal to CLI — must be called here, not in shared registration.
-        LegacyDbMigrator.MigrateIfNeeded(twigDir, config);
-
         // Git remote auto-detection (stays in Program.cs — runtime environment probe)
         // Start in background to overlap with other DI registrations (REVIEW-6).
         var gitProject = config.GetGitProject();
@@ -509,7 +505,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
     /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
+    /// <param name="reinitialize">Archive an existing <c>.twig/</c> tree to <c>.twig-legacy-&lt;timestamp&gt;/</c> and start clean (design §7 supported legacy recovery — no in-place migration).</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -523,7 +520,7 @@ public sealed class TwigCommands(IServiceProvider services)
             return 1;
         }
 
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, ct);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, reinitialize, ct);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
@@ -616,10 +613,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="org">Azure DevOps organization to describe instead of this workspace's. Requires --project. Reads live from ADO (announced on stderr); writes nothing.</param>
     /// <param name="project">Azure DevOps project to describe instead of this workspace's. Requires --org.</param>
-    public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, CancellationToken ct = default)
+    /// <param name="includeHidden">Include types ADO reserves for its own tooling (Code Review, Feedback, Test Case and friends). Excluded by default: they cannot be created by hand.</param>
+    public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, string? org = null, string? project = null, bool includeHidden = false, CancellationToken ct = default)
         => await ProcessOverrideHost.RunAsync(
             services, org, project,
-            sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct),
+            sp => sp.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, includeHidden, ct),
             output, ct);
 
     /// <summary>Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.</summary>
@@ -663,8 +661,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
     /// <param name="field">Set a field at creation time: fieldReferenceName=value. Repeatable. Required for types with required custom fields. Values convert Markdown only for HTML-typed fields (not affected by --format); an explicit --field System.Description overrides --description.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, ct);
+    /// <param name="descriptionFile">Read the description body from a file instead of --description.</param>
+    /// <param name="descriptionStdin">Read the description body from piped standard input.</param>
+    public async Task<int> New([Argument] string? typeArg = null, [Argument] string? titleArg = null, string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string[]? field = null, string output = OutputFormatterFactory.DefaultFormat, string? descriptionFile = null, bool descriptionStdin = false, CancellationToken ct = default)
+        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title ?? titleArg, type ?? typeArg, area, iteration, description, parent, set, editor, format, field, output, descriptionFile, descriptionStdin, ct);
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
@@ -940,8 +940,25 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkSuccessor([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().DependencyAsync(LinkTypes.Successor, targetId, id, output, ct);
 
-    /// <summary>Remove a dependency link (predecessor or successor) from a work item.</summary>
-    /// <param name="linkType">Link type to remove: predecessor or successor.</param>
+    /// <summary>Relate the active work item to another item (symmetric Related link).</summary>
+    /// <param name="targetId">Work item ID to relate this item to.</param>
+    /// <param name="comment">-c, Why the two items are related. Recorded on the link itself.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link related")]
+    public async Task<int> LinkRelated([Argument] int targetId, string? comment = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().RelatedAsync(targetId, id, comment, output, ct);
+
+    /// <summary>Remove a Related link between the active work item and another item.</summary>
+    /// <param name="targetId">Work item ID at the other end of the link.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("link unrelate")]
+    public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
+
+    /// <summary>Remove a non-hierarchy link (predecessor, successor, or related) from a work item.</summary>
+    /// <param name="linkType">Link type to remove: predecessor, successor, or related.</param>
     /// <param name="targetId">Work item ID at the other end of the link.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -976,8 +993,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="format">Convert the note text before sending. Supported: "raw" to send pre-rendered HTML or plain text unchanged; "markdown" (default) converts Markdown to HTML.</param>
-    public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, ct);
+    /// <param name="file">Read the note body from a file instead of an inline argument.</param>
+    /// <param name="stdin">Read the note body from piped standard input.</param>
+    public async Task<int> Note([Argument] string? textArg = null, string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text ?? textArg, id, output, format, file, stdin, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
@@ -1331,6 +1350,50 @@ public sealed class TwigCommands(IServiceProvider services)
             : ["--tool-profile", toolProfile];
         return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp", arguments: arguments));
     }
+
+    // ── Plan lifecycle (native) ───────────────────────────────────────
+
+    /// <summary>Validate a plan v1 file. No ADO mutation.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan validate")]
+    public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
+
+    /// <summary>Preview a plan: import journal, snapshot pending changes, report digest and canApply. No ADO mutation.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan preview")]
+    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
+
+    /// <summary>Apply a plan. Requires --confirm &lt;digest&gt; matching the current file digest exactly.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical plan bytes. Must match exactly.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan apply")]
+    public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+
+    /// <summary>Show journal state for a plan file. Exit 1 when no journal exists for its digest.</summary>
+    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan status")]
+    public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
+
+    /// <summary>Describe a staged seed (identity + fingerprint) for plan authoring.</summary>
+    /// <param name="id">Negative display alias of a currently-staged seed.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("plan seed")]
+    public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
+
+    /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("pending")]
+    public async Task<int> Pending(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PendingCommand>().ExecuteAsync(output, ct);
 }
 
 /// <summary>
@@ -1489,6 +1552,8 @@ internal static class GroupedHelp
         "link reparent",
         "link predecessor",
         "link successor",
+        "link related",
+        "link unrelate",
         "link unlink",
         "link artifact",
 
@@ -1541,6 +1606,15 @@ internal static class GroupedHelp
         "area remove",
         "area list",
         "area sync",
+
+        // Plan lifecycle (native plan v1)
+        "plan",
+        "plan validate",
+        "plan preview",
+        "plan apply",
+        "plan status",
+        "plan seed",
+        "pending",
 
         // Group prefixes for compound commands without standalone handlers
         "link",
@@ -1646,7 +1720,9 @@ Work Items:
   link reparent <id>   Remove current parent and set a new one.
   link predecessor <id>  Mark the active item as blocked by <id>.
   link successor <id>  Mark the active item as blocking <id>.
-  link unlink <type> <id>  Remove a predecessor/successor link.
+  link related <id>    Relate the active item to <id> (symmetric).
+  link unrelate <id>   Remove the related link to <id>.
+  link unlink <type> <id>  Remove a predecessor/successor/related link.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
@@ -1672,6 +1748,14 @@ Seeds:
   seed publish --all --link-branch <name>  Publish all and link to a branch.
   seed publish --all --link-branch <name> --repo <name>  Link to a branch in a specific repo.
   seed reconcile       Repair stale links after partial publishes.
+
+Plans:
+  plan validate --file <path>              Validate a plan v1 file. No ADO mutation.
+  plan preview --file <path>               Preview a plan: import journal, snapshot pending, report digest & canApply.
+  plan apply --file <path> --confirm <d>   Apply a plan; --confirm must match the current file digest exactly.
+  plan status --file <path>                Show journal state for a plan file.
+  plan seed --id <negative>                Describe a staged seed (identity + fingerprint) for plan authoring.
+  pending                                  List raw staged pending changes in exact staging order.
 
 System:
   config <key> [val]   Read or set a configuration value.

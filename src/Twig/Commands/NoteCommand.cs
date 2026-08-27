@@ -37,12 +37,14 @@ public sealed class NoteCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     NoteWorkflow noteWorkflow,
-    RendererFactory? rendererFactory = null)
+    RendererFactory? rendererFactory = null,
+    TextReader? stdinReader = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    private readonly TextReader _stdin = stdinReader ?? Console.In;
 
     /// <summary>Add a note/comment to the active work item.</summary>
-    public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -50,6 +52,37 @@ public sealed class NoteCommand(
         if (formatError is not null)
         {
             Console.Error.WriteLine(fmt.FormatError(formatError));
+            return 2;
+        }
+
+        // AB#617: --file/--stdin, with the same semantics `twig update` already has.
+        // Resolved BEFORE the active-item lookup so a caller who names two sources —
+        // or a file that does not exist — is told so even when no item is active.
+        var body = await TextBodySource.ResolveAsync(
+            text, filePath, readStdin, _stdin,
+            inlineLabel: "note text",
+            fileFlag: "--file",
+            stdinFlag: "--stdin",
+            trimTrailingNewline: format is null,
+            ct);
+        if (body.Outcome is TextBodySource.Outcome.Ambiguous or TextBodySource.Outcome.FileNotFound)
+        {
+            Console.Error.WriteLine(fmt.FormatError(body.Error!));
+            return 2;
+        }
+
+        // 🔴 An EMPTY --file or --stdin must not silently fall through to the editor.
+        // That would open an interactive editor in a pipeline — a hang, not a note —
+        // and report success for a body the caller never wrote. Checked HERE, with the
+        // other input validation, rather than after the active-item lookup: an empty
+        // --stdin is a bad invocation regardless of whether an item happens to be
+        // active, and reporting "No active work item" for it names the wrong fault.
+        if (body.Origin is TextBodySource.Origin.File or TextBodySource.Origin.Stdin
+            && string.IsNullOrWhiteSpace(body.Value))
+        {
+            Console.Error.WriteLine(fmt.FormatError(body.Origin is TextBodySource.Origin.File
+                ? $"File is empty: {filePath}"
+                : "Standard input is empty."));
             return 2;
         }
 
@@ -64,7 +97,9 @@ public sealed class NoteCommand(
             return 1;
         }
 
-        string? noteText = text;
+        // Outcome.None keeps the editor path: `twig note` with no source at all still
+        // opens an editor, which is the documented spelling.
+        string? noteText = body.Value;
 
         if (string.IsNullOrWhiteSpace(noteText))
         {

@@ -41,7 +41,10 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IGlobalProfileStore>(),
             sp.GetRequiredService<IConsoleInput>(),
-            sp.GetService<ITelemetryClient>()));
+            sp.GetService<ITelemetryClient>(),
+            sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(),
+            sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),
@@ -119,6 +122,8 @@ public static class CommandRegistrationModule
         services.AddSingleton<BenchCommand>();
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
+        services.AddSingleton<PlanCommand>();
+        services.AddSingleton<PendingCommand>();
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

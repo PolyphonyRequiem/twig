@@ -33,7 +33,6 @@ internal static class AdoResponseMapper
         IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
     {
         var fields = dto.Fields ?? new Dictionary<string, object?>();
-
         var filteredFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in fields)
         {
@@ -44,20 +43,46 @@ internal static class AdoResponseMapper
             if (value is not null) filteredFields[kvp.Key] = value;
         }
 
-        return new WorkItemSnapshot
-        {
-            Id = dto.Id,
-            Revision = dto.Rev,
-            TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
-            Title = GetStringField(fields, "System.Title") ?? string.Empty,
-            State = GetStringField(fields, "System.State") ?? string.Empty,
-            AssignedTo = ParseAssignedTo(fields),
-            IterationPath = GetStringField(fields, "System.IterationPath"),
-            AreaPath = GetStringField(fields, "System.AreaPath"),
-            ParentId = ExtractParentId(dto.Relations),
-            Fields = filteredFields,
-        };
+        return CreateSnapshot(dto, fields, filteredFields);
     }
+
+    /// <summary>
+    /// Maps a revision-specific ADO response to a complete server snapshot for runtime plan
+    /// rule evaluation. Unlike the cache projection, this preserves every non-empty field ADO
+    /// returned, including system fields excluded from local persistence.
+    /// </summary>
+    public static WorkItemSnapshot MapToAuthoritativeSnapshot(AdoWorkItemResponse dto)
+    {
+        if (dto.Fields is null || dto.Fields.Count == 0)
+            throw new InvalidOperationException(
+                $"Authoritative snapshot for work item {dto.Id} revision {dto.Rev} has no fields payload.");
+
+        var authoritativeFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in dto.Fields)
+        {
+            var value = ParseFieldValue(kvp.Value);
+            if (value is not null) authoritativeFields[kvp.Key] = value;
+        }
+
+        return CreateSnapshot(dto, dto.Fields, authoritativeFields);
+    }
+
+    private static WorkItemSnapshot CreateSnapshot(
+        AdoWorkItemResponse dto,
+        Dictionary<string, object?> fields,
+        IReadOnlyDictionary<string, string?> snapshotFields) => new()
+    {
+        Id = dto.Id,
+        Revision = dto.Rev,
+        TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
+        Title = GetStringField(fields, "System.Title") ?? string.Empty,
+        State = GetStringField(fields, "System.State") ?? string.Empty,
+        AssignedTo = ParseAssignedTo(fields),
+        IterationPath = GetStringField(fields, "System.IterationPath"),
+        AreaPath = GetStringField(fields, "System.AreaPath"),
+        ParentId = ExtractParentId(dto.Relations),
+        Fields = snapshotFields,
+    };
 
     /// <summary>
     /// Maps an ADO work item response DTO to a <see cref="WorkItemSnapshot"/> plus non-hierarchy links.
@@ -82,14 +107,25 @@ internal static class AdoResponseMapper
         {
             operations.Add(new AdoPatchOperation
             {
-                Op = "replace",
+                Op = change.NewValue is null ? "remove" : "replace",
                 Path = $"/fields/{change.FieldName}",
-                Value = change.NewValue is not null ? JsonValue.Create(change.NewValue) : null,
+                Value = change.NewValue is null ? null : JsonValue.Create(change.NewValue),
             });
         }
 
         return operations;
     }
+
+    /// <summary>
+    /// Creates the leading JSON Patch assertion ADO uses to reject a stale work-item revision.
+    /// </summary>
+    public static AdoPatchOperation CreateRevisionTest(int expectedRevision) => new()
+    {
+        Op = "test",
+        Path = "/rev",
+        Value = JsonValue.Create(expectedRevision),
+    };
+
 
     /// <summary>
     /// Fields that are handled explicitly in the create payload (Title, AreaPath, IterationPath)
@@ -362,7 +398,12 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
-    /// Parses AssignedTo which can be a string or an identity object with displayName.
+    /// Parses the <c>System.AssignedTo</c> projection as a DISPLAY NAME only.
+    /// The stable identity (<c>uniqueName</c>) does not travel through this
+    /// projection — surfaces that need it MUST read the raw identity via
+    /// <see cref="IAdoAssignedIdentityReader"/>. This split preserves the
+    /// display-name user-facing semantics AB#728 pinned while giving
+    /// AB#739's claim projection an exact-UPN read seam.
     /// </summary>
     private static string? ParseAssignedTo(Dictionary<string, object?> fields)
     {
@@ -377,18 +418,40 @@ internal static class AdoResponseMapper
             if (element.ValueKind == JsonValueKind.String)
                 return element.GetString();
 
-            // Identity object: { displayName: "...", uniqueName: "...", ... }
             if (element.ValueKind == JsonValueKind.Object)
-            {
-                if (element.TryGetProperty("displayName", out var displayName))
-                    return displayName.GetString();
-
-                if (element.TryGetProperty("uniqueName", out var uniqueName))
-                    return uniqueName.GetString();
-            }
+                return ExtractIdentityDisplayName(element);
         }
 
         return value.ToString();
+    }
+
+    /// <summary>
+    /// Extracts the stable <c>uniqueName</c> from a raw ADO
+    /// <c>System.AssignedTo</c> field value — the byte-comparable UPN
+    /// AB#739's claim projection verifies against. Returns <c>null</c> when
+    /// the response is empty, a bare string, or an identity object with no
+    /// <c>uniqueName</c> property. NEVER falls back to display comparison —
+    /// callers treat a missing uniqueName as a projection failure.
+    /// </summary>
+    internal static string? ExtractAssignedUniqueName(Dictionary<string, object?> fields)
+    {
+        if (!fields.TryGetValue("System.AssignedTo", out var value) || value is null)
+            return null;
+
+        if (value is JsonElement element)
+        {
+            if (element.ValueKind is JsonValueKind.Null or JsonValueKind.String)
+                return null;
+
+            if (element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("uniqueName", out var upn))
+            {
+                var text = upn.GetString();
+                return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            }
+        }
+
+        return null;
     }
 
 

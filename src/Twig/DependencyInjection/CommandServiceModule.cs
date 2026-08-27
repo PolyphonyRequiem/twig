@@ -72,7 +72,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<ITelemetryClient>()));
+            sp.GetService<ITelemetryClient>(),
+            AttachmentStatus: sp.GetRequiredService<IAttachmentStatusProjection>()));
 
         // EPIC-2121: StatusFieldConfigReader — encapsulates File.Exists + ReadAllTextAsync + Parse
         services.AddSingleton(sp => new StatusFieldConfigReader(

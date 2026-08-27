@@ -6,6 +6,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Boundary;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Ado;
@@ -17,7 +18,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -67,6 +68,14 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     // ── IAdoWorkItemService ─────────────────────────────────────────
 
+    public async Task<WorkItemSnapshot> FetchAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/revisions/{expectedRevision}?$expand=all&api-version={AdoApiVersions.WorkItems}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return AdoResponseMapper.MapToAuthoritativeSnapshot(dto);
+    }
+
     public async Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
@@ -75,6 +84,19 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var lookup = await GetFieldDefLookupAsync(ct);
         var snapshot = AdoResponseMapper.MapToSnapshot(dto, lookup);
         return _mapper.Map(snapshot);
+    }
+
+    // ── IAdoAssignedIdentityReader (AB#728 §identity read seam) ─────
+
+    public async Task<string?> ReadAssignedUniqueNameAsync(int workItemId, CancellationToken ct = default)
+    {
+        // Only ask for the identity field — the raw dto carries uniqueName on
+        // the identity object even though the AssignedTo projection collapses
+        // to the display name.
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?fields=System.AssignedTo&api-version={AdoApiVersions.WorkItems}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return dto.Fields is null ? null : AdoResponseMapper.ExtractAssignedUniqueName(dto.Fields);
     }
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
@@ -101,8 +123,18 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — every string field value in
+        // the outbound patch is checked for transport provenance
+        // before it can reach an ADO field-projection sink.
+        for (int i = 0; i < changes.Count; i++)
+        {
+            AdoProjectionGuard.AssertNoTransportOrigin(
+                changes[i].NewValue,
+                $"IAdoWorkItemService.PatchAsync[{changes[i].FieldName}]");
+        }
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         var patchDoc = AdoResponseMapper.MapPatchDocument(changes);
+        patchDoc.Insert(0, AdoResponseMapper.CreateRevisionTest(expectedRevision));
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
@@ -210,6 +242,10 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — a transport-origin scalar
+        // reaching the ADO comment sink raises
+        // `transport-ado-projection-forbidden` (§11).
+        AdoProjectionGuard.AssertNoTransportOrigin(text, "IAdoWorkItemService.AddCommentAsync(text)");
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/comments?api-version={AdoApiVersions.WorkItemComments}";
         var request = new AdoCommentRequest { Text = text };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoCommentRequest);
@@ -251,20 +287,40 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.WorkItems.Select(x => x.Id).ToList();
     }
 
-    public async Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+    public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+        => AddLinkWithCommentAsync(sourceId, targetId, adoLinkType, comment: null, ct);
+
+    /// <inheritdoc />
+    public async Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default)
     {
+        // §8.3 rail 3 runtime backstop — link type and comment
+        // strings are ADO-projected scalars.
+        AdoProjectionGuard.AssertNoTransportOrigin(adoLinkType, "IAdoWorkItemService.AddLinkWithCommentAsync(adoLinkType)");
+        AdoProjectionGuard.AssertNoTransportOrigin(comment, "IAdoWorkItemService.AddLinkWithCommentAsync(comment)");
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
+        var relation = new System.Text.Json.Nodes.JsonObject
+        {
+            ["rel"] = System.Text.Json.Nodes.JsonValue.Create(adoLinkType),
+            ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
+        };
+
+        // Only emit `attributes` when there is a comment: an empty attributes object is not the
+        // same request, and every existing caller must keep sending exactly what it sent before.
+        if (!string.IsNullOrWhiteSpace(comment))
+        {
+            relation["attributes"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["comment"] = System.Text.Json.Nodes.JsonValue.Create(comment),
+            };
+        }
+
         var patchDoc = new List<AdoPatchOperation>
         {
             new()
             {
                 Op = "add",
                 Path = "/relations/-",
-                Value = new System.Text.Json.Nodes.JsonObject
-                {
-                    ["rel"] = System.Text.Json.Nodes.JsonValue.Create(adoLinkType),
-                    ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
-                },
+                Value = relation,
             },
         };
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
@@ -370,6 +426,109 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         catch (AdoNotFoundException)
         {
             // 404 is treated as idempotent success — the item is already gone.
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> AddLinkAtRevisionAsync(
+        int sourceId,
+        string relationType,
+        int targetId,
+        int expectedRevision,
+        CancellationToken ct = default)
+    {
+        // Strict CAS variant of AddLinkAsync: no fetch, no ConflictRetryHelper, no rebase.
+        // ADO enforces the caller's expected revision through the leading JSON Patch test.
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            AdoResponseMapper.CreateRevisionTest(expectedRevision),
+            new()
+            {
+                Op = "add",
+                Path = "/relations/-",
+                Value = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["rel"] = System.Text.Json.Nodes.JsonValue.Create(relationType),
+                    ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
+                },
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var response = await SendAsync(HttpMethod.Patch, url, content, ifMatch: expectedRevision.ToString(), ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return dto.Rev;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RemoveLinkAtRevisionAsync(
+        int sourceId,
+        string relationType,
+        int targetId,
+        int expectedRevision,
+        CancellationToken ct = default)
+    {
+        // JSON Patch remove requires the relation's array index. ADO exposes no
+        // find-and-remove primitive, so we GET the relations to compute the index — but the
+        // GET is used ONLY for index resolution. If the fetched revision no longer matches
+        // the caller's expectation, we refuse to touch the item and surface it as a
+        // concurrency conflict; the PATCH's leading JSON Patch test independently fences
+        // the same invariant against a race after the GET.
+        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
+        using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(getResponse, ct);
+
+        if (dto.Rev != expectedRevision)
+            throw new AdoConflictException(
+                dto.Rev,
+                $"Work item #{sourceId} is at revision {dto.Rev}; expected {expectedRevision} for strict remove-link.");
+
+        var relationIndex = dto.Relations?.FindIndex(r =>
+            string.Equals(r.Rel, relationType, StringComparison.OrdinalIgnoreCase) &&
+            r.Url is not null &&
+            r.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase)) ?? -1;
+
+        if (relationIndex < 0)
+            throw new AdoRelationNotFoundException(sourceId, relationType, targetId, expectedRevision);
+
+        var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            AdoResponseMapper.CreateRevisionTest(expectedRevision),
+            new()
+            {
+                Op = "remove",
+                Path = $"/relations/{relationIndex}",
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var patchResponse = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: expectedRevision.ToString(), ct);
+        var patched = await DeserializeWorkItemAsync(patchResponse, ct);
+        return patched.Rev;
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
+    {
+        // Strict CAS delete: expected revision as If-Match, no refetch, no retry. Exactly
+        // one HTTP DELETE is issued — the auth-retry-on-empty-body branch in SendAsync is
+        // suppressed here so a 401/203 challenge surfaces immediately instead of racing a
+        // second delete against a possibly-mutated item. 404 is idempotent success — a
+        // delete whose goal state is 'gone' has succeeded when the item is already gone.
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
+        try
+        {
+            using var _ = await SendAsync(
+                HttpMethod.Delete, url, content: null, ifMatch: expectedRevision.ToString(), ct,
+                allowAuthRetry: false);
+        }
+        catch (AdoNotFoundException)
+        {
+            // Item already gone — idempotent success.
         }
     }
 
@@ -609,13 +768,14 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         string url,
         HttpContent? content,
         string? ifMatch,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowAuthRetry = true)
     {
         try
         {
             return await SendCoreAsync(method, url, content, ifMatch, ct);
         }
-        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        catch (Exception ex) when (allowAuthRetry && AdoErrorHandler.IsAuthChallenge(ex))
         {
             _authProvider.InvalidateToken();
             // Only retry when there's no body content — HttpRequestMessage.Dispose()

@@ -24,6 +24,10 @@ public class InitCommandTests : IDisposable
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
+    private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry _systemRegistry;
+    private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource _profileRegistry;
+    private readonly bool _gitAvailable;
+
     public InitCommandTests()
     {
         _testDir = Path.Combine(Path.GetTempPath(), $"twig-init-test-{Guid.NewGuid():N}");
@@ -52,13 +56,32 @@ public class InitCommandTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
 
-        // TwigPaths with a flat dbPath — InitCommand derives its own context paths.
-        // startDir is set explicitly so InitCommand targets _testDir, not the test runner's CWD.
+        // AB#728 §6.3: root detection runs first, so the test root MUST be a
+        // real git worktree — otherwise every test hits the fail-closed
+        // 'not-a-git-worktree' refusal instead of exercising the intended
+        // behavior. The system registry + profile registry are also required
+        // (a null profile registry surfaces selected-profile-unavailable).
+        _gitAvailable = InitCommandTestFixture.InitTempWorktree(_testDir);
+        (_systemRegistry, _profileRegistry) = InitCommandTestFixture.CreateSeams(_testDir);
+
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
+
+    private InitCommand CreateInitCommand(
+        IIterationService iterationService,
+        TwigPaths paths,
+        OutputFormatterFactory formatterFactory,
+        HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
+        ITelemetryClient? telemetryClient = null)
+        => InitCommandTestFixture.CreateInitCommand(
+            _systemRegistry, _profileRegistry,
+            iterationService, paths, formatterFactory, hintEngine,
+            globalProfileStore, consoleInput, telemetryClient);
     public void Dispose()
     {
         try
@@ -74,7 +97,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_CreatesTwigDirectory()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -85,7 +108,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_WritesConfigFile()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -99,7 +122,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_CreatesGitignore_WhenMissing()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var originalCwd = Directory.GetCurrentDirectory();
         Directory.SetCurrentDirectory(_testDir);
 
@@ -120,7 +143,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_AppendsToGitignore_WhenExists()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var gitignorePath = Path.Combine(_testDir, ".gitignore");
         await File.WriteAllTextAsync(gitignorePath, "node_modules/\n");
         var originalCwd = Directory.GetCurrentDirectory();
@@ -143,7 +166,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_SkipsGitignoreEntry_WhenAlreadyPresent()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var gitignorePath = Path.Combine(_testDir, ".gitignore");
         await File.WriteAllTextAsync(gitignorePath, ".twig/\n");
         var originalCwd = Directory.GetCurrentDirectory();
@@ -167,7 +190,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_WithTeam_PersistsTeamInConfig()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", team: "Z Team");
 
@@ -180,7 +203,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_WithoutTeam_PersistsEmptyTeamInConfig()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -204,7 +227,7 @@ public class InitCommandTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode prompt → default (sprint), Preference prompt → "2" (area paths only)
         consoleInput.ReadLine().Returns("", "2");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -234,7 +257,7 @@ public class InitCommandTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Mode prompt → default, Preference prompt → "2" (area paths only — exercises area detection path)
         consoleInput.ReadLine().Returns("", "2");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -257,7 +280,7 @@ public class InitCommandTests : IDisposable
         await partialConfig.SaveSplitAsync(contextPaths);
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync(org, project);
 
@@ -269,7 +292,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_ReturnsError_WhenContextAlreadyInitialized()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var firstResult = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
@@ -282,7 +305,7 @@ public class InitCommandTests : IDisposable
     public async Task Init_Force_ReinitializesExistingWorkspace()
     {
         Directory.CreateDirectory(_twigDir);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", force: true);
 
@@ -297,7 +320,7 @@ public class InitCommandTests : IDisposable
         const string project = "MyProject";
 
         // First init to create the workspace and database
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync(org, project);
         result.ShouldBe(0);
 
@@ -319,7 +342,7 @@ public class InitCommandTests : IDisposable
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
         // Re-init with --force — this deletes and recreates the database
-        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd2 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result2 = await cmd2.ExecuteAsync(org, project, force: true);
         result2.ShouldBe(0);
 
@@ -345,7 +368,7 @@ public class InitCommandTests : IDisposable
         const string org = "https://dev.azure.com/org";
         const string project = "MyProject";
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         (await cmd.ExecuteAsync(org, project)).ShouldBe(0);
 
         var dbPath = TwigPaths.GetContextDbPath(_twigDir, org, project);
@@ -356,7 +379,7 @@ public class InitCommandTests : IDisposable
         }
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
-        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd2 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd2.ExecuteAsync(org, project, force: true);
 
         result.ShouldBe(1, "a non-empty pending set must refuse the reinit, not warn past it");
@@ -381,7 +404,7 @@ public class InitCommandTests : IDisposable
         const string org = "https://dev.azure.com/org";
         const string project = "MyProject";
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         (await cmd.ExecuteAsync(org, project)).ShouldBe(0);
 
         var dbPath = TwigPaths.GetContextDbPath(_twigDir, org, project);
@@ -390,7 +413,7 @@ public class InitCommandTests : IDisposable
 
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
 
-        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd2 = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         (await cmd2.ExecuteAsync(org, project, force: true)).ShouldBe(0);
 
         File.Exists(pendingDbPath).ShouldBeTrue("pending.db is never deleted by --force");
@@ -403,7 +426,7 @@ public class InitCommandTests : IDisposable
         // SQLite cache, NOT in .twig/config. Init populates the cache via
         // ProcessTypeSyncService; the config file no longer carries the
         // 60-line typeAppearances array.
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -478,7 +501,7 @@ public class InitCommandTests : IDisposable
                 },
             });
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync(org, project);
 
         result.ShouldBe(0);
@@ -512,7 +535,7 @@ public class InitCommandTests : IDisposable
         _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("API unavailable"));
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         // Should succeed despite API failure for new endpoints
@@ -525,7 +548,7 @@ public class InitCommandTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("Process config unavailable"));
 
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         // Should succeed despite process config API failure
@@ -533,12 +556,14 @@ public class InitCommandTests : IDisposable
     }
 
     /// <summary>
-    /// Regression test: when a repo lives under a directory that already has a .twig/
-    /// ancestor (e.g., ~/projects/repo where ~/.twig exists), twig init should create
-    /// .twig/ in the current directory, not reuse the ancestor's workspace.
+    /// AB#728 §6.3: strict init refuses to reuse or write into an
+    /// ancestor's <c>.twig/</c>. When the invocation directory is not the
+    /// git worktree root (or when it is not a git worktree at all), init
+    /// MUST fail closed and leave both the invocation directory and the
+    /// ancestor untouched.
     /// </summary>
     [Fact]
-    public async Task Init_IgnoresAncestorTwigDir_CreatesInStartDir()
+    public async Task Init_RefusesWhenInvocationDirIsNotWorktreeRoot()
     {
         // Simulate: parent has .twig/ already (like ~/.twig)
         var parentDir = Path.Combine(Path.GetTempPath(), $"twig-walkup-parent-{Guid.NewGuid():N}");
@@ -549,8 +574,6 @@ public class InitCommandTests : IDisposable
 
         try
         {
-            // TwigPaths simulates what Program.cs would do after walk-up discovery:
-            // TwigDir points to the ancestor's .twig/, but StartDir is the child repo.
             var childTwigDir = Path.Combine(childDir, ".twig");
             var paths = new TwigPaths(
                 parentTwigDir,
@@ -558,13 +581,16 @@ public class InitCommandTests : IDisposable
                 Path.Combine(parentTwigDir, "twig.db"),
                 startDir: childDir);
 
-            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var cmd = CreateInitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
-            result.ShouldBe(0);
-            // .twig/ should be created in the child dir, not reuse parent's
-            Directory.Exists(childTwigDir).ShouldBeTrue("Should create .twig in StartDir");
-            File.Exists(Path.Combine(childTwigDir, "config")).ShouldBeTrue("Config should be in child .twig");
+            // childDir is not a git worktree at all → fail-closed.
+            result.ShouldBe(1, "Not a git worktree at invocation directory — must refuse.");
+            Directory.Exists(childTwigDir).ShouldBeFalse("No .twig may be created in the invocation directory.");
+            // The ancestor's .twig/ is untouched too — nothing was written
+            // there by this refused run.
+            Directory.EnumerateFileSystemEntries(parentTwigDir).ShouldBeEmpty(
+                "Refused init MUST leave the ancestor's .twig/ untouched.");
         }
         finally
         {
@@ -583,7 +609,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns(""); // empty = Enter
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -599,7 +625,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("sprint");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -615,7 +641,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("workspace");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -630,7 +656,7 @@ public class InitCommandTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(true); // non-TTY
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -639,85 +665,18 @@ public class InitCommandTests : IDisposable
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
-    // --- .git warning tests ---
-
-    [Fact]
-    public async Task Init_GitWarning_Aborts_WhenUserDeclinesWithN()
-    {
-        // No .git directory in _testDir
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        consoleInput.ReadLine().Returns("N");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(1);
-        Directory.Exists(_twigDir).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_Aborts_WhenUserPressesEnter()
-    {
-        // No .git directory in _testDir — Enter means default N
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_Continues_WhenUserEntersY()
-    {
-        // No .git directory, but user confirms with 'y'
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(false);
-        // First ReadLine for git warning → "y", second for mode prompt → ""
-        consoleInput.ReadLine().Returns("y", "");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_SkippedInNonTTY()
-    {
-        // No .git directory, but non-TTY — should skip warning and proceed
-        var consoleInput = Substitute.For<IConsoleInput>();
-        consoleInput.IsOutputRedirected.Returns(true);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task Init_GitWarning_SkippedWhenNoConsoleInput()
-    {
-        // No .git directory, no consoleInput (null) — should skip warning and proceed
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
-
-        result.ShouldBe(0);
-        Directory.Exists(_twigDir).ShouldBeTrue();
-    }
+    // AB#728 §6.3: the "no .git" scenarios are covered by the strict
+    // invalid-root refusal path in Ab728InitRollbackTests
+    // (Init_refuses_and_writes_no_state_when_invocation_directory_is_not_a_git_worktree).
+    // The interactive git-warning prompt was removed with the fail-closed
+    // root check, so the GitWarning_* fixtures that lived here are gone.
 
     // --- --sprint / --area flag tests ---
 
     [Fact]
     public async Task Init_SprintFlag_AddsSingleExpression()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
@@ -731,7 +690,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_SprintFlag_AddsMultipleExpressions()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current;@current-1");
 
@@ -746,7 +705,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_SprintFlag_RejectsInvalidExpression()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@invalid");
 
@@ -756,7 +715,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_AreaFlag_AddsSinglePath()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA");
 
@@ -774,7 +733,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_AreaFlag_AddsMultiplePaths()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA;MyProject\TeamB");
 
@@ -789,7 +748,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_AreaFlag_SupportsExactSuffix()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA:exact");
 
@@ -804,7 +763,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_AreaFlag_RejectsInvalidPath()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: "");
 
@@ -815,7 +774,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_BothFlags_ConfigureSprintAndArea()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: "@current", area: @"MyProject\TeamA");
@@ -839,7 +798,7 @@ public class InitCommandTests : IDisposable
             {
                 ("MyProject\\AutoTeam", true)
             });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             area: @"MyProject\ManualTeam");
@@ -855,7 +814,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_SprintFlag_AcceptsAbsolutePath()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             sprint: @"MyProject\Sprint 5");
@@ -879,7 +838,7 @@ public class InitCommandTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // First ReadLine for mode prompt → "", second for preference prompt → "1"
         consoleInput.ReadLine().Returns("", "1");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -900,7 +859,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("", "2");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -921,7 +880,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("", "3");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -944,7 +903,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("", "4");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -964,7 +923,7 @@ public class InitCommandTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Both prompts get "" (Enter)
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -982,7 +941,7 @@ public class InitCommandTests : IDisposable
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(true);
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -1003,7 +962,7 @@ public class InitCommandTests : IDisposable
         consoleInput.IsOutputRedirected.Returns(false);
         // Only one ReadLine for mode prompt; preference prompt should be skipped
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
@@ -1024,7 +983,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\ManualTeam");
 
@@ -1047,7 +1006,7 @@ public class InitCommandTests : IDisposable
         var consoleInput = Substitute.For<IConsoleInput>();
         consoleInput.IsOutputRedirected.Returns(false);
         consoleInput.ReadLine().Returns("", "xyz");
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -1062,7 +1021,7 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_NonInteractive_StartsEmpty_NoAreaPaths_NoSprints()
     {
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -1080,7 +1039,7 @@ public class InitCommandTests : IDisposable
         // Even when the API would return area paths, non-interactive mode skips detection
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -1098,7 +1057,7 @@ public class InitCommandTests : IDisposable
     {
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
@@ -1118,7 +1077,7 @@ public class InitCommandTests : IDisposable
     {
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\AutoTeam", true) });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
             area: @"MyProject\ManualTeam");

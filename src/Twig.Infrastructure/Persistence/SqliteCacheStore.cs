@@ -23,13 +23,24 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 9;
+    internal const int DurableSchemaVersion = 10;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
 
+    /// <summary>
+    /// The durable schema version that introduced <c>active_context</c> (AB#688). Gating the
+    /// one-off pointer rescue on the version that created the table keeps it running exactly
+    /// once, even though the migration DDL itself is <c>IF NOT EXISTS</c>-idempotent.
+    /// </summary>
+    private const int ActiveContextMigration = 10;
+
     private readonly SqliteConnection _connection;
+    private readonly TextWriter? _noticeWriter;
     private bool _schemaRebuilt;
+    private bool _mirrorWasReset;
+    private int? _resetFromVersion;
+    private int _resetSeedCount;
 
     static SqliteCacheStore()
     {
@@ -58,21 +69,48 @@ public sealed class SqliteCacheStore : IDisposable
     }
 
     /// <summary>
-    /// Opens (or creates) the SQLite database at the given connection string.
-    /// Enables WAL mode, attaches the durable store, checks schema version, and creates/rebuilds
-    /// tables as needed. Wraps open in try-catch for corruption detection (FM-008).
+    /// Opens (or creates) the SQLite database at the given connection string without a reset
+    /// notice sink — equivalent to passing <see langword="null"/> to
+    /// <see cref="SqliteCacheStore(string, TextWriter?)"/>.
     /// </summary>
     /// <param name="connectionString">SQLite connection string (e.g., "Data Source=.twig/twig.db" or "Data Source=:memory:").</param>
     public SqliteCacheStore(string connectionString)
+        : this(connectionString, null)
     {
+    }
+
+    /// <summary>
+    /// Opens (or creates) the SQLite database at the given connection string.
+    /// Enables WAL mode, attaches and migrates the durable store, then checks the mirror's
+    /// schema version and creates/rebuilds its tables as needed. Wraps open in try-catch for
+    /// corruption detection (FM-008).
+    /// </summary>
+    /// <param name="connectionString">SQLite connection string (e.g., "Data Source=.twig/twig.db" or "Data Source=:memory:").</param>
+    /// <param name="noticeWriter">
+    /// AB#688. Where a mirror <b>reset</b> announces itself. A reset is not silent-safe: it
+    /// discards every cached work item, edge, verification marker and freshness stamp, so the
+    /// user has to be told what went and how to get it back. <see langword="null"/> (the
+    /// default overload) keeps the store quiet, which is what tests and benchmarks want.
+    /// </param>
+    public SqliteCacheStore(string connectionString, TextWriter? noticeWriter)
+    {
+        _noticeWriter = noticeWriter;
         _connection = new SqliteConnection(connectionString);
         try
         {
             _connection.Open();
             EnableWalMode();
             AttachDurableStore();
-            EnsureSchema();
+            // AB#688: the durable store is migrated BEFORE the mirror is touched, for two
+            // reasons. (1) Durable migration 10 rescues the active-item pointer out of the
+            // mirror's `context` table, which EnsureSchema is about to drop — after the drop
+            // there is nothing left to rescue. (2) A durable migration that fails now fails
+            // LOUDLY with the mirror still intact, rather than after it has been destroyed.
+            // Durable migrations only ever write schema-qualified `pending.*` tables, so
+            // running them against a not-yet-rebuilt mirror is safe.
             EnsureDurableSchema();
+            EnsureSchema();
+            AnnounceMirrorReset();
         }
         catch (SqliteException ex)
         {
@@ -165,15 +203,129 @@ public sealed class SqliteCacheStore : IDisposable
 
     private void EnsureSchema()
     {
-        if (!SchemaExists() || !SchemaVersionMatches())
+        if (SchemaExists() && SchemaVersionMatches())
+            return;
+
+        // AB#688. A rebuild is two different events wearing one name, and only one of them is
+        // worth interrupting somebody about:
+        //   CREATE — nothing was there, nothing is lost.
+        //   RESET  — a populated mirror is about to be dropped on the floor.
+        // Announcing a "your cache was discarded" warning on a first `twig init` would train
+        // the reader to ignore the one message that matters, so the distinction is drawn here
+        // and carried to AnnounceMirrorReset.
+        _mirrorWasReset = MirrorHasAnyTable();
+        _resetFromVersion = _mirrorWasReset ? ReadMirrorSchemaVersion() : null;
+        // Counted BEFORE the drop, because afterwards there is nothing left to count. Seed
+        // records live only in the mirror's work_items, so a reset destroys local work ADO has
+        // never seen and `twig sync` cannot rebuild — the one loss here with no recovery path.
+        _resetSeedCount = _mirrorWasReset ? CountMirrorSeeds() : 0;
+
+        GuardLegacyPendingSet();
+        DropAllTables();
+        DropLegacyDurableTables();
+        CreateSchema();
+        WriteSchemaVersion();
+        _schemaRebuilt = true;
+    }
+
+    /// <summary>
+    /// Whether the mirror held anything at all before the rebuild. Deliberately broader than
+    /// <see cref="SchemaExists"/>: a mirror whose <c>metadata</c> table went missing but whose
+    /// <c>work_items</c> rows survived still loses real data on rebuild.
+    /// </summary>
+    private bool MirrorHasAnyTable()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1;";
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    private int? ReadMirrorSchemaVersion()
+    {
+        if (!SchemaExists())
+            return null;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+        return cmd.ExecuteScalar() is string raw && int.TryParse(raw, out var version) ? version : null;
+    }
+
+    /// <summary>
+    /// AB#688. Says out loud that the mirror was reset, what went with it, and how to get it
+    /// back.
+    /// <para>
+    /// The reset used to be entirely silent. <see cref="SchemaWasRebuilt"/> existed but was read
+    /// by no production code — and could not usefully be: twig builds a throwaway
+    /// <see cref="SqliteCacheStore"/> during startup to hydrate the theme, so on an upgraded
+    /// workspace the rebuild happens on an instance that is disposed before any command runs and
+    /// the injected store truthfully reports <see langword="false"/>. Announcing at the moment of
+    /// the reset is the only placement that cannot miss it.
+    /// </para>
+    /// </summary>
+    private void AnnounceMirrorReset()
+    {
+        if (!_mirrorWasReset || _noticeWriter is null)
+            return;
+
+        var from = _resetFromVersion?.ToString() ?? "an older version";
+        _noticeWriter.WriteLine(
+            $"\u26a0 The twig cache was rebuilt for a new schema ({from} \u2192 {SchemaVersion}).");
+        _noticeWriter.WriteLine(
+            "  Discarded: cached work items, links, link verification markers, navigation history, and cache freshness.");
+
+        if (_resetSeedCount > 0)
+            _noticeWriter.WriteLine(
+                $"  \u26a0 {_resetSeedCount} unpublished seed(s) went with it. ADO has never seen them, " +
+                "so 'twig sync' cannot bring them back.");
+
+        // The kept list is read back from the durable store rather than asserted from a fixed
+        // sentence. A hard-coded list is a claim nobody re-checks, and it is exactly how this
+        // ticket's own bug reads one layer up: confidently reporting something you did not look at.
+        var active = ReadDurableActiveWorkItemId();
+        _noticeWriter.WriteLine(active is int id
+            ? $"  Kept: the active work item (#{id}), pending changes, benches, and the change-proposal journal."
+            : "  Kept: pending changes, benches, and the change-proposal journal.");
+
+        _noticeWriter.WriteLine("  Run 'twig sync' to repopulate the cache.");
+
+        if (active is null)
+            _noticeWriter.WriteLine("  No active work item survived — set one again with 'twig set <id>'.");
+    }
+
+    /// <summary>
+    /// How many unpublished seeds the mirror is about to lose.
+    /// <para>
+    /// Shape-guarded for the same reason the pointer rescue is: a partial or hand-built mirror
+    /// can carry a <c>work_items</c> table with no <c>is_seed</c> column, and SQLite fails to
+    /// PREPARE against a missing column — which would turn a diagnostic count into a failure to
+    /// open the cache at all.
+    /// </para>
+    /// </summary>
+    private int CountMirrorSeeds()
+    {
+        if (!MirrorTableExists("work_items"))
+            return 0;
+
+        using (var shape = _connection.CreateCommand())
         {
-            GuardLegacyPendingSet();
-            DropAllTables();
-            DropLegacyDurableTables();
-            CreateSchema();
-            WriteSchemaVersion();
-            _schemaRebuilt = true;
+            shape.CommandText =
+                "SELECT COUNT(*) FROM pragma_table_info('work_items') WHERE name = 'is_seed';";
+            if (Convert.ToInt32(shape.ExecuteScalar()) != 1)
+                return 0;
         }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM main.work_items WHERE is_seed = 1;";
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    private int? ReadDurableActiveWorkItemId()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"SELECT work_item_id FROM {DurableSchema}.active_context WHERE id = 1;";
+        var value = cmd.ExecuteScalar();
+        return value is null or DBNull ? null : Convert.ToInt32(value);
     }
 
     /// <summary>
@@ -188,7 +340,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// </summary>
     private void GuardLegacyPendingSet()
     {
-        if (!LegacyMirrorTableExists("pending_changes"))
+        if (!MirrorTableExists("pending_changes"))
             return;
 
         using var cmd = _connection.CreateCommand();
@@ -221,7 +373,7 @@ public sealed class SqliteCacheStore : IDisposable
         }
     }
 
-    private bool LegacyMirrorTableExists(string table)
+    private bool MirrorTableExists(string table)
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT name FROM main.sqlite_master WHERE type='table' AND name=@name;";
@@ -260,6 +412,14 @@ public sealed class SqliteCacheStore : IDisposable
                 cmd.ExecuteNonQuery();
             }
 
+            // AB#688. The pointer rescue cannot live in the migration SQL: on a brand-new
+            // database the mirror's `context` table does not exist yet, and SQLite fails to
+            // PREPARE a statement naming a missing table, so the whole migration batch would
+            // throw before creating anything. It is therefore a guarded step, inside the same
+            // transaction, gated on the pre-migration version so it runs exactly once.
+            if (from < ActiveContextMigration)
+                RescueActiveWorkItemPointer(tx);
+
             using (var versionCmd = _connection.CreateCommand())
             {
                 versionCmd.Transaction = tx;
@@ -281,6 +441,57 @@ public sealed class SqliteCacheStore : IDisposable
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = $"PRAGMA {DurableSchema}.user_version;";
         return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// AB#688. Carries the active-item pointer across the mirror/durable split, once.
+    /// <para>
+    /// Runs inside <see cref="EnsureDurableSchema"/>'s transaction and before
+    /// <see cref="EnsureSchema"/> drops the mirror, so the value is read while it still exists.
+    /// A store with no mirror <c>context</c> table — or with a same-named table of a shape this
+    /// rescue does not recognise — has nothing to carry and quietly does nothing.
+    /// </para>
+    /// </summary>
+    private void RescueActiveWorkItemPointer(SqliteTransaction tx)
+    {
+        if (!MirrorContextTableCarriesKeyValue())
+            return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        // INSERT OR IGNORE, not REPLACE: a durable pointer already written by this binary is
+        // newer than anything left in the mirror, and must win.
+        cmd.CommandText = $"""
+            INSERT OR IGNORE INTO {DurableSchema}.active_context (id, work_item_id, set_at)
+            SELECT 1, CAST(value AS INTEGER), @now
+            FROM main.context
+            WHERE key = 'active_work_item_id' AND CAST(value AS INTEGER) <> 0;
+            """;
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Whether the mirror's <c>context</c> table is really the key/value table this rescue reads.
+    /// <para>
+    /// A pre-rebuild mirror is not guaranteed to hold <i>our</i> shape: a partially-created or
+    /// hand-built database can carry a <c>context</c> table with only a <c>key</c> column, and
+    /// SQLite fails to PREPARE a statement naming a missing column. Without this check, a
+    /// best-effort pointer rescue turns into a hard failure to open the cache at all — the exact
+    /// class of collateral damage AB#688 is about.
+    /// </para>
+    /// </summary>
+    private bool MirrorContextTableCarriesKeyValue()
+    {
+        if (!MirrorTableExists("context"))
+            return false;
+
+        // Unqualified pragma_table_info resolves against main, which is the schema in question;
+        // there is no `pending.context` for it to pick up instead.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM pragma_table_info('context') WHERE name IN ('key', 'value');";
+        return Convert.ToInt32(cmd.ExecuteScalar()) == 2;
     }
 
     /// <summary>
@@ -613,6 +824,35 @@ public sealed class SqliteCacheStore : IDisposable
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN rationale TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN review_model_json TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorized_at TEXT;
+            """,
+
+        // AB#688 — the active-item pointer moves into the store a SchemaVersion bump cannot
+        // reach.
+        //
+        // WHY DURABLE by 0005's test ("can ADO rebuild it?"): no. Which item the person is
+        // standing on is theirs; ADO has never heard of it. It is the same class of fact as
+        // `current_bench`, and migration 5 above already argued this exact case — then left
+        // `active_work_item_id` alone as "Context work on its own schedule". This is that
+        // schedule. Leaving it in the mirror made a `twig set` silently evaporate mid-session
+        // on the very SchemaVersion bump that shipped AB#831, with no warning and no hint.
+        //
+        // 🔴 ONLY THE POINTER MOVES, and the rest of `context` stays disposable on purpose.
+        // `last_refreshed_at` and the navigation cursor describe the mirror, so they MUST die
+        // with it: a freshness stamp that outlived the data it describes would report a current
+        // cache while the cache is empty — the same "answers confidently about something it does
+        // not know" failure AB#831 just removed from the link cache. Durability is not a reward
+        // for being useful; it is an answer to "can ADO rebuild it?".
+        //
+        // Single row pinned by `CHECK (id = 1)`, matching `current_bench`: "the active item" is
+        // one fact, and a table that could hold two rows would need a rule elsewhere to decide
+        // which one wins. `work_item_id` is NULLABLE so that clearing the pointer is a value
+        // rather than a missing row a reader has to interpret.
+        [10] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.active_context (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                work_item_id INTEGER,
+                set_at TEXT NOT NULL
+            );
             """,
 
     };

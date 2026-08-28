@@ -36,7 +36,10 @@ if (File.Exists(tempPaths.DbPath))
 {
     try
     {
-        using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore($"Data Source={tempPaths.DbPath}");
+        // AB#688: like the CLI's startup probe, this can be the store that actually performs a
+        // mirror reset, so it is also what has to announce it.
+        using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore(
+            $"Data Source={tempPaths.DbPath}", Console.Error);
         var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
         var records = await processTypeStore.GetAllAsync();
         config.TypeAppearances = records

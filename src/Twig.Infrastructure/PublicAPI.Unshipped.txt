@@ -21,6 +21,7 @@ Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.C
 Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void
+Twig.Infrastructure.Persistence.SqliteCacheStore.SqliteCacheStore(string! connectionString, System.IO.TextWriter? noticeWriter) -> void
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.CompleteAsync(string! digest, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset completedAt, string? error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

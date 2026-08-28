@@ -5,11 +5,17 @@ namespace Twig.Infrastructure.Persistence;
 
 /// <summary>
 /// SQLite-backed implementation of <see cref="IContextStore"/>.
-/// Uses INSERT OR REPLACE on the context table for key-value storage.
+/// <para>
+/// AB#688: the storage is <b>split by durability</b>, not by convenience. The active-item
+/// pointer lives in the durable store's single-row <c>active_context</c> table, because ADO
+/// cannot rebuild "which item is this workspace standing on" and a mirror rebuild was silently
+/// erasing it. The arbitrary key/value surface stays on the disposable mirror's <c>context</c>
+/// table, because everything it holds — <c>last_refreshed_at</c>, the navigation cursor —
+/// describes the mirror and must reset with it.
+/// </para>
 /// </summary>
 public sealed class SqliteContextStore : IContextStore
 {
-    private const string ActiveWorkItemKey = "active_work_item_id";
     private readonly SqliteCacheStore _store;
 
     public SqliteContextStore(SqliteCacheStore store)
@@ -19,23 +25,40 @@ public sealed class SqliteContextStore : IContextStore
 
     public Task<int?> GetActiveWorkItemIdAsync(CancellationToken ct = default)
     {
-        var value = GetValue(ActiveWorkItemKey);
-        if (value is not null && int.TryParse(value, out var id))
-        {
-            return Task.FromResult<int?>(id);
-        }
-        return Task.FromResult<int?>(null);
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            $"SELECT work_item_id FROM {SqliteCacheStore.DurableSchema}.active_context WHERE id = 1;";
+        var result = cmd.ExecuteScalar();
+        return Task.FromResult(result is null or DBNull ? null : (int?)Convert.ToInt32(result));
     }
 
     public Task SetActiveWorkItemIdAsync(int id, CancellationToken ct = default)
     {
-        SetValue(ActiveWorkItemKey, id.ToString());
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            INSERT OR REPLACE INTO {SqliteCacheStore.DurableSchema}.active_context (id, work_item_id, set_at)
+            VALUES (1, @id, @now);
+            """;
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.ExecuteNonQuery();
         return Task.CompletedTask;
     }
 
     public Task ClearActiveWorkItemIdAsync(CancellationToken ct = default)
     {
-        DeleteKey(ActiveWorkItemKey);
+        // The row is kept and the pointer nulled rather than deleted: "no active item" is then a
+        // value a reader can see, not an absent row it has to interpret.
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            INSERT OR REPLACE INTO {SqliteCacheStore.DurableSchema}.active_context (id, work_item_id, set_at)
+            VALUES (1, NULL, @now);
+            """;
+        cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.ExecuteNonQuery();
         return Task.CompletedTask;
     }
 
@@ -54,7 +77,7 @@ public sealed class SqliteContextStore : IContextStore
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT value FROM context WHERE key = @key;";
+        cmd.CommandText = "SELECT value FROM main.context WHERE key = @key;";
         cmd.Parameters.AddWithValue("@key", key);
         var result = cmd.ExecuteScalar();
         return result as string;
@@ -64,18 +87,9 @@ public sealed class SqliteContextStore : IContextStore
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT OR REPLACE INTO context (key, value) VALUES (@key, @value);";
+        cmd.CommandText = "INSERT OR REPLACE INTO main.context (key, value) VALUES (@key, @value);";
         cmd.Parameters.AddWithValue("@key", key);
         cmd.Parameters.AddWithValue("@value", value);
-        cmd.ExecuteNonQuery();
-    }
-
-    private void DeleteKey(string key)
-    {
-        var conn = _store.GetConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM context WHERE key = @key;";
-        cmd.Parameters.AddWithValue("@key", key);
         cmd.ExecuteNonQuery();
     }
 }

@@ -89,7 +89,8 @@ public static class TwigServiceRegistration
                 throw new WorkspaceNotFoundException();
 
             Directory.CreateDirectory(Path.GetDirectoryName(paths.DbPath)!);
-            return new SqliteCacheStore($"Data Source={paths.DbPath}");
+            // AB#688: a mirror reset announces itself on stderr rather than vanishing silently.
+            return new SqliteCacheStore($"Data Source={paths.DbPath}", Console.Error);
         });
 
         services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));

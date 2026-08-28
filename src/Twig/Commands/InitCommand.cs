@@ -300,7 +300,8 @@ public sealed class InitCommand
                 var pendingCount = 0;
                 try
                 {
-                    using var probe = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
+                    using var probe = new Infrastructure.Persistence.SqliteCacheStore(
+                        $"Data Source={contextPaths.DbPath}", Console.Error);
                     var conn = probe.GetConnection();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";
@@ -564,7 +565,8 @@ public sealed class InitCommand
             await config.SaveSplitAsync(contextPaths, ct);
 
         // Initialize SQLite cache in context-specific path and persist process type data
-        using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
+        using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore(
+            $"Data Source={contextPaths.DbPath}", Console.Error);
 
         // Fetch state sequences and process configuration for all types
         Console.WriteLine("Fetching type state sequences...");

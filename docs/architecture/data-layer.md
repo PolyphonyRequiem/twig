@@ -27,18 +27,30 @@ single `SqliteConnection` for the CLI invocation. On construction it:
 
 1. Opens the connection and enables **WAL journal mode** (`PRAGMA journal_mode=WAL`).
 2. Sets a **busy timeout of 5 000 ms** (`PRAGMA busy_timeout=5000`).
-3. Calls `EnsureSchema()` to check or rebuild the schema.
+3. Calls `EnsureDurableSchema()` to migrate the durable store, then `EnsureSchema()` to check
+   or rebuild the disposable mirror — in that order, so a durable migration can read the mirror
+   before it is dropped and so a durable failure aborts with the mirror still intact.
 
 WAL mode allows concurrent readers without blocking writes — important when the MCP
 server and CLI are running against the same database file.
 
 ### Schema Versioning
 
-Twig uses a **drop-and-recreate** strategy instead of incremental migrations. The
-compiled-in constant `SqliteCacheStore.SchemaVersion` (currently **9**) is compared
-against the value in the `metadata` table. If the version differs or the table is
-missing, all tables are dropped and re-created from the DDL string. The
-`SchemaWasRebuilt` property signals to callers that a full re-sync is needed.
+Twig uses a **drop-and-recreate** strategy for the disposable mirror and **additive migrations**
+for the durable store. The compiled-in constant `SqliteCacheStore.SchemaVersion` is compared
+against the value in the `metadata` table; if the version differs or the table is missing, every
+mirror table is dropped and re-created from the DDL string. `DurableSchemaVersion` versions the
+attached `pending` schema independently, and that store is **never** dropped.
+
+A rebuild is two events wearing one name, and only one of them loses anything:
+
+- **Create** — nothing was there. Silent.
+- **Reset** — a populated mirror is discarded. `SqliteCacheStore` writes a notice to the
+  `TextWriter` passed to its constructor (`Console.Error` at both production call sites),
+  naming the version hop, what was discarded, what was kept, and `twig sync` as the recovery
+  path. The `SchemaWasRebuilt` property is not sufficient on its own: twig builds a throwaway
+  store during startup to hydrate the theme, so on an upgraded workspace the reset happens on an
+  instance disposed before any command runs.
 
 ### Database Tables
 
@@ -48,7 +60,7 @@ missing, all tables are dropped and re-created from the DDL string. The
 | `work_items` | Cached work items with fields, state, dirty tracking, and `last_synced_at` |
 | `pending_changes` | Staged field mutations and notes (auto-increment PK) |
 | `process_types` | Process type definitions with states JSON and child-type mappings |
-| `context` | Active work item ID and key-value settings |
+| `context` | Disposable key-value settings (`workspace_mode`, `last_refreshed_at`, navigation cursor). **Not** the active work item — that is durable, in `pending.active_context` (AB#688) |
 | `field_definitions` | Custom field metadata (ref name, display name, data type, read-only flag) |
 | `work_item_links` | Non-hierarchy link relationships between work items |
 | `seed_links` | Links between seed (draft) work items |
@@ -94,10 +106,16 @@ temp table to avoid the SQLite parameter limit (999).
 
 #### `IContextStore`
 
-Active work-item context and key-value settings. Backed by the `context` table.
+Active work-item context and key-value settings. Split by durability (AB#688), not by
+convenience: the active-item cursor is backed by the durable `pending.active_context` table
+because ADO cannot rebuild which item a workspace is standing on, while the generic key-value
+surface stays on the disposable mirror's `context` table because everything it holds describes
+the mirror and must reset with it.
 
-- `GetActiveWorkItemIdAsync` / `SetActiveWorkItemIdAsync` — active item cursor
-- `GetValueAsync` / `SetValueAsync` — generic key-value pairs
+- `GetActiveWorkItemIdAsync` / `SetActiveWorkItemIdAsync` / `ClearActiveWorkItemIdAsync` —
+  active item cursor, durable (single row pinned by `CHECK (id = 1)`; a cleared cursor is a
+  `NULL` value, not a missing row)
+- `GetValueAsync` / `SetValueAsync` — generic key-value pairs, disposable
 
 **Implementation:** `SqliteContextStore` — `INSERT OR REPLACE` on every write.
 

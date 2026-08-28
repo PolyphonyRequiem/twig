@@ -87,7 +87,10 @@ var app = ConsoleApp.Create()
 
             if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
-                using var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}");
+                // AB#688: on an upgraded workspace this throwaway probe is what actually
+                // performs the mirror reset — it opens the store before the DI singleton
+                // exists — so it is also what has to announce it.
+                using var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}", Console.Error);
                 var processTypeStore = new SqliteProcessTypeStore(cacheStore);
                 var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
                 stateEntries = records.SelectMany(r => r.States).ToList();

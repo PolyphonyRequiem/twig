@@ -306,9 +306,16 @@ public class SqliteCacheStoreTests
         // theirs and ADO has never heard of it, so ADO cannot rebuild it. A droppable copy would
         // silently move somebody back to the default on a SchemaVersion bump — the same
         // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
+        // active_context is DURABLE (AB#688): which work item this workspace is standing on is a
+        // local fact ADO has never heard of, so ADO cannot rebuild it — the same test that put
+        // current_bench here. It sat in the mirror's `context` table until the SchemaVersion 14
+        // -> 15 bump dropped it mid-session and a `twig set` silently evaporated. The rest of
+        // `context` stays in the mirror on purpose: last_refreshed_at and the navigation cursor
+        // DESCRIBE the mirror, so surviving it would mean reporting a fresh cache over no data.
         string[] expectedDurable =
             ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors", "current_bench", "proposal_journals", "proposal_operations"];
+             "benches", "bench_selectors", "current_bench", "proposal_journals", "proposal_operations",
+             "active_context"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
@@ -322,6 +329,195 @@ public class SqliteCacheStoreTests
         using var cmd = store.GetConnection().CreateCommand();
         cmd.CommandText = "PRAGMA pending.user_version;";
         Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
+    }
+
+    /// <summary>
+    /// AB#688 — the bug itself. A SchemaVersion bump drops the mirror, and the active-item
+    /// pointer used to live there, so <c>twig set &lt;id&gt;</c> evaporated mid-session with no
+    /// error and no hint. The pointer is durable now; a reset must not be able to reach it.
+    /// </summary>
+    [Fact]
+    public async Task MirrorReset_KeepsTheActiveWorkItemPointer()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"twig_active_ctx_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                await new SqliteContextStore(store).SetActiveWorkItemIdAsync(831);
+
+                using var bump = store.GetConnection().CreateCommand();
+                bump.CommandText = "UPDATE metadata SET value = '0' WHERE key = 'schema_version';";
+                bump.ExecuteNonQuery();
+            }
+
+            using (var reopened = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                reopened.SchemaWasRebuilt.ShouldBeTrue("the mirror must actually have been reset");
+                (await new SqliteContextStore(reopened).GetActiveWorkItemIdAsync())
+                    .ShouldBe(831, "the active item is durable; a mirror reset must not reach it");
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// AB#688. Every workspace that exists today still keeps its pointer in the mirror's
+    /// <c>context</c> table, so durable migration 10 has to carry it across — and it can only
+    /// read it while the mirror still holds it, which is exactly why the durable store is now
+    /// migrated BEFORE the mirror is rebuilt. Rewinds a real store to the pre-#688 shape
+    /// (durable at v9, no <c>active_context</c>, pointer in the mirror) and reopens it.
+    /// </summary>
+    [Fact]
+    public async Task DurableStore_UpgradingFromV9_CarriesThePointerOutOfTheMirror()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"twig_ctx_migrate_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                using var rewind = store.GetConnection().CreateCommand();
+                rewind.CommandText = """
+                    DROP TABLE pending.active_context;
+                    PRAGMA pending.user_version = 9;
+                    INSERT OR REPLACE INTO main.context (key, value) VALUES ('active_work_item_id', '688');
+                    """;
+                rewind.ExecuteNonQuery();
+            }
+
+            using (var upgraded = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                upgraded.SchemaWasRebuilt.ShouldBeFalse(
+                    "the mirror is already current — only the durable store moves here");
+                DurableTableExists(upgraded.GetConnection(), "active_context").ShouldBeTrue();
+                (await new SqliteContextStore(upgraded).GetActiveWorkItemIdAsync())
+                    .ShouldBe(688, "the pre-#688 pointer must survive the upgrade that relocates it");
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>
+    /// AB#688's first acceptance criterion. The reset was entirely silent; it must now say what
+    /// it discarded, what it kept, and how to get the rest back.
+    /// <para>
+    /// File-backed in a private temp directory rather than shared in-memory, because the durable
+    /// store derives to a sibling <c>pending.db</c> — a shared-memory mirror would derive to one
+    /// <c>pending.db</c> in the test working directory and let parallel tests see each other's
+    /// active pointer.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void MirrorReset_AnnouncesWhatWasDiscardedAndHowToRecover()
+    {
+        RunWithResetMirror(seed: null, activeItemId: null, notice =>
+        {
+            notice.ShouldContain("14", customMessage: "the version the cache is leaving");
+            notice.ShouldContain(SqliteCacheStore.SchemaVersion.ToString());
+            notice.ShouldContain("work items", Case.Insensitive);
+            notice.ShouldContain("twig sync", customMessage: "the recovery path must be named");
+            notice.ShouldContain("twig set", customMessage: "no pointer survived, so say how to set one");
+        });
+    }
+
+    /// <summary>
+    /// The kept list is a claim, and a claim nobody re-checks is how this ticket's bug reads one
+    /// layer up. It must name the pointer that actually survived, not assert one generically.
+    /// </summary>
+    [Fact]
+    public void MirrorReset_NamesTheActiveWorkItemItActuallyKept()
+    {
+        RunWithResetMirror(seed: null, activeItemId: 831, notice =>
+        {
+            notice.ShouldContain("#831");
+            notice.ShouldNotContain("No active work item survived");
+        });
+    }
+
+    /// <summary>
+    /// Seed records live only in the mirror's <c>work_items</c>; the durable store keeps their
+    /// identity and links but not their content. ADO has never seen a seed, so <c>twig sync</c>
+    /// cannot rebuild one — the single loss in a reset with no recovery path, and therefore the
+    /// one the notice must not paper over.
+    /// </summary>
+    [Fact]
+    public void MirrorReset_WarnsThatDiscardedSeedsCannotBeRecovered()
+    {
+        RunWithResetMirror(seed: "a draft nobody published", activeItemId: null, notice =>
+        {
+            notice.ShouldContain("seed", Case.Insensitive);
+            notice.ShouldContain("cannot bring them back", Case.Insensitive);
+        });
+    }
+
+    /// <summary>
+    /// The other half of the first criterion: a first-time CREATE loses nothing, so warning about
+    /// it would train the reader to ignore the one message that matters.
+    /// </summary>
+    [Fact]
+    public void MirrorCreate_AnnouncesNothing()
+    {
+        var notice = new StringWriter();
+        using var store = new SqliteCacheStore("Data Source=:memory:", notice);
+        notice.ToString().ShouldBeEmpty("a create discards nothing and must not cry wolf");
+    }
+
+    /// <summary>
+    /// Builds a real workspace, optionally stages a seed and an active pointer, rewinds the
+    /// mirror's recorded version to 14 so the next open is a genuine RESET rather than a create,
+    /// then hands the reopen's notice to <paramref name="assert"/>.
+    /// </summary>
+    private static void RunWithResetMirror(string? seed, int? activeItemId, Action<string> assert)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"twig_reset_notice_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                if (activeItemId is int id)
+                    new SqliteContextStore(store).SetActiveWorkItemIdAsync(id).GetAwaiter().GetResult();
+
+                using var setup = store.GetConnection().CreateCommand();
+                setup.CommandText = seed is null
+                    ? "UPDATE metadata SET value = '14' WHERE key = 'schema_version';"
+                    : """
+                        INSERT INTO work_items
+                            (id, type, title, state, revision, is_seed, fields_json, is_dirty, last_synced_at)
+                        VALUES (-1, 'Bug', @title, 'To do', 0, 1, '{}', 0, '2026-01-01T00:00:00Z');
+                        UPDATE metadata SET value = '14' WHERE key = 'schema_version';
+                        """;
+                if (seed is not null)
+                    setup.Parameters.AddWithValue("@title", seed);
+                setup.ExecuteNonQuery();
+            }
+
+            var notice = new StringWriter();
+            using (var reopened = new SqliteCacheStore($"Data Source={dbPath}", notice))
+            {
+                reopened.SchemaWasRebuilt.ShouldBeTrue("the mirror must actually have been reset");
+            }
+
+            assert(notice.ToString());
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 14;
+    internal const int SchemaVersion = 15;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -645,7 +645,7 @@ public sealed class SqliteCacheStore : IDisposable
         // live, which is exactly the premise the Bench build brief inherited and got wrong. Pins
         // are selectors on a Bench in the durable store (#145/#146); exclusions live in the
         // tracking file and are deliberately outside the Bench.
-        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "navigation_history", "iteration_calendar"];
+        string[] tables = ["work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "work_item_link_verifications", "navigation_history", "iteration_calendar"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -759,6 +759,20 @@ public sealed class SqliteCacheStore : IDisposable
             PRIMARY KEY (source_id, target_id, link_type)
         );
         CREATE INDEX idx_work_item_links_source ON work_item_links(source_id);
+
+        -- AB#831. `work_item_links` cannot answer "does this item have no edges, or has nobody
+        -- ever asked?" — both are zero rows. That ambiguity is the bug: a cache-only read
+        -- returned `links: []` for an item with live Predecessor edges and no consumer could
+        -- tell it apart from a genuinely isolated item.
+        --
+        -- One row per SOURCE id whose whole edge set has been read from ADO and written to
+        -- `work_item_links`. Written by SqliteWorkItemLinkRepository.SaveLinksAsync in the same
+        -- transaction that replaces the edge set, INCLUDING when that set is empty — an
+        -- empty-but-verified edge set is precisely the case a bare row count cannot express.
+        CREATE TABLE work_item_link_verifications (
+            source_id INTEGER PRIMARY KEY,
+            verified_at TEXT NOT NULL
+        );
 
         CREATE TABLE navigation_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

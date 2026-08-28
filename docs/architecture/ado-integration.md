@@ -529,8 +529,38 @@ public static class LinkTypes
 }
 ```
 
-`IWorkItemLinkRepository` provides `GetLinksAsync` / `SaveLinksAsync` backed
-by SQLite.
+`IWorkItemLinkRepository` provides `GetLinksAsync` / `GetLinksForSetAsync` /
+`SaveLinksAsync` backed by SQLite, plus `GetLinksVerifiedAtAsync` /
+`GetLinksVerifiedAtForSetAsync`.
+
+#### Edge-set freshness (AB#831)
+
+🔴 **An empty edge read is ambiguous unless you also ask when it was verified.**
+`work_item_links` holds zero rows both for an item with no edges and for an item
+nobody has ever fetched edges for, so `"links": []` used to be byte-identical in
+the two cases. That is not a cosmetic gap: two agent sessions concluded a work
+item had no blocking graph while its Predecessor edges existed on ADO.
+
+`SaveLinksAsync` therefore stamps the mirror table
+`work_item_link_verifications(source_id, verified_at)` in the **same transaction**
+that replaces a source's edge set — including when that set is **empty**, which is
+exactly the case a row count cannot express. Reads pair naturally:
+
+| `links` | `linksVerifiedAt` | Meaning |
+|---------|-------------------|---------|
+| `[]` | ISO instant | Verified: this item genuinely has no edges. |
+| `[]` | `null` | **Unknown**: this cache has never asked ADO. |
+| non-empty | ISO instant | The edges, as of that instant. |
+
+`twig show` and `twig show-batch` always emit `linksVerifiedAt` on the machine
+surface — explicitly `null` rather than omitted, because an absent key would
+rebuild the same missing-vs-empty ambiguity one level up.
+
+Human surfaces keep their own idiom. `twig show` renders `UnverifiedLinksHint`
+on stderr, beside the existing `StaleHint`; machine formats stay quiet and get
+the same signal structurally. Human `twig show-batch` needs no hint because it
+renders no relations section at all, so it never presents an empty list that
+could be misread.
 
 ### ADO relation type mapping
 

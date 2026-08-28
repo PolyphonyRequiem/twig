@@ -42,8 +42,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
 
         var item1 = CreateWorkItem(1, "Item 1");
         var item2 = CreateWorkItem(2, "Item 2");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item1, item2 });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item1, item2 }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var result = await _cmd.ExecuteAsync();
@@ -58,12 +58,13 @@ public class RefreshCommandTests : RefreshCommandTestBase
         var item1 = CreateWorkItem(1, "Sprint Item");
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item1 });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item1 }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
 
         var active = CreateWorkItem(42, "Active Item");
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(active);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((active, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
@@ -233,8 +234,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1, 2, 3 });
         var items = new[] { CreateWorkItem(1, "A"), CreateWorkItem(2, "B"), CreateWorkItem(3, "C") };
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(items);
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((items, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(2);
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -254,10 +255,12 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 10 });
         var item10 = CreateWorkItem(10, "Child Task");
-        _adoService.FetchBatchAsync(
+        // The WIQL returns [10], so this is the SPRINT BATCH fetch, not ancestor hydration —
+        // hydration is the `ids.Contains(5)` stub further down.
+        _adoService.FetchBatchWithLinksAsync(
             Arg.Is<IReadOnlyList<int>>(ids => ids.Contains(10)),
             Arg.Any<CancellationToken>())
-            .Returns(new[] { item10 });
+            .Returns((new[] { item10 }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         // First call returns orphan parent IDs, second call returns empty (all resolved)
@@ -374,8 +377,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = CreateWorkItem(1, "Sprint Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -403,8 +406,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = CreateWorkItem(1, "Sprint Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
 
@@ -422,8 +425,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = CreateWorkItem(1, "Sprint Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -446,8 +449,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = CreateWorkItem(1, "Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(3);
 
@@ -465,8 +468,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = CreateWorkItem(1, "Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var sw = new StringWriter();

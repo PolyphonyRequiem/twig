@@ -535,7 +535,8 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<SyncCoordinatorFactory>(),
             sp.GetRequiredService<IIterationService>(),
             sp.GetService<ITrackingService>(),
-            sp.GetService<IIterationCalendar>()));
+            sp.GetService<IIterationCalendar>(),
+            sp.GetService<IWorkItemLinkRepository>()));
 
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(

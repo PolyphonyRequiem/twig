@@ -68,8 +68,8 @@ public class RefreshOrchestratorTests
             .Returns(new[] { 1, 2 });
         var item1 = new WorkItemBuilder(1, "Item 1").Build();
         var item2 = new WorkItemBuilder(2, "Item 2").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item1, item2 });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item1, item2 }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var result = await _orchestrator.FetchItemsAsync("SELECT ...");
@@ -84,14 +84,14 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1, -1 });
         var item = new WorkItemBuilder(1, "Real Item").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(1);
-        await _adoService.Received(1).FetchBatchAsync(
+        await _adoService.Received(1).FetchBatchWithLinksAsync(
             Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
             Arg.Any<CancellationToken>());
     }
@@ -102,19 +102,20 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var sprintItem = new WorkItemBuilder(1, "Sprint").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { sprintItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { sprintItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
 
         var activeItem = new WorkItemBuilder(42, "Active").Build();
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(activeItem);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((activeItem, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         result.ItemCount.ShouldBe(1);
-        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received().FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -123,15 +124,15 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1, 2 });
         var items = new[] { new WorkItemBuilder(1, "A").Build(), new WorkItemBuilder(2, "B").Build() };
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(items);
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((items, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(2);
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         await _orchestrator.FetchItemsAsync("SELECT ...");
 
-        await _adoService.DidNotReceive().FetchAsync(2, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchWithLinksAsync(2, Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -145,8 +146,8 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = new WorkItemBuilder(1, "Item").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         await _orchestrator.FetchItemsAsync("SELECT ...");
@@ -162,8 +163,8 @@ public class RefreshOrchestratorTests
         // Remote item has revision 5
         var remote = new WorkItemBuilder(1, "Item").Build();
         remote.MarkSynced(5);
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remote });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remote }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         // Local item has revision 3 and is dirty (protected)
@@ -187,20 +188,20 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var sprintItem = new WorkItemBuilder(1, "Sprint").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { sprintItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { sprintItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
 
         // Track call ordering to verify concurrency
         var callLog = new List<string>();
         var activeItem = new WorkItemBuilder(42, "Active").Build();
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
                 callLog.Add("FetchAsync-start");
                 await Task.Yield();
                 callLog.Add("FetchAsync-end");
-                return activeItem;
+                return (activeItem, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>());
             });
 
         var child = new WorkItemBuilder(100, "Child").Build();
@@ -216,7 +217,7 @@ public class RefreshOrchestratorTests
         var result = await _orchestrator.FetchItemsAsync("SELECT ...");
 
         // Both calls should have been initiated before either completed
-        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
 
         // FetchChildrenAsync should start before FetchAsync completes (concurrent)
@@ -281,8 +282,8 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = new WorkItemBuilder(1, "Item").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         await _orchestrator.FetchItemsAsync("SELECT ...");
@@ -298,8 +299,8 @@ public class RefreshOrchestratorTests
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
         var item = new WorkItemBuilder(1, "Item").Build();
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(count);
 

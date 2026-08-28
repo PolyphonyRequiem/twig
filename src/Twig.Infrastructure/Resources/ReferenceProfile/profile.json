@@ -1,0 +1,106 @@
+{
+  "$schema": "twig-reference-profile/v1",
+  "identity": "twig.reference-profile.hyperbright",
+  "profileVersion": "1.0.0",
+  "baseProcess": {
+    "parentRef": "b8a3a935-7e91-48b8-a94c-606d37c3e9f2",
+    "tailoringVersion": "basic:2026-08-24:1"
+  },
+  "hierarchy": {
+    "apex": ["Initiative"],
+    "requirement": ["Investigation", "Feature", "Bug"],
+    "leaf": ["Task"]
+  },
+  "types": [
+    {
+      "role": "Initiative",
+      "typeName": "Initiative",
+      "backlogRole": "portfolio",
+      "backlogBehaviorRef": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
+      "states": [
+        { "name": "To Do", "category": "Proposed" },
+        { "name": "Doing", "category": "InProgress" },
+        { "name": "Done", "category": "Completed" }
+      ]
+    },
+    {
+      "role": "Investigation",
+      "typeName": "Investigation",
+      "backlogRole": "requirement",
+      "backlogBehaviorRef": "System.RequirementBacklogBehavior",
+      "states": [
+        { "name": "To Do", "category": "Proposed" },
+        { "name": "Doing", "category": "InProgress" },
+        { "name": "Done", "category": "Completed" }
+      ]
+    },
+    {
+      "role": "Feature",
+      "typeName": "Feature",
+      "backlogRole": "requirement",
+      "backlogBehaviorRef": "System.RequirementBacklogBehavior",
+      "states": [
+        { "name": "To Do", "category": "Proposed" },
+        { "name": "Doing", "category": "InProgress" },
+        { "name": "Done", "category": "Completed" }
+      ]
+    },
+    {
+      "role": "Bug",
+      "typeName": "Bug",
+      "backlogRole": "requirement",
+      "backlogBehaviorRef": "System.RequirementBacklogBehavior",
+      "states": [
+        { "name": "To Do", "category": "Proposed" },
+        { "name": "Doing", "category": "InProgress" },
+        { "name": "Done", "category": "Completed" }
+      ]
+    },
+    {
+      "role": "Task",
+      "typeName": "Task",
+      "backlogRole": "task",
+      "backlogBehaviorRef": "System.TaskBacklogBehavior",
+      "states": [
+        { "name": "To Do", "category": "Proposed" },
+        { "name": "Doing", "category": "InProgress" },
+        { "name": "Done", "category": "Completed" }
+      ]
+    }
+  ],
+  "linkKinds": [
+    {
+      "kind": "ParentChild",
+      "meaning": "decomposition",
+      "forwardRel": "System.LinkTypes.Hierarchy-Forward",
+      "reverseRel": "System.LinkTypes.Hierarchy-Reverse"
+    },
+    {
+      "kind": "PredecessorSuccessor",
+      "meaning": "blocking-sequencing",
+      "forwardRel": "System.LinkTypes.Dependency-Forward",
+      "reverseRel": "System.LinkTypes.Dependency-Reverse"
+    },
+    {
+      "kind": "Related",
+      "meaning": "informs",
+      "forwardRel": "System.LinkTypes.Related",
+      "reverseRel": null
+    },
+    {
+      "kind": "Artifact",
+      "meaning": "evidence",
+      "forwardRel": null,
+      "reverseRel": null,
+      "artifactCategory": "any"
+    }
+  ],
+  "primaryScope": {
+    "kind": "ado-workitem",
+    "eligibleRoles": ["Initiative", "Investigation", "Feature", "Bug", "Task"]
+  },
+  "fingerprint": {
+    "algorithm": "twig-profile-fp/v1",
+    "bytes": "cc852619d3c63a49293a4da7554456898be0acfc0d260b7abad844b022c64061"
+  }
+}

@@ -48,7 +48,8 @@ public static class CommandServiceModule
                     // Workspace not initialized — hints degrade gracefully without process config
                 }
             }
-            return new HintEngine(display, provider);
+            var referenceProfileProvider = sp.GetService<IReferenceProfileProvider>();
+            return new HintEngine(display, provider, referenceProfileProvider);
         });
 
         // Editor launcher and console input

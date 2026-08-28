@@ -1954,6 +1954,370 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
     }
 
+    // ── apply: paired value-supplying rule actions (AB#803) ────────────────
+
+    /// <summary>
+    /// The live Hyperbright <c>Task</c> rules for <i>To Do → Doing</i>, transcribed
+    /// verbatim from <c>twig process description -o json</c> on 2026-08-28 — verbs,
+    /// condition pairs, state labels and field reference names all as the server declares
+    /// them. The requirement and the action that satisfies it are SEPARATE rules carrying
+    /// IDENTICAL conditions, which is precisely what the pre-fix gate could not see.
+    /// </summary>
+    /// <remarks>
+    /// The real reference names are used deliberately: they are what a reader hitting this
+    /// refusal will grep for. The TYPE stays the fixture's placeholder, because the gate
+    /// never keys on type — naming it <c>Task</c> would imply a type-specific rule that
+    /// does not exist and would contradict the process-agnostic contract.
+    /// </remarks>
+    [Fact]
+    public async Task Apply_Batch_PassesGate_WhenSeparateRuleSuppliesRequiredField()
+    {
+        // AB#803: the gate read only the makeRequired half and refused every honest Task
+        // state transition, forcing callers to stage System.Reason and ActivatedBy — values
+        // ADO's own rule engine generates. The engine enforcing requiredness is the engine
+        // running copyValue/copyFromCurrentUser, under the same condition, so the field is
+        // never empty when requiredness is evaluated.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Doing"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        // Neither required field is set on the source, and the batch stages neither.
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "task-claim",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("To Do");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        RuleCondition[] toDoToDoing =
+        [
+            new RuleCondition("when", "System.State", "Doing"),
+            new RuleCondition("whenWas", "System.State", "To Do"),
+        ];
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(toDoToDoing, [new RuleAction("makeRequired", "System.Reason", null)], IsDisabled: false),
+                new ProcessRule(toDoToDoing, [new RuleAction("makeRequired", "Microsoft.VSTS.Common.ActivatedBy", null)], IsDisabled: false),
+                new ProcessRule(toDoToDoing, [new RuleAction("copyFromCurrentUser", "Microsoft.VSTS.Common.ActivatedBy", null)], IsDisabled: false),
+                new ProcessRule(toDoToDoing, [new RuleAction("copyFromServerClock", "Microsoft.VSTS.Common.ActivatedDate", null)], IsDisabled: false),
+                new ProcessRule(toDoToDoing, [new RuleAction("copyValue", "System.Reason", "Started")], IsDisabled: false),
+            ]));
+
+        var readback = BuildWorkItem(42, rev: 4, state: "Doing");
+        readback.UpdateField("System.Reason", "Started");
+        readback.UpdateField("Microsoft.VSTS.Common.ActivatedBy", "Daniel Green (daniel danielgreen.net)");
+        readback.UpdateField("Microsoft.VSTS.Common.ActivatedDate", "2026-08-28T00:00:00Z");
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        await _ado.Received(1).PatchAsync(
+            42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The other half of AB#803's acceptance: the terminal transition. Live
+    /// <c>Doing → Done</c> pairs three requirements with three different supplier verbs,
+    /// one of them (<c>copyFromServerClock</c>) a value the client must NOT invent — a
+    /// staged client clock is a value the server immediately overwrites.
+    /// </summary>
+    [Fact]
+    public async Task Apply_Batch_PassesGate_WhenTerminalTransitionSuppliersCoverEveryRequirement()
+    {
+        // The batch stages only the state and the caller-owned outcome field; every other
+        // required field is server-generated.
+        var file = WritePlan(BatchWithFields(
+            workItemId: 42, expectedRev: 3,
+            fields: new (string, string?)[]
+            {
+                ("System.State", "Done"),
+                ("Custom.TerminalOutcome", "completed"),
+            }));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        RuleCondition[] doingToDone =
+        [
+            new RuleCondition("when", "System.State", "Done"),
+            new RuleCondition("whenWas", "System.State", "Doing"),
+        ];
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                // Requirement and supplier on the bare "when Done" condition.
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Microsoft.VSTS.Common.ClosedDate", null)], IsDisabled: false),
+                new ProcessRule(DoneCondition, [new RuleAction("copyFromServerClock", "Microsoft.VSTS.Common.ClosedDate", null)], IsDisabled: false),
+                // …and on the narrower whenWas-qualified condition. The supplier's condition
+                // set is NOT identical to the bare one above, and it still fires here.
+                new ProcessRule(doingToDone, [new RuleAction("makeRequired", "Microsoft.VSTS.Common.ClosedBy", null)], IsDisabled: false),
+                new ProcessRule(doingToDone, [new RuleAction("copyFromCurrentUser", "Microsoft.VSTS.Common.ClosedBy", null)], IsDisabled: false),
+                new ProcessRule(doingToDone, [new RuleAction("makeRequired", "System.Reason", null)], IsDisabled: false),
+                new ProcessRule(doingToDone, [new RuleAction("copyValue", "System.Reason", "Completed")], IsDisabled: false),
+            ]));
+
+        var readback = BuildWorkItem(42, rev: 4, state: "Done");
+        readback.UpdateField("Custom.TerminalOutcome", "completed");
+        readback.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-28T00:00:00Z");
+        readback.UpdateField("Microsoft.VSTS.Common.ClosedBy", "Daniel Green (daniel danielgreen.net)");
+        readback.UpdateField("System.Reason", "Completed");
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+        await _ado.Received(1).PatchAsync(
+            42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A supplier whose condition set DIFFERS from the requirement's still satisfies it,
+    /// provided it fires on this batch.
+    /// </summary>
+    /// <remarks>
+    /// Pins a deliberate design decision. AB#803's suggested fix said "the same rule (or
+    /// another enabled rule with the same condition)", and matching condition sets
+    /// textually is the obvious reading — but it is strictly wrong. Every rule that fires
+    /// runs, so what decides whether the field is populated is whether the supplier fires,
+    /// not how its condition is spelled. A narrower supplier that fires would be refused
+    /// under condition-equality even though the server populates the field. The safety
+    /// this test does NOT give up is covered by
+    /// <see cref="Apply_Batch_RefusesBeforePatch_WhenSupplyingRuleDoesNotFire"/>.
+    /// </remarks>
+    [Fact]
+    public async Task Apply_Batch_PassesGate_WhenFiringSupplierCarriesADifferentCondition()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                // Broad requirement: any move to Done.
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                // Narrower supplier: Done specifically from Doing. GatedSource() is Doing,
+                // so this fires on THIS batch despite the conditions not matching.
+                new ProcessRule(
+                    [
+                        new RuleCondition("when", "System.State", "Done"),
+                        new RuleCondition("whenWas", "System.State", "Doing"),
+                    ],
+                    [new RuleAction("copyValue", "Custom.Gated", "filled")],
+                    IsDisabled: false),
+            ]));
+
+        var readback = BuildWorkItem(42, rev: 4, state: "Done");
+        readback.UpdateField("Custom.Gated", "filled");
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(PlanOperationState.Verified);
+    }
+
+
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenSupplierTargetsADifferentField()
+    {
+        // A supplier fires, but on another field. Guards against a fix that collected
+        // "some rule supplied something" instead of keying suppliers by target field.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                new ProcessRule(DoneCondition, [new RuleAction("copyValue", "Custom.Other", "filled")], IsDisabled: false),
+            ]));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations.ShouldHaveSingleItem();
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error!.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenSupplyingRuleDoesNotFire()
+    {
+        // The supplier targets the right field but its condition does not hold for this
+        // batch, so ADO will not run it. A supplier set collected without evaluating
+        // conditions would let an empty gate field through.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                new ProcessRule(
+                    [new RuleCondition("when", "System.State", "Removed")],
+                    [new RuleAction("copyValue", "Custom.Gated", "filled")],
+                    IsDisabled: false),
+            ]));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenSupplyingRuleIsDisabled()
+    {
+        // A disabled rule does not run on the server, so it supplies nothing here either —
+        // the same reading Apply_Batch_IgnoresDisabledMakeRequiredRule applies to the
+        // requiredness half.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                new ProcessRule(DoneCondition, [new RuleAction("copyValue", "Custom.Gated", "filled")], IsDisabled: true),
+            ]));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// An action that carries no usable value, or that clears the field outright, leaves
+    /// the requirement unsatisfied. This is the AB#673 protection: the authored close
+    /// gates declare <c>makeRequired</c> with no paired supplier and must still refuse.
+    /// </summary>
+    [Theory]
+    [InlineData("copyValue", null)]          // literal supplier with nothing to supply
+    [InlineData("copyValue", "")]            // ditto, empty rather than absent
+    [InlineData("setDefaultValue", null)]
+    // The four non-supplying verbs the Rules API documents alongside makeRequired.
+    [InlineData("setValueToEmpty", null)]    // clears the field — the opposite of a supplier
+    [InlineData("makeReadOnly", null)]
+    [InlineData("disallowValue", "filled")]
+    [InlineData("hideTargetField", null)]
+    // …and anything outside the documented vocabulary at all.
+    [InlineData("someVerbTwigHasNeverSeen", "filled")]
+    public async Task Apply_Batch_RefusesBeforePatch_WhenActionSuppliesNoValue(
+        string actionType,
+        string? actionValue)
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                new ProcessRule(DoneCondition, [new RuleAction(actionType, "Custom.Gated", actionValue)], IsDisabled: false),
+            ]));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations.ShouldHaveSingleItem().Error!.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A field-sourced supplier only satisfies the requirement when the field it names
+    /// actually holds a value — otherwise it copies emptiness onto emptiness.
+    /// </summary>
+    [Theory]
+    [InlineData("copyFromField", true)]
+    [InlineData("copyFromField", false)]
+    [InlineData("setDefaultFromField", true)]
+    [InlineData("setDefaultFromField", false)]
+    public async Task Apply_Batch_GateHonoursFieldSourcedSupplier_OnlyWhenSourceIsPopulated(
+        string actionType,
+        bool sourcePopulated)
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        var source = GatedSource();
+        if (sourcePopulated) source.UpdateField("Custom.Origin", "from-origin");
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+                new ProcessRule(DoneCondition, [new RuleAction(actionType, "Custom.Gated", "Custom.Origin")], IsDisabled: false),
+            ]));
+
+        var readback = BuildWorkItem(42, rev: 4, state: "Done");
+        readback.UpdateField("Custom.Gated", "from-origin");
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(readback);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBe(!sourcePopulated);
+        apply.Operations.ShouldHaveSingleItem().State.ShouldBe(
+            sourcePopulated ? PlanOperationState.Verified : PlanOperationState.Failed);
+    }
+
+    /// <summary>The condition every AB#803 gate fixture below fires on.</summary>
+    private static RuleCondition[] DoneCondition => [new RuleCondition("when", "System.State", "Done")];
+
+    /// <summary>A rev-3 source in a pre-terminal state with <c>Custom.Gated</c> unset.</summary>
+    private static WorkItem GatedSource()
+    {
+        var source = new WorkItem
+        {
+            Id = 42,
+            Title = "gated",
+            Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("System.State", "Doing");
+        source.MarkSynced(3);
+        return source;
+    }
+
     // ── apply: authoritative expected-revision snapshots (AB#719) ─────────
 
     [Fact]

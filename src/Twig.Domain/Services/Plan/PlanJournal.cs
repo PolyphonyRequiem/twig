@@ -1,3 +1,5 @@
+using Twig.Domain.Services.ChangeProposals;
+
 namespace Twig.Domain.Services.Plan;
 
 /// <summary>
@@ -33,6 +35,34 @@ public sealed record PlanJournal
 
     /// <summary>Top-level failure message, when present.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// Whether a human or a model authorized this proposal, or <c>null</c> when the row
+    /// predates authorization recording (design record T2 §5.3).
+    /// <para>
+    /// 🔴 <c>null</c> means "predates authorization recording", NEVER "unauthorized". The
+    /// durable store is never dropped, so rows written before AB#743 are real audit history
+    /// with no authorization columns to read; reporting them as unauthorized would invent a
+    /// policy violation out of a schema change.
+    /// </para>
+    /// </summary>
+    public ProposalAuthorizationMode? AuthorizationMode { get; init; }
+
+    /// <summary>The identity that authorized the apply; null when the row predates recording.</summary>
+    public string? AuthorizerIdentity { get; init; }
+
+    /// <summary>The authorizer's rationale; null when none was supplied or the row predates recording.</summary>
+    public string? Rationale { get; init; }
+
+    /// <summary>
+    /// The canonical semantic review model exactly as serialized at authorization time — what
+    /// the authorizer was shown, as distinct from <see cref="CanonicalJson"/>, which is what
+    /// they authorized. Null when the row predates recording.
+    /// </summary>
+    public string? ReviewModelJson { get; init; }
+
+    /// <summary>When the authorization was recorded; null when the row predates recording.</summary>
+    public DateTimeOffset? AuthorizedAt { get; init; }
 
     /// <summary>Per-operation rows, in declaration order.</summary>
     public required IReadOnlyList<PlanJournalOperation> Operations { get; init; }

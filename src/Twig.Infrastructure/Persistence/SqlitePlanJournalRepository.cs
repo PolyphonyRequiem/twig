@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Infrastructure.Plan;
 
@@ -343,7 +344,9 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         header.Transaction = _store.ActiveTransaction;
         header.CommandText = """
             SELECT organization, project, source_path, canonical_json,
-                   state, previewed_at, confirmed_at, completed_at, error
+                   state, previewed_at, confirmed_at, completed_at, error,
+                   authorization_mode, authorizer_identity, rationale,
+                   review_model_json, authorized_at
             FROM proposal_journals
             WHERE digest = @digest;
             """;
@@ -365,6 +368,14 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var confirmedAt = reader.IsDBNull(6) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(6));
         var completedAt = reader.IsDBNull(7) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(7));
         var error = reader.IsDBNull(8) ? null : reader.GetString(8);
+
+        // Every audit column is nullable by design (durable migration [9]). NULL here means the
+        // row predates authorization recording — never that the apply was unauthorized.
+        var authorizationMode = ProposalAuthorization.ModeFromWire(reader.IsDBNull(9) ? null : reader.GetString(9));
+        var authorizerIdentity = reader.IsDBNull(10) ? null : reader.GetString(10);
+        var rationale = reader.IsDBNull(11) ? null : reader.GetString(11);
+        var reviewModelJson = reader.IsDBNull(12) ? null : reader.GetString(12);
+        var authorizedAt = reader.IsDBNull(13) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(13));
         reader.Close();
 
         var operations = ReadOperations(digest);
@@ -380,6 +391,11 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             ConfirmedAt = confirmedAt,
             CompletedAt = completedAt,
             Error = error,
+            AuthorizationMode = authorizationMode,
+            AuthorizerIdentity = authorizerIdentity,
+            Rationale = rationale,
+            ReviewModelJson = reviewModelJson,
+            AuthorizedAt = authorizedAt,
             Operations = operations,
         });
     }
@@ -440,6 +456,43 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@confirmed", PlanOperationState.Confirmed.ToString());
         cmd.Parameters.AddWithValue("@planned", PlanOperationState.Planned.ToString());
         cmd.Parameters.AddWithValue("@timestamp", FormatTimestamp(confirmedAt));
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task RecordAuthorizationAsync(
+        string digest,
+        ProposalAuthorization authorization,
+        string reviewModelJson,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(digest);
+        ArgumentNullException.ThrowIfNull(authorization);
+        ArgumentException.ThrowIfNullOrEmpty(reviewModelJson);
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        // `authorization_mode IS NULL` is the write-once guard. A resumed apply re-presents the
+        // same digest, and the audit fact worth keeping is the authorization that originally
+        // released the proposal — overwriting it with the moment a crashed run was picked back
+        // up would erase exactly the record this column exists to preserve.
+        cmd.CommandText = """
+            UPDATE proposal_journals
+            SET authorization_mode = @mode,
+                authorizer_identity = @identity,
+                rationale = @rationale,
+                review_model_json = @reviewModel,
+                authorized_at = @authorizedAt
+            WHERE digest = @digest AND authorization_mode IS NULL;
+            """;
+        cmd.Parameters.AddWithValue("@digest", digest);
+        cmd.Parameters.AddWithValue("@mode", ProposalAuthorization.ModeToWire(authorization.Mode));
+        cmd.Parameters.AddWithValue("@identity", authorization.AuthorizerIdentity);
+        cmd.Parameters.AddWithValue("@rationale", (object?)authorization.Rationale ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@reviewModel", reviewModelJson);
+        cmd.Parameters.AddWithValue("@authorizedAt", FormatTimestamp(authorization.AuthorizedAt));
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;
     }

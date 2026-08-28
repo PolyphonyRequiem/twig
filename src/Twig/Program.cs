@@ -1367,13 +1367,15 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
 
-    /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
+    /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly, and --authorize &lt;identity&gt; recording who signed it off. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.</param>
+    /// <param name="authorize">Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.</param>
+    /// <param name="rationale">Optional reason for authorizing this apply, recorded alongside the authorization.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("proposal apply|plan apply")]
-    public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
+    public async Task<int> PlanApply(string? file = null, string? confirm = null, string? authorize = null, string? rationale = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, authorize, rationale, output, ct);
 
     /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Services;
@@ -34,6 +35,15 @@ public sealed class PlanTools(ConnectionResolver resolver)
 {
     /// <summary>SHA-256 in lowercase hex — exactly 64 [0-9a-f] characters.</summary>
     internal const string DigestPattern = "^[0-9a-f]{64}$";
+
+    private const string AuthorizerIdentityDescription =
+        "Who authorizes this apply; recorded in the audit trail.";
+
+    private const string AuthorizationDigestDescription =
+        "Digest the authorization is bound to; MUST equal confirmedDigest.";
+
+    private const string AuthorizationRationaleDescription =
+        "Optional reason, recorded with the authorization.";
 
     private const string PlanFileDescription =
         "Path to a plan v1 JSON file. May be absolute or relative to the current working " +
@@ -145,7 +155,8 @@ public sealed class PlanTools(ConnectionResolver resolver)
     // ── twig_proposal_apply (alias: twig_plan_apply) ────────────────
 
     [McpServerTool(Name = "twig_proposal_apply"), Description(
-        "Apply a plan. Requires confirmed:true AND confirmedDigest matching current file digest exactly.")]
+        "Apply a plan. Requires confirmed:true, confirmedDigest matching current file digest exactly, "
+        + "and an authorization bound to that digest.")]
     public async Task<CallToolResult> PlanApply(
         [Description(PlanFileDescription)] string file,
         [Description(
@@ -156,6 +167,9 @@ public sealed class PlanTools(ConnectionResolver resolver)
             "file at call time; a mismatch refuses without touching ADO. Lowercase 64-character " +
             "hex string.")]
             string confirmedDigest,
+        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
+        [Description(AuthorizationDigestDescription)] string authorizationDigest,
+        [Description(AuthorizationRationaleDescription)] string? authorizationRationale = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -187,14 +201,44 @@ public sealed class PlanTools(ConnectionResolver resolver)
                 "(SHA-256 in canonical form).");
         }
 
+        if (string.IsNullOrWhiteSpace(authorizerIdentity))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'authorizerIdentity' parameter is required. An apply is an authorized act and " +
+                "the journal must record who is answerable for it.");
+        }
+
+        if (!IsCanonicalDigest(authorizationDigest))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'authorizationDigest' parameter must be exactly 64 lowercase hex characters " +
+                "(SHA-256 in canonical form).");
+        }
+
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        // Mode comes from the session seam, never from a tool argument: whether a model may
+        // authorize is a property of how the session is steered, and letting a caller assert it
+        // would let any client promote itself out of the human-steered path. The bound digest,
+        // by contrast, IS the caller's to state — that is what makes replaying a stale
+        // authorization a detectable refusal rather than an impossibility.
+        var authorization = new ProposalAuthorization
+        {
+            Digest = authorizationDigest,
+            Mode = ProposalAuthorizationGate.RequiredMode(ctx.Get<ISessionSteeringModeProvider>().Resolve()),
+            AuthorizerIdentity = authorizerIdentity,
+            Rationale = string.IsNullOrWhiteSpace(authorizationRationale) ? null : authorizationRationale,
+            AuthorizedAt = ctx.Get<TimeProvider>().GetUtcNow(),
+        };
 
         var result = await InvokeLifecycleAsync(
             ctx,
             ct,
-            static (svc, args, token) => svc.ApplyAsync(args.File, args.Digest, token),
-            (File: file, Digest: confirmedDigest));
+            static (svc, args, token) => svc.ApplyAsync(args.File, args.Digest, args.Authorization, token),
+            (File: file, Digest: confirmedDigest, Authorization: authorization));
         if (result.Error is { } error) return await error.Materialize(ctx, ct);
 
         // 🔴 Success and failure emit exactly the same JSON payload — digest, failed,
@@ -229,10 +273,15 @@ public sealed class PlanTools(ConnectionResolver resolver)
             "the file at call time; a mismatch refuses without touching ADO. Lowercase " +
             "64-character hex string.")]
             string confirmedDigest,
+        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
+        [Description(AuthorizationDigestDescription)] string authorizationDigest,
+        [Description(AuthorizationRationaleDescription)] string? authorizationRationale = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
-        => PlanApply(file, confirmed, confirmedDigest, workspace, verbose, ct);
+        => PlanApply(
+            file, confirmed, confirmedDigest, authorizerIdentity, authorizationDigest,
+            authorizationRationale, workspace, verbose, ct);
 
     // ── twig_proposal_status (alias: twig_plan_status) ──────────────
 

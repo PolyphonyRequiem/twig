@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 8;
+    internal const int DurableSchemaVersion = 9;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -583,6 +583,36 @@ public sealed class SqliteCacheStore : IDisposable
                 ON proposal_operations(digest, ordinal);
             CREATE INDEX {DurableSchema}.idx_proposal_operations_state
                 ON proposal_operations(state);
+            """,
+
+        // AB#743 / design record T2 §5.3 — the audit columns an applied Change Proposal is
+        // journaled with: who authorized it, in which mode, on what rationale, what they were
+        // shown, and when.
+        //
+        // 🔴 EVERY COLUMN IS NULLABLE, AND THAT IS THE DESIGN. The durable store is never
+        // dropped, so rows already in this table are real audit history from before
+        // authorization was recorded at all. A NOT NULL column with a backfilled default would
+        // manufacture an authorization that never happened — the single worst thing an audit
+        // migration can do. A reader MUST therefore treat NULL here as "predates authorization
+        // recording", NEVER as "unauthorized".
+        //
+        // WHY `review_model_json` IS SEPARATE FROM `canonical_json`: they answer different
+        // questions. `canonical_json` is WHAT WAS AUTHORIZED — the digest-bound proposal.
+        // `review_model_json` is WHAT THE AUTHORIZER WAS SHOWN — the derived semantic model,
+        // including live board context that is deliberately not part of the digest. Spec #729's
+        // audit goal is to reconstruct what happened without replaying the tool, and that needs
+        // both: the proposal alone cannot show what the reviewer saw, and the review model alone
+        // is not what the apply was bound to.
+        //
+        // `authorization_mode` holds the closed set `human|model`. It is NOT the HITL/AFK
+        // vocabulary of `Custom.WayfinderExecutionMode`, which describes a session rather than
+        // an apply.
+        [9] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorization_mode TEXT;
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorizer_identity TEXT;
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN rationale TEXT;
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN review_model_json TEXT;
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorized_at TEXT;
             """,
 
     };

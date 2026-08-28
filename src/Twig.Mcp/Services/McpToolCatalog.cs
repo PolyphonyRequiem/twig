@@ -385,6 +385,26 @@ internal static class McpToolCatalog
                 digest["minLength"] = 64;
                 digest["maxLength"] = 64;
             }
+
+            // The authorization's bound digest is pinned to the same canonical shape. It is a
+            // SEPARATE property from confirmedDigest on purpose: equality between them is the
+            // gate's check, not the schema's, so replaying an authorization bound to another
+            // proposal reaches the tool and is refused with the reason — rather than being
+            // rejected as a malformed argument, which would tell the caller nothing about what
+            // actually went wrong.
+            if (properties["authorizationDigest"] is JsonObject authorizationDigest)
+            {
+                authorizationDigest["type"] = "string";
+                authorizationDigest["pattern"] = "^[0-9a-f]{64}$";
+                authorizationDigest["minLength"] = 64;
+                authorizationDigest["maxLength"] = 64;
+            }
+
+            if (properties["authorizerIdentity"] is JsonObject authorizerIdentity)
+            {
+                authorizerIdentity["type"] = "string";
+                authorizerIdentity["minLength"] = 1;
+            }
         }
     }
 

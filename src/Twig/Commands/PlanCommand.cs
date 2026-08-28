@@ -34,6 +34,8 @@ namespace Twig.Commands;
 public sealed class PlanCommand(
     IPlanLifecycleService lifecycle,
     OutputFormatterFactory formatterFactory,
+    ISessionSteeringModeProvider steering,
+    TimeProvider clock,
     RendererFactory? rendererFactory = null,
     TextWriter? stdout = null,
     TextWriter? stderr = null)
@@ -75,11 +77,25 @@ public sealed class PlanCommand(
     }
 
     /// <summary>
-    /// Apply a plan. Exit 0 when every operation reached
-    /// <see cref="PlanOperationState.Verified"/>; 1 when any operation failed or the
-    /// digest did not match; 2 when <c>--confirm</c> is missing.
+    /// Apply a proposal. Exit 0 when every operation reached
+    /// <see cref="PlanOperationState.Verified"/>; 1 when any operation failed, the
+    /// digest did not match, or the authorization gate refused; 2 when <c>--confirm</c> is
+    /// missing.
     /// </summary>
-    public async Task<int> ApplyAsync(string? file, string? confirmedDigest, string outputFormat, CancellationToken ct)
+    /// <remarks>
+    /// A missing <c>--authorize</c> is deliberately <b>not</b> a usage error. It is an
+    /// authorization refusal, reported by the gate with the reason the session actually had —
+    /// which differs between a human-steered and an AFK session. Turning it into exit 2 would
+    /// tell the user they mistyped a command when what really happened is that nobody signed
+    /// the proposal off.
+    /// </remarks>
+    public async Task<int> ApplyAsync(
+        string? file,
+        string? confirmedDigest,
+        string? authorizerIdentity,
+        string? rationale,
+        string outputFormat,
+        CancellationToken ct)
     {
         if (!TryRequireFile(file, out var resolved, out var usageError))
         {
@@ -92,7 +108,22 @@ public sealed class PlanCommand(
             return 2;
         }
 
-        var result = await lifecycle.ApplyAsync(resolved, confirmedDigest!, ct);
+        // The mode is read from the session seam, never chosen by a flag: which authorization
+        // path applies is a property of how the session is steered, not something the caller
+        // may assert about itself. The digest the human confirmed IS the digest they signed
+        // off, so the two are bound to the same value here by construction.
+        var authorization = string.IsNullOrWhiteSpace(authorizerIdentity)
+            ? null
+            : new ProposalAuthorization
+            {
+                Digest = confirmedDigest!,
+                Mode = ProposalAuthorizationGate.RequiredMode(steering.Resolve()),
+                AuthorizerIdentity = authorizerIdentity!,
+                Rationale = string.IsNullOrWhiteSpace(rationale) ? null : rationale,
+                AuthorizedAt = clock.GetUtcNow(),
+            };
+
+        var result = await lifecycle.ApplyAsync(resolved, confirmedDigest!, authorization, ct);
         RenderApply(result, outputFormat);
         return result.Failed ? 1 : 0;
     }
@@ -237,7 +268,19 @@ public sealed class PlanCommand(
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
 
-    private static IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result)
+    /// <summary>
+    /// Human preview output. When a review model is present this IS the guaranteed
+    /// terminal/text fallback of Spec #729: no agent-specific review adapter exists on the CLI,
+    /// so the canonical semantic review model is rendered here in full rather than summarised.
+    /// <para>
+    /// The earlier thin summary — digest, canApply, an operation id per line — is deliberately
+    /// gone rather than kept alongside. It showed the reviewer an operation's id and kind but
+    /// never its preconditions or consequences, which is exactly the "authorized something they
+    /// were not shown" failure the model exists to prevent. Keeping both would have left two
+    /// presentations of one proposal, and the shorter one is the one a hurried reviewer reads.
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result)
     {
         var lines = new List<RenderNode>();
         if (result.Issues.Count != 0)
@@ -245,18 +288,23 @@ public sealed class PlanCommand(
             lines.Add(new RenderNode.Text($"proposal: {result.Issues.Count} issue(s)", Severity.Error));
             foreach (var issue in result.Issues)
                 lines.Add(new RenderNode.Text($"  {issue.Code} at {DisplayPath(issue.Path)}: {issue.Message}"));
-            return lines;
+            if (result.ReviewModel is null)
+                return lines;
         }
-        lines.Add(new RenderNode.Text(
-            $"digest:   {result.Digest}",
-            result.CanApply ? Severity.Success : Severity.Warning));
-        lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
-        lines.Add(new RenderNode.Text($"operations ({result.Operations.Count}):"));
-        for (var i = 0; i < result.Operations.Count; i++)
+
+        if (result.ReviewModel is { } model)
         {
-            var op = result.Operations[i];
-            lines.Add(new RenderNode.Text($"  [{i}] {op.Id}  {op.Kind}"));
+            lines.AddRange(ChangeProposalReviewRenderer.Render(model, steering.Resolve()));
+            lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
         }
+        else
+        {
+            // No model means the document never parsed into a proposal at all, so there is
+            // nothing semantic to render; Issues above carries the reason.
+            lines.Add(new RenderNode.Text($"digest:   {result.Digest}", Severity.Warning));
+            lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
+        }
+
         lines.Add(new RenderNode.Text($"pending changes ({result.PendingChanges.Count}):"));
         foreach (var pc in result.PendingChanges)
             lines.Add(new RenderNode.Text($"  #{pc.WorkItemId} {pc.Kind} {pc.Field ?? "(no field)"}"));

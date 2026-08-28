@@ -124,8 +124,8 @@ public class RefreshWriteBypassTests
 
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remote });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remote }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         // Precondition: the remote must genuinely be ahead, or the conflict branch never runs
         // and this fixture would pass for the wrong reason.
@@ -153,8 +153,8 @@ public class RefreshWriteBypassTests
 
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remote });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remote }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         local.Revision.ShouldBeLessThan(remote.Revision);
 
@@ -180,10 +180,11 @@ public class RefreshWriteBypassTests
 
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { new WorkItemBuilder(1, "Sprint").Build() });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { new WorkItemBuilder(1, "Sprint").Build() }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remoteActive);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((remoteActive, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 

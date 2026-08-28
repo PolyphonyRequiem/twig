@@ -226,6 +226,14 @@ working-set sync engine:
 - **`SyncChildrenAsync(parentId)`** — unconditional fetch of children (no per-parent
   staleness check).
 - **`SyncLinksAsync(itemId)`** — fetches item with non-hierarchy links, persists both.
+- **`SyncLinksForSetAsync(itemIds)`** — the plural form. Costs no extra ADO request over a
+  plain batch fetch, because the batch URL already carries `$expand=relations`.
+
+🔴 Every path that persists edges writes them **per source id, for every id fetched —
+including ids that came back with no edges** (AB#831). Skipping the edgeless ids would
+both strand a previously-linked item's stale edges after its last link is removed in ADO,
+and leave that id unstamped in `work_item_link_verifications`, where "unstamped" means
+"never verified" and is indistinguishable from "no edges".
 
 Partial failures return `SyncResult.PartiallyUpdated` with per-item error details.
 
@@ -239,7 +247,12 @@ full workspace refreshes:
 3. Computes protected IDs via `SyncGuard`. There is no bypass — wayfinder 0004 slice 5
    deleted `--force`; overwriting a protected item is a resolution outcome reached through
    the resolver, never a flag that goes around it.
-4. Fetches sprint items, active item, and children concurrently.
+4. Fetches sprint items, active item, and children concurrently. Sprint items and an
+   out-of-batch active item are fetched **with relations** (`FetchBatchWithLinksAsync` /
+   `FetchWithLinksAsync`) and their edge sets persisted; this costs no extra round trip,
+   since the batch URL always expanded relations and the links were simply discarded
+   (AB#831). Children come from `FetchChildrenAsync`, which does not return relations, so
+   they are deliberately left **unverified** rather than stamped with a claim not earned.
 5. Detects revision conflicts (remote revision > local revision on protected items).
 6. Saves through `ProtectedCacheWriter` — the only save path.
 7. Hydrates ancestor chains iteratively (up to 5 levels), also through `ProtectedCacheWriter`.

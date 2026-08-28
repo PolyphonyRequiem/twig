@@ -167,8 +167,8 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value
         };
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         var cmd = CreateSyncCommand();
         var result = await cmd.ExecuteAsync();
@@ -484,8 +484,8 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value
         };
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { item }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         var cmd = CreateSyncCommand();
         var result = await cmd.ExecuteAsync(pullOnly: true);

@@ -160,9 +160,24 @@ public sealed class ShowCommand(
             ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
             : null;
 
+        // AB#831: the edges and the answer to "were these edges ever fetched?" are read
+        // together, because an empty list on its own cannot tell those two states apart.
         IReadOnlyList<WorkItemLink> links = [];
-        try { links = await linkRepo.GetLinksAsync(item.Id, ct); }
+        DateTimeOffset? linksVerifiedAt = null;
+        try
+        {
+            links = await linkRepo.GetLinksAsync(item.Id, ct);
+            linksVerifiedAt = await linkRepo.GetLinksVerifiedAtAsync(item.Id, ct);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        // Human surface only, in the same idiom as the staleness hint above — including its
+        // `!refresh` guard: telling someone to "pass --refresh" on a run that already passed it
+        // is a contradiction, and the refresh below is about to verify these very edges.
+        // A machine read keeps its quiet contract and gets the same signal structurally, as
+        // `linksVerifiedAt: null`.
+        if (linksVerifiedAt is null && !refresh && !IsMachineFormat(outputFormat))
+            ctx.StderrWriter.WriteLine(UnverifiedLinksHint.Format(resolvedId));
 
         var fieldDefs = fieldDefinitionStore is not null
             ? await fieldDefinitionStore.GetAllAsync(ct)
@@ -250,7 +265,11 @@ public sealed class ShowCommand(
                         ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
                         : null;
 
-                    try { links = await linkRepo.GetLinksAsync(item.Id, ct); }
+                    try
+                    {
+                        links = await linkRepo.GetLinksAsync(item.Id, ct);
+                        linksVerifiedAt = await linkRepo.GetLinksVerifiedAtAsync(item.Id, ct);
+                    }
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
                     childProgress = processConfigProvider.ComputeChildProgress(children);
@@ -388,7 +407,7 @@ public sealed class ShowCommand(
                 }
             }
 
-            RenderWorkItemTree(item, links, parent, children, gitContext, pendingCounts, outputFormat);
+            RenderWorkItemTree(item, links, linksVerifiedAt, parent, children, gitContext, pendingCounts, outputFormat);
         }
 
         return 0;
@@ -417,6 +436,7 @@ public sealed class ShowCommand(
     private void RenderWorkItemTree(
         Domain.Aggregates.WorkItem item,
         IReadOnlyList<WorkItemLink> links,
+        DateTimeOffset? linksVerifiedAt,
         Domain.Aggregates.WorkItem? parent,
         IReadOnlyList<Domain.Aggregates.WorkItem> children,
         GitContext gitContext,
@@ -428,7 +448,7 @@ public sealed class ShowCommand(
         {
             "ids" or "json-compact" => BuildCompactRecord(item),
             "minimal" => BuildFullRecord(item),
-            _ => BuildFullDocument(item, links, parent, children, gitContext, pendingChanges),
+            _ => BuildFullDocument(item, links, linksVerifiedAt, parent, children, gitContext, pendingChanges),
         };
 
         var tree = new Twig.RenderTree.RenderTree([root]);
@@ -455,6 +475,7 @@ public sealed class ShowCommand(
     private static RenderNode.Document BuildFullDocument(
         Domain.Aggregates.WorkItem item,
         IReadOnlyList<WorkItemLink> links,
+        DateTimeOffset? linksVerifiedAt,
         Domain.Aggregates.WorkItem? parent,
         IReadOnlyList<Domain.Aggregates.WorkItem> children,
         GitContext gitContext,
@@ -522,6 +543,15 @@ public sealed class ShowCommand(
                 relationNodes.Add(BuildRelationRecord(link));
         }
         fields.Add(new DocumentField("relations", new RenderNode.Section(null, relationNodes)));
+
+        // AB#831. ALWAYS emitted, and null-valued rather than omitted when the edge set has
+        // never been fetched — this is the key that makes the two arrays above readable at all.
+        // `links: []` with a timestamp is a VERIFIED empty edge set; `links: []` with null is
+        // "this cache has never asked ADO", which used to be reported as the same thing and led
+        // two agent sessions to conclude an item had no blocking graph when its edges existed.
+        fields.Add(new DocumentField("linksVerifiedAt", new RenderNode.KeyValue(
+            "linksVerifiedAt",
+            LinksVerifiedAtCell(linksVerifiedAt))));
 
         if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
         {
@@ -624,6 +654,19 @@ public sealed class ShowCommand(
     }
 
     /// <summary>
+    /// Projects the edge-set verification instant (AB#831): an ISO-8601 timestamp when this
+    /// item's edges have been read from ADO, an explicit machine <c>null</c> when they never
+    /// have. Never <see cref="RenderValue.Absent"/> — omitting the key would recreate the very
+    /// missing-vs-empty ambiguity the key exists to resolve.
+    /// </summary>
+    private static RenderCell LinksVerifiedAtCell(DateTimeOffset? verifiedAt) =>
+        verifiedAt is { } instant
+            ? new RenderCell(
+                instant.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+                new RenderValue.DateTime(instant))
+            : new RenderCell("never", new RenderValue.Null());
+
+    /// <summary>
     /// Projects a <see cref="WorkItemLink"/> as an ADO-shaped relation record.
     /// Polyphony's <c>TwigClient.ExtractPredecessors</c> reads each relation's
     /// <c>rel</c> (ADO reference name like
@@ -706,14 +749,26 @@ public sealed class ShowCommand(
         // failure must degrade a batch read to items-without-edges rather than fail it,
         // matching the single-item path above (see the try/catch at ExecuteCoreAsync).
         IReadOnlyList<WorkItemLink> links = [];
+        IReadOnlyDictionary<int, DateTimeOffset> linksVerifiedAt = new Dictionary<int, DateTimeOffset>();
         if (items.Count > 0)
         {
             var foundIds = new List<int>(items.Count);
             foreach (var item in items)
                 foundIds.Add(item.Id);
 
-            try { links = await linkRepo.GetLinksForSetAsync(foundIds, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { links = []; }
+            // AB#831: the plural verification read pairs with the plural edge read — one query
+            // each, so a set consumer learns which members' edge sets it may trust without
+            // falling back to one refresh per id.
+            try
+            {
+                links = await linkRepo.GetLinksForSetAsync(foundIds, ct);
+                linksVerifiedAt = await linkRepo.GetLinksVerifiedAtForSetAsync(foundIds, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                links = [];
+                linksVerifiedAt = new Dictionary<int, DateTimeOffset>();
+            }
         }
 
         var graph = WorkItemGraph.Build(items, links);
@@ -732,7 +787,7 @@ public sealed class ShowCommand(
         }
         else
         {
-            RenderBatchAsTree(graph, outputFormat);
+            RenderBatchAsTree(graph, linksVerifiedAt, outputFormat);
         }
 
         return 0;
@@ -747,13 +802,18 @@ public sealed class ShowCommand(
     /// <c>JsonOutputFormatter.FormatWorkItemBatch</c> wire shape.
     /// </summary>
     /// <remarks>
-    /// Each row additionally carries <c>links</c> and <c>relations</c> arrays (ADO #154).
-    /// Both are ALWAYS emitted, possibly empty, for the same reason the single-item
-    /// document always emits them: a consumer must be able to iterate the key without
-    /// first testing for its presence, and missing-vs-empty ambiguity silently breaks
-    /// integrators.
+    /// Each row additionally carries <c>links</c> and <c>relations</c> arrays plus a
+    /// <c>linksVerifiedAt</c> instant (ADO #154, AB#831). All three are ALWAYS emitted —
+    /// the arrays possibly empty, the instant possibly null — for the same reason the
+    /// single-item document always emits them: a consumer must be able to read the key
+    /// without first testing for its presence, and missing-vs-empty ambiguity silently
+    /// breaks integrators. An empty array beside a null instant means "never fetched",
+    /// not "no edges".
     /// </remarks>
-    private void RenderBatchAsTree(WorkItemGraph graph, string outputFormat)
+    private void RenderBatchAsTree(
+        WorkItemGraph graph,
+        IReadOnlyDictionary<int, DateTimeOffset> linksVerifiedAt,
+        string outputFormat)
     {
         var rows = new List<RenderRow>(graph.Items.Count);
         foreach (var item in graph.Items)
@@ -771,6 +831,8 @@ public sealed class ShowCommand(
 
             cells["links"] = new RenderCell(string.Empty, new RenderValue.Array(linkCells));
             cells["relations"] = new RenderCell(string.Empty, new RenderValue.Array(relationCells));
+            cells["linksVerifiedAt"] = LinksVerifiedAtCell(
+                linksVerifiedAt.TryGetValue(item.Id, out var verifiedAt) ? verifiedAt : null);
 
             rows.Add(new RenderRow(null, cells));
         }
@@ -784,13 +846,22 @@ public sealed class ShowCommand(
     /// <summary>
     /// True for the machine output formats handled via the
     /// <see cref="RenderTree"/> → <see cref="IRenderer"/> seam
-    /// (json, json-compact, minimal, ids). False for human/unknown formats,
+    /// (json, json-full, json-compact, minimal, ids). False for human/unknown formats,
     /// which fall back to <see cref="HumanOutputFormatter"/>.
     /// </summary>
+    /// <remarks>
+    /// 🔴 <c>json-full</c> belongs here and was missing (found reviewing AB#831). It is a
+    /// machine format everywhere else — <see cref="RenderWorkItemTree"/> routes it to
+    /// <see cref="BuildFullDocument"/>, and <c>RefreshCommand</c> classifies it as machine —
+    /// so omitting it here let human prose reach a scripted read: the staleness hint and the
+    /// AB#831 unverified-links hint on stderr, and worse, the AB#738 <c>Primary Scope:</c>
+    /// line on <b>stdout</b>, ahead of the document, which made
+    /// <c>twig show &lt;id&gt; -o json-full | jq</c> fail to parse outright.
+    /// </remarks>
     private static bool IsMachineFormat(string? outputFormat)
     {
         var normalized = outputFormat?.ToLowerInvariant();
-        return normalized is "json" or "json-compact" or "minimal" or "ids";
+        return normalized is "json" or "json-full" or "json-compact" or "minimal" or "ids";
     }
 
     private static List<int> ParseBatchIds(string batch)

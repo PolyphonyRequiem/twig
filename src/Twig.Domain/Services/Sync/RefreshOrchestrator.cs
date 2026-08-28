@@ -21,7 +21,8 @@ public sealed class RefreshOrchestrator(
     SyncCoordinatorFactory syncCoordinatorFactory,
     IIterationService iterationService,
     ITrackingService? trackingService = null,
-    IIterationCalendar? iterationCalendar = null)
+    IIterationCalendar? iterationCalendar = null,
+    IWorkItemLinkRepository? linkRepo = null)
 {
 
     /// <summary>
@@ -81,12 +82,18 @@ public sealed class RefreshOrchestrator(
         var protectedIds = await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore, ct);
 
         IReadOnlyList<WorkItem> sprintItems = [];
+        IReadOnlyList<WorkItemLink> sprintLinks = [];
         WorkItem? activeItem = null;
+        IReadOnlyList<WorkItemLink> activeLinks = [];
         IReadOnlyList<WorkItem> childItems = [];
         var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
 
+        // AB#831: FetchBatchWithLinksAsync, not FetchBatchAsync. The batch URL has always
+        // carried $expand=relations, so the edges were already on the wire on every refresh —
+        // FetchBatchAsync simply discarded them, and `twig sync` left work_item_links empty
+        // while filling work_items. Keeping them costs no extra round trip.
         if (realIds.Count > 0)
-            sprintItems = await adoService.FetchBatchAsync(realIds, ct);
+            (sprintItems, sprintLinks) = await adoService.FetchBatchWithLinksAsync(realIds, ct);
 
         if (activeId.HasValue && activeId.Value > 0)
         {
@@ -94,9 +101,12 @@ public sealed class RefreshOrchestrator(
 
             if (!realIds.Contains(activeId.Value))
             {
-                var fetchActiveTask = adoService.FetchAsync(activeId.Value, ct);
+                // The active item is the one `twig show` reads without an id, so its edge set is
+                // the one most likely to be consulted — fetch it with relations for the same
+                // reason as the batch above.
+                var fetchActiveTask = adoService.FetchWithLinksAsync(activeId.Value, ct);
                 await Task.WhenAll(fetchActiveTask, fetchChildrenTask);
-                activeItem = fetchActiveTask.Result;
+                (activeItem, activeLinks) = fetchActiveTask.Result;
                 childItems = fetchChildrenTask.Result;
             }
             else
@@ -117,12 +127,89 @@ public sealed class RefreshOrchestrator(
         if (childItems.Count > 0)
             await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds, ct);
 
+        // AB#831. Written per SOURCE id AFTER the item rows, for every id that came back —
+        // including ids that came back with no edges at all. Writing only the ids that carried
+        // links would leave a previously-linked item's stale edges behind and, worse, leave an
+        // edgeless item unstamped and therefore indistinguishable from one never fetched, which
+        // is the exact ambiguity this ticket exists to remove.
+        //
+        // Children are deliberately NOT stamped: FetchChildrenAsync does not return relations,
+        // so claiming their edge sets were verified would be a fresh lie. They read back as
+        // unverified, which is the honest answer.
+        await SaveLinksForFetchedAsync(sprintItems, sprintLinks, ct);
+        if (activeItem is not null)
+            await SaveLinksForFetchedAsync([activeItem], activeLinks, ct);
+
         return new RefreshFetchResult
         {
             ItemCount = realIds.Count,
             Conflicts = conflicts,
             PhantomsCleansed = phantomsCleansed,
         };
+    }
+
+    /// <summary>
+    /// Persists the edge set of every item in <paramref name="fetched"/>, bucketed by source id
+    /// (AB#831). Best-effort: a link-store failure degrades the refresh to items-without-edges
+    /// rather than failing it, matching how every other read path treats the link store.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 Every FETCHED id is written, not every id that appears as a link source. Link
+    /// persistence replaces a source's whole edge set, so skipping the edgeless ids would both
+    /// leave stale edges behind after a link was removed in ADO and leave those ids unstamped —
+    /// and an unstamped id reads back as "never verified", which is exactly the answer this
+    /// refresh has just earned the right to stop giving.
+    /// <para>
+    /// 🔴 Ids that <see cref="ProtectedCacheWriter"/> skipped are written here too, and that is
+    /// deliberate. The guard protects an item's <c>work_items</c> ROW — a field or state edit the
+    /// user has staged and ADO has not seen. It does not protect edges, because there is no such
+    /// thing as a staged local edge: <c>twig link</c> is push-on-write (it calls ADO, then
+    /// resyncs) and a seed's edges live in the durable <c>seed_links</c> table. So
+    /// <c>work_item_links</c> holds remote truth only, and refreshing it beside a locally-edited
+    /// item corrects the edges rather than discarding anyone's work. Skipping protected ids would
+    /// also be strictly worse for this ticket: they would go unstamped and read back as "never
+    /// verified" — the very answer this refresh exists to stop giving.
+    /// </para>
+    /// </remarks>
+    private async Task SaveLinksForFetchedAsync(
+        IReadOnlyList<WorkItem> fetched, IReadOnlyList<WorkItemLink> links, CancellationToken ct)
+    {
+        if (linkRepo is null || fetched.Count == 0)
+            return;
+
+        var bySource = new Dictionary<int, IReadOnlyList<WorkItemLink>>(fetched.Count);
+
+        // Seed EVERY fetched id with an empty set first, then fill. This is what makes an id
+        // that came back with no edges still get written and stamped.
+        foreach (var item in fetched)
+            bySource[item.Id] = Array.Empty<WorkItemLink>();
+
+        foreach (var link in links)
+        {
+            if (!bySource.TryGetValue(link.SourceId, out var existing))
+                continue;   // an edge whose source is not in this fetch is not ours to write
+
+            if (existing is List<WorkItemLink> bucket)
+            {
+                bucket.Add(link);
+            }
+            else
+            {
+                bySource[link.SourceId] = new List<WorkItemLink> { link };
+            }
+        }
+
+        try
+        {
+            // ONE transaction for the whole set. Per-item calls cost 370-700 ms across a
+            // 163-item refresh, because the cache runs WAL with synchronous=FULL and every
+            // commit fsyncs; the same writes batched measure ~3 ms.
+            await linkRepo.SaveLinksForSourcesAsync(bySource, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort by design: the item rows are already saved and useful.
+        }
     }
 
     /// <summary>

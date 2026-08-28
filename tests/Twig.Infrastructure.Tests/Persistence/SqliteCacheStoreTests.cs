@@ -276,7 +276,12 @@ public class SqliteCacheStoreTests
 
         string[] expectedMirror =
             ["metadata", "work_items", "process_types", "context", "field_definitions",
-             "work_item_links", "navigation_history", "iteration_calendar"];
+             "work_item_links", "work_item_link_verifications", "navigation_history",
+             "iteration_calendar"];
+        // work_item_link_verifications is a MIRROR table (AB#831): it records WHEN a source id's
+        // edge set was last read from ADO, and ADO can rebuild it — the next refresh does, by
+        // re-reading the edges. Dropping it on a SchemaVersion bump is correct and safe: every id
+        // reverts to "never verified", which is the honest answer for a freshly rebuilt mirror.
         // staged_identities is DURABLE (wayfinder 0014): it is the source of truth for a
         // staged seed's identity, its display alias, and the retirement record that makes
         // "never recycled" structural. Putting it in the mirror would make a durable identity

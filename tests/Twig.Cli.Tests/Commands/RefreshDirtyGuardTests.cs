@@ -29,8 +29,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
@@ -55,8 +55,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var stderr = new StringWriter();
@@ -92,8 +92,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
@@ -126,8 +126,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
@@ -157,8 +157,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var stderr = new StringWriter();
@@ -191,13 +191,14 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var sprintItem = CreateWorkItem(1, "Sprint Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { sprintItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { sprintItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         // Active item 42 is out-of-sprint → fetched individually
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         var remoteActive = CreateWorkItem(42, "Active Out-of-Sprint Remote", revision: 7);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remoteActive);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((remoteActive, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
@@ -237,13 +238,14 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var sprintItem = CreateWorkItem(1, "Sprint Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { sprintItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { sprintItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         // Active item 10 is outside the sprint scope (WIQL returns [1], so 10 is fetched individually)
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
         var remoteActive = CreateWorkItem(10, "Active In Sprint", revision: 5);
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(remoteActive);
+        _adoService.FetchWithLinksAsync(10, Arg.Any<CancellationToken>())
+            .Returns((remoteActive, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         var remoteChild = CreateWorkItem(99, "Dirty Child Remote", revision: 6);
         _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(new[] { remoteChild });
@@ -283,12 +285,13 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var sprintItem = CreateWorkItem(1, "Sprint Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { sprintItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { sprintItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         var remoteActive = CreateWorkItem(42, "Active Remote", revision: 7);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remoteActive);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((remoteActive, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
@@ -321,8 +324,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();
@@ -350,8 +353,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 7);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var stderr = new StringWriter();
@@ -388,8 +391,8 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
         var remoteItem = CreateWorkItem(1, "Remote Item", revision: 7);
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1 });
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { remoteItem });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns((new[] { remoteItem }, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand();

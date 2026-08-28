@@ -20,6 +20,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- T3 (AB#734) profile-lookup seam. The reference profile is embedded as a
+         resource so PublishAot=true / TrimMode=full inline it without a
+         filesystem-path fight (see T1 AB#732 §4 "Canonical location"). -->
+    <EmbeddedResource Include="Resources\ReferenceProfile\profile.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Markdig" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />

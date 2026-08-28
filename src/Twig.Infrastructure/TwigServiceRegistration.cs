@@ -14,6 +14,7 @@ using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Telemetry;
+using Twig.Infrastructure.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure;
 
@@ -108,6 +109,11 @@ public static class TwigServiceRegistration
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
+        // T3 (AB#734) profile-lookup seam. Single owning service; the loaded profile
+        // is cached per process (see EmbeddedReferenceProfileProvider). Registered
+        // beside IProcessConfigurationProvider because the two answer complementary
+        // questions ("reference" vs "live") and downstream services often need both.
+        services.AddSingleton<IReferenceProfileProvider>(_ => new EmbeddedReferenceProfileProvider());
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
@@ -188,8 +194,13 @@ public static class TwigServiceRegistration
         services.AddSingleton<Twig.Domain.Interfaces.IAttachmentStatusProjection>(sp =>
             new Twig.Domain.Services.Attachment.AttachmentStatusProjectionAdapter(
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.PrimaryScopeAttachmentService>()));
+        // T3 cutover (AB#727): the selected profile now resolves from the embedded
+        // reference profile. Registering UnavailableProfileRegistrySource here is what
+        // made `twig init` fail closed with selected-profile-unavailable in every fresh
+        // worktree; that stub is retained only as a failure-path test fixture.
         services.TryAddSingleton<Twig.Domain.Services.Attachment.IProfileRegistrySource>(sp =>
-            new Twig.Infrastructure.Persistence.UnavailableProfileRegistrySource());
+            new Twig.Infrastructure.Persistence.ReferenceProfileRegistrySource(
+                sp.GetRequiredService<Twig.Domain.Interfaces.IReferenceProfileProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(sp =>
             new Twig.Infrastructure.Persistence.ManagedWorktreeInitializer(
                 sp.GetRequiredService<Twig.Domain.Interfaces.IPrimaryScopeAttachmentStore>(),

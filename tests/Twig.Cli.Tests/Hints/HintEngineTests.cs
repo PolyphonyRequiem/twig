@@ -200,8 +200,10 @@ public sealed class HintEngineTests
         var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
 
         hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
-        // Without config, defaults to "Done"
-        hints.ShouldContain(h => h.Contains("twig state Done"));
+        // Without live config OR an injected profile provider, the hint uses a
+        // generic <completed> placeholder rather than hardcoding a state name
+        // (AB#734: no profile-owned strings in Twig core outside the seam).
+        hints.ShouldContain(h => h.Contains("twig state <completed>"));
     }
 
     [Fact]
@@ -214,11 +216,11 @@ public sealed class HintEngineTests
             CreateWorkItem(3, "Sibling 2", "Closed"),
         };
 
-        // No item provided — cannot look up type config, falls back to heuristic resolve + default "Done"
+        // No item provided — cannot look up type config, falls back to placeholder.
         var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
 
         hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
-        hints.ShouldContain(h => h.Contains("twig state Done"));
+        hints.ShouldContain(h => h.Contains("twig state <completed>"));
     }
 
     [Fact]
@@ -237,8 +239,9 @@ public sealed class HintEngineTests
         var hints = engine.GetHints("state", item: item, newStateName: "Closed", siblings: siblings);
 
         hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
-        // Provider throws → SafeGetConfiguration returns null → no entries → default "Done"
-        hints.ShouldContain(h => h.Contains("twig state Done"));
+        // Provider throws → SafeGetConfiguration returns null → no entries;
+        // with no profile provider injected the fallback is the placeholder.
+        hints.ShouldContain(h => h.Contains("twig state <completed>"));
     }
 
     [Fact]
@@ -256,9 +259,9 @@ public sealed class HintEngineTests
 
         var hints = engine.GetHints("state", item: item, newStateName: "Closed", siblings: siblings);
 
-        // Task type not in config → falls back to heuristics
+        // Task type not in config → live path yields no state entries, falls back to placeholder.
         hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
-        hints.ShouldContain(h => h.Contains("twig state Done"));
+        hints.ShouldContain(h => h.Contains("twig state <completed>"));
     }
 
     [Fact]

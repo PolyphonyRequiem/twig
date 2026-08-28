@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -9,7 +10,8 @@ using Twig.RenderTree;
 namespace Twig.Commands;
 
 /// <summary>
-/// CLI adapter for <c>twig plan validate|preview|apply|status|seed</c>. Every handler
+/// CLI adapter for <c>twig proposal validate|preview|apply|status|seed</c> (formerly
+/// <c>twig plan …</c>, which remains a retained deprecated alias). Every handler
 /// delegates to <see cref="IPlanLifecycleService"/> — the shared surface owns file
 /// resolution, workspace enforcement, journal transitions, and ADO calls. This adapter
 /// only projects the returned records into human/json/minimal output and picks the exit
@@ -86,7 +88,7 @@ public sealed class PlanCommand(
         }
         if (string.IsNullOrWhiteSpace(confirmedDigest))
         {
-            WriteUsage("plan apply requires --confirm <digest>.", outputFormat);
+            WriteUsage("proposal apply requires --confirm <digest>.", outputFormat);
             return 2;
         }
 
@@ -120,7 +122,7 @@ public sealed class PlanCommand(
         var result = await lifecycle.StatusAsync(resolved, ct);
         if (result is null)
         {
-            RenderNotFound(outputFormat, "planStatusNotFound", $"No journal for plan '{resolved}'.");
+            RenderNotFound(outputFormat, "proposalStatusNotFound", $"No journal for proposal '{resolved}'.");
             return 1;
         }
         if (result.Issues.Count > 0)
@@ -141,14 +143,14 @@ public sealed class PlanCommand(
     {
         if (id is null)
         {
-            WriteUsage("plan seed requires --id <negative-alias>.", outputFormat);
+            WriteUsage("proposal seed requires --id <negative-alias>.", outputFormat);
             return 2;
         }
 
         var descriptor = await lifecycle.DescribeSeedAsync(id.Value, ct);
         if (descriptor is null)
         {
-            RenderNotFound(outputFormat, "planSeedNotFound", $"No staged seed for id #{id.Value}.");
+            RenderNotFound(outputFormat, "proposalSeedNotFound", $"No staged seed for id #{id.Value}.");
             return 1;
         }
         RenderSeed(descriptor, outputFormat);
@@ -165,7 +167,7 @@ public sealed class PlanCommand(
         if (string.IsNullOrWhiteSpace(file))
         {
             resolved = null;
-            usageError = "plan requires --file <path>.";
+            usageError = "proposal requires --file <path>.";
             return false;
         }
         resolved = file!;
@@ -190,7 +192,7 @@ public sealed class PlanCommand(
             new("issues", new RenderNode.KeyValue("issues", IssuesCell(result.Issues))),
         };
         var human = new RenderNode.Section(null, BuildValidateHumanLines(result));
-        var doc = new RenderNode.Document("planValidate", fields);
+        var doc = new RenderNode.Document("proposalValidate", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
@@ -200,11 +202,11 @@ public sealed class PlanCommand(
         var lines = new List<RenderNode>();
         if (result.IsValid)
         {
-            lines.Add(new RenderNode.Text($"plan: valid  digest={result.Digest}", Severity.Success));
+            lines.Add(new RenderNode.Text($"proposal: valid  digest={result.Digest}", Severity.Success));
         }
         else
         {
-            lines.Add(new RenderNode.Text($"plan: {result.Issues.Count} issue(s)", Severity.Error));
+            lines.Add(new RenderNode.Text($"proposal: {result.Issues.Count} issue(s)", Severity.Error));
             foreach (var issue in result.Issues)
                 lines.Add(new RenderNode.Text($"  {issue.Code} at {DisplayPath(issue.Path)}: {issue.Message}"));
         }
@@ -224,9 +226,13 @@ public sealed class PlanCommand(
             new("pendingChanges", new RenderNode.KeyValue(
                 "pendingChanges",
                 PendingChangeRenderer.PendingChangesCell(result.PendingChanges))),
+            // The canonical semantic review model. Appended after the pre-existing fields so
+            // every key an out-of-tree consumer already parses keeps its meaning; this is a
+            // purely additive key.
+            new("reviewModel", new RenderNode.KeyValue("reviewModel", ReviewModelCell(result.ReviewModel))),
         };
         var human = new RenderNode.Section(null, BuildPreviewHumanLines(result));
-        var doc = new RenderNode.Document("planPreview", fields);
+        var doc = new RenderNode.Document("proposalPreview", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
@@ -236,7 +242,7 @@ public sealed class PlanCommand(
         var lines = new List<RenderNode>();
         if (result.Issues.Count != 0)
         {
-            lines.Add(new RenderNode.Text($"plan: {result.Issues.Count} issue(s)", Severity.Error));
+            lines.Add(new RenderNode.Text($"proposal: {result.Issues.Count} issue(s)", Severity.Error));
             foreach (var issue in result.Issues)
                 lines.Add(new RenderNode.Text($"  {issue.Code} at {DisplayPath(issue.Path)}: {issue.Message}"));
             return lines;
@@ -271,7 +277,7 @@ public sealed class PlanCommand(
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
         var human = new RenderNode.Section(null, BuildApplyHumanLines(result));
-        var doc = new RenderNode.Document("planApply", fields);
+        var doc = new RenderNode.Document("proposalApply", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
@@ -281,7 +287,7 @@ public sealed class PlanCommand(
         var lines = new List<RenderNode>
         {
             new RenderNode.Text(
-                result.Failed ? $"plan apply: failed  digest={result.Digest}" : $"plan apply: ok  digest={result.Digest}",
+                result.Failed ? $"proposal apply: failed  digest={result.Digest}" : $"proposal apply: ok  digest={result.Digest}",
                 result.Failed ? Severity.Error : Severity.Success),
         };
         AppendOperationLines(result.Operations, lines);
@@ -329,7 +335,7 @@ public sealed class PlanCommand(
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
         var human = new RenderNode.Section(null, BuildStatusHumanLines(result));
-        var doc = new RenderNode.Document("planStatus", fields);
+        var doc = new RenderNode.Document("proposalStatus", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
@@ -364,7 +370,7 @@ public sealed class PlanCommand(
                 new("found", new RenderNode.KeyValue("found", RenderCell.Boolean(false))),
                 new("issues", new RenderNode.KeyValue("issues", IssuesCell(result.Issues))),
             };
-            var doc = new RenderNode.Document("planStatusInvalid", fields);
+            var doc = new RenderNode.Document("proposalStatusInvalid", fields);
             _rendererFactory.GetRenderer(outputFormat, _stderr)
                 .Render(new RenderTree.RenderTree(new RenderNode[] { doc }));
             return;
@@ -372,7 +378,7 @@ public sealed class PlanCommand(
 
         var lines = new List<RenderNode>
         {
-            new RenderNode.Text($"plan status: {result.Issues.Count} issue(s) in '{resolved}'", Severity.Error),
+            new RenderNode.Text($"proposal status: {result.Issues.Count} issue(s) in '{resolved}'", Severity.Error),
         };
         foreach (var issue in result.Issues)
             lines.Add(new RenderNode.Text($"  {issue.Code} at {DisplayPath(issue.Path)}: {issue.Message}"));
@@ -399,7 +405,7 @@ public sealed class PlanCommand(
             new RenderNode.Text($"  identity:    {descriptor.Identity}"),
             new RenderNode.Text($"  fingerprint: {descriptor.Fingerprint}"),
         });
-        var doc = new RenderNode.Document("planSeed", fields);
+        var doc = new RenderNode.Document("proposalSeed", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
@@ -480,6 +486,175 @@ public sealed class PlanCommand(
             items.Add(new RenderCell($"[{i}] {op.Id} {op.Kind}", new RenderValue.Object(obj)));
         }
         return new RenderCell($"{operations.Count} op(s)", new RenderValue.Array(items));
+    }
+
+    /// <summary>
+    /// Projects the canonical semantic review model into render cells.
+    /// <para>
+    /// Every material entry is emitted — operations, preconditions, consequences,
+    /// authorization choices and blockers are never summarised or truncated here, because a
+    /// renderer that elides a material entry is a compliance failure rather than a display
+    /// choice.
+    /// </para>
+    /// </summary>
+    private static RenderCell ReviewModelCell(ChangeProposalReviewModel? model)
+    {
+        if (model is null)
+            return new RenderCell("(none)", new RenderValue.Null());
+
+        var workspace = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["organization"] = RenderCell.String(model.Workspace.Organization),
+            ["project"] = RenderCell.String(model.Workspace.Project),
+        };
+
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["model"] = RenderCell.String(model.Model),
+            ["modelVersion"] = RenderCell.Integer(model.ModelVersion),
+            ["digest"] = RenderCell.String(model.Digest),
+            ["workspace"] = new RenderCell(
+                $"{model.Workspace.Organization}/{model.Workspace.Project}",
+                new RenderValue.Object(workspace)),
+            ["rationale"] = NullableStringCell(model.Rationale),
+            ["recipe"] = RecipeCell(model.Recipe),
+            ["affectedItems"] = AffectedItemsCell(model.AffectedItems),
+            ["operations"] = ReviewOperationsCell(model.Operations),
+            ["authorizationChoices"] = StringArrayCell(model.AuthorizationChoices),
+            ["blockers"] = BlockersCell(model.Blockers),
+        };
+
+        return new RenderCell($"{model.Model} v{model.ModelVersion}", new RenderValue.Object(obj));
+    }
+
+    private static RenderCell RecipeCell(ChangeRecipeReference? recipe)
+    {
+        // Null is meaningful: the proposal is ad hoc and there is no template to inspect.
+        if (recipe is null)
+            return new RenderCell("(ad hoc)", new RenderValue.Null());
+
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["recipeId"] = RenderCell.String(recipe.RecipeId),
+            ["version"] = RenderCell.Integer(recipe.Version),
+        };
+        return new RenderCell($"{recipe.RecipeId} v{recipe.Version}", new RenderValue.Object(obj));
+    }
+
+    private static RenderCell AffectedItemsCell(IReadOnlyList<ReviewAffectedItem> items)
+    {
+        if (items.Count == 0)
+            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
+
+        var cells = new List<RenderCell>(items.Count);
+        foreach (var item in items)
+        {
+            var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(item.Id),
+                ["type"] = NullableStringCell(item.Type),
+                ["title"] = NullableStringCell(item.Title),
+                ["state"] = NullableStringCell(item.State),
+                ["role"] = RenderCell.String(item.Role),
+            };
+            cells.Add(new RenderCell($"#{item.Id} ({item.Role})", new RenderValue.Object(obj)));
+        }
+        return new RenderCell($"{items.Count} item(s)", new RenderValue.Array(cells));
+    }
+
+    private static RenderCell ReviewOperationsCell(IReadOnlyList<ReviewOperation> operations)
+    {
+        if (operations.Count == 0)
+            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
+
+        var cells = new List<RenderCell>(operations.Count);
+        foreach (var op in operations)
+        {
+            var target = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["workItemId"] = op.Target.WorkItemId is { } id
+                    ? RenderCell.Integer(id)
+                    : new RenderCell("(none)", new RenderValue.Null()),
+                ["stagedIdentity"] = NullableStringCell(op.Target.StagedIdentity),
+            };
+
+            var preconditions = new List<RenderCell>(op.Preconditions.Count);
+            foreach (var pre in op.Preconditions)
+            {
+                var preObj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["kind"] = RenderCell.String(pre.Kind),
+                    ["value"] = RenderCell.String(pre.Value),
+                };
+                preconditions.Add(new RenderCell($"{pre.Kind}={pre.Value}", new RenderValue.Object(preObj)));
+            }
+
+            var consequences = new List<RenderCell>(op.Consequences.Count);
+            foreach (var con in op.Consequences)
+            {
+                var conObj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["kind"] = RenderCell.String(con.Kind),
+                    ["field"] = NullableStringCell(con.Field),
+                    ["to"] = NullableStringCell(con.To),
+                    ["relation"] = NullableStringCell(con.Relation),
+                    ["otherId"] = con.OtherId is { } other
+                        ? RenderCell.Integer(other)
+                        : new RenderCell("(none)", new RenderValue.Null()),
+                };
+                consequences.Add(new RenderCell(con.Kind, new RenderValue.Object(conObj)));
+            }
+
+            var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["ordinal"] = RenderCell.Integer(op.Ordinal),
+                ["opId"] = RenderCell.String(op.OpId),
+                ["kind"] = RenderCell.String(op.Kind),
+                ["target"] = new RenderCell(
+                    op.Target.WorkItemId is { } tid ? $"#{tid}" : op.Target.StagedIdentity ?? "(none)",
+                    new RenderValue.Object(target)),
+                ["summary"] = RenderCell.String(op.Summary),
+                ["preconditions"] = new RenderCell(
+                    $"{preconditions.Count} precondition(s)", new RenderValue.Array(preconditions)),
+                ["consequences"] = new RenderCell(
+                    $"{consequences.Count} consequence(s)", new RenderValue.Array(consequences)),
+            };
+            cells.Add(new RenderCell($"[{op.Ordinal}] {op.Summary}", new RenderValue.Object(obj)));
+        }
+        return new RenderCell($"{operations.Count} op(s)", new RenderValue.Array(cells));
+    }
+
+    private static RenderCell BlockersCell(IReadOnlyList<ReviewBlocker> blockers)
+    {
+        if (blockers.Count == 0)
+            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
+
+        var cells = new List<RenderCell>(blockers.Count);
+        foreach (var blocker in blockers)
+        {
+            var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["kind"] = RenderCell.String(blocker.Kind),
+                ["workItemId"] = blocker.WorkItemId is { } id
+                    ? RenderCell.Integer(id)
+                    : new RenderCell("(none)", new RenderValue.Null()),
+                ["detail"] = RenderCell.String(blocker.Detail),
+            };
+            cells.Add(new RenderCell($"{blocker.Kind}: {blocker.Detail}", new RenderValue.Object(obj)));
+        }
+        return new RenderCell($"{blockers.Count} blocker(s)", new RenderValue.Array(cells));
+    }
+
+    private static RenderCell StringArrayCell(IReadOnlyList<string> values)
+    {
+        if (values.Count == 0)
+            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
+
+        var cells = new List<RenderCell>(values.Count);
+        foreach (var value in values)
+            cells.Add(RenderCell.String(value));
+
+        return new RenderCell(string.Join(", ", values), new RenderValue.Array(cells));
     }
 
     private static RenderCell JournalOperationsCell(IReadOnlyList<PlanJournalOperation> operations)

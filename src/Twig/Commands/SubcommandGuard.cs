@@ -73,6 +73,7 @@ internal static class SubcommandGuard
         "auth",
         "ohmyposh",
         "plan",
+        "proposal",
         "workspace sprint",
     ];
 

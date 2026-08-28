@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 
+using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
@@ -2266,6 +2267,115 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     {
         StagedAlias.TryFrom(negative, out var alias).ShouldBeTrue();
         return alias;
+    }
+
+    // ── canonical semantic review model (AB#742) ───────────────────────────
+
+    [Fact]
+    public async Task Preview_ReturnsTheCanonicalReviewModelBoundToTheSameDigest()
+    {
+        // Defends against: preview reporting a digest while the review model carries a
+        // different one. The reviewer authorizes what the MODEL describes but the apply gate
+        // checks the reported digest — if they can disagree, the authorization is meaningless.
+        var file = WritePlan(ValidPlanSource());
+
+        var result = await BuildService().PreviewAsync(file);
+
+        result.ReviewModel.ShouldNotBeNull();
+        result.ReviewModel!.Digest.ShouldBe(result.Digest);
+        result.ReviewModel.ModelVersion.ShouldBe(1);
+        result.ReviewModel.Workspace.Organization.ShouldBe("acme");
+    }
+
+    [Fact]
+    public async Task Preview_ReviewModel_DescribesEveryOperationThePreviewReports()
+    {
+        // Defends against: the model and the operation list drifting apart, so that an
+        // operation preview counts is missing from what a reviewer is shown.
+        var file = WritePlan(ValidPlanSource());
+
+        var result = await BuildService().PreviewAsync(file);
+
+        result.ReviewModel!.Operations.Count.ShouldBe(result.Operations.Count);
+        result.ReviewModel.Operations.Select(o => o.OpId)
+            .ShouldBe(result.Operations.Select(o => o.Id));
+    }
+
+    [Fact]
+    public async Task Preview_ReviewModel_IsStillProducedWhenTheProposalCannotApply()
+    {
+        // Defends against: withholding the model exactly when it matters most. A blocked
+        // proposal still has to be reviewable — otherwise the reviewer sees "canApply: false"
+        // with no description of what was proposed or why it is blocked.
+        var file = WritePlan(ValidPlanSource());
+        _pending.GetAllChangesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PendingChangeDetail>>(new[]
+            {
+                new PendingChangeDetail(1, 42, "field", "System.State", null, "To do", "Doing",
+                    DateTimeOffset.UtcNow, null),
+            }));
+
+        var result = await BuildService().PreviewAsync(file);
+
+        result.CanApply.ShouldBeFalse();
+        result.ReviewModel.ShouldNotBeNull();
+        result.ReviewModel!.AuthorizationChoices.ShouldNotContain("apply");
+        result.ReviewModel.Blockers.ShouldContain(b => b.Kind == "pending" && b.WorkItemId == 42);
+    }
+
+    [Fact]
+    public async Task RenderedProposal_KeepsItsDigestThroughPreviewAndJournalLookup()
+    {
+        // Defends against: the rendering path and the lifecycle path computing digests
+        // differently. This is the end-to-end form of the T2 §3 contract: a proposal rendered
+        // from a recipe, written to disk, previewed, and then looked up in the journal must be
+        // the SAME proposal at every step. If these ever diverge, a recipe-rendered proposal
+        // would be refused at apply time with a digest mismatch that looks like tampering.
+        var renderer = new ChangeRecipeRenderer(new PlanDocumentParser());
+        var proposal = renderer.Render(
+            new WorkspaceStateRecipe(_config.Organization!, _config.Project!),
+            new ChangeRecipeInputs(new Dictionary<string, string> { ["state"] = "Doing" }))[0];
+
+        var file = WritePlan(proposal.CanonicalJson);
+        var svc = BuildService();
+
+        var preview = await svc.PreviewAsync(file);
+        preview.Digest.ShouldBe(proposal.Digest);
+
+        // …and the journal the preview imported is keyed by that very digest, which is the
+        // key apply later confirms against.
+        var journal = await _journal.GetAsync(proposal.Digest);
+        journal.ShouldNotBeNull();
+
+        var status = await svc.StatusAsync(file);
+        status!.Digest.ShouldBe(proposal.Digest);
+    }
+
+    /// <summary>Minimal recipe bound to the test workspace, used for the digest round-trip.</summary>
+    private sealed class WorkspaceStateRecipe(string organization, string project) : IChangeRecipe
+    {
+        public string RecipeId => "twig.test.workspace-state";
+
+        public int Version => 1;
+
+        public IReadOnlyList<PlanDefinition> Render(ChangeRecipeInputs inputs) =>
+        [
+            new PlanDefinition
+            {
+                Version = 1,
+                Workspace = new PlanWorkspace { Organization = organization, Project = project },
+                Operations =
+                [
+                    new BatchOperation
+                    {
+                        Id = "op-1",
+                        WorkItemId = 42,
+                        ExpectedRevision = 1,
+                        Fields = new Dictionary<string, string?> { ["System.State"] = inputs.Require("state") },
+                    },
+                ],
+            },
+        ];
     }
 
     // ── fakes ──────────────────────────────────────────────────────────────

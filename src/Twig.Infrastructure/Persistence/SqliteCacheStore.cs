@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 7;
+    internal const int DurableSchemaVersion = 8;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -547,6 +547,44 @@ public sealed class SqliteCacheStore : IDisposable
         [7] = $"""
             ALTER TABLE {DurableSchema}.plan_operations ADD COLUMN warning TEXT;
             """,
+        // AB#742 / design record T2 — settled "Change Proposal" vocabulary. This is a pure
+        // RENAME: `plan_journals` becomes `proposal_journals` and `plan_operations` becomes
+        // `proposal_operations`.
+        //
+        // 🔴 ROW-PRESERVING BY CONTRACT. The durable store is never dropped, and the rows
+        // in these tables are the ONLY record of intents twig recorded before an ADO call
+        // and outcomes it observed after — the "record intent before, record outcome after"
+        // contract from 0001 §4. A migration that recreated these tables would silently
+        // destroy real audit history that ADO cannot rebuild. Every subsequent statement
+        // below either renames in place or rebuilds an index; not one drops a data row.
+        //
+        // WHY `ALTER TABLE ... RENAME TO` AND NOT create-new + INSERT SELECT + drop-old:
+        // SQLite defaults `legacy_alter_table = OFF` since 3.25 (2018), and the bundle this
+        // repo pins — SQLitePCLRaw.bundle_e_sqlite3 2.1.11 under Microsoft.Data.Sqlite
+        // 10.0.6 — ships a modern engine well past that. With legacy_alter_table OFF, the
+        // rename automatically rewrites `REFERENCES plan_journals(digest) ON DELETE CASCADE`
+        // in the child table to point at the new parent name, preserving the cascade FK
+        // the operations ledger relies on. No explicit rebuild of the FK is needed.
+        //
+        // Indexes follow the renamed table but keep their OLD names, so they are dropped
+        // and re-created against the new tables with the settled names. The unique
+        // (digest, ordinal) constraint carries over unchanged.
+        [8] = $"""
+            ALTER TABLE {DurableSchema}.plan_journals RENAME TO proposal_journals;
+            ALTER TABLE {DurableSchema}.plan_operations RENAME TO proposal_operations;
+
+            DROP INDEX {DurableSchema}.idx_plan_journals_state;
+            DROP INDEX {DurableSchema}.idx_plan_operations_ordinal;
+            DROP INDEX {DurableSchema}.idx_plan_operations_state;
+
+            CREATE INDEX {DurableSchema}.idx_proposal_journals_state
+                ON proposal_journals(state);
+            CREATE UNIQUE INDEX {DurableSchema}.idx_proposal_operations_ordinal
+                ON proposal_operations(digest, ordinal);
+            CREATE INDEX {DurableSchema}.idx_proposal_operations_state
+                ON proposal_operations(state);
+            """,
+
     };
 
     private bool SchemaExists()

@@ -303,7 +303,7 @@ public class SqliteCacheStoreTests
         // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
         string[] expectedDurable =
             ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors", "current_bench", "plan_journals", "plan_operations"];
+             "benches", "bench_selectors", "current_bench", "proposal_journals", "proposal_operations"];
 
         ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
         ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
@@ -545,8 +545,10 @@ public class SqliteCacheStoreTests
     }
 
     /// <summary>
-    /// The v6 durable migration introduces the plan journal tables (plan_journals /
-    /// plan_operations). Because the durable store is NEVER dropped (0005 §5), that migration
+    /// The v6 durable migration introduces the proposal journal tables (created as
+    /// <c>plan_journals</c> / <c>plan_operations</c>, renamed to <c>proposal_journals</c> /
+    /// <c>proposal_operations</c> by the v8 migration in AB#742). Because the durable store is
+    /// NEVER dropped (0005 §5), that migration
     /// MUST run non-destructively against a real on-disk v5 <c>pending.db</c> — an in-memory
     /// happy-path test that lands straight at v6 cannot catch a v6 migration that silently
     /// drops or truncates the durable rows created under v5.
@@ -554,14 +556,14 @@ public class SqliteCacheStoreTests
     /// This test builds a REAL file-backed pending.db in the shape the v1..v5 migrations
     /// produce, seeds every durable table with at least one representative row, stamps
     /// <c>user_version = 5</c>, then opens the production <see cref="SqliteCacheStore"/> against
-    /// the sibling mirror path and asserts every seeded row survives, that the v6 plan tables
+    /// the sibling mirror path and asserts every seeded row survives, that the proposal tables
     /// and their indices now exist, and that <c>PRAGMA pending.user_version</c> reports the
     /// current <see cref="SqliteCacheStore.DurableSchemaVersion"/>. It deliberately does not
     /// invoke any DDL from <see cref="SqliteCacheStore"/> itself — running v6 by hand would
     /// only test the DDL string, not the migration path.
     /// </summary>
     [Fact]
-    public void DurableStore_UpgradingFromV5_AddsPlanJournalShape_WithoutTouchingExistingRows()
+    public void DurableStore_UpgradingFromV5_AddsProposalJournalShape_WithoutTouchingExistingRows()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"twig_v5v6_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
@@ -753,26 +755,26 @@ public class SqliteCacheStoreTests
                 "SELECT COUNT(*) FROM pending.current_bench WHERE id=1 AND bench_id=1;",
                 "current_bench row from v5 must survive the v6 upgrade");
 
-            // v6 shape: plan_journals + plan_operations plus their indices exist in the durable
+            // v6 shape: proposal_journals + proposal_operations plus their indices exist in the durable
             // schema. Assert the tables, then each index by name and (for the ordinal index)
             // by its uniqueness constraint since (digest, ordinal) is the ordering key.
-            DurableTableExists(conn, "plan_journals").ShouldBeTrue(
-                "v6 must create plan_journals in the durable store");
-            DurableTableExists(conn, "plan_operations").ShouldBeTrue(
-                "v6 must create plan_operations in the durable store");
+            DurableTableExists(conn, "proposal_journals").ShouldBeTrue(
+                "upgrading from v5 must leave the durable store carrying proposal_journals: v6 creates it as plan_journals and v8 renames it");
+            DurableTableExists(conn, "proposal_operations").ShouldBeTrue(
+                "upgrading from v5 must leave the durable store carrying proposal_operations: v6 creates it as plan_operations and v8 renames it");
 
-            DurableIndexExists(conn, "idx_plan_journals_state").ShouldBeTrue(
-                "v6 must create the plan_journals state index");
-            DurableIndexExists(conn, "idx_plan_operations_ordinal").ShouldBeTrue(
-                "v6 must create the plan_operations ordinal index");
-            DurableIndexExists(conn, "idx_plan_operations_state").ShouldBeTrue(
-                "v6 must create the plan_operations state index");
+            DurableIndexExists(conn, "idx_proposal_journals_state").ShouldBeTrue(
+                "the journal state index must survive the v6 -> v8 upgrade under its renamed form");
+            DurableIndexExists(conn, "idx_proposal_operations_ordinal").ShouldBeTrue(
+                "the operations ordinal index must survive the v6 -> v8 upgrade under its renamed form");
+            DurableIndexExists(conn, "idx_proposal_operations_state").ShouldBeTrue(
+                "the operations state index must survive the v6 -> v8 upgrade under its renamed form");
 
             using (var uniq = conn.CreateCommand())
             {
                 uniq.CommandText =
-                    "SELECT \"unique\" FROM pending.pragma_index_list('plan_operations') " +
-                    "WHERE name='idx_plan_operations_ordinal';";
+                    "SELECT \"unique\" FROM pending.pragma_index_list('proposal_operations') " +
+                    "WHERE name='idx_proposal_operations_ordinal';";
                 Convert.ToInt32(uniq.ExecuteScalar()).ShouldBe(1,
                     "(digest, ordinal) is the ordering key; its index must be UNIQUE");
             }
@@ -782,12 +784,12 @@ public class SqliteCacheStoreTests
             using (var write = conn.CreateCommand())
             {
                 write.CommandText = """
-                    INSERT INTO pending.plan_journals
+                    INSERT INTO pending.proposal_journals
                         (digest, schema_version, organization, project, source_path,
                          canonical_json, state, previewed_at)
                         VALUES ('digest-v6', 1, 'org', 'proj', '/tmp/plan.yaml',
                                 '{}', 'Planned', '2026-01-01T00:00:00Z');
-                    INSERT INTO pending.plan_operations
+                    INSERT INTO pending.proposal_operations
                         (digest, ordinal, op_id, kind, state, request_json)
                         VALUES ('digest-v6', 0, 'op-1', 'CreateWorkItem', 'Planned', '{}');
                     """;
@@ -795,11 +797,11 @@ public class SqliteCacheStoreTests
             }
 
             AssertOneRow(conn,
-                "SELECT COUNT(*) FROM pending.plan_journals WHERE digest='digest-v6' AND state='Planned';",
-                "plan_journals row inserted after upgrade must be readable");
+                "SELECT COUNT(*) FROM pending.proposal_journals WHERE digest='digest-v6' AND state='Planned';",
+                "proposal_journals row inserted after upgrade must be readable");
             AssertOneRow(conn,
-                "SELECT COUNT(*) FROM pending.plan_operations WHERE digest='digest-v6' AND ordinal=0 AND op_id='op-1';",
-                "plan_operations row inserted after upgrade must be readable");
+                "SELECT COUNT(*) FROM pending.proposal_operations WHERE digest='digest-v6' AND ordinal=0 AND op_id='op-1';",
+                "proposal_operations row inserted after upgrade must be readable");
         }
         finally
         {

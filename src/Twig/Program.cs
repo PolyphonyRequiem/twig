@@ -1351,41 +1351,41 @@ public sealed class TwigCommands(IServiceProvider services)
         return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp", arguments: arguments));
     }
 
-    // ── Plan lifecycle (native) ───────────────────────────────────────
+    // ── Proposal lifecycle (native, formerly "plan") ──────────────────
 
-    /// <summary>Validate a plan v1 file. No ADO mutation.</summary>
-    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Validate a proposal v1 file. No ADO mutation. Canonical verb is <c>proposal validate</c>; <c>plan validate</c> is a retained deprecated alias.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("plan validate")]
+    [Command("proposal validate|plan validate")]
     public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().ValidateAsync(file, output, ct);
 
-    /// <summary>Preview a plan: import journal, snapshot pending changes, report digest and canApply. No ADO mutation.</summary>
-    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Preview a proposal: import journal, snapshot pending changes, report digest and canApply. No ADO mutation. Canonical verb is <c>proposal preview</c>; <c>plan preview</c> is a retained deprecated alias.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("plan preview")]
+    [Command("proposal preview|plan preview")]
     public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
 
-    /// <summary>Apply a plan. Requires --confirm &lt;digest&gt; matching the current file digest exactly.</summary>
-    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
-    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical plan bytes. Must match exactly.</param>
+    /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("plan apply")]
+    [Command("proposal apply|plan apply")]
     public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().ApplyAsync(file, confirm, output, ct);
 
-    /// <summary>Show journal state for a plan file. Exit 1 when no journal exists for its digest.</summary>
-    /// <param name="file">Path to the plan v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Show journal state for a proposal file. Exit 1 when no journal exists for its digest. Canonical verb is <c>proposal status</c>; <c>plan status</c> is a retained deprecated alias.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("plan status")]
+    [Command("proposal status|plan status")]
     public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().StatusAsync(file, output, ct);
 
-    /// <summary>Describe a staged seed (identity + fingerprint) for plan authoring.</summary>
+    /// <summary>Describe a staged seed (identity + fingerprint) for proposal authoring. Canonical verb is <c>proposal seed</c>; <c>plan seed</c> is a retained deprecated alias.</summary>
     /// <param name="id">Negative display alias of a currently-staged seed.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("plan seed")]
+    [Command("proposal seed|plan seed")]
     public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
 
@@ -1607,7 +1607,14 @@ internal static class GroupedHelp
         "area list",
         "area sync",
 
-        // Plan lifecycle (native plan v1)
+        // Proposal lifecycle (native, formerly "plan"). Legacy `plan <verb>` entries
+        // stay registered so the alias resolves in grouped help and SubcommandGuard.
+        "proposal",
+        "proposal validate",
+        "proposal preview",
+        "proposal apply",
+        "proposal status",
+        "proposal seed",
         "plan",
         "plan validate",
         "plan preview",
@@ -1749,13 +1756,14 @@ Seeds:
   seed publish --all --link-branch <name> --repo <name>  Link to a branch in a specific repo.
   seed reconcile       Repair stale links after partial publishes.
 
-Plans:
-  plan validate --file <path>              Validate a plan v1 file. No ADO mutation.
-  plan preview --file <path>               Preview a plan: import journal, snapshot pending, report digest & canApply.
-  plan apply --file <path> --confirm <d>   Apply a plan; --confirm must match the current file digest exactly.
-  plan status --file <path>                Show journal state for a plan file.
-  plan seed --id <negative>                Describe a staged seed (identity + fingerprint) for plan authoring.
-  pending                                  List raw staged pending changes in exact staging order.
+Proposals:
+  proposal validate --file <path>              Validate a proposal v1 file. No ADO mutation.
+  proposal preview --file <path>               Preview a proposal: import journal, snapshot pending, report digest & canApply.
+  proposal apply --file <path> --confirm <d>   Apply a proposal; --confirm must match the current file digest exactly.
+  proposal status --file <path>                Show journal state for a proposal file.
+  proposal seed --id <negative>                Describe a staged seed (identity + fingerprint) for proposal authoring.
+  pending                                      List raw staged pending changes in exact staging order.
+  (plan <verb> remains as a deprecated alias for proposal <verb>.)
 
 System:
   config <key> [val]   Read or set a configuration value.

@@ -37,7 +37,11 @@ public sealed class McpToolMetadataTests
         // 44 since wayfinder 0022 added the plan lifecycle surface (twig_plan_validate,
         // twig_plan_preview, twig_plan_apply, twig_plan_status, twig_plan_seed) plus
         // twig_pending.
-        parameters.Count.ShouldBe(44);
+        // 49 since AB#742 renamed that surface to twig_proposal_* and kept the five
+        // twig_plan_* spellings as deprecated aliases. The aliases are real registered tools
+        // with their own parameter lists, so they legitimately raise this count by five; an
+        // alias that stopped carrying `workspace` would drop it back and fail here.
+        parameters.Count.ShouldBe(49);
         McpToolDescriptions.WorkspaceOverride.ShouldContain("Omit");
         McpToolDescriptions.WorkspaceOverride.ShouldContain("repo-local");
 

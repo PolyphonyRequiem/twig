@@ -1,44 +1,16 @@
 #nullable enable
+Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.init -> void
+Twig.Domain.Aggregates.ProcessTypeRecord.IsHidden.get -> bool
+Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAdoWorkItemService.FetchBatchWithLinksAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! Items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>! Links)>!
+Twig.Domain.Interfaces.IAttachmentStatusProjection
+Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
 Twig.Domain.Interfaces.IIterationService.GetAuthenticatedUserIdentityAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(string? DisplayName, string? UniqueName)>!
+Twig.Domain.Interfaces.IManagedWorktreeInitializer
+Twig.Domain.Interfaces.IManagedWorktreeInitializer.InitializeAsync(string! organization, string! project, string? team, string! profileIdentity, string! profileVersion, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
 Twig.Domain.Interfaces.IPendingChangeReader
 Twig.Domain.Interfaces.IPendingChangeReader.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
-Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService
-Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.FetchAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.WorkItemSnapshot!>!
-Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.AddLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
-Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.DeleteAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.RemoveLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
-Twig.Domain.Interfaces.IPlanLifecycleService
-Twig.Domain.Interfaces.IPlanLifecycleService.ApplyAsync(string! file, string! confirmedDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanApplyResult!>!
-Twig.Domain.Interfaces.IPlanLifecycleService.DescribeSeedAsync(int seedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanSeedDescriptor?>!
-Twig.Domain.Interfaces.IPlanLifecycleService.PreviewAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanPreviewResult!>!
-Twig.Domain.Interfaces.IPlanLifecycleService.StatusAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanStatusResult?>!
-Twig.Domain.Interfaces.IPlanLifecycleService.ValidateAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanValidationResult!>!
-Twig.Domain.Services.Plan.PlanApplyResult.Error.get -> string?
-Twig.Domain.Services.Plan.PlanApplyResult.Error.init -> void
-Twig.Domain.Services.Plan.PlanPreviewResult.CanApply.get -> bool
-Twig.Domain.Services.Plan.PlanPreviewResult.CanApply.init -> void
-Twig.Domain.Services.Plan.PlanPreviewResult.PendingChanges.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!
-Twig.Domain.Services.Plan.PlanPreviewResult.PendingChanges.init -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor
-Twig.Domain.Services.Plan.PlanSeedDescriptor.<Clone>$() -> Twig.Domain.Services.Plan.PlanSeedDescriptor!
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Alias.get -> Twig.Domain.ValueObjects.StagedAlias
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Alias.init -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Equals(Twig.Domain.Services.Plan.PlanSeedDescriptor? other) -> bool
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Fingerprint.get -> string!
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Fingerprint.init -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Identity.init -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor.PlanSeedDescriptor() -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Title.get -> string!
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Title.init -> void
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Type.get -> string!
-Twig.Domain.Services.Plan.PlanSeedDescriptor.Type.init -> void
-override Twig.Domain.Services.Plan.PlanSeedDescriptor.Equals(object? obj) -> bool
-override Twig.Domain.Services.Plan.PlanSeedDescriptor.GetHashCode() -> int
-override Twig.Domain.Services.Plan.PlanSeedDescriptor.ToString() -> string!
-static Twig.Domain.Services.Plan.PlanSeedDescriptor.operator !=(Twig.Domain.Services.Plan.PlanSeedDescriptor? left, Twig.Domain.Services.Plan.PlanSeedDescriptor? right) -> bool
-static Twig.Domain.Services.Plan.PlanSeedDescriptor.operator ==(Twig.Domain.Services.Plan.PlanSeedDescriptor? left, Twig.Domain.Services.Plan.PlanSeedDescriptor? right) -> bool
 Twig.Domain.Interfaces.IPlanJournalRepository
 Twig.Domain.Interfaces.IPlanJournalRepository.CompleteAsync(string! digest, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset completedAt, string? error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IPlanJournalRepository.ConfirmAsync(string! digest, System.DateTimeOffset confirmedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
@@ -48,14 +20,174 @@ Twig.Domain.Interfaces.IPlanJournalRepository.SaveOperationErrorAsync(string! di
 Twig.Domain.Interfaces.IPlanJournalRepository.SaveOperationResultAsync(string! digest, string! opId, string? resultJson, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IPlanJournalRepository.TryRecordAppliedAsync(string! digest, string! opId, string? resultJson, System.DateTimeOffset appliedAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 Twig.Domain.Interfaces.IPlanJournalRepository.TryTransitionOperationAsync(string! digest, string! opId, Twig.Domain.Services.Plan.PlanOperationState fromState, Twig.Domain.Services.Plan.PlanOperationState toState, System.DateTimeOffset timestamp, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? warning = null) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IPlanLifecycleService
+Twig.Domain.Interfaces.IPlanLifecycleService.ApplyAsync(string! file, string! confirmedDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanApplyResult!>!
+Twig.Domain.Interfaces.IPlanLifecycleService.DescribeSeedAsync(int seedId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanSeedDescriptor?>!
+Twig.Domain.Interfaces.IPlanLifecycleService.PreviewAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanPreviewResult!>!
+Twig.Domain.Interfaces.IPlanLifecycleService.StatusAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanStatusResult?>!
+Twig.Domain.Interfaces.IPlanLifecycleService.ValidateAsync(string! file, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanValidationResult!>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.AttachAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.DetachAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.ReadStatusAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.RequireActiveClaimForScopeAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.SwitchAsync(int newWorkItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.AddLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.DeleteAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.FetchAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.WorkItemSnapshot!>!
+Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.RemoveLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 Twig.Domain.Interfaces.IWorkItemLinkRepository.GetLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!
+Twig.Domain.Interfaces.StatusProjection
+Twig.Domain.Interfaces.StatusProjection.FailureCode.get -> string?
+Twig.Domain.Interfaces.StatusProjection.HasPrimaryScope.get -> bool
+Twig.Domain.Interfaces.StatusProjection.IsManagedWorktree.get -> bool
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeTitle.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeType.get -> string?
+Twig.Domain.Interfaces.StatusProjection.PrimaryScopeWorkItemId.get -> int?
+Twig.Domain.Interfaces.StatusProjection.StatusProjection(bool isManagedWorktree, bool hasPrimaryScope, int? primaryScopeWorkItemId, string? primaryScopeTitle, string? primaryScopeType, string? failureCode = null) -> void
 Twig.Domain.ReadModels.WorkItemGraph
 Twig.Domain.ReadModels.WorkItemGraph.ContainsItem(int workItemId) -> bool
 Twig.Domain.ReadModels.WorkItemGraph.GetLinks(int workItemId) -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!
 Twig.Domain.ReadModels.WorkItemGraph.Items.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!
 Twig.Domain.ReadModels.WorkItemGraph.Links.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!
+Twig.Domain.Services.ChangeProposals.ChangeProposal
+Twig.Domain.Services.ChangeProposals.ChangeProposal.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ChangeProposal!
+Twig.Domain.Services.ChangeProposals.ChangeProposal.CanonicalJson.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeProposal.CanonicalJson.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposal.ChangeProposal() -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Definition.get -> Twig.Domain.Services.Plan.PlanDefinition!
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Definition.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Digest.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Digest.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Equals(Twig.Domain.Services.ChangeProposals.ChangeProposal? other) -> bool
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Rationale.get -> string?
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Rationale.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Recipe.get -> Twig.Domain.Services.ChangeProposals.ChangeRecipeReference?
+Twig.Domain.Services.ChangeProposals.ChangeProposal.Recipe.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.AffectedItems.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewAffectedItem!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.AffectedItems.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.AuthorizationChoices.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.AuthorizationChoices.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Blockers.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewBlocker!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Blockers.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ChangeProposalReviewModel() -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Digest.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Digest.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Equals(Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? other) -> bool
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Model.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ModelVersion.get -> int
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Operations.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewOperation!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Operations.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Rationale.get -> string?
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Rationale.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Recipe.get -> Twig.Domain.Services.ChangeProposals.ChangeRecipeReference?
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Recipe.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Workspace.get -> Twig.Domain.Services.Plan.PlanWorkspace!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Workspace.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException.ChangeRecipeInputException() -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException.ChangeRecipeInputException(string! inputName, string! reason) -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException.ChangeRecipeInputException(string! message) -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException.ChangeRecipeInputException(string! message, System.Exception! innerException) -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputException.InputName.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs.ChangeRecipeInputs(System.Collections.Generic.IReadOnlyDictionary<string!, string!>? values = null) -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs.Names.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs.Require(string! name) -> string!
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs.RequireInt(string! name) -> int
+Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs.TryGet(string! name, out string! value) -> bool
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ChangeRecipeReference!
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.ChangeRecipeReference() -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.Equals(Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? other) -> bool
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.RecipeId.get -> string!
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.RecipeId.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.Version.get -> int
+Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.Version.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeRenderException
+Twig.Domain.Services.ChangeProposals.ChangeRecipeRenderException.ChangeRecipeRenderException() -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeRenderException.ChangeRecipeRenderException(string! message) -> void
+Twig.Domain.Services.ChangeProposals.ChangeRecipeRenderException.ChangeRecipeRenderException(string! message, System.Exception! innerException) -> void
+Twig.Domain.Services.ChangeProposals.IChangeRecipe
+Twig.Domain.Services.ChangeProposals.IChangeRecipe.RecipeId.get -> string!
+Twig.Domain.Services.ChangeProposals.IChangeRecipe.Render(Twig.Domain.Services.ChangeProposals.ChangeRecipeInputs! inputs) -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanDefinition!>!
+Twig.Domain.Services.ChangeProposals.IChangeRecipe.Version.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewAffectedItem!
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Equals(Twig.Domain.Services.ChangeProposals.ReviewAffectedItem? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Id.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Id.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.ReviewAffectedItem() -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Role.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Role.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.State.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.State.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Title.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Title.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Type.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Type.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBlocker
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewBlocker!
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.Detail.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.Detail.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.Equals(Twig.Domain.Services.ChangeProposals.ReviewBlocker? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.Kind.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.Kind.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.ReviewBlocker() -> void
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.WorkItemId.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewBlocker.WorkItemId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewConsequence!
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Equals(Twig.Domain.Services.ChangeProposals.ReviewConsequence? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Field.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Field.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Relation.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Relation.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.ReviewConsequence() -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.To.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.To.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation
+Twig.Domain.Services.ChangeProposals.ReviewOperation.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewOperation!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Consequences.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewConsequence!>!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Consequences.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Equals(Twig.Domain.Services.ChangeProposals.ReviewOperation? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Kind.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Kind.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.OpId.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.OpId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Ordinal.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Ordinal.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Preconditions.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewPrecondition!>!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Preconditions.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.ReviewOperation() -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Summary.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Summary.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Target.get -> Twig.Domain.Services.ChangeProposals.ReviewTarget!
+Twig.Domain.Services.ChangeProposals.ReviewOperation.Target.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewPrecondition!
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Equals(Twig.Domain.Services.ChangeProposals.ReviewPrecondition? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Kind.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Kind.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.ReviewPrecondition() -> void
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Value.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Value.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTarget
+Twig.Domain.Services.ChangeProposals.ReviewTarget.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewTarget!
+Twig.Domain.Services.ChangeProposals.ReviewTarget.Equals(Twig.Domain.Services.ChangeProposals.ReviewTarget? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewTarget.ReviewTarget() -> void
+Twig.Domain.Services.ChangeProposals.ReviewTarget.StagedIdentity.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewTarget.StagedIdentity.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTarget.WorkItemId.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewTarget.WorkItemId.init -> void
 Twig.Domain.Services.Plan.AddLinkOperation
-override Twig.Domain.Services.Plan.AddLinkOperation.<Clone>$() -> Twig.Domain.Services.Plan.AddLinkOperation!
 Twig.Domain.Services.Plan.AddLinkOperation.AddLinkOperation() -> void
 Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Services.Plan.AddLinkOperation? other) -> bool
 Twig.Domain.Services.Plan.AddLinkOperation.ExpectedRevision.get -> int
@@ -67,7 +199,6 @@ Twig.Domain.Services.Plan.AddLinkOperation.Relation.init -> void
 Twig.Domain.Services.Plan.AddLinkOperation.WorkItemId.get -> int
 Twig.Domain.Services.Plan.AddLinkOperation.WorkItemId.init -> void
 Twig.Domain.Services.Plan.BatchOperation
-override Twig.Domain.Services.Plan.BatchOperation.<Clone>$() -> Twig.Domain.Services.Plan.BatchOperation!
 Twig.Domain.Services.Plan.BatchOperation.BatchOperation() -> void
 Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Services.Plan.BatchOperation? other) -> bool
 Twig.Domain.Services.Plan.BatchOperation.ExpectedRevision.get -> int
@@ -77,7 +208,6 @@ Twig.Domain.Services.Plan.BatchOperation.Fields.init -> void
 Twig.Domain.Services.Plan.BatchOperation.WorkItemId.get -> int
 Twig.Domain.Services.Plan.BatchOperation.WorkItemId.init -> void
 Twig.Domain.Services.Plan.DeleteOperation
-override Twig.Domain.Services.Plan.DeleteOperation.<Clone>$() -> Twig.Domain.Services.Plan.DeleteOperation!
 Twig.Domain.Services.Plan.DeleteOperation.DeleteOperation() -> void
 Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.DeleteOperation? other) -> bool
 Twig.Domain.Services.Plan.DeleteOperation.ExpectedRevision.get -> int
@@ -89,6 +219,8 @@ Twig.Domain.Services.Plan.PlanApplyResult.<Clone>$() -> Twig.Domain.Services.Pla
 Twig.Domain.Services.Plan.PlanApplyResult.Digest.get -> string!
 Twig.Domain.Services.Plan.PlanApplyResult.Digest.init -> void
 Twig.Domain.Services.Plan.PlanApplyResult.Equals(Twig.Domain.Services.Plan.PlanApplyResult? other) -> bool
+Twig.Domain.Services.Plan.PlanApplyResult.Error.get -> string?
+Twig.Domain.Services.Plan.PlanApplyResult.Error.init -> void
 Twig.Domain.Services.Plan.PlanApplyResult.Failed.get -> bool
 Twig.Domain.Services.Plan.PlanApplyResult.Failed.init -> void
 Twig.Domain.Services.Plan.PlanApplyResult.Operations.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanJournalOperation!>!
@@ -152,12 +284,13 @@ Twig.Domain.Services.Plan.PlanJournalOperation.State.get -> Twig.Domain.Services
 Twig.Domain.Services.Plan.PlanJournalOperation.State.init -> void
 Twig.Domain.Services.Plan.PlanJournalOperation.VerifiedAt.get -> System.DateTimeOffset?
 Twig.Domain.Services.Plan.PlanJournalOperation.VerifiedAt.init -> void
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
+Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void
 Twig.Domain.Services.Plan.PlanOperationDefinition
-virtual Twig.Domain.Services.Plan.PlanOperationDefinition.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 Twig.Domain.Services.Plan.PlanOperationDefinition.Id.get -> string!
 Twig.Domain.Services.Plan.PlanOperationDefinition.Id.init -> void
-Twig.Domain.Services.Plan.PlanOperationDefinition.PlanOperationDefinition(Twig.Domain.Services.Plan.PlanOperationDefinition! original) -> void
 Twig.Domain.Services.Plan.PlanOperationDefinition.PlanOperationDefinition() -> void
+Twig.Domain.Services.Plan.PlanOperationDefinition.PlanOperationDefinition(Twig.Domain.Services.Plan.PlanOperationDefinition! original) -> void
 Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.PlanOperationKind.AddLink = 1 -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.PlanOperationKind.Batch = 0 -> Twig.Domain.Services.Plan.PlanOperationKind
@@ -174,6 +307,8 @@ Twig.Domain.Services.Plan.PlanOperationState.Planned = 0 -> Twig.Domain.Services
 Twig.Domain.Services.Plan.PlanOperationState.Verified = 4 -> Twig.Domain.Services.Plan.PlanOperationState
 Twig.Domain.Services.Plan.PlanPreviewResult
 Twig.Domain.Services.Plan.PlanPreviewResult.<Clone>$() -> Twig.Domain.Services.Plan.PlanPreviewResult!
+Twig.Domain.Services.Plan.PlanPreviewResult.CanApply.get -> bool
+Twig.Domain.Services.Plan.PlanPreviewResult.CanApply.init -> void
 Twig.Domain.Services.Plan.PlanPreviewResult.Digest.get -> string?
 Twig.Domain.Services.Plan.PlanPreviewResult.Digest.init -> void
 Twig.Domain.Services.Plan.PlanPreviewResult.Equals(Twig.Domain.Services.Plan.PlanPreviewResult? other) -> bool
@@ -181,9 +316,27 @@ Twig.Domain.Services.Plan.PlanPreviewResult.Issues.get -> System.Collections.Gen
 Twig.Domain.Services.Plan.PlanPreviewResult.Issues.init -> void
 Twig.Domain.Services.Plan.PlanPreviewResult.Operations.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanOperationDefinition!>!
 Twig.Domain.Services.Plan.PlanPreviewResult.Operations.init -> void
+Twig.Domain.Services.Plan.PlanPreviewResult.PendingChanges.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!
+Twig.Domain.Services.Plan.PlanPreviewResult.PendingChanges.init -> void
 Twig.Domain.Services.Plan.PlanPreviewResult.PlanPreviewResult() -> void
+Twig.Domain.Services.Plan.PlanPreviewResult.ReviewModel.get -> Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel?
+Twig.Domain.Services.Plan.PlanPreviewResult.ReviewModel.init -> void
 Twig.Domain.Services.Plan.PlanPreviewResult.Workspace.get -> Twig.Domain.Services.Plan.PlanWorkspace?
 Twig.Domain.Services.Plan.PlanPreviewResult.Workspace.init -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor
+Twig.Domain.Services.Plan.PlanSeedDescriptor.<Clone>$() -> Twig.Domain.Services.Plan.PlanSeedDescriptor!
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Alias.get -> Twig.Domain.ValueObjects.StagedAlias
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Alias.init -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Equals(Twig.Domain.Services.Plan.PlanSeedDescriptor? other) -> bool
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Fingerprint.get -> string!
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Fingerprint.init -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Identity.init -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor.PlanSeedDescriptor() -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Title.get -> string!
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Title.init -> void
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Type.get -> string!
+Twig.Domain.Services.Plan.PlanSeedDescriptor.Type.init -> void
 Twig.Domain.Services.Plan.PlanStatusResult
 Twig.Domain.Services.Plan.PlanStatusResult.<Clone>$() -> Twig.Domain.Services.Plan.PlanStatusResult!
 Twig.Domain.Services.Plan.PlanStatusResult.Digest.get -> string?
@@ -233,7 +386,6 @@ Twig.Domain.Services.Plan.PlanWorkspace.PlanWorkspace() -> void
 Twig.Domain.Services.Plan.PlanWorkspace.Project.get -> string!
 Twig.Domain.Services.Plan.PlanWorkspace.Project.init -> void
 Twig.Domain.Services.Plan.PublishSeedOperation
-override Twig.Domain.Services.Plan.PublishSeedOperation.<Clone>$() -> Twig.Domain.Services.Plan.PublishSeedOperation!
 Twig.Domain.Services.Plan.PublishSeedOperation.Equals(Twig.Domain.Services.Plan.PublishSeedOperation? other) -> bool
 Twig.Domain.Services.Plan.PublishSeedOperation.ExpectedFingerprint.get -> string!
 Twig.Domain.Services.Plan.PublishSeedOperation.ExpectedFingerprint.init -> void
@@ -241,7 +393,6 @@ Twig.Domain.Services.Plan.PublishSeedOperation.PublishSeedOperation() -> void
 Twig.Domain.Services.Plan.PublishSeedOperation.StagedIdentity.get -> Twig.Domain.ValueObjects.StagedIdentity
 Twig.Domain.Services.Plan.PublishSeedOperation.StagedIdentity.init -> void
 Twig.Domain.Services.Plan.RemoveLinkOperation
-override Twig.Domain.Services.Plan.RemoveLinkOperation.<Clone>$() -> Twig.Domain.Services.Plan.RemoveLinkOperation!
 Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(Twig.Domain.Services.Plan.RemoveLinkOperation? other) -> bool
 Twig.Domain.Services.Plan.RemoveLinkOperation.ExpectedRevision.get -> int
 Twig.Domain.Services.Plan.RemoveLinkOperation.ExpectedRevision.init -> void
@@ -287,8 +438,16 @@ Twig.Domain.ValueObjects.SeedRemapIdentity.StagedAlias.get -> Twig.Domain.ValueO
 Twig.Domain.ValueObjects.SeedRemapIdentity.StagedAlias.init -> void
 Twig.Domain.ValueObjects.SeedRemapIdentity.StagedIdentity.get -> Twig.Domain.ValueObjects.StagedIdentity
 Twig.Domain.ValueObjects.SeedRemapIdentity.StagedIdentity.init -> void
+Twig.Domain.ValueObjects.WorkItemTypeCategories
+Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.init -> void
 abstract Twig.Domain.Services.Plan.PlanOperationDefinition.<Clone>$() -> Twig.Domain.Services.Plan.PlanOperationDefinition!
 abstract Twig.Domain.Services.Plan.PlanOperationDefinition.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
+virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Plan.PlanOperationDefinition.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~override Twig.Domain.ValueObjects.SeedRemapIdentity.Equals(object obj) -> bool
+~override Twig.Domain.ValueObjects.SeedRemapIdentity.ToString() -> string
 const Twig.Domain.Services.Plan.PlanValidationCodes.DuplicateOperationId = "plan.duplicate_operation_id" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.DuplicateProperty = "plan.duplicate_property" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.DuplicateStagedIdentityTarget = "plan.duplicate_staged_identity_target" -> string!
@@ -305,14 +464,45 @@ const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownKind = "plan.unknown_
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownProperty = "plan.unknown_property" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnsupportedVersion = "plan.unsupported_version" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.WrongType = "plan.wrong_type" -> string!
+const Twig.Domain.ValueObjects.WorkItemTypeCategories.Hidden = "Microsoft.HiddenCategory" -> string!
+override Twig.Domain.Services.ChangeProposals.ChangeProposal.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ChangeProposal.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ChangeProposal.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewBlocker.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewBlocker.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewBlocker.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewConsequence.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewConsequence.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewConsequence.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewOperation.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewOperation.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewOperation.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewPrecondition.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewPrecondition.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewPrecondition.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewTarget.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewTarget.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewTarget.ToString() -> string!
+override Twig.Domain.Services.Plan.AddLinkOperation.<Clone>$() -> Twig.Domain.Services.Plan.AddLinkOperation!
 override Twig.Domain.Services.Plan.AddLinkOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.AddLinkOperation.GetHashCode() -> int
 override Twig.Domain.Services.Plan.AddLinkOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
 override Twig.Domain.Services.Plan.AddLinkOperation.ToString() -> string!
+override Twig.Domain.Services.Plan.BatchOperation.<Clone>$() -> Twig.Domain.Services.Plan.BatchOperation!
 override Twig.Domain.Services.Plan.BatchOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.BatchOperation.GetHashCode() -> int
 override Twig.Domain.Services.Plan.BatchOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
 override Twig.Domain.Services.Plan.BatchOperation.ToString() -> string!
+override Twig.Domain.Services.Plan.DeleteOperation.<Clone>$() -> Twig.Domain.Services.Plan.DeleteOperation!
 override Twig.Domain.Services.Plan.DeleteOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.DeleteOperation.GetHashCode() -> int
 override Twig.Domain.Services.Plan.DeleteOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
@@ -335,6 +525,9 @@ override Twig.Domain.Services.Plan.PlanOperationDefinition.ToString() -> string!
 override Twig.Domain.Services.Plan.PlanPreviewResult.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.PlanPreviewResult.GetHashCode() -> int
 override Twig.Domain.Services.Plan.PlanPreviewResult.ToString() -> string!
+override Twig.Domain.Services.Plan.PlanSeedDescriptor.Equals(object? obj) -> bool
+override Twig.Domain.Services.Plan.PlanSeedDescriptor.GetHashCode() -> int
+override Twig.Domain.Services.Plan.PlanSeedDescriptor.ToString() -> string!
 override Twig.Domain.Services.Plan.PlanStatusResult.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.PlanStatusResult.GetHashCode() -> int
 override Twig.Domain.Services.Plan.PlanStatusResult.ToString() -> string!
@@ -347,10 +540,12 @@ override Twig.Domain.Services.Plan.PlanValidationResult.ToString() -> string!
 override Twig.Domain.Services.Plan.PlanWorkspace.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.PlanWorkspace.GetHashCode() -> int
 override Twig.Domain.Services.Plan.PlanWorkspace.ToString() -> string!
+override Twig.Domain.Services.Plan.PublishSeedOperation.<Clone>$() -> Twig.Domain.Services.Plan.PublishSeedOperation!
 override Twig.Domain.Services.Plan.PublishSeedOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.PublishSeedOperation.GetHashCode() -> int
 override Twig.Domain.Services.Plan.PublishSeedOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
 override Twig.Domain.Services.Plan.PublishSeedOperation.ToString() -> string!
+override Twig.Domain.Services.Plan.RemoveLinkOperation.<Clone>$() -> Twig.Domain.Services.Plan.RemoveLinkOperation!
 override Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.RemoveLinkOperation.GetHashCode() -> int
 override Twig.Domain.Services.Plan.RemoveLinkOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
@@ -359,8 +554,6 @@ override Twig.Domain.ValueObjects.PendingChangeDetail.Equals(object? obj) -> boo
 override Twig.Domain.ValueObjects.PendingChangeDetail.GetHashCode() -> int
 override Twig.Domain.ValueObjects.PendingChangeDetail.ToString() -> string!
 override Twig.Domain.ValueObjects.SeedRemapIdentity.GetHashCode() -> int
-~override Twig.Domain.ValueObjects.SeedRemapIdentity.Equals(object obj) -> bool
-~override Twig.Domain.ValueObjects.SeedRemapIdentity.ToString() -> string
 override sealed Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
@@ -494,15 +687,25 @@ static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator !=(Twig.Do
 static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator ==(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? left, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? right) -> bool
 static Twig.Domain.ValueObjects.ReferenceProfileType.operator !=(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
 static Twig.Domain.ValueObjects.ReferenceProfileType.operator ==(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
-Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.init -> void
-Twig.Domain.Aggregates.ProcessTypeRecord.IsHidden.get -> bool
-Twig.Domain.ValueObjects.WorkItemTypeCategories
-Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.ValueObjects.WorkItemTypeWithStates.CategoryReferenceNames.init -> void
-const Twig.Domain.ValueObjects.WorkItemTypeCategories.Hidden = "Microsoft.HiddenCategory" -> string!
 static Twig.Domain.Extensions.WorkItemExtensions.ReadCommentCount(this Twig.Domain.Aggregates.WorkItem! item) -> int
+static Twig.Domain.Services.ChangeProposals.ChangeProposal.operator !=(Twig.Domain.Services.ChangeProposals.ChangeProposal? left, Twig.Domain.Services.ChangeProposals.ChangeProposal? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ChangeProposal.operator ==(Twig.Domain.Services.ChangeProposals.ChangeProposal? left, Twig.Domain.Services.ChangeProposals.ChangeProposal? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.operator !=(Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? left, Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.operator ==(Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? left, Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.operator !=(Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? left, Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ChangeRecipeReference.operator ==(Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? left, Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.operator !=(Twig.Domain.Services.ChangeProposals.ReviewAffectedItem? left, Twig.Domain.Services.ChangeProposals.ReviewAffectedItem? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.operator ==(Twig.Domain.Services.ChangeProposals.ReviewAffectedItem? left, Twig.Domain.Services.ChangeProposals.ReviewAffectedItem? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewBlocker.operator !=(Twig.Domain.Services.ChangeProposals.ReviewBlocker? left, Twig.Domain.Services.ChangeProposals.ReviewBlocker? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewBlocker.operator ==(Twig.Domain.Services.ChangeProposals.ReviewBlocker? left, Twig.Domain.Services.ChangeProposals.ReviewBlocker? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewConsequence.operator !=(Twig.Domain.Services.ChangeProposals.ReviewConsequence? left, Twig.Domain.Services.ChangeProposals.ReviewConsequence? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewConsequence.operator ==(Twig.Domain.Services.ChangeProposals.ReviewConsequence? left, Twig.Domain.Services.ChangeProposals.ReviewConsequence? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewOperation.operator !=(Twig.Domain.Services.ChangeProposals.ReviewOperation? left, Twig.Domain.Services.ChangeProposals.ReviewOperation? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewOperation.operator ==(Twig.Domain.Services.ChangeProposals.ReviewOperation? left, Twig.Domain.Services.ChangeProposals.ReviewOperation? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewPrecondition.operator !=(Twig.Domain.Services.ChangeProposals.ReviewPrecondition? left, Twig.Domain.Services.ChangeProposals.ReviewPrecondition? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewPrecondition.operator ==(Twig.Domain.Services.ChangeProposals.ReviewPrecondition? left, Twig.Domain.Services.ChangeProposals.ReviewPrecondition? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewTarget.operator !=(Twig.Domain.Services.ChangeProposals.ReviewTarget? left, Twig.Domain.Services.ChangeProposals.ReviewTarget? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewTarget.operator ==(Twig.Domain.Services.ChangeProposals.ReviewTarget? left, Twig.Domain.Services.ChangeProposals.ReviewTarget? right) -> bool
 static Twig.Domain.Services.Plan.AddLinkOperation.operator !=(Twig.Domain.Services.Plan.AddLinkOperation? left, Twig.Domain.Services.Plan.AddLinkOperation? right) -> bool
 static Twig.Domain.Services.Plan.AddLinkOperation.operator ==(Twig.Domain.Services.Plan.AddLinkOperation? left, Twig.Domain.Services.Plan.AddLinkOperation? right) -> bool
 static Twig.Domain.Services.Plan.BatchOperation.operator !=(Twig.Domain.Services.Plan.BatchOperation? left, Twig.Domain.Services.Plan.BatchOperation? right) -> bool
@@ -521,6 +724,8 @@ static Twig.Domain.Services.Plan.PlanOperationDefinition.operator !=(Twig.Domain
 static Twig.Domain.Services.Plan.PlanOperationDefinition.operator ==(Twig.Domain.Services.Plan.PlanOperationDefinition? left, Twig.Domain.Services.Plan.PlanOperationDefinition? right) -> bool
 static Twig.Domain.Services.Plan.PlanPreviewResult.operator !=(Twig.Domain.Services.Plan.PlanPreviewResult? left, Twig.Domain.Services.Plan.PlanPreviewResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanPreviewResult.operator ==(Twig.Domain.Services.Plan.PlanPreviewResult? left, Twig.Domain.Services.Plan.PlanPreviewResult? right) -> bool
+static Twig.Domain.Services.Plan.PlanSeedDescriptor.operator !=(Twig.Domain.Services.Plan.PlanSeedDescriptor? left, Twig.Domain.Services.Plan.PlanSeedDescriptor? right) -> bool
+static Twig.Domain.Services.Plan.PlanSeedDescriptor.operator ==(Twig.Domain.Services.Plan.PlanSeedDescriptor? left, Twig.Domain.Services.Plan.PlanSeedDescriptor? right) -> bool
 static Twig.Domain.Services.Plan.PlanStatusResult.operator !=(Twig.Domain.Services.Plan.PlanStatusResult? left, Twig.Domain.Services.Plan.PlanStatusResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanStatusResult.operator ==(Twig.Domain.Services.Plan.PlanStatusResult? left, Twig.Domain.Services.Plan.PlanStatusResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanValidationIssue.operator !=(Twig.Domain.Services.Plan.PlanValidationIssue? left, Twig.Domain.Services.Plan.PlanValidationIssue? right) -> bool
@@ -537,25 +742,3 @@ static Twig.Domain.ValueObjects.PendingChangeDetail.operator !=(Twig.Domain.Valu
 static Twig.Domain.ValueObjects.PendingChangeDetail.operator ==(Twig.Domain.ValueObjects.PendingChangeDetail? left, Twig.Domain.ValueObjects.PendingChangeDetail? right) -> bool
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator !=(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator ==(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
-virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -> System.Type!
-virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Text.StringBuilder! builder) -> bool
-Twig.Domain.Services.Plan.PlanJournalOperation.Warning.get -> string?
-Twig.Domain.Services.Plan.PlanJournalOperation.Warning.init -> void
-Twig.Domain.Interfaces.IAttachmentStatusProjection
-Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
-Twig.Domain.Interfaces.StatusProjection
-Twig.Domain.Interfaces.StatusProjection.StatusProjection(bool isManagedWorktree, bool hasPrimaryScope, int? primaryScopeWorkItemId, string? primaryScopeTitle, string? primaryScopeType, string? failureCode = null) -> void
-Twig.Domain.Interfaces.StatusProjection.HasPrimaryScope.get -> bool
-Twig.Domain.Interfaces.StatusProjection.IsManagedWorktree.get -> bool
-Twig.Domain.Interfaces.StatusProjection.PrimaryScopeTitle.get -> string?
-Twig.Domain.Interfaces.StatusProjection.PrimaryScopeType.get -> string?
-Twig.Domain.Interfaces.StatusProjection.PrimaryScopeWorkItemId.get -> int?
-Twig.Domain.Interfaces.StatusProjection.FailureCode.get -> string?
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.AttachAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.SwitchAsync(int newWorkItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.DetachAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.RequireActiveClaimForScopeAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
-Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.ReadStatusAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
-Twig.Domain.Interfaces.IManagedWorktreeInitializer
-Twig.Domain.Interfaces.IManagedWorktreeInitializer.InitializeAsync(string! organization, string! project, string? team, string! profileIdentity, string! profileVersion, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!

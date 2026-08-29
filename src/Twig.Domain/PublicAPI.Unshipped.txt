@@ -810,3 +810,22 @@ virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Te
 ~override Twig.Domain.ValueObjects.SeedRemapIdentity.ToString() -> string
 Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.get -> bool
 Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Deconstruct(out int ItemId, out string! Type, out string! ToState, out System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? other) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.get -> int
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.RequiredFieldsMissing(int ItemId, string! Type, string! ToState, System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.init -> void
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToString() -> string!
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool

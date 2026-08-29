@@ -70,12 +70,22 @@ namespace Twig.Domain.Services.Plan;
 /// </remarks>
 internal readonly record struct PlanProcessRuleGateOutcome(
     PlanProcessRuleGateOutcomeKind Kind,
-    string? Message)
+    string? Message,
+    IReadOnlyList<string>? Fields = null)
 {
     public static PlanProcessRuleGateOutcome Ok => default;
 
     public static PlanProcessRuleGateOutcome Refuse(string message)
         => new(PlanProcessRuleGateOutcomeKind.Refused, message);
+
+    /// <summary>
+    /// A refusal that also carries EVERY required-but-unsupplied field, not just the first
+    /// one named in <paramref name="message"/>. The plan surface reports one field because a
+    /// plan author fixes the batch and re-previews; an interactive caller (<c>twig state</c>)
+    /// needs the whole set so a close gate with two fields does not cost two round trips.
+    /// </summary>
+    public static PlanProcessRuleGateOutcome Refuse(string message, IReadOnlyList<string> fields)
+        => new(PlanProcessRuleGateOutcomeKind.Refused, message, fields);
 
     public static PlanProcessRuleGateOutcome RequiresRefresh(string message)
         => new(PlanProcessRuleGateOutcomeKind.NeedsRefresh, message);
@@ -210,12 +220,14 @@ internal sealed class PlanProcessRuleGate
         // rather than building a second collection beside it.
         DropSuppliedFields(candidates, rules, fromState, toState, oldFields, newFields);
 
-        // What survives is required, empty, and unsupplied. Report the first in rule order.
+        // What survives is required, empty, and unsupplied. The message names the first in
+        // rule order (the plan surface's long-standing wording); the outcome carries them all.
         if (candidates.Count > 0)
         {
             return PlanProcessRuleGateOutcome.Refuse(
                 $"Refusing to write work item {source.Id}: an enabled process rule requires "
-                + $"field '{candidates[0]}' when state is '{toState}', but the effective value is empty.");
+                + $"field '{candidates[0]}' when state is '{toState}', but the effective value is empty.",
+                candidates);
         }
 
         return PlanProcessRuleGateOutcome.Ok;

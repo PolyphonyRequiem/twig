@@ -225,6 +225,158 @@ public sealed class StateTransitionWorkflowTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_CloseGateFieldsUnsupplied_RefusesWithoutPatching()
+    {
+        var item = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Doing")
+            .Build();
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var pendingChanges = Substitute.For<IPendingChangeStore>();
+        var processConfig = Substitute.For<IProcessConfigurationProvider>();
+        var ruleProvider = new FakeProcessRuleProvider(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "Custom.FalsificationCriteria", null)],
+                IsDisabled: false),
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "Custom.VerificationMode", null)],
+                IsDisabled: false),
+        ]);
+
+        processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        var workflow = new StateTransitionWorkflow(
+            workItemRepo,
+            adoService,
+            pendingChanges,
+            processConfig,
+            parentPropagation: null,
+            promptStateWriter: null,
+            processRuleProvider: ruleProvider);
+
+        var outcome = await workflow.ExecuteAsync(item, "Done", 10);
+
+        var refused = outcome.ShouldBeOfType<StateTransitionOutcome.RequiredFieldsMissing>();
+        refused.ItemId.ShouldBe(42);
+        refused.ToState.ShouldBe("Done");
+        refused.Type.ShouldBe(item.Type.Value);
+
+        // Every unsatisfied gate field, not just the first: a state command cannot supply any
+        // of them, so reporting one at a time would cost a round trip per field.
+        refused.MissingFields.ShouldBe(["Custom.FalsificationCriteria", "Custom.VerificationMode"]);
+
+        // The point of the gate is that the doomed PATCH is never emitted.
+        await adoService.DidNotReceiveWithAnyArgs().PatchAsync(
+            default, default!, default, default);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CloseGateFieldAlreadyPopulated_Transitions()
+    {
+        var item = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Doing")
+            .WithField("Custom.FalsificationCriteria", "A failing repro would disprove it.")
+            .Build();
+        var updated = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Done")
+            .Build();
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var pendingChanges = Substitute.For<IPendingChangeStore>();
+        var processConfig = Substitute.For<IProcessConfigurationProvider>();
+        var ruleProvider = new FakeProcessRuleProvider(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "Custom.FalsificationCriteria", null)],
+                IsDisabled: false),
+        ]);
+
+        processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 10, Arg.Any<CancellationToken>())
+            .Returns(11);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(updated);
+        pendingChanges.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        var workflow = new StateTransitionWorkflow(
+            workItemRepo,
+            adoService,
+            pendingChanges,
+            processConfig,
+            parentPropagation: null,
+            promptStateWriter: null,
+            processRuleProvider: ruleProvider);
+
+        var outcome = await workflow.ExecuteAsync(item, "Done", 10);
+
+        outcome.ShouldBeOfType<StateTransitionOutcome.Succeeded>();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RequirementSuppliedByPairedAction_Transitions()
+    {
+        // AB#803 semantics must hold on the state path exactly as they do on the plan path:
+        // ADO declares `makeRequired X` and the action that populates X as SEPARATE rules on
+        // the same condition, so a paired supplier means the field is never actually empty
+        // when requiredness is evaluated. Refusing here would block every honest close.
+        var item = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Doing")
+            .Build();
+        var updated = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Done")
+            .Build();
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var pendingChanges = Substitute.For<IPendingChangeStore>();
+        var processConfig = Substitute.For<IProcessConfigurationProvider>();
+        var ruleProvider = new FakeProcessRuleProvider(
+        [
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "System.Reason", null)],
+                IsDisabled: false),
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$copyValue", "System.Reason", "Completed")],
+                IsDisabled: false),
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$makeRequired", "Microsoft.VSTS.Common.ClosedBy", null)],
+                IsDisabled: false),
+            new ProcessRule(
+                Conditions: [new RuleCondition("$when", "System.State", "Done")],
+                Actions: [new RuleAction("$copyFromCurrentUser", "Microsoft.VSTS.Common.ClosedBy", null)],
+                IsDisabled: false),
+        ]);
+
+        processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 10, Arg.Any<CancellationToken>())
+            .Returns(11);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(updated);
+        pendingChanges.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        var workflow = new StateTransitionWorkflow(
+            workItemRepo,
+            adoService,
+            pendingChanges,
+            processConfig,
+            parentPropagation: null,
+            promptStateWriter: null,
+            processRuleProvider: ruleProvider);
+
+        var outcome = await workflow.ExecuteAsync(item, "Done", 10);
+
+        outcome.ShouldBeOfType<StateTransitionOutcome.Succeeded>();
+    }
+
     private sealed class FakeProcessRuleProvider(IReadOnlyList<ProcessRule> rules) : IProcessRuleProvider
     {
         public Task<IReadOnlyList<ProcessRule>> GetRulesAsync(

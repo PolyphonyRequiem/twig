@@ -208,6 +208,11 @@
 
 ### ADO Close-Out
 
-- [ ] All child Tasks and Issues transitioned to Done (`twig set <id>` → `twig state Done`)
-- [ ] Parent Epic transitioned to Done (`twig set <id>` → `twig state Done`)
+- [ ] All child Tasks transitioned to Done through the change-proposal path — one `batch` op
+      per item carrying `System.State` plus the type's close-gate fields (and
+      `Custom.TerminalOutcome` where carried), applied with
+      `twig proposal apply --confirm <digest> --authorize <identity>`
+- [ ] Parent Epic transitioned to Done the same way — its `Custom.ClosingStatement` gate
+      written in the same op as the transition
+- [ ] Each transition confirmed by a refreshed read (`twig show <id> --refresh`), not assumed
 - [ ] `git push` completed — all commits on remote

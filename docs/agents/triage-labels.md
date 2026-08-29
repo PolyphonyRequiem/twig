@@ -44,8 +44,13 @@ board before then — a `PendingChangeRecord` lives only in the local SQLite cac
 ADO work items have a real **State** (`twig state <name>`), governed by the process's
 `ProcessConfiguration`. Triage tags sit alongside it and do **not** move it.
 
-🔴 Writing a work item's answer or close-gate fields does **not** move its State either. To
-close: `twig set <id>`, then `twig state Done`, then re-read with `twig show <id> --refresh`.
+🔴 Writing a work item's answer or close-gate fields does **not** move its State either — and
+`twig state Done` cannot move it *for* them. `twig state` writes `System.State` alone, so on a
+type whose process makes a field required in the Done state it refuses instead of emitting a
+PATCH ADO would reject. Close by staging the transition and those fields in **one**
+change-proposal `batch` op, applying it with
+`twig proposal apply --confirm <digest> --authorize <identity>`, then re-reading with
+`twig show <id> --refresh`.
 
 ## These tags may not exist yet
 

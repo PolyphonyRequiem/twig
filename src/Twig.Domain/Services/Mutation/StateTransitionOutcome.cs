@@ -39,6 +39,33 @@ public abstract record StateTransitionOutcome
     public sealed record TransitionNotAllowed(string FromState, string ToState) : StateTransitionOutcome;
 
     /// <summary>
+    /// The process itself forbids the transition: landing in <see cref="ToState"/> fires one or
+    /// more enabled <c>makeRequired</c> rules whose target fields are empty and which no rule
+    /// firing on the same transition supplies a value for. Refused before any PATCH.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>Why a state command cannot satisfy these.</b> <c>twig state</c> writes
+    /// <c>System.State</c> and nothing else, so it can never carry a caller-owned gate field.
+    /// A transition into such a state is therefore unsatisfiable through this command no
+    /// matter how it is retried — the fields must ride in the SAME operation as the state
+    /// change, which is what the change-proposal <c>batch</c> surface exists to do.
+    /// </para>
+    /// <para>
+    /// This is deliberately process-agnostic: it names no type, no state, and no field. The
+    /// evaluator reads the live rule set, so an authored gate on any type is covered without
+    /// a code change, and a requirement the same rule set also supplies (AB#803) never lands
+    /// here.
+    /// </para>
+    /// </remarks>
+    public sealed record RequiredFieldsMissing(
+        int ItemId,
+        string Type,
+        string ToState,
+        IReadOnlyList<string> MissingFields)
+        : StateTransitionOutcome;
+
+    /// <summary>
     /// ADO rejected one PATCH in the transition chain. <see cref="Path"/> is the prefix
     /// successfully traversed; <see cref="FinalState"/> is the last state reached.
     /// <see cref="CacheResyncWarning"/> is set if the best-effort cache resync after the

@@ -3,6 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -37,6 +38,16 @@ namespace Twig.Infrastructure.Services.Mutation;
 /// </remarks>
 public sealed class StateTransitionWorkflow
 {
+    private const string SystemStateField = "System.State";
+
+    /// <summary>
+    /// Plan-operation id for the synthetic single-field batch this workflow hands the shared
+    /// process-rule evaluator. The batch is never written, previewed, or journalled — it is
+    /// only the evaluator's input shape — but the id must be stable and self-describing for
+    /// anything that ends up echoing it.
+    /// </summary>
+    private const string StateTransitionGateOperationId = "state-transition-gate";
+
     private readonly IWorkItemRepository workItemRepo;
     private readonly IAdoWorkItemService adoService;
     private readonly IPendingChangeStore pendingChangeStore;
@@ -141,6 +152,37 @@ public sealed class StateTransitionWorkflow
         Func<WorkItem, string, IReadOnlyList<FieldChange>>? dependentFieldPlanner = null;
         if (processRuleProvider is not null)
         {
+            // Refuse a transition the process itself will not accept, BEFORE touching the wire.
+            // `twig state` writes System.State and nothing else, so a caller-owned gate field
+            // (an authored `when State = X -> makeRequired Y` with no paired supplier) can never
+            // be satisfied through this command; emitting the PATCH would spend a round trip to
+            // be told so, and under bypassRules could walk straight past the gate instead.
+            // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
+            // have exactly one implementation.
+            var gate = new PlanProcessRuleGate(processRuleProvider);
+            var gateOutcome = await gate.EvaluateAsync(
+                new BatchOperation
+                {
+                    Id = StateTransitionGateOperationId,
+                    WorkItemId = item.Id,
+                    ExpectedRevision = expectedRevision,
+                    Fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [SystemStateField] = newState,
+                    },
+                },
+                item,
+                ct);
+
+            if (gateOutcome.IsRefused)
+            {
+                return new StateTransitionOutcome.RequiredFieldsMissing(
+                    item.Id,
+                    item.Type.Value,
+                    newState,
+                    gateOutcome.Fields ?? []);
+            }
+
             var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
             dependentFieldPlanner = (currentItem, targetState) =>
                 DependentFieldReconciler.GetSafeClears(

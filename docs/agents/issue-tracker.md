@@ -51,8 +51,14 @@ substitute for the binary's own help.
 - **Changes are staged locally until `twig sync`.** A `PendingChangeRecord` or `PendingNote`
   lives only in the local SQLite cache. Do not report a change as landed on the board before a
   successful sync.
-- **Writing close-gate fields does not move the State.** To close: `twig set <id>`, then
-  `twig state Done`, then re-read with `twig show <id> --refresh`.
+- **Writing close-gate fields does not move the State — and a bare state push cannot carry
+  them.** `twig state` writes `System.State` alone, so for any type whose process makes a
+  field required in the Done state it now refuses rather than emit a PATCH ADO would reject.
+  Close by staging **one** change-proposal `batch` op that sets `System.State` together with
+  that type's close-gate fields (and `Custom.TerminalOutcome` where the type carries it),
+  applying it with `twig proposal apply --confirm <digest> --authorize <identity>`, then
+  re-reading with `twig show <id> --refresh`. `twig state` remains correct for un-gated
+  moves such as `To do` → `Doing`.
 - **`twig state` fails in a fresh git worktree** with *"Process configuration not available.
   The process_types table is empty"*. The error blames auth — that is a red herring. Run
   `twig sync` in that worktree first.

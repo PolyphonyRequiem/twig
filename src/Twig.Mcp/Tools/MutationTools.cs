@@ -125,6 +125,20 @@ public sealed class MutationTools(ConnectionResolver resolver)
             case StateTransitionOutcome.TransitionNotAllowed x:
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, $"Transition from '{x.FromState}' to '{x.ToState}' is not allowed.", ctx, ct);
 
+            case StateTransitionOutcome.RequiredFieldsMissing x:
+                var missingRendered = string.Join(", ", x.MissingFields);
+                return await EnvelopeBuilder.ErrorAsync(
+                    McpErrorCode.InvalidStateTransition,
+                    $"Cannot move to '{x.ToState}': the process requires {missingRendered} in that "
+                    + $"state, and '{x.Type}' supplies no value for them.",
+                    ctx,
+                    ct,
+                    new Dictionary<string, string>
+                    {
+                        ["remediation"] = "twig_state writes System.State alone. Set the state and "
+                            + $"these fields together in one operation: {missingRendered}.",
+                    });
+
             case StateTransitionOutcome.ChainFailed x:
                 var pathRendered = string.Join(" → ", x.Path);
                 var failureMsg = x.Path.Count > 1

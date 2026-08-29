@@ -144,6 +144,18 @@ public sealed class StateCommand(
                 _stderr.WriteLine(fmt.FormatError($"Transition from '{x.FromState}' to '{x.ToState}' is not allowed."));
                 return 1;
 
+            case StateTransitionOutcome.RequiredFieldsMissing x:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"#{x.ItemId} cannot move to '{x.ToState}': the process requires "
+                    + $"{string.Join(", ", x.MissingFields)} in that state, and '{x.Type}' supplies "
+                    + "no value for them."));
+                _stderr.WriteLine(
+                    "'twig state' writes System.State alone, so it can never carry these fields. "
+                    + "Stage them in the same operation as the transition — a change-proposal "
+                    + "'batch' op setting System.State plus the fields above — then apply it with "
+                    + "'twig proposal apply --confirm <digest> --authorize <identity>'.");
+                return 1;
+
             case StateTransitionOutcome.ChainFailed x:
                 var failureMessage = x.Path.Count > 1
                     ? $"#{x.ItemId} chain stopped at '{x.FinalState}'. Reached: {string.Join(" → ", x.Path)}. ADO: {x.AdoError}"

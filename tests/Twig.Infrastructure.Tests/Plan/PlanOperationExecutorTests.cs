@@ -67,6 +67,21 @@ public sealed class PlanOperationExecutorTests
                 new FieldDefinition(referenceName, referenceName, dataType, IsReadOnly: false)));
     }
 
+    /// <summary>
+    /// Stubs a field ADO declares as an identity. Deliberately typed <c>string</c>: that is
+    /// what ADO actually reports for identity fields, so a fixture typing them anything
+    /// else would not exercise the real discrimination (AB#802).
+    /// </summary>
+    private void StubIdentityField(string referenceName)
+    {
+        _fieldDefinitions.GetByReferenceNameAsync(referenceName, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(
+                new FieldDefinition(referenceName, referenceName, "string", IsReadOnly: false)
+                {
+                    IsIdentity = true,
+                }));
+    }
+
 
     // ── batch readback: canonical fields ───────────────────────────────────
 
@@ -211,6 +226,149 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Ok.ShouldBeFalse();
         outcome.Error!.ShouldContain("System.Description");
+    }
+
+    // ── batch readback: ADO-normalized identities (AB#802) ─────────────────
+
+    /// <summary>
+    /// The exact AB#802 reproduction, observed live on 2026-08-26 claiming work item 727:
+    /// the plan staged the email form, ADO stored the display form, the revision advanced,
+    /// and the readback still reported the op as Indeterminate.
+    /// </summary>
+    [Fact]
+    public async Task ReadbackBatch_IdentityStagedAsEmail_VerifiesAgainstAdoDisplayForm()
+    {
+        StubIdentityField("System.AssignedTo");
+        var op = new BatchOperation
+        {
+            Id = "claim", WorkItemId = 727, ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "daniel@danielgreen.net",
+            },
+        };
+        var wi = new WorkItem { Id = 727, Title = "T" };
+        wi.MarkSynced(5);
+        wi.UpdateField("System.AssignedTo", "Daniel Green (daniel danielgreen.net)");
+        _ado.FetchAsync(727, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        // Equivalence alone is not enough: the ledger must record WHICH account ADO
+        // resolved the write to, or the rewrite disappears from the audit trail.
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain("System.AssignedTo");
+        outcome.Warning.ShouldContain("identity");
+        outcome.Warning.ShouldContain("Daniel Green (daniel danielgreen.net)");
+        await _fieldDefinitions.Received(1)
+            .GetByReferenceNameAsync("System.AssignedTo", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The comparison is driven by field metadata, never by the value's shape. A field ADO
+    /// does NOT declare as an identity keeps ordinal comparison even when both values look
+    /// exactly like identity renderings.
+    /// </summary>
+    [Fact]
+    public async Task ReadbackBatch_IdentityShapedValueOnNonIdentityField_RemainsIndeterminate()
+    {
+        StubFieldDefinition("Custom.FreeText", "string");
+        var op = new BatchOperation
+        {
+            Id = "text", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Custom.FreeText"] = "daniel@danielgreen.net",
+            },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("Custom.FreeText", "Daniel Green (daniel danielgreen.net)");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain("Custom.FreeText");
+    }
+
+    /// <summary>
+    /// A DIFFERENT account is a contradiction, not a normalization. This is the assertion
+    /// that stops AB#802's fix from becoming a blanket excuse for identity differences.
+    /// </summary>
+    [Fact]
+    public async Task ReadbackBatch_DifferentIdentity_RemainsIndeterminate()
+    {
+        StubIdentityField("System.AssignedTo");
+        var op = new BatchOperation
+        {
+            Id = "claim", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "daniel@danielgreen.net",
+            },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.AssignedTo", "Someone Else (someone elsewhere.net)");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain("System.AssignedTo");
+    }
+
+    /// <summary>
+    /// The unproven-mutation guard sits ABOVE the identity comparator exactly as it does
+    /// for html and server-generated stamps: no revision advance, no warning-verify.
+    /// </summary>
+    [Fact]
+    public async Task ReadbackBatch_IdentityNormalizedButStaleReadback_RemainsIndeterminate()
+    {
+        StubIdentityField("System.AssignedTo");
+        var op = new BatchOperation
+        {
+            Id = "claim", WorkItemId = 1, ExpectedRevision = 5,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "daniel@danielgreen.net",
+            },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(5); // did NOT advance past ExpectedRevision
+        wi.UpdateField("System.AssignedTo", "Daniel Green (daniel danielgreen.net)");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain("revision");
+    }
+
+    /// <summary>
+    /// A requested CLEAR on an identity field is never excused by the comparator — a field
+    /// that still holds a value did not clear, whatever it renders as.
+    /// </summary>
+    [Fact]
+    public async Task ReadbackBatch_IdentityClearRequestedButStillHeld_RemainsIndeterminate()
+    {
+        StubIdentityField("System.AssignedTo");
+        var op = new BatchOperation
+        {
+            Id = "release", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.AssignedTo"] = null },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.AssignedTo", "Daniel Green (daniel danielgreen.net)");
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain("cleared");
     }
 
     [Fact]

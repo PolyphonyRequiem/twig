@@ -894,7 +894,10 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
             {
                 if (f.ReferenceName is null || f.Name is null)
                     continue;
-                defs.Add(new FieldDefinition(f.ReferenceName, f.Name, f.Type ?? "string", f.ReadOnly));
+                defs.Add(new FieldDefinition(f.ReferenceName, f.Name, f.Type ?? "string", f.ReadOnly)
+                {
+                    IsIdentity = f.IsIdentity,
+                });
             }
             return defs;
         }

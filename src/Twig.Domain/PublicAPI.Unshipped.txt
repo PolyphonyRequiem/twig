@@ -808,3 +808,5 @@ virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Te
 ~override Twig.Domain.Services.ChangeProposals.ProposalAuthorizationDecision.ToString() -> string
 ~override Twig.Domain.ValueObjects.SeedRemapIdentity.Equals(object obj) -> bool
 ~override Twig.Domain.ValueObjects.SeedRemapIdentity.ToString() -> string
+Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.get -> bool
+Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.init -> void

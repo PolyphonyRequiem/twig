@@ -21,7 +21,7 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT ref_name, display_name, data_type, is_read_only
+            SELECT ref_name, display_name, data_type, is_read_only, is_identity
             FROM field_definitions
             WHERE ref_name = @refName
             """;
@@ -39,7 +39,7 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT ref_name, display_name, data_type, is_read_only
+            SELECT ref_name, display_name, data_type, is_read_only, is_identity
             FROM field_definitions
             ORDER BY ref_name
             """;
@@ -64,13 +64,14 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
                 cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT OR REPLACE INTO field_definitions
-                        (ref_name, display_name, data_type, is_read_only, last_synced_at)
-                    VALUES (@refName, @displayName, @dataType, @isReadOnly, @syncedAt)
+                        (ref_name, display_name, data_type, is_read_only, is_identity, last_synced_at)
+                    VALUES (@refName, @displayName, @dataType, @isReadOnly, @isIdentity, @syncedAt)
                     """;
                 cmd.Parameters.AddWithValue("@refName", def.ReferenceName);
                 cmd.Parameters.AddWithValue("@displayName", def.DisplayName);
                 cmd.Parameters.AddWithValue("@dataType", def.DataType);
                 cmd.Parameters.AddWithValue("@isReadOnly", def.IsReadOnly ? 1 : 0);
+                cmd.Parameters.AddWithValue("@isIdentity", def.IsIdentity ? 1 : 0);
                 cmd.Parameters.AddWithValue("@syncedAt", DateTime.UtcNow.ToString("o"));
                 cmd.ExecuteNonQuery();
             }
@@ -91,6 +92,9 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
             ReferenceName: reader.GetString(0),
             DisplayName: reader.GetString(1),
             DataType: reader.GetString(2),
-            IsReadOnly: reader.GetInt32(3) == 1);
+            IsReadOnly: reader.GetInt32(3) == 1)
+        {
+            IsIdentity = reader.GetInt32(4) == 1,
+        };
     }
 }

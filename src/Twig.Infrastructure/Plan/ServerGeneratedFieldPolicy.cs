@@ -89,8 +89,9 @@ internal static class ServerGeneratedFieldPolicy
                 return false;
 
             // A ServerGenerated classification must still satisfy the justified-set test.
-            // CanonicalizedHtml carries its own evidence — the field's declared html data
-            // type plus a structural equivalence that already succeeded — so it does not.
+            // CanonicalizedHtml and CanonicalizedIdentity carry their own evidence — the
+            // field's declared html data type or isIdentity flag, plus a comparison that
+            // already succeeded against that specific metadata — so they do not.
             if (normalization.Kind == NormalizationKind.ServerGenerated
                 && !IsServerGenerated(normalization.ReferenceName))
             {
@@ -113,8 +114,11 @@ internal static class ServerGeneratedFieldPolicy
         var html = normalizations
             .Where(n => n.Kind == NormalizationKind.CanonicalizedHtml)
             .ToList();
+        var identities = normalizations
+            .Where(n => n.Kind == NormalizationKind.CanonicalizedIdentity)
+            .ToList();
 
-        var segments = new List<string>(2);
+        var segments = new List<string>(3);
         if (serverGenerated.Count > 0)
         {
             var parts = serverGenerated
@@ -136,6 +140,19 @@ internal static class ServerGeneratedFieldPolicy
                 + string.Join(", ", html.Select(n => n.ReferenceName))
                 + ". The markup is structurally equivalent to what the plan authored; only "
                 + "ADO's serialization differs.");
+        }
+        if (identities.Count > 0)
+        {
+            // Both values ARE echoed here, unlike the html case: an identity is one short
+            // line, and which account ADO resolved the write to is exactly the fact a
+            // reader of this warning needs. Suppressing it would hide the only detail that
+            // distinguishes a correct resolution from a surprising one.
+            var parts = identities
+                .Select(n => $"{n.ReferenceName} (requested '{n.Expected}', server '{n.Actual ?? "(absent)"}')");
+            segments.Add(
+                "ADO re-rendered identity field(s) after apply: " + string.Join("; ", parts)
+                + ". Each names the same account the plan authored; only ADO's rendering "
+                + "of it differs.");
         }
 
         return string.Join(" ", segments)
@@ -182,6 +199,13 @@ internal enum NormalizationKind
     /// <see cref="HtmlStructuralComparer"/>; only the markup's serialization differs. AB#755.
     /// </summary>
     CanonicalizedHtml,
+
+    /// <summary>
+    /// ADO re-rendered an identity the plan authored. The stable identity key compared
+    /// equal under <see cref="IdentityValueComparer"/>; only ADO's rendering of the same
+    /// account differs. AB#802.
+    /// </summary>
+    CanonicalizedIdentity,
 }
 
 /// <summary>

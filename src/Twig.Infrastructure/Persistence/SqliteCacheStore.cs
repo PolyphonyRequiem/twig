@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 15;
+    internal const int SchemaVersion = 16;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -749,6 +749,7 @@ public sealed class SqliteCacheStore : IDisposable
             display_name TEXT NOT NULL,
             data_type TEXT NOT NULL,
             is_read_only INTEGER NOT NULL DEFAULT 0,
+            is_identity INTEGER NOT NULL DEFAULT 0,
             last_synced_at TEXT NOT NULL
         );
 

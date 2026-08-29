@@ -289,6 +289,19 @@ internal sealed class PlanOperationExecutor
                     kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedHtml));
                 continue;
             }
+            if (match == FieldMatch.NormalizedIdentity)
+            {
+                // AB#802: the field's own metadata says this is an identity, and the stable
+                // key comparison proved the SAME account landed — ADO merely re-rendered it
+                // from the staged form into `Display Name (unique name)`. Same class of fact
+                // as the html case: a landed write plus a rewrite Twig does not control, so
+                // it takes the identical warning-verified path. A genuinely different
+                // identity never reaches here: IdentityValueComparer returns false and the
+                // strict branch below fires.
+                normalizations.Add(new PlanReadbackNormalization(
+                    kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedIdentity));
+                continue;
+            }
 
             // AB#754: a difference on a field ADO's own revision machinery owns is a
             // normalization, not a contradiction — but ONLY as warning detail riding
@@ -347,6 +360,7 @@ internal sealed class PlanOperationExecutor
     /// not the same fact — the latter is normalization the ledger must record as warning
     /// detail. Returning the distinction here keeps ONE comparator: the caller decides
     /// what to do with a normalized match, and no second comparison is performed anywhere.
+    /// AB#802 adds the identity rendering as a third member of the same family.
     /// </summary>
     private enum FieldMatch
     {
@@ -356,6 +370,8 @@ internal sealed class PlanOperationExecutor
         Exact,
         /// <summary>Equal only after canonicalizing ADO-normalized HTML.</summary>
         NormalizedHtml,
+        /// <summary>Equal only after reducing both renderings to a stable identity key.</summary>
+        NormalizedIdentity,
     }
 
     private async Task<FieldMatch> ClassifyReadbackFieldAsync(
@@ -370,15 +386,31 @@ internal sealed class PlanOperationExecutor
         var fieldDefinition = await _fieldDefinitionStore
             .GetByReferenceNameAsync(referenceName, ct)
             .ConfigureAwait(false);
+        if (fieldDefinition is null || actual is null)
+            return FieldMatch.None;
+
         // Semantic comparison is opt-in by FIELD METADATA, never by value shape: only a
-        // field ADO declares as html is compared structurally. An ordinary scalar that
-        // merely looks like markup stays on the ordinal path above (AB#755).
-        return fieldDefinition is not null
-            && string.Equals(fieldDefinition.DataType, "html", StringComparison.OrdinalIgnoreCase)
-            && actual is not null
-            && HtmlStructuralComparer.AreEquivalent(expected, actual)
+        // field ADO declares as html is compared structurally, and only a field ADO declares
+        // with isIdentity is compared as an identity. An ordinary scalar that merely looks
+        // like markup — or like an email address — stays on the ordinal path above
+        // (AB#755, AB#802).
+        if (string.Equals(fieldDefinition.DataType, "html", StringComparison.OrdinalIgnoreCase))
+        {
+            return HtmlStructuralComparer.AreEquivalent(expected, actual)
                 ? FieldMatch.NormalizedHtml
                 : FieldMatch.None;
+        }
+
+        // 🔴 Checked AFTER html and independently of DataType: ADO reports identity fields
+        // as `string`, so the data type cannot carry this and the flag is the only witness.
+        if (fieldDefinition.IsIdentity)
+        {
+            return IdentityValueComparer.AreEquivalent(expected, actual)
+                ? FieldMatch.NormalizedIdentity
+                : FieldMatch.None;
+        }
+
+        return FieldMatch.None;
     }
 
     /// <summary>

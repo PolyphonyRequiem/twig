@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using System.Globalization;
 using System.Text.Json;
 using Twig.Domain.Interfaces;
@@ -29,9 +30,45 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     // Not to be confused with the durable schema version (which shapes THIS row).
     private const int PlanFileSchemaVersion = 1;
 
-    private readonly SqliteCacheStore _store;
+    internal const string SourcePathCollationName = "twig_source_path";
 
-    public SqlitePlanJournalRepository(SqliteCacheStore store) => _store = store;
+    private readonly SqliteCacheStore _store;
+    private StringComparer _sourcePathComparer;
+
+    internal StringComparer SourcePathComparer
+    {
+        get => _sourcePathComparer;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (ReferenceEquals(_sourcePathComparer, value))
+                return;
+
+            _sourcePathComparer = value;
+            var conn = _store.GetConnection();
+            RegisterSourcePathCollation(conn, value);
+
+            using var reindex = conn.CreateCommand();
+            reindex.CommandText = $"REINDEX {SourcePathCollationName};";
+            reindex.ExecuteNonQuery();
+        }
+    }
+
+    public SqlitePlanJournalRepository(SqliteCacheStore store)
+    {
+        _store = store;
+        _sourcePathComparer = CreateDefaultSourcePathComparer();
+        RegisterSourcePathCollation(_store.GetConnection(), _sourcePathComparer);
+    }
+
+    internal static StringComparer CreateDefaultSourcePathComparer()
+        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    internal static void RegisterSourcePathCollation(SqliteConnection connection, StringComparer comparer)
+        => connection.CreateCollation(SourcePathCollationName, (x, y) => comparer.Compare(x, y));
+
 
     /// <summary>
     /// Writes the header row and every operation row in state <see cref="PlanOperationState.Planned"/>
@@ -398,6 +435,34 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             AuthorizedAt = authorizedAt,
             Operations = operations,
         });
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<string>> GetDigestsBySourcePathAsync(
+        string sourcePath,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourcePath);
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        // previewed_at is written round-trip ("o") from a UTC clock, so it sorts lexically.
+        // digest is the tiebreak purely so the order is total and the report is stable.
+        cmd.CommandText = $"""
+            SELECT digest
+            FROM proposal_journals
+            WHERE source_path COLLATE {SourcePathCollationName} = @source
+            ORDER BY previewed_at, digest;
+            """;
+        cmd.Parameters.AddWithValue("@source", sourcePath);
+
+        var digests = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            digests.Add(reader.GetString(0));
+
+        return Task.FromResult<IReadOnlyList<string>>(digests);
     }
 
     private IReadOnlyList<PlanJournalOperation> ReadOperations(string digest)

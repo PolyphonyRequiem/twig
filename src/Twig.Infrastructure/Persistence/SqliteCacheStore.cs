@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 9;
+    internal const int DurableSchemaVersion = 10;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -69,6 +69,9 @@ public sealed class SqliteCacheStore : IDisposable
         try
         {
             _connection.Open();
+            SqlitePlanJournalRepository.RegisterSourcePathCollation(
+                _connection,
+                SqlitePlanJournalRepository.CreateDefaultSourcePathComparer());
             EnableWalMode();
             AttachDurableStore();
             EnsureSchema();
@@ -613,6 +616,14 @@ public sealed class SqliteCacheStore : IDisposable
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN rationale TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN review_model_json TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorized_at TEXT;
+            """,
+
+        // AB#832 — add the source-path lookup index without changing any journal rows. The
+        // collation is registered on every open connection so existing databases can build the
+        // index in place with the same host-path identity rules as the repository query.
+        [10] = $"""
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_journals_source_path_previewed_at_digest
+                ON proposal_journals(source_path COLLATE {SqlitePlanJournalRepository.SourcePathCollationName}, previewed_at, digest);
             """,
 
     };

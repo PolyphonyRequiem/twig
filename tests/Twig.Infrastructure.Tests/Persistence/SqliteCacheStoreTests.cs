@@ -570,7 +570,7 @@ public class SqliteCacheStoreTests
     [Fact]
     public void DurableStore_UpgradingFromV5_AddsProposalJournalShape_WithoutTouchingExistingRows()
     {
-        var dir = Path.Combine(Path.GetTempPath(), $"twig_v5v6_{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig_v5v6_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var mirrorPath = Path.Combine(dir, "twig.db");
         var pendingPath = Path.Combine(dir, "pending.db");
@@ -770,6 +770,8 @@ public class SqliteCacheStoreTests
 
             DurableIndexExists(conn, "idx_proposal_journals_state").ShouldBeTrue(
                 "the journal state index must survive the v6 -> v8 upgrade under its renamed form");
+            DurableIndexExists(conn, "idx_proposal_journals_source_path_previewed_at_digest").ShouldBeTrue(
+                "the source-path lookup index must be added without rewriting existing durable rows");
             DurableIndexExists(conn, "idx_proposal_operations_ordinal").ShouldBeTrue(
                 "the operations ordinal index must survive the v6 -> v8 upgrade under its renamed form");
             DurableIndexExists(conn, "idx_proposal_operations_state").ShouldBeTrue(

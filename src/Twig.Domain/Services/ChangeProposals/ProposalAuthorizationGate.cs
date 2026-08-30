@@ -28,6 +28,20 @@ public readonly record struct ProposalAuthorizationDecision(
 /// unanswerable question is no.
 /// </para>
 /// <para>
+/// 🔴 <b>What this gate cannot check: that the authorizer is a different party from the
+/// caller.</b> Spec #729 §Authorization states authorizer separation as an invariant — an
+/// authorization record MUST originate from a party distinct from the process requesting the
+/// apply — but the <em>mechanism</em> for demonstrating separation is deferred to the
+/// session/authorization contract, which does not exist yet. This gate is handed a
+/// <see cref="ProposalAuthorization"/> and can only check its shape, so it cannot tell a
+/// human's sign-off from a record a caller minted naming that human. The CLI apply path is
+/// recorded in Spec #729 as <b>known non-compliant</b> with the invariant for exactly this
+/// reason; an agent process invoking it can produce a passing <c>human</c> authorization, as
+/// observed live on 2026-08-29. Do not read "every path fails closed" above as covering
+/// authenticity: it covers shape, digest binding, mode, and identity presence, and nothing
+/// more.
+/// </para>
+/// <para>
 /// <b>What this gate deliberately does NOT check.</b> Per Spec #729 §Authorization, additional
 /// AFK preflight gates — a refreshed read of the target, primary-scope matching, local-claim
 /// ownership, rationale content — are out of scope for AB#743 and are not introduced here.

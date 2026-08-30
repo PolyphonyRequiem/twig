@@ -112,6 +112,17 @@ public sealed class PlanCommand(
         // path applies is a property of how the session is steered, not something the caller
         // may assert about itself. The digest the human confirmed IS the digest they signed
         // off, so the two are bound to the same value here by construction.
+        //
+        // 🔴 The IDENTITY, unlike the mode, IS caller-asserted, and this is the site Spec #729
+        // §Authorization records as known non-compliant with its authorizer-separation
+        // invariant. --authorize is a free string checked only for non-blankness, while the
+        // production steering provider resolves Unresolved and therefore requires mode Human.
+        // So any caller — including an agent process whose own mutation is being gated — can
+        // mint a passing "human" authorization naming a human who never saw the digest, and
+        // the resulting audit row is byte-identical to a genuine sign-off. Observed live on
+        // 2026-08-29. Closing this needs a session/authorization contract that can demonstrate
+        // separation; Spec #729 deliberately defers that mechanism, so the gap is named here
+        // rather than papered over with a check this layer cannot actually perform.
         var authorization = string.IsNullOrWhiteSpace(authorizerIdentity)
             ? null
             : new ProposalAuthorization

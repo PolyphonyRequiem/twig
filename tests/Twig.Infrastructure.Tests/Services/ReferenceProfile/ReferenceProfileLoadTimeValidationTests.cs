@@ -109,14 +109,14 @@ public sealed class ReferenceProfileLoadTimeValidationTests
     /// aggregate's role dictionary. The old check counted DISTINCT roles, so six
     /// entries with one repeat produced a five-element set, passed, and then threw.
     /// </summary>
+    /// <remarks>
+    /// Rebinding the leaf entry to <c>bug</c> leaves five type entries carrying
+    /// only four distinct roles, which is the shape that used to slip through.
+    /// </remarks>
     [Fact]
     public void Duplicate_role_entry_is_named_rather_than_throwing()
     {
-        var json = Mutate(
-            @"    {
-      ""role"": ""task"",",
-            @"    {
-      ""role"": ""bug"",");
+        var json = Mutate(@"""role"": ""task""", @"""role"": ""bug""");
         var result = ProviderFor(json).Load();
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldBe(ReferenceProfileErrors.RoleSetNotCanonical);
@@ -214,6 +214,13 @@ public sealed class ReferenceProfileLoadTimeValidationTests
     /// produces an error — a test that fails for a reason unrelated to what it
     /// names. Every literal here duplicates profile content, so that drift is a
     /// matter of when, not whether.
+    /// <para>
+    /// 🔴 Needles MUST be single-line. A multi-line verbatim literal takes its
+    /// newlines from THIS SOURCE FILE, which git checks out as CRLF on Windows,
+    /// while the profile resource is pinned to LF — so such a needle silently
+    /// stops matching on one platform only. Caught exactly that way on Windows
+    /// CI, by the assertion below.
+    /// </para>
     /// </remarks>
     private static string Mutate(string find, string replace)
     {

@@ -72,6 +72,7 @@ public class NewDescriptionFileStdinTests : IDisposable
             },
         },
         new SeedFactory(), new FakeStagedIdentityRegistry(),
+        Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
         rendererFactory: null,
         contextChangeService: null,
         stdinReader: stdin);

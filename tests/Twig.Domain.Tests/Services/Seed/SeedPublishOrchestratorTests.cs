@@ -44,7 +44,8 @@ public class SeedPublishOrchestratorTests
             _unitOfWork,
             backlogOrderer,
             Substitute.For<IPendingChangeStore>(),
-            null);
+            null,
+            ReferenceProfileBuilder.SprintPolicy());
     }
 
     // ═══════════════════════════════════════════════════════════════

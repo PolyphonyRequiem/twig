@@ -13,7 +13,7 @@ namespace Twig.Domain.Enums;
 /// values — a role is what the profile means (e.g. "the leaf role"), a work item
 /// type is what an ADO process happens to name that role.
 /// </remarks>
-[JsonConverter(typeof(JsonStringEnumConverter<Role>))]
+[JsonConverter(typeof(RoleJsonConverter))]
 public enum Role
 {
     Initiative = 0,

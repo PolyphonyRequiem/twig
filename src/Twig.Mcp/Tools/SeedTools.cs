@@ -15,6 +15,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Content;
 using Twig.Mcp.Services;
+using Twig.Domain.Services.ReferenceProfile;
 
 namespace Twig.Mcp.Tools;
 
@@ -223,7 +224,8 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
             ctx.Get<IUnitOfWork>(),
             backlogOrderer,
             ctx.Get<IPendingChangeStore>(),
-            ctx.Get<IPublishIntentRepository>());
+            ctx.Get<IPublishIntentRepository>(),
+            ctx.Get<SprintEntryPolicy>());
 
         var activeId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
 

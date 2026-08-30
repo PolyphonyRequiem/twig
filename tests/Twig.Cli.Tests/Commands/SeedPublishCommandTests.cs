@@ -55,7 +55,8 @@ public class SeedPublishCommandTests : IDisposable
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
             _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null);
+            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null,
+            Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
         _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
     }
@@ -436,7 +437,8 @@ public class SeedPublishCommandTests : IDisposable
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
             _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null);
+            _rulesProvider, _unitOfWork, backlogOrderer, Substitute.For<IPendingChangeStore>(), null,
+            Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
         return new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService, gitService);
     }
 

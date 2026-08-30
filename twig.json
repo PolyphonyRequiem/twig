@@ -23,6 +23,11 @@
   "git": {
     "branchPattern": "(?:^|/)(?\u003Cid\u003E\\d{3,})(?:-|/|$)"
   },
+  "profile": {
+    "identity": "twig.reference-profile.hyperbright",
+    "profileVersion": "1.0.0",
+    "baseProcessVersion": "basic:2026-08-24:1"
+  },
   "workspace": {},
   "areas": {
     "mode": "under"

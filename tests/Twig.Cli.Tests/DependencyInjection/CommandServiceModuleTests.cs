@@ -161,6 +161,7 @@ public sealed class CommandServiceModuleTests
         services.AddSingleton(Substitute.For<IUnitOfWork>());
         services.AddSingleton(Substitute.For<IWorkItemLinkRepository>());
         services.AddSingleton(Substitute.For<IPublishIntentRepository>());
+        services.AddSingleton(Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
         // Mirrors the production registrations:
         //   TwigServiceRegistration.cs:100 (discard, bare AddSingleton)
@@ -177,7 +178,8 @@ public sealed class CommandServiceModuleTests
             sp.GetRequiredService<IUnitOfWork>(),
             sp.GetRequiredService<BacklogOrderer>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IPublishIntentRepository>()));
+            sp.GetRequiredService<IPublishIntentRepository>(),
+            sp.GetRequiredService<Twig.Domain.Services.ReferenceProfile.SprintEntryPolicy>()));
 
         return services.BuildServiceProvider();
     }

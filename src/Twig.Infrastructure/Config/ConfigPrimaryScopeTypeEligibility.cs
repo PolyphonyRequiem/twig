@@ -39,52 +39,49 @@ internal sealed class ConfigPrimaryScopeTypeEligibility : IPrimaryScopeTypeEligi
 }
 
 /// <summary>
-/// Checked-in profile policy source: reads the AB#736 §4.1 policy block from
-/// <c>twig.json</c> as the materialized policy of the pinned profile. The
-/// block MUST carry a <see cref="SelectedProfileBinding"/> with non-empty
-/// identity + version AND a non-null <see cref="PolicyConfig.PrimaryScopeTypes"/>
-/// list; any missing or hand-clipped field fails closed with
-/// <c>eligibility-unavailable</c> so a partial migration surfaces at the
-/// eligibility gate rather than silently permitting types.
-/// <para>
-/// This source is authoritative today. AB#727 will introduce a profile
-/// registry that supplies the same <see cref="IPrimaryScopePolicySource"/>
-/// seam; the switchover is a single-line DI change. There is no permanently
-/// unavailable default — <c>twig init</c> materializes a policy block on
-/// every managed init, so the "block absent" case is a migration event, not
-/// the normal steady state.
-/// </para>
+/// The T1 §8.1 cutover: <see cref="IPrimaryScopePolicySource"/> is "a thin
+/// adapter over <c>IReferenceProfileProvider.PrimaryScopeAllowTypeNames</c> —
+/// no independent policy source remains".
 /// </summary>
-internal sealed class CheckedInProfilePolicySource : IPrimaryScopePolicySource
+/// <remarks>
+/// <para>
+/// This replaces the checked-in policy source that read
+/// <c>twig.json</c>'s <c>policy.primaryScopeTypes</c> as the authority. That
+/// list is a MATERIALIZATION of the pinned profile written at init, so treating
+/// it as authoritative made a hand-edited manifest able to widen the allow-set
+/// past what the profile declares — with no signal, because a widened list is
+/// indistinguishable from a correctly materialized one. T1 §3.6 is explicit
+/// that narrowing the allow-set means publishing a different profile identity,
+/// not editing a repository file, so the profile is the only correct authority.
+/// </para>
+/// <para>
+/// 🔴 The pin is validated BEFORE the allow-set is read. Returning an allow-set
+/// from a profile release the repository is not pinned to would answer the
+/// eligibility question from the wrong document while looking entirely healthy
+/// — the drift would surface later as an unexplained attach refusal or, worse,
+/// an attach that should have been refused. Checking the pin here is what makes
+/// T1 §6.1 a production gate rather than a documented intention.
+/// </para>
+/// </remarks>
+internal sealed class ReferenceProfilePolicySource(IReferenceProfileProvider profileProvider)
+    : IPrimaryScopePolicySource
 {
-    private readonly TwigConfiguration _config;
-
-    public CheckedInProfilePolicySource(TwigConfiguration config)
-    {
-        _config = config;
-    }
+    private readonly IReferenceProfileProvider _profileProvider = profileProvider;
 
     public Result<IReadOnlyList<string>> GetAllowSet()
     {
-        var policy = _config.Policy;
-        if (policy is null)
-            return Result.Fail<IReadOnlyList<string>>(AttachmentStorageFailure.EligibilityUnavailable);
+        var pin = _profileProvider.ValidatePin();
+        if (!pin.IsSuccess)
+            return Result.Fail<IReadOnlyList<string>>(pin.Error);
 
-        // The block MUST bind a selected profile identity and version — that
-        // is the materialized side of what AB#727 will publish independently.
-        // A hand-clipped identity or missing version means the manifest is
-        // out of contract and eligibility fails closed.
-        var binding = policy.SelectedProfile;
-        if (binding is null
-            || string.IsNullOrWhiteSpace(binding.Identity)
-            || string.IsNullOrWhiteSpace(binding.Version))
-        {
-            return Result.Fail<IReadOnlyList<string>>(AttachmentStorageFailure.EligibilityUnavailable);
-        }
+        var loaded = _profileProvider.Load();
+        if (!loaded.IsSuccess)
+            return Result.Fail<IReadOnlyList<string>>(loaded.Error);
 
-        var types = policy.PrimaryScopeTypes;
-        if (types is null)
-            return Result.Fail<IReadOnlyList<string>>(AttachmentStorageFailure.EligibilityUnavailable);
-        return Result.Ok<IReadOnlyList<string>>(types);
+        // Propagate the profile's own named identifier rather than flattening to
+        // eligibility-unavailable: "the profile blob is corrupt" and "this
+        // repository pins a version this binary does not ship" need different
+        // repairs, and only the specific identifier says which.
+        return Result.Ok(loaded.Value.PrimaryScopeAllowTypeNames);
     }
 }

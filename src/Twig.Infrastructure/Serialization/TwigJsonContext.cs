@@ -162,8 +162,20 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<TrackingFileEntry>))]
 [JsonSerializable(typeof(ExclusionFileEntry))]
 [JsonSerializable(typeof(List<ExclusionFileEntry>))]
-// T3 (AB#734) reference profile — embedded JSON schema.
+// AB#734/AB#735 reference profile. The nested records are attributed explicitly
+// rather than left to root-graph reachability, because T1 §8.2 requires the
+// aggregate root AND every §5 nested record registered — and an explicit entry
+// is what makes a future refactor that detaches one of them a build error
+// instead of a runtime "no metadata for type" under
+// JsonSerializerIsReflectionEnabledByDefault=false.
 [JsonSerializable(typeof(ReferenceProfileDto))]
+[JsonSerializable(typeof(BaseProcessDto))]
+[JsonSerializable(typeof(HierarchyDto))]
+[JsonSerializable(typeof(TypeDto))]
+[JsonSerializable(typeof(StateDto))]
+[JsonSerializable(typeof(LinkKindDto))]
+[JsonSerializable(typeof(PrimaryScopeDto))]
+[JsonSerializable(typeof(FingerprintDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
 // Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
@@ -178,6 +190,8 @@ namespace Twig.Infrastructure.Serialization;
 // AB#738 policy source
 [JsonSerializable(typeof(Twig.Infrastructure.Config.PolicyConfig))]
 [JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
+// AB#735 (T1 §2) three-field reference-profile pin on the checked-in twig.json
+[JsonSerializable(typeof(Twig.Infrastructure.Config.ProfilePinConfig))]
 // AB#745 transport-attachment envelope (contract §2.1) persisted at .twig/transport.json
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAttachmentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportRecordDocument))]
@@ -210,6 +224,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(Twig.Infrastructure.Config.SelectedProfileBinding))]
+[JsonSerializable(typeof(Twig.Infrastructure.Config.ProfilePinConfig))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

@@ -58,7 +58,8 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
             unitOfWork,
             new BacklogOrderer(adoService, fieldDefinitionStore),
             Substitute.For<IPendingChangeStore>(),
-            null);
+            null,
+            Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
         var publishResult = await orchestrator.PublishAsync(-1);
 
@@ -105,7 +106,8 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
             unitOfWork,
             new BacklogOrderer(adoService, fieldDefinitionStore),
             Substitute.For<IPendingChangeStore>(),
-            null);
+            null,
+            Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
         var publishResult = await orchestrator.PublishAsync(-1);
         var cachedLinks = await workItemLinkRepo.GetLinksAsync(500);

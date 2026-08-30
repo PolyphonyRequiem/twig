@@ -70,7 +70,16 @@ internal sealed class LinkKindDto
 internal sealed class PrimaryScopeDto
 {
     public string? Kind { get; set; }
-    public List<Role>? EligibleRoles { get; set; }
+
+    /// <summary>
+    /// Raw role tokens, NOT <see cref="Role"/>. T1 §6.6 declares a dedicated
+    /// identifier for an unknown role here (<c>primary-scope-unknown-role</c>),
+    /// and a strongly-typed list cannot produce it: the canonical converter
+    /// throws on any token outside the five, which the loader can only report as
+    /// <c>profile-schema-invalid</c>. Resolving these tokens explicitly in
+    /// <c>TryBuild</c> is what keeps that identifier reachable.
+    /// </summary>
+    public List<string>? EligibleRoles { get; set; }
 }
 
 internal sealed class FingerprintDto

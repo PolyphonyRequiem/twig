@@ -34,6 +34,18 @@ public static class ReferenceProfileErrors
     /// <summary>primaryScope.eligibleRoles contains an unknown role.</summary>
     public const string PrimaryScopeUnknownRole = "primary-scope-unknown-role";
 
+    /// <summary>The three-field <c>profile</c> block is absent from <c>twig.json</c> (T1 §6.1).</summary>
+    public const string TwigJsonProfileBlockMissing = "twig-json-profile-block-missing";
+
+    /// <summary><c>twig.json.profile.identity</c> names no profile embedded in this binary (T1 §6.1).</summary>
+    public const string ProfileIdentityUnknown = "profile-identity-unknown";
+
+    /// <summary><c>twig.json.profile.profileVersion</c> is not byte-equal to the embedded <c>profileVersion</c> (T1 §6.1).</summary>
+    public const string ProfileVersionMismatch = "profile-version-mismatch";
+
+    /// <summary><c>twig.json.profile.baseProcessVersion</c> is not byte-equal to the embedded <c>baseProcess.tailoringVersion</c> (T1 §6.1).</summary>
+    public const string BaseProcessVersionMismatch = "base-process-version-mismatch";
+
     // ---- Command-time (T1 §7.2) ---------------------------------------------
 
     /// <summary>Live process's base-process parent reference disagrees with the profile.</summary>

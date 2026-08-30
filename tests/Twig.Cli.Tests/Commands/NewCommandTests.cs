@@ -88,7 +88,8 @@ public class NewCommandTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
-            new SeedFactory(), new FakeStagedIdentityRegistry());
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
     }
 
     public void Dispose()
@@ -320,7 +321,8 @@ public class NewCommandTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, configNoDefaults,
-            new SeedFactory(), new FakeStagedIdentityRegistry());
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
 
         ArrangeCreateSuccess();
 

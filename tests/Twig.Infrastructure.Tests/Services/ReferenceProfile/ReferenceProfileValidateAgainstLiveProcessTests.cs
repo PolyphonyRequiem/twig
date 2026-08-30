@@ -16,6 +16,13 @@ namespace Twig.Infrastructure.Tests.Services.ReferenceProfile;
 /// </summary>
 public sealed class ReferenceProfileValidateAgainstLiveProcessTests
 {
+    /// <summary>
+    /// The base-process reference the shipped profile declares. T1 §6.2 compares
+    /// this byte-equal, so the tests supply the matching value on the green path
+    /// and a different one to drive <c>base-process-parent-mismatch</c>.
+    /// </summary>
+    private const string ShippedParentRef = "b8a3a935-7e91-48b8-a94c-606d37c3e9f2";
+
     private static readonly StateEntry[] BasicStates =
     [
         new("To Do", StateCategory.Proposed, Color: null),
@@ -57,9 +64,67 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
     [Fact]
     public void Shipped_profile_validates_against_matching_live_process()
     {
-        var provider = new EmbeddedReferenceProfileProvider();
-        var result = provider.ValidateAgainstLiveProcess(ShippedShapedLiveProvider());
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
+        var result = provider.ValidateAgainstLiveProcess(ShippedShapedLiveProvider(), ShippedParentRef);
         result.IsSuccess.ShouldBeTrue(result.Error);
+    }
+
+    /// <summary>
+    /// T1 §6.2 — the check that was declared but unreachable until AB#735.
+    /// </summary>
+    /// <remarks>
+    /// <c>base-process-parent-mismatch</c> existed as an identifier while
+    /// nothing compared <c>baseProcess.parentRef</c> to anything, because T1
+    /// §8.1 gave the method no live parent reference to compare against and T1
+    /// §6.2's premise that the value was "already reachable via
+    /// <c>AdoProcessConfigurationResponse</c>" is false — that DTO carries
+    /// backlog categories only. Passing the reference as data closes the gap.
+    /// </remarks>
+    [Fact]
+    public void Live_process_derived_from_a_different_base_is_rejected()
+    {
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
+
+        var result = provider.ValidateAgainstLiveProcess(
+            ShippedShapedLiveProvider(),
+            liveBaseProcessRef: "00000000-0000-0000-0000-000000000000");
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(ReferenceProfileErrors.BaseProcessParentMismatch);
+    }
+
+    /// <summary>
+    /// The parent reference is opaque and compared byte-equal, so a casing
+    /// difference is a different process, not the same one spelled differently.
+    /// </summary>
+    [Fact]
+    public void Base_process_reference_comparison_is_byte_exact()
+    {
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
+
+        var result = provider.ValidateAgainstLiveProcess(
+            ShippedShapedLiveProvider(), ShippedParentRef.ToUpperInvariant());
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldBe(ReferenceProfileErrors.BaseProcessParentMismatch);
+    }
+
+    /// <summary>
+    /// The §7.3 backstop now discriminates on the parent reference. Before
+    /// AB#735 both fingerprint passes read that component off the PROFILE, so
+    /// identical bytes landed on both sides and the backstop was structurally
+    /// blind to the one dimension §6.2 covers.
+    /// </summary>
+    [Fact]
+    public void Live_fingerprint_varies_with_the_live_base_process_reference()
+    {
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
+        var live = ShippedShapedLiveProvider();
+
+        var matching = provider.ComputeLiveFingerprint(live, ShippedParentRef);
+        var divergent = provider.ComputeLiveFingerprint(live, "some-other-process");
+
+        divergent.ShouldNotBe(matching);
     }
 
     /// <summary>
@@ -88,7 +153,7 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
             ("Bug", adoMintedCustomTypeStates),
             ("Task", BasicStates)));
 
-        var result = new EmbeddedReferenceProfileProvider().ValidateAgainstLiveProcess(live);
+        var result = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()).ValidateAgainstLiveProcess(live, ShippedParentRef);
 
         result.IsSuccess.ShouldBeTrue(result.Error);
     }
@@ -103,8 +168,8 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
             ("Feature", BasicStates),
             // Bug missing.
             ("Task", BasicStates)));
-        var provider = new EmbeddedReferenceProfileProvider();
-        var result = provider.ValidateAgainstLiveProcess(live);
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
+        var result = provider.ValidateAgainstLiveProcess(live, ShippedParentRef);
         result.IsSuccess.ShouldBeFalse();
         result.Error.ShouldBe(ReferenceProfileErrors.TypeNameMissing);
     }
@@ -119,7 +184,7 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
             ("Feature", extra),
             ("Bug", BasicStates),
             ("Task", BasicStates)));
-        var result = new EmbeddedReferenceProfileProvider().ValidateAgainstLiveProcess(live);
+        var result = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()).ValidateAgainstLiveProcess(live, ShippedParentRef);
         result.Error.ShouldBe(ReferenceProfileErrors.LiveHasExtraState);
     }
 
@@ -133,7 +198,7 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
             ("Feature", reordered),
             ("Bug", BasicStates),
             ("Task", BasicStates)));
-        var result = new EmbeddedReferenceProfileProvider().ValidateAgainstLiveProcess(live);
+        var result = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()).ValidateAgainstLiveProcess(live, ShippedParentRef);
         result.Error.ShouldBe(ReferenceProfileErrors.StateOrderMismatch);
     }
 
@@ -152,7 +217,7 @@ public sealed class ReferenceProfileValidateAgainstLiveProcessTests
             ("Feature", recategorized),
             ("Bug", BasicStates),
             ("Task", BasicStates)));
-        var result = new EmbeddedReferenceProfileProvider().ValidateAgainstLiveProcess(live);
+        var result = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()).ValidateAgainstLiveProcess(live, ShippedParentRef);
         result.Error.ShouldBe(ReferenceProfileErrors.StateCategoryMismatch);
     }
 }

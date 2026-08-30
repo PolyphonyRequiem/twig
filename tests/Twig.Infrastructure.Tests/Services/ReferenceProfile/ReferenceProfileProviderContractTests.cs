@@ -21,7 +21,7 @@ public sealed class ReferenceProfileProviderContractTests
 {
     private static Twig.Domain.ValueObjects.ReferenceProfile LoadProfile()
     {
-        var provider = new EmbeddedReferenceProfileProvider();
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
         var loaded = provider.Load();
         loaded.IsSuccess.ShouldBeTrue(loaded.Error);
         return loaded.Value;
@@ -135,7 +135,7 @@ public sealed class ReferenceProfileProviderContractTests
     [Fact]
     public void Load_is_cached_and_returns_the_same_instance()
     {
-        var provider = new EmbeddedReferenceProfileProvider();
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
         var first = provider.Load().Value;
         var second = provider.Load().Value;
         ReferenceEquals(first, second).ShouldBeTrue();
@@ -147,7 +147,7 @@ public sealed class ReferenceProfileProviderContractTests
     public void Missing_embedded_resource_returns_named_error()
     {
         // Assembly with NO embedded resource by that name.
-        var provider = new EmbeddedReferenceProfileProvider(typeof(int).Assembly);
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching(), typeof(int).Assembly);
         var loaded = provider.Load();
         loaded.IsSuccess.ShouldBeFalse();
         loaded.Error.ShouldBe(ReferenceProfileErrors.ProfileBlobNotFound);

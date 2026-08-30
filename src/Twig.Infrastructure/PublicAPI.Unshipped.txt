@@ -11,6 +11,14 @@ Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.get -> System.Collecti
 Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.set -> void
 Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.get -> Twig.Infrastructure.Config.SelectedProfileBinding?
 Twig.Infrastructure.Config.PolicyConfig.SelectedProfile.set -> void
+Twig.Infrastructure.Config.ProfilePinConfig
+Twig.Infrastructure.Config.ProfilePinConfig.BaseProcessVersion.get -> string!
+Twig.Infrastructure.Config.ProfilePinConfig.BaseProcessVersion.set -> void
+Twig.Infrastructure.Config.ProfilePinConfig.Identity.get -> string!
+Twig.Infrastructure.Config.ProfilePinConfig.Identity.set -> void
+Twig.Infrastructure.Config.ProfilePinConfig.ProfilePinConfig() -> void
+Twig.Infrastructure.Config.ProfilePinConfig.ProfileVersion.get -> string!
+Twig.Infrastructure.Config.ProfilePinConfig.ProfileVersion.set -> void
 Twig.Infrastructure.Config.SelectedProfileBinding
 Twig.Infrastructure.Config.SelectedProfileBinding.Identity.get -> string!
 Twig.Infrastructure.Config.SelectedProfileBinding.Identity.set -> void
@@ -19,8 +27,12 @@ Twig.Infrastructure.Config.SelectedProfileBinding.Version.get -> string!
 Twig.Infrastructure.Config.SelectedProfileBinding.Version.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
 Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.Profile.get -> Twig.Infrastructure.Config.ProfilePinConfig?
+Twig.Infrastructure.Config.TwigConfiguration.Profile.set -> void
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Profile.get -> Twig.Infrastructure.Config.ProfilePinConfig?
+Twig.Infrastructure.Config.TwigRepoConfig.Profile.set -> void
 Twig.Infrastructure.Persistence.SqlitePendingChangeStore.GetAllChangesAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>!>!
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.CompleteAsync(string! digest, Twig.Domain.Services.Plan.PlanOperationState finalState, System.DateTimeOffset completedAt, string? error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

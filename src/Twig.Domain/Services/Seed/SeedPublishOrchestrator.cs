@@ -3,6 +3,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.ReferenceProfile;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
@@ -27,6 +28,7 @@ public sealed class SeedPublishOrchestrator
     private readonly BacklogOrderer _backlogOrderer;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IPublishIntentRepository? _publishIntentRepo;
+    private readonly SprintEntryPolicy _sprintEntryPolicy;
 
     /// <summary>
     /// Creates an orchestrator that migrates staged pending changes onto the published ID and
@@ -57,7 +59,8 @@ public sealed class SeedPublishOrchestrator
         IUnitOfWork unitOfWork,
         BacklogOrderer backlogOrderer,
         IPendingChangeStore pendingChangeStore,
-        IPublishIntentRepository? publishIntentRepo)
+        IPublishIntentRepository? publishIntentRepo,
+        SprintEntryPolicy sprintEntryPolicy)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -70,6 +73,7 @@ public sealed class SeedPublishOrchestrator
         _backlogOrderer = backlogOrderer;
         _pendingChangeStore = pendingChangeStore;
         _publishIntentRepo = publishIntentRepo;
+        _sprintEntryPolicy = sprintEntryPolicy;
     }
 
     /// <summary>
@@ -153,6 +157,31 @@ public sealed class SeedPublishOrchestrator
                 Title = seed.Title,
                 Status = SeedPublishStatus.ValidationFailed,
                 ValidationFailures = canonicalFieldFailures,
+            };
+        }
+
+        // T1 §3.3 sprint-entry invariant, enforced through the T3 profile seam.
+        // Placed with the canonical-field guard and ABOVE the `force` branch on
+        // purpose: --force exists to bypass a repository's own publish RULES,
+        // not the reference process's structural invariants. A non-Task item
+        // committed to a sprint iteration is refused by ADO's backlog behaviour
+        // anyway, so forcing it only converts a clear local refusal into a
+        // remote error after the create has been attempted.
+        var sprintEntry = _sprintEntryPolicy.Evaluate(seed.Type, seed.IterationPath);
+        if (!sprintEntry.IsSuccess)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.ValidationFailed,
+                ValidationFailures =
+                [
+                    new SeedValidationFailure(
+                        "System.IterationPath",
+                        $"{sprintEntry.Error}: only the reference profile's sprint-tier type may be "
+                        + $"committed directly to a sprint iteration ('{seed.IterationPath.Value}')."),
+                ],
             };
         }
 

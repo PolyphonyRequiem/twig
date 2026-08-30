@@ -5,6 +5,7 @@ using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.ReferenceProfile;
 using Xunit;
+using Twig.Infrastructure.Tests.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure.Tests.Persistence;
 
@@ -18,7 +19,7 @@ public sealed class ReferenceProfileRegistrySourceTests
     [Fact]
     public void Resolve_materializes_identity_and_version_from_the_embedded_profile()
     {
-        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider());
+        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()));
 
         var result = source.Resolve("anyProcess");
 
@@ -35,7 +36,7 @@ public sealed class ReferenceProfileRegistrySourceTests
     [Fact]
     public void Resolve_materializes_the_concrete_primary_scope_allow_set()
     {
-        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider());
+        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()));
 
         var result = source.Resolve("anyProcess");
 
@@ -72,7 +73,7 @@ public sealed class ReferenceProfileRegistrySourceTests
     [InlineData("")]
     public void Resolve_is_independent_of_the_process_template_argument(string processTemplate)
     {
-        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider());
+        var source = new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()));
 
         var result = source.Resolve(processTemplate);
 

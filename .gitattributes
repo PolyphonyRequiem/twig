@@ -3,3 +3,17 @@
 
 # Ensure PowerShell scripts use consistent line endings across platforms
 *.ps1 text eol=lf
+
+# The reference profile and its checksum sidecar are hashed BYTE-EXACT
+# (AB#735, T1 AB#732 §1), so their bytes must be identical on every platform.
+# Without this, git's autocrlf normalizes profile.json to CRLF on a Windows
+# checkout, the embedded resource carries different bytes than the sidecar
+# pins, and the integrity check fails for every Windows user — verified, not
+# theorized: CI hashed the CRLF form to 6d747175… against the LF pin d2cf4c20…
+#
+# `text eol=lf` rather than `-text` on purpose: these stay diffable text, which
+# T1 §1 explicitly requires ("reviewing a profile change in a PR must remain a
+# diff of a human-readable file"), while the working tree is forced to LF
+# everywhere.
+src/Twig.Infrastructure/Resources/ReferenceProfile/profile.json text eol=lf
+src/Twig.Infrastructure/Resources/ReferenceProfile/profile.json.sha256 text eol=lf

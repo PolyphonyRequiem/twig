@@ -76,6 +76,40 @@ public sealed class ReferenceProfileArtifactTests
     }
 
     /// <summary>
+    /// The shipped profile carries no carriage returns.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 A byte-exact checksum over a file git is allowed to normalize is not
+    /// reproducible across platforms. With autocrlf on, a Windows checkout
+    /// rewrites LF to CRLF, the embedded resource then carries different bytes
+    /// than the sidecar pins, and the integrity check fails for every Windows
+    /// user. Verified rather than theorized: CI hashed the CRLF form to
+    /// <c>6d747175…</c> against the LF pin <c>d2cf4c20…</c>.
+    /// <para>
+    /// <c>.gitattributes</c> pins both files to <c>eol=lf</c>; this test is the
+    /// cheap local detector, because the failure otherwise only reproduces on a
+    /// Windows checkout and would be found by CI or a user rather than by the
+    /// person making the change. Note the in-band <c>fingerprint.bytes</c>
+    /// CANNOT catch this — it re-serializes before hashing, which is exactly
+    /// the blindness the sidecar exists to cover.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Profile_and_sidecar_carry_no_carriage_returns()
+    {
+        ProfileBytes().ShouldNotContain((byte)'\r',
+            "profile.json must stay LF-only; see .gitattributes");
+
+        var asm = typeof(EmbeddedReferenceProfileProvider).Assembly;
+        using var stream = asm.GetManifestResourceStream(
+            EmbeddedReferenceProfileProvider.ProfileChecksumResourceName)!;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        ms.ToArray().ShouldNotContain((byte)'\r',
+            "profile.json.sha256 must stay LF-only; see .gitattributes");
+    }
+
+    /// <summary>
     /// Roles and link kinds are spelled as T1 §3 and §3.5 spell them, read as
     /// raw JSON string TOKENS.
     /// </summary>

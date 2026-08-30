@@ -189,6 +189,25 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 CanApply = false,
             };
 
+        // AB#832: refuse before the journal is touched. Importing here would register a SECOND
+        // transaction against a path that already carries one — the precise state that makes a
+        // later `plan status` on this path resolve someone else's work as if it were this
+        // file's. Unlike the import refusal below, no review model is built: the document is
+        // not reviewable-but-rejected, it is unusable at this path, and the only correct next
+        // action is to re-author it at a fresh sequence.
+        var previewReplacement = await DetectSourceReplacementAsync(
+            containment.AbsolutePath!, parsed.Digest, ct).ConfigureAwait(false);
+        if (previewReplacement is not null)
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest,
+                Operations = parsed.Plan.Operations,
+                Issues = [.. parsed.Issues, ReplacementIssue(previewReplacement)],
+                Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending,
+                CanApply = false,
+            };
+
         // Idempotent import — a matching digest returns the existing journal, a mismatched
         // one throws (the ledger refuses to co-sign a doctored file). We hoist that as a
         // preview-level issue rather than an unhandled exception.
@@ -268,6 +287,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(
                 confirmedDigest,
                 $"File digest {parsed.Digest} does not match confirmed digest {confirmedDigest}.");
+
+        // AB#832: re-checked here rather than trusted from preview, because apply re-reads the
+        // file and a replacement can land in between. The digest equality just above cannot
+        // catch it — the confirmed digest was computed from these same replaced bytes.
+        var applyReplacement = await DetectSourceReplacementAsync(
+            containment.AbsolutePath!, parsed.Digest, ct).ConfigureAwait(false);
+        if (applyReplacement is not null)
+            return TopLevelApplyFailure(confirmedDigest, ReplacementIssue(applyReplacement).Message);
 
         // Fresh zero-pending check at apply time; preview's snapshot is a UI hint, not a
         // race window. Any row present here refuses the apply.
@@ -438,9 +465,22 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 Digest = parsed.Digest,
             };
 
+        var replacement = await DetectSourceReplacementAsync(
+            containment.AbsolutePath!, parsed.Digest, ct).ConfigureAwait(false);
+
         var journal = await _journal.GetAsync(parsed.Digest, ct).ConfigureAwait(false);
         if (journal is null)
-            return null;
+            // AB#832: "no journal" is only an honest answer when nothing was ever journaled at
+            // this path. When something was, the file was replaced, and returning null here
+            // reports a clobbered audit trail as a plan that was simply never previewed.
+            return replacement is null
+                ? null
+                : new PlanStatusResult
+                {
+                    Found = false,
+                    Digest = parsed.Digest,
+                    Replacement = replacement,
+                };
 
         return new PlanStatusResult
         {
@@ -449,6 +489,71 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             State = journal.State,
             Operations = journal.Operations,
             Error = journal.Error,
+            Replacement = replacement,
+        };
+    }
+
+    /// <summary>
+    /// AB#832: reports whether the file at <paramref name="absolutePath"/> has been replaced
+    /// since a transaction was journaled against that path.
+    /// <para>
+    /// The discriminator is the existence of journaled digests for this path OTHER than the
+    /// one its bytes currently hash to. Comparing the found journal's own recorded source path
+    /// would report nothing: once the replacing document is previewed, its journal records the
+    /// very same path.
+    /// </para>
+    /// </summary>
+    private async Task<PlanSourceReplacement?> DetectSourceReplacementAsync(
+        string absolutePath,
+        string? currentDigest,
+        CancellationToken ct)
+    {
+        var journaled = await _journal
+            .GetDigestsBySourcePathAsync(absolutePath, ct)
+            .ConfigureAwait(false);
+        if (journaled is not { Count: > 0 })
+            return null;
+
+        var superseded = new List<string>(journaled.Count);
+        var currentJournaled = false;
+        foreach (var digest in journaled)
+        {
+            if (currentDigest is not null && string.Equals(digest, currentDigest, StringComparison.Ordinal))
+                currentJournaled = true;
+            else
+                superseded.Add(digest);
+        }
+
+        // Every journaled digest for this path is the current one: the ordinary, honest case of
+        // a file previewed once (or re-previewed unchanged).
+        if (superseded.Count == 0)
+            return null;
+
+        return new PlanSourceReplacement
+        {
+            SourcePath = absolutePath,
+            CurrentDigest = currentDigest,
+            SupersededDigests = superseded,
+            CurrentDigestJournaled = currentJournaled,
+        };
+    }
+
+    private static PlanValidationIssue ReplacementIssue(PlanSourceReplacement replacement)
+    {
+        var superseded = string.Join(", ", replacement.SupersededDigests);
+        var message = replacement.CurrentDigestJournaled
+            ? $"Plan file '{replacement.SourcePath}' has carried more than one transaction "
+              + $"(journaled: {superseded}, and its current digest {replacement.CurrentDigest}). "
+              + "Plan files are single-use; author the next transaction at a fresh sequence."
+            : $"Plan file '{replacement.SourcePath}' was replaced after it was previewed "
+              + $"(journaled: {superseded}; its current bytes hash to {replacement.CurrentDigest}). "
+              + "Plan files are single-use; author the next transaction at a fresh sequence.";
+
+        return new PlanValidationIssue
+        {
+            Code = PlanValidationCodes.SourceReplaced,
+            Path = string.Empty,
+            Message = message,
         };
     }
 

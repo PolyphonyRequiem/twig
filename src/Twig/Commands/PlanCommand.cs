@@ -131,8 +131,8 @@ public sealed class PlanCommand(
     /// <summary>
     /// Show journal state for a plan file. Exit 0 when a journal exists, 1 when the file
     /// parsed cleanly but no journal has ever been imported for its digest, 2 for usage
-    /// errors (missing <c>--file</c>) or lifecycle input errors (path outside workspace,
-    /// unreadable file, invalid JSON, workspace mismatch).
+    /// errors (missing <c>--file</c>), lifecycle input errors (path outside workspace,
+    /// unreadable file, invalid JSON, workspace mismatch), or a replaced source file.
     /// </summary>
     /// <remarks>
     /// The peer contract (<see cref="IPlanLifecycleService.StatusAsync"/>) reserves the
@@ -141,6 +141,13 @@ public sealed class PlanCommand(
     /// <see cref="PlanStatusResult.Found"/> <c>false</c>. The adapter surfaces those
     /// distinctly so a caller can tell "you never previewed this plan" from "this file is
     /// not a valid plan" without re-running validate.
+    /// <para>
+    /// AB#832: <see cref="PlanStatusResult.Replacement"/> is surfaced as its own named
+    /// document and its own non-zero exit, never folded into the <c>found:false</c> shape.
+    /// It is reported even when a journal WAS found, because that is the dangerous case —
+    /// the journal resolved from replaced bytes describes a transaction this file did not
+    /// produce, and reporting it as an ordinary success is the silent corruption itself.
+    /// </para>
     /// </remarks>
     public async Task<int> StatusAsync(string? file, string outputFormat, CancellationToken ct)
     {
@@ -159,6 +166,11 @@ public sealed class PlanCommand(
         if (result.Issues.Count > 0)
         {
             RenderStatusInputErrors(result, outputFormat, resolved);
+            return 2;
+        }
+        if (result.Replacement is { } replacement)
+        {
+            RenderSourceReplaced(result, replacement, outputFormat, resolved);
             return 2;
         }
         RenderStatus(result, outputFormat);
@@ -435,6 +447,63 @@ public sealed class PlanCommand(
             .Render(new RenderTree.RenderTree(new RenderNode[] { section }));
     }
 
+    /// <summary>
+    /// AB#832: render the replaced-source condition. Carries the journal snapshot too when one
+    /// resolved, so the caller can see exactly which transaction it would otherwise have been
+    /// handed as this file's.
+    /// </summary>
+    private void RenderSourceReplaced(
+        PlanStatusResult result,
+        PlanSourceReplacement replacement,
+        string outputFormat,
+        string resolved)
+    {
+        var message = replacement.CurrentDigestJournaled
+            ? $"Plan file '{resolved}' has carried more than one transaction; its journal no "
+              + "longer uniquely identifies this file."
+            : $"Plan file '{resolved}' was replaced after it was previewed; the transaction "
+              + "journaled against this path is not the one these bytes describe.";
+
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isJsonLike = lower is "json" or "json-full" or "json-compact" or "ids";
+        if (isJsonLike)
+        {
+            var fields = new List<DocumentField>
+            {
+                new("found", new RenderNode.KeyValue("found", RenderCell.Boolean(result.Found))),
+                new("digest", new RenderNode.KeyValue("digest", DigestCell(result.Digest))),
+                new("sourcePath", new RenderNode.KeyValue("sourcePath", RenderCell.String(replacement.SourcePath))),
+                new("currentDigestJournaled", new RenderNode.KeyValue(
+                    "currentDigestJournaled",
+                    RenderCell.Boolean(replacement.CurrentDigestJournaled))),
+                new("supersededDigests", new RenderNode.KeyValue(
+                    "supersededDigests",
+                    DigestListCell(replacement.SupersededDigests))),
+                new("state", new RenderNode.KeyValue("state", NullableStringCell(result.State?.ToString()))),
+                new("operations", new RenderNode.KeyValue("operations", JournalOperationsCell(result.Operations))),
+                new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
+                new("message", new RenderNode.KeyValue("message", RenderCell.String(message))),
+            };
+            var doc = new RenderNode.Document("proposalStatusSourceReplaced", fields);
+            _rendererFactory.GetRenderer(outputFormat, _stderr)
+                .Render(new RenderTree.RenderTree(new RenderNode[] { doc }));
+            return;
+        }
+
+        var lines = new List<RenderNode>
+        {
+            new RenderNode.Text(message, Severity.Error),
+            new RenderNode.Text($"  current digest: {replacement.CurrentDigest ?? "(none)"}"),
+        };
+        foreach (var superseded in replacement.SupersededDigests)
+            lines.Add(new RenderNode.Text($"  also journaled: {superseded}"));
+        lines.Add(new RenderNode.Text(
+            "  plan files are single-use; author the next transaction at a fresh sequence."));
+
+        _rendererFactory.GetRenderer(outputFormat, _stderr)
+            .Render(new RenderTree.RenderTree(new RenderNode[] { new RenderNode.Section(null, lines) }));
+    }
+
     // ── seed descriptor ───────────────────────────────────────────────
 
     private void RenderSeed(PlanSeedDescriptor descriptor, string outputFormat)
@@ -494,6 +563,19 @@ public sealed class PlanCommand(
         => value is null
             ? new RenderCell("(none)", new RenderValue.Null())
             : RenderCell.String(value);
+
+    /// <summary>AB#832: the superseded digests of a replaced plan file, as a JSON string array.</summary>
+    private static RenderCell DigestListCell(IReadOnlyList<string> digests)
+    {
+        if (digests.Count == 0)
+            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
+
+        var items = new List<RenderCell>(digests.Count);
+        foreach (var digest in digests)
+            items.Add(RenderCell.String(digest));
+
+        return new RenderCell($"[{digests.Count}]", new RenderValue.Array(items));
+    }
 
     private static string DisplayPath(string path) => string.IsNullOrEmpty(path) ? "/" : path;
 

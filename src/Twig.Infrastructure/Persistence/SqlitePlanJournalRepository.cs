@@ -400,6 +400,34 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         });
     }
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<string>> GetDigestsBySourcePathAsync(
+        string sourcePath,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourcePath);
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        // previewed_at is written round-trip ("o") from a UTC clock, so it sorts lexically.
+        // digest is the tiebreak purely so the order is total and the report is stable.
+        cmd.CommandText = """
+            SELECT digest
+            FROM proposal_journals
+            WHERE source_path = @sourcePath
+            ORDER BY previewed_at, digest;
+            """;
+        cmd.Parameters.AddWithValue("@sourcePath", sourcePath);
+
+        var digests = new List<string>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            digests.Add(reader.GetString(0));
+
+        return Task.FromResult<IReadOnlyList<string>>(digests);
+    }
+
     private IReadOnlyList<PlanJournalOperation> ReadOperations(string digest)
     {
         var conn = _store.GetConnection();

@@ -46,6 +46,19 @@ public interface IPlanJournalRepository
     Task<PlanJournal?> GetAsync(string digest, CancellationToken ct = default);
 
     /// <summary>
+    /// AB#832: returns every digest journaled against <paramref name="sourcePath"/>, oldest
+    /// preview first. Empty when the path has never been previewed.
+    /// <para>
+    /// The journal is keyed by digest, so this is the inverse lookup: it answers "what
+    /// transactions has this path carried?" rather than "what does this content describe?".
+    /// A path with more than one digest, or with a digest other than the one its bytes
+    /// currently hash to, has been overwritten — plan files are single-use, so the same path
+    /// legitimately carries exactly one digest for its whole life.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<string>> GetDigestsBySourcePathAsync(string sourcePath, CancellationToken ct = default);
+
+    /// <summary>
     /// Records the authorization that gated this proposal's apply, plus the canonical semantic
     /// review model exactly as the authorizer was shown it (design record T2 §5.3).
     /// <para>

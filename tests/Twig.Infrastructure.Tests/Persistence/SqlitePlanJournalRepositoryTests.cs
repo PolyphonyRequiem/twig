@@ -1618,6 +1618,47 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
     private Task WalkOpToApplied(string digest, string opId) => WalkOpToState(digest, opId, PlanOperationState.Applied);
 
+    // ── AB#832: inverse lookup by source path ──────────────────────────────
+
+    /// <summary>
+    /// A plan file is single-use, so its path legitimately carries exactly one digest for its
+    /// whole life. More than one means the file was overwritten — the inverse lookup is what
+    /// lets the lifecycle name that instead of silently answering about whichever bytes
+    /// happen to be on disk.
+    /// </summary>
+    [Fact]
+    public async Task GetDigestsBySourcePath_ReturnsEveryDigestJournaledAgainstThePath_OldestFirst()
+    {
+        var original = BuildTwoOpPlan();
+        var replacement = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+
+        await _repo.ImportAsync(original, original.CanonicalJson, original.Digest, "/plans/020.json", Now());
+        await _repo.ImportAsync(
+            replacement, replacement.CanonicalJson, replacement.Digest, "/plans/020.json", Now().AddMinutes(5));
+
+        var digests = await _repo.GetDigestsBySourcePathAsync("/plans/020.json");
+
+        digests.ShouldBe([original.Digest, replacement.Digest]);
+    }
+
+    [Fact]
+    public async Task GetDigestsBySourcePath_DoesNotBleedAcrossPaths()
+    {
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/020.json", Now());
+
+        (await _repo.GetDigestsBySourcePathAsync("/plans/021.json")).ShouldBeEmpty();
+    }
+
     private static PlanFixture BuildTwoOpPlan()
     {
         // Real plan v1 canonical vocabulary — batch, add-link, etc. — round-tripped through

@@ -69,4 +69,12 @@ public static class PlanValidationCodes
 
     /// <summary>A numeric value was outside the allowed range (e.g. workItemId must be &gt; 0).</summary>
     public const string IntegerOutOfRange = "plan.integer_out_of_range";
+
+    /// <summary>
+    /// AB#832: the plan file's path already carries a journal under a different digest, so this
+    /// file replaced a document that was previously previewed at the same path. Plan files are
+    /// single-use; consuming a replaced one would bind a transaction to bytes that are not the
+    /// ones its journal describes.
+    /// </summary>
+    public const string SourceReplaced = "plan.source_replaced";
 }

@@ -18,7 +18,13 @@ namespace Twig.Domain.Services.Plan;
 ///   <item><b>Valid digest, no journal.</b> The lifecycle service returns <c>null</c>.
 ///   That is the only case in which <see cref="IPlanLifecycleService.StatusAsync"/>
 ///   returns <c>null</c>: the file parsed, was inside the workspace, and yielded a
-///   digest, but no journal has ever been imported for it.</item>
+///   digest, but no journal has ever been imported for it — and no other transaction
+///   was ever journaled against its path either.</item>
+///   <item><b>Source replaced (AB#832).</b> <see cref="Replacement"/> is non-null: the
+///   path carries journaled digests other than the file's current one, so the file has
+///   been overwritten since it was previewed. Reported whether or not the current bytes
+///   themselves resolve a journal, because the dangerous case is precisely the one that
+///   otherwise looks clean.</item>
 /// </list>
 /// </summary>
 public sealed record PlanStatusResult
@@ -50,4 +56,12 @@ public sealed record PlanStatusResult
     /// before the journal was even consulted.
     /// </summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// AB#832: non-null when the plan file at this path was replaced after a transaction was
+    /// journaled against it. Distinct from <see cref="Issues"/> (the file itself is well-formed)
+    /// and from <see cref="Found"/> being false (which alone cannot tell a never-previewed file
+    /// apart from a clobbered one).
+    /// </summary>
+    public PlanSourceReplacement? Replacement { get; init; }
 }

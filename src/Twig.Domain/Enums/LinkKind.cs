@@ -13,7 +13,7 @@ namespace Twig.Domain.Enums;
 /// <see cref="Twig.Domain.ValueObjects.SeedLinkTypes"/> string (seed protocol) and NOT
 /// an ADO relation reference name — a kind is what the edge means.
 /// </remarks>
-[JsonConverter(typeof(JsonStringEnumConverter<LinkKind>))]
+[JsonConverter(typeof(LinkKindJsonConverter))]
 public enum LinkKind
 {
     ParentChild = 0,

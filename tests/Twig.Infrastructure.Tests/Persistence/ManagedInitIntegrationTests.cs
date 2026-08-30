@@ -5,6 +5,8 @@ using Twig.Domain.Services.Attachment;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
+using Twig.Infrastructure.Services.ReferenceProfile;
+using Twig.Infrastructure.Tests.Services.ReferenceProfile;
 
 namespace Twig.Infrastructure.Tests.Persistence;
 
@@ -55,7 +57,8 @@ public sealed class ManagedInitIntegrationTests : IDisposable
         var registry = new SqliteSystemWorktreeRegistry(_systemDbPath, TimeProvider.System);
         var fingerprintProvider = new WorktreeFingerprintProvider(_paths, _config);
         return new ManagedWorktreeInitializer(store, registry, fingerprintProvider, _config, _paths,
-            registrySource ?? new UnavailableProfileRegistrySource());
+            registrySource ?? new UnavailableProfileRegistrySource(),
+            new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching()));
     }
 
     [Fact]

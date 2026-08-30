@@ -2945,7 +2945,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 new BacklogOrderer(Substitute.For<IAdoWorkItemService>(),
                     Substitute.For<IFieldDefinitionStore>()),
                 Substitute.For<IPendingChangeStore>(),
-                Substitute.For<IPublishIntentRepository>());
+                Substitute.For<IPublishIntentRepository>(),
+                Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
         }
     }
 

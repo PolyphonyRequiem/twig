@@ -14,7 +14,7 @@ public sealed class ReferenceProfileScopeAcceptanceTests
 {
     private static Twig.Domain.ValueObjects.ReferenceProfile Profile()
     {
-        var provider = new EmbeddedReferenceProfileProvider();
+        var provider = new EmbeddedReferenceProfileProvider(ProfilePinSources.Matching());
         return provider.Load().Value;
     }
 

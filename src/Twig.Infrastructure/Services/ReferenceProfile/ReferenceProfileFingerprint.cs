@@ -51,7 +51,10 @@ internal static class ReferenceProfileFingerprint
     /// list — no live data reached. Deterministic per loaded profile.
     /// </summary>
     public static string ComputeProfileStructuralFingerprint(Twig.Domain.ValueObjects.ReferenceProfile profile) =>
-        Hash(BuildCanonical(profile, resolveStates: role => profile.TypeByRole(role).States));
+        Hash(BuildCanonical(
+            profile,
+            baseProcessRef: profile.BaseProcess.ParentRef,
+            resolveStates: role => profile.TypeByRole(role).States));
 
     /// <summary>
     /// Computes the T1 §7.3 structural fingerprint of the LIVE process, using
@@ -61,10 +64,11 @@ internal static class ReferenceProfileFingerprint
     /// </summary>
     public static string ComputeLiveStructuralFingerprint(
         Twig.Domain.ValueObjects.ReferenceProfile profile,
-        IProcessConfigurationProvider liveProcess)
+        IProcessConfigurationProvider liveProcess,
+        string liveBaseProcessRef)
     {
         var live = liveProcess.GetConfiguration();
-        return Hash(BuildCanonical(profile, resolveStates: role =>
+        return Hash(BuildCanonical(profile, baseProcessRef: liveBaseProcessRef, resolveStates: role =>
         {
             var typeKey = WorkItemType.Parse(profile.TypeByRole(role).TypeName);
             if (typeKey.IsSuccess && live.TypeConfigs.TryGetValue(typeKey.Value, out var typeConfig))
@@ -85,10 +89,16 @@ internal static class ReferenceProfileFingerprint
 
     private static string BuildCanonical(
         Twig.Domain.ValueObjects.ReferenceProfile profile,
+        string baseProcessRef,
         Func<Role, IReadOnlyList<StateEntry>> resolveStates)
     {
         var sb = new StringBuilder();
-        sb.Append(profile.BaseProcess.ParentRef);
+
+        // T1 §7.3 component 1. Supplied by the caller rather than read off the
+        // profile so the LIVE pass contributes the live value: reading it from
+        // the profile on both passes put identical bytes on both sides, which
+        // made the backstop blind to exactly the drift §6.2 names.
+        sb.Append(baseProcessRef);
         sb.Append('\n');
 
         foreach (var role in CanonicalRoleOrder)

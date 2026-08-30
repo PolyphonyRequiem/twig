@@ -398,7 +398,12 @@ public sealed class InitCommand
                 return (1, false, 0);
             }
             var scopedInitializer = new Infrastructure.Persistence.ManagedWorktreeInitializer(
-                invocationStore, _systemRegistry, invocationFingerprint, config, invocationPaths, _profileRegistry);
+                invocationStore, _systemRegistry, invocationFingerprint, config, invocationPaths, _profileRegistry,
+                // Invocation-scoped, like the store/fingerprint above: the pin is
+                // materialized against the config being initialized, not the
+                // possibly-empty one loaded at DI time.
+                new Infrastructure.Services.ReferenceProfile.EmbeddedReferenceProfileProvider(
+                    new Infrastructure.Config.TwigJsonReferenceProfilePinSource(config)));
 
             var effectiveIdentity = string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "unknown" : config.ProcessTemplate;
 

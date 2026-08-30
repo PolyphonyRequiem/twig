@@ -125,7 +125,8 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
-            new SeedFactory(), new FakeStagedIdentityRegistry());
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
 
         var result = await cmd.ExecuteAsync("My Task", "Task", set: true);
 
@@ -146,6 +147,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
             rendererFactory: null,
             contextChangeService: contextChangeService);
     }

@@ -7,13 +7,13 @@
     "tailoringVersion": "basic:2026-08-24:1"
   },
   "hierarchy": {
-    "apex": ["Initiative"],
-    "requirement": ["Investigation", "Feature", "Bug"],
-    "leaf": ["Task"]
+    "apex": ["initiative"],
+    "requirement": ["investigation", "feature", "bug"],
+    "leaf": ["task"]
   },
   "types": [
     {
-      "role": "Initiative",
+      "role": "initiative",
       "typeName": "Initiative",
       "backlogRole": "portfolio",
       "backlogBehaviorRef": "Microsoft.VSTS.Basic.EpicBacklogBehavior",
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "role": "Investigation",
+      "role": "investigation",
       "typeName": "Investigation",
       "backlogRole": "requirement",
       "backlogBehaviorRef": "System.RequirementBacklogBehavior",
@@ -35,7 +35,7 @@
       ]
     },
     {
-      "role": "Feature",
+      "role": "feature",
       "typeName": "Feature",
       "backlogRole": "requirement",
       "backlogBehaviorRef": "System.RequirementBacklogBehavior",
@@ -46,7 +46,7 @@
       ]
     },
     {
-      "role": "Bug",
+      "role": "bug",
       "typeName": "Bug",
       "backlogRole": "requirement",
       "backlogBehaviorRef": "System.RequirementBacklogBehavior",
@@ -57,7 +57,7 @@
       ]
     },
     {
-      "role": "Task",
+      "role": "task",
       "typeName": "Task",
       "backlogRole": "task",
       "backlogBehaviorRef": "System.TaskBacklogBehavior",
@@ -70,25 +70,25 @@
   ],
   "linkKinds": [
     {
-      "kind": "ParentChild",
+      "kind": "parent-child",
       "meaning": "decomposition",
       "forwardRel": "System.LinkTypes.Hierarchy-Forward",
       "reverseRel": "System.LinkTypes.Hierarchy-Reverse"
     },
     {
-      "kind": "PredecessorSuccessor",
+      "kind": "predecessor-successor",
       "meaning": "blocking-sequencing",
       "forwardRel": "System.LinkTypes.Dependency-Forward",
       "reverseRel": "System.LinkTypes.Dependency-Reverse"
     },
     {
-      "kind": "Related",
+      "kind": "related",
       "meaning": "informs",
       "forwardRel": "System.LinkTypes.Related",
       "reverseRel": null
     },
     {
-      "kind": "Artifact",
+      "kind": "artifact",
       "meaning": "evidence",
       "forwardRel": null,
       "reverseRel": null,
@@ -97,10 +97,10 @@
   ],
   "primaryScope": {
     "kind": "ado-workitem",
-    "eligibleRoles": ["Initiative", "Investigation", "Feature", "Bug", "Task"]
+    "eligibleRoles": ["initiative", "investigation", "feature", "bug", "task"]
   },
   "fingerprint": {
     "algorithm": "twig-profile-fp/v1",
-    "bytes": "cc852619d3c63a49293a4da7554456898be0acfc0d260b7abad844b022c64061"
+    "bytes": "1feba38d7ce13529a66393e9fca50219196ada6f3f59297826406bae3aa193b1"
   }
 }

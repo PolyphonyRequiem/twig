@@ -82,7 +82,8 @@ public sealed class SeedPublishWithStagedNoteTests : IDisposable
             _unitOfWork,
             new BacklogOrderer(_adoService, _fieldDefinitionStore),
             _changeStore,
-            null);
+            null,
+            Twig.TestKit.ReferenceProfileBuilder.SprintPolicy());
 
     /// <summary>
     /// Fixture guard, inverted by wayfinder 0013. The FK that made this bug reachable is gone:

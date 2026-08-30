@@ -25,6 +25,7 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly IProfileRegistrySource _profileRegistry;
+    private readonly IReferenceProfileProvider _profileProvider;
 
     public ManagedWorktreeInitializer(
         IPrimaryScopeAttachmentStore store,
@@ -32,7 +33,8 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         IWorktreeFingerprintProvider fingerprint,
         TwigConfiguration config,
         TwigPaths paths,
-        IProfileRegistrySource profileRegistry)
+        IProfileRegistrySource profileRegistry,
+        IReferenceProfileProvider profileProvider)
     {
         _store = store;
         _registry = registry;
@@ -40,6 +42,7 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         _config = config;
         _paths = paths;
         _profileRegistry = profileRegistry;
+        _profileProvider = profileProvider;
     }
 
     public async Task<Result> InitializeAsync(
@@ -88,6 +91,36 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
                 _config.Policy.SelectedProfile.Version = materialized.Version;
             if (_config.Policy.PrimaryScopeTypes is null)
                 _config.Policy.PrimaryScopeTypes = new List<string>(materialized.PrimaryScopeTypes);
+
+            // T1 §5.1 pin (AB#735). Materialized from the EMBEDDED profile,
+            // which is the only correct source: the pin's whole job is to
+            // record which released profile this repository is bound to, and
+            // the running binary is what ships it.
+            //
+            // Written whole or not at all. A two-of-three pin is the subset
+            // match T1 §8.2 rejects, and the pin reader treats any blank field
+            // as no pin at all — so an INCOMPLETE block is replaced rather than
+            // preserved. Preserving it would leave the repository permanently on
+            // twig-json-profile-block-missing with `twig init` as the documented
+            // recovery, and re-running init would do nothing: a repair that
+            // cannot repair.
+            //
+            // A COMPLETE block is never touched, so an operator who deliberately
+            // pinned an older release keeps it and gets a named mismatch rather
+            // than a silent upgrade.
+            if (IsIncompletePin(_config.Profile))
+            {
+                var embedded = _profileProvider.Load();
+                if (!embedded.IsSuccess)
+                    return Result.Fail(embedded.Error);
+
+                _config.Profile = new ProfilePinConfig
+                {
+                    Identity = embedded.Value.Identity,
+                    ProfileVersion = embedded.Value.ProfileVersion,
+                    BaseProcessVersion = embedded.Value.BaseProcess.TailoringVersion,
+                };
+            }
             await _config.SaveSplitAsync(_paths, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
@@ -96,6 +129,23 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         }
         return Result.Ok();
     }
+
+    /// <summary>
+    /// Whether the checked-in <c>profile</c> block is absent or missing any of
+    /// its three fields.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <c>TwigJsonReferenceProfilePinSource</c>'s reader exactly: it
+    /// reports a partially-filled block as no pin, so init must treat the same
+    /// shape as needing materialization. Two predicates that disagree would
+    /// produce a repository init reports as fixed and the pin reader still calls
+    /// missing.
+    /// </remarks>
+    private static bool IsIncompletePin(ProfilePinConfig? pin) =>
+        pin is null
+        || string.IsNullOrWhiteSpace(pin.Identity)
+        || string.IsNullOrWhiteSpace(pin.ProfileVersion)
+        || string.IsNullOrWhiteSpace(pin.BaseProcessVersion);
 
     /// <summary>Resolve the materialized policy: (1) an existing checked-in
     /// <see cref="PolicyConfig"/> whose <see cref="SelectedProfileBinding"/>

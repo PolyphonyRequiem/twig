@@ -1,7 +1,19 @@
 #nullable enable
+*REMOVED*Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPublishIntentRepository? publishIntentRepo) -> void
 Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Twig.Domain.Aggregates.ProcessTypeRecord.CategoryReferenceNames.init -> void
 Twig.Domain.Aggregates.ProcessTypeRecord.IsHidden.get -> bool
+Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.LinkKind.Artifact = 3 -> Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.LinkKind.ParentChild = 0 -> Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.LinkKind.PredecessorSuccessor = 1 -> Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.LinkKind.Related = 2 -> Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.Role
+Twig.Domain.Enums.Role.Bug = 3 -> Twig.Domain.Enums.Role
+Twig.Domain.Enums.Role.Feature = 2 -> Twig.Domain.Enums.Role
+Twig.Domain.Enums.Role.Initiative = 0 -> Twig.Domain.Enums.Role
+Twig.Domain.Enums.Role.Investigation = 1 -> Twig.Domain.Enums.Role
+Twig.Domain.Enums.Role.Task = 4 -> Twig.Domain.Enums.Role
 Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAdoWorkItemService.FetchBatchWithLinksAsync(System.Collections.Generic.IReadOnlyList<int>! ids, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! Items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>! Links)>!
 Twig.Domain.Interfaces.IAttachmentStatusProjection
@@ -33,6 +45,13 @@ Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.DetachAsync(System.Threadi
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.ReadStatusAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.RequireActiveClaimForScopeAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
 Twig.Domain.Interfaces.IPrimaryScopeAttachmentService.SwitchAsync(int newWorkItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Common.Result>!
+Twig.Domain.Interfaces.IReferenceProfilePinSource
+Twig.Domain.Interfaces.IReferenceProfilePinSource.GetPin() -> Twig.Domain.ValueObjects.ReferenceProfilePin?
+Twig.Domain.Interfaces.IReferenceProfileProvider
+Twig.Domain.Interfaces.IReferenceProfileProvider.ComputeLiveFingerprint(Twig.Domain.Interfaces.IProcessConfigurationProvider! liveProcess, string! liveBaseProcessRef) -> string!
+Twig.Domain.Interfaces.IReferenceProfileProvider.Load() -> Twig.Domain.Common.Result<Twig.Domain.ValueObjects.ReferenceProfile!>
+Twig.Domain.Interfaces.IReferenceProfileProvider.ValidateAgainstLiveProcess(Twig.Domain.Interfaces.IProcessConfigurationProvider! liveProcess, string! liveBaseProcessRef) -> Twig.Domain.Common.Result
+Twig.Domain.Interfaces.IReferenceProfileProvider.ValidatePin() -> Twig.Domain.Common.Result
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.AddLinkAtRevisionAsync(int sourceId, string! relationType, int targetId, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 Twig.Domain.Interfaces.IRevisionBoundAdoWorkItemService.DeleteAtRevisionAsync(int id, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
@@ -229,6 +248,18 @@ Twig.Domain.Services.ChangeProposals.SessionSteeringMode.Unresolved = 0 -> Twig.
 Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider
 Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider.Resolve() -> Twig.Domain.Services.ChangeProposals.SessionSteeringMode
 Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider.UnresolvedSessionSteeringModeProvider() -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Deconstruct(out int ItemId, out string! Type, out string! ToState, out System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? other) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.get -> int
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.RequiredFieldsMissing(int ItemId, string! Type, string! ToState, System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.init -> void
 Twig.Domain.Services.Plan.AddLinkOperation
 Twig.Domain.Services.Plan.AddLinkOperation.AddLinkOperation() -> void
 Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Services.Plan.AddLinkOperation? other) -> bool
@@ -455,7 +486,13 @@ Twig.Domain.Services.Plan.RemoveLinkOperation.Relation.init -> void
 Twig.Domain.Services.Plan.RemoveLinkOperation.RemoveLinkOperation() -> void
 Twig.Domain.Services.Plan.RemoveLinkOperation.WorkItemId.get -> int
 Twig.Domain.Services.Plan.RemoveLinkOperation.WorkItemId.init -> void
+Twig.Domain.Services.ReferenceProfile.SprintEntryPolicy
+Twig.Domain.Services.ReferenceProfile.SprintEntryPolicy.Evaluate(Twig.Domain.ValueObjects.WorkItemType type, Twig.Domain.ValueObjects.IterationPath iteration) -> Twig.Domain.Common.Result
+Twig.Domain.Services.ReferenceProfile.SprintEntryPolicy.SprintEntryPolicy(Twig.Domain.Interfaces.IReferenceProfileProvider! profileProvider) -> void
+Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.ISeedLinkRepository! seedLinkRepo, Twig.Domain.Interfaces.IWorkItemLinkRepository! workItemLinkRepo, Twig.Domain.Interfaces.IPublishIdMapRepository! publishIdMapRepo, Twig.Domain.Interfaces.ISeedPublishRulesProvider! rulesProvider, Twig.Domain.Interfaces.IUnitOfWork! unitOfWork, Twig.Domain.Services.Workspace.BacklogOrderer! backlogOrderer, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPublishIntentRepository? publishIntentRepo, Twig.Domain.Services.ReferenceProfile.SprintEntryPolicy! sprintEntryPolicy) -> void
 Twig.Domain.Services.Sync.SyncCoordinator.SyncLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! itemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!
+Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.get -> bool
+Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.init -> void
 Twig.Domain.ValueObjects.PendingChangeDetail
 Twig.Domain.ValueObjects.PendingChangeDetail.<Clone>$() -> Twig.Domain.ValueObjects.PendingChangeDetail!
 Twig.Domain.ValueObjects.PendingChangeDetail.Deconstruct(out long PendingChangeId, out int WorkItemId, out string! Kind, out string? Field, out string? Note, out string? OldValue, out string? NewValue, out System.DateTimeOffset StagedAt, out Twig.Domain.ValueObjects.SeedRemapIdentity? SeedRemap) -> void
@@ -479,6 +516,89 @@ Twig.Domain.ValueObjects.PendingChangeDetail.StagedAt.get -> System.DateTimeOffs
 Twig.Domain.ValueObjects.PendingChangeDetail.StagedAt.init -> void
 Twig.Domain.ValueObjects.PendingChangeDetail.WorkItemId.get -> int
 Twig.Domain.ValueObjects.PendingChangeDetail.WorkItemId.init -> void
+Twig.Domain.ValueObjects.ReferenceProfile
+Twig.Domain.ValueObjects.ReferenceProfile.BaseProcess.get -> Twig.Domain.ValueObjects.ReferenceProfileBaseProcess!
+Twig.Domain.ValueObjects.ReferenceProfile.EmbeddedFingerprint.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfile.Hierarchy.get -> Twig.Domain.ValueObjects.ReferenceProfileHierarchy!
+Twig.Domain.ValueObjects.ReferenceProfile.Identity.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfile.LinkKinds.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileLinkKind!>!
+Twig.Domain.ValueObjects.ReferenceProfile.PrimaryScope.get -> Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope!
+Twig.Domain.ValueObjects.ReferenceProfile.PrimaryScopeAllowTypeNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.ValueObjects.ReferenceProfile.ProfileVersion.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfile.ReferenceProfile(string! identity, string! profileVersion, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess! baseProcess, Twig.Domain.ValueObjects.ReferenceProfileHierarchy! hierarchy, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileType!>! types, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileLinkKind!>! linkKinds, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope! primaryScope, string! embeddedFingerprint) -> void
+Twig.Domain.ValueObjects.ReferenceProfile.RoleByTypeName(string! typeName) -> Twig.Domain.Enums.Role?
+Twig.Domain.ValueObjects.ReferenceProfile.SprintTierTypeName.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfile.TypeByRole(Twig.Domain.Enums.Role role) -> Twig.Domain.ValueObjects.ReferenceProfileType!
+Twig.Domain.ValueObjects.ReferenceProfile.Types.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileType!>!
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileBaseProcess!
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Deconstruct(out string! ParentRef, out string! TailoringVersion) -> void
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Equals(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ParentRef.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ParentRef.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ReferenceProfileBaseProcess(string! ParentRef, string! TailoringVersion) -> void
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.TailoringVersion.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.TailoringVersion.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileErrors
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileHierarchy!
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Apex.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Apex.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Apex, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Requirement, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Leaf) -> void
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Equals(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Leaf.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Leaf.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.ReferenceProfileHierarchy(System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Apex, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Requirement, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Leaf) -> void
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Requirement.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
+Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Requirement.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileLinkKind!
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Deconstruct(out Twig.Domain.Enums.LinkKind Kind, out string! Meaning, out string? ForwardRel, out string? ReverseRel) -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Equals(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ForwardRel.get -> string?
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ForwardRel.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Kind.get -> Twig.Domain.Enums.LinkKind
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Kind.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Meaning.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Meaning.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReferenceProfileLinkKind(Twig.Domain.Enums.LinkKind Kind, string! Meaning, string? ForwardRel, string? ReverseRel) -> void
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReverseRel.get -> string?
+Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReverseRel.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePin
+Twig.Domain.ValueObjects.ReferenceProfilePin.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfilePin!
+Twig.Domain.ValueObjects.ReferenceProfilePin.BaseProcessVersion.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfilePin.BaseProcessVersion.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePin.Deconstruct(out string! Identity, out string! ProfileVersion, out string! BaseProcessVersion) -> void
+Twig.Domain.ValueObjects.ReferenceProfilePin.Equals(Twig.Domain.ValueObjects.ReferenceProfilePin? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfilePin.Identity.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfilePin.Identity.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePin.ProfileVersion.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfilePin.ProfileVersion.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePin.ReferenceProfilePin(string! Identity, string! ProfileVersion, string! BaseProcessVersion) -> void
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope!
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Deconstruct(out string! Kind, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! EligibleRoles) -> void
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.EligibleRoles.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.EligibleRoles.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Equals(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Kind.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Kind.init -> void
+Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.ReferenceProfilePrimaryScope(string! Kind, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! EligibleRoles) -> void
+Twig.Domain.ValueObjects.ReferenceProfileType
+Twig.Domain.ValueObjects.ReferenceProfileType.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileType!
+Twig.Domain.ValueObjects.ReferenceProfileType.BacklogBehaviorRef.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileType.BacklogBehaviorRef.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.BacklogRole.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileType.BacklogRole.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.Deconstruct(out Twig.Domain.Enums.Role Role, out string! TypeName, out string! BacklogRole, out string! BacklogBehaviorRef, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>! States) -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.Equals(Twig.Domain.ValueObjects.ReferenceProfileType? other) -> bool
+Twig.Domain.ValueObjects.ReferenceProfileType.ReferenceProfileType(Twig.Domain.Enums.Role Role, string! TypeName, string! BacklogRole, string! BacklogBehaviorRef, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>! States) -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.Role.get -> Twig.Domain.Enums.Role
+Twig.Domain.ValueObjects.ReferenceProfileType.Role.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.States.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>!
+Twig.Domain.ValueObjects.ReferenceProfileType.States.init -> void
+Twig.Domain.ValueObjects.ReferenceProfileType.TypeName.get -> string!
+Twig.Domain.ValueObjects.ReferenceProfileType.TypeName.init -> void
 Twig.Domain.ValueObjects.SeedRemapIdentity
 Twig.Domain.ValueObjects.SeedRemapIdentity.Deconstruct(out Twig.Domain.ValueObjects.StagedIdentity StagedIdentity, out Twig.Domain.ValueObjects.StagedAlias StagedAlias, out int? PublishedWorkItemId) -> void
 Twig.Domain.ValueObjects.SeedRemapIdentity.Equals(Twig.Domain.ValueObjects.SeedRemapIdentity other) -> bool
@@ -511,6 +631,25 @@ const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownKind = "plan.unknown_
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownProperty = "plan.unknown_property" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnsupportedVersion = "plan.unsupported_version" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.WrongType = "plan.wrong_type" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.BaseProcessParentMismatch = "base-process-parent-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.BaseProcessVersionMismatch = "base-process-version-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.HierarchyLockedVocabularyViolation = "hierarchy-locked-vocabulary-violation" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.LinkKindsNotCanonical = "link-kinds-not-canonical" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.LiveFingerprintMismatch = "live-fingerprint-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.LiveHasExtraState = "live-has-extra-state" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.PrimaryScopeEmptyAllowSet = "primary-scope-empty-allow-set" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.PrimaryScopeUnknownRole = "primary-scope-unknown-role" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileBlobNotFound = "profile-blob-not-found" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileFingerprintMismatch = "profile-fingerprint-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileHasExtraState = "profile-has-extra-state" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileIdentityUnknown = "profile-identity-unknown" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileSchemaInvalid = "profile-schema-invalid" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileVersionMismatch = "profile-version-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.RoleSetNotCanonical = "role-set-not-canonical" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.StateCategoryMismatch = "state-category-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.StateOrderMismatch = "state-order-mismatch" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.TwigJsonProfileBlockMissing = "twig-json-profile-block-missing" -> string!
+const Twig.Domain.ValueObjects.ReferenceProfileErrors.TypeNameMissing = "type-name-missing" -> string!
 const Twig.Domain.ValueObjects.WorkItemTypeCategories.Hidden = "Microsoft.HiddenCategory" -> string!
 override Twig.Domain.Services.ChangeProposals.ChangeProposal.Equals(object? obj) -> bool
 override Twig.Domain.Services.ChangeProposals.ChangeProposal.GetHashCode() -> int
@@ -543,6 +682,10 @@ override Twig.Domain.Services.ChangeProposals.ReviewPrecondition.ToString() -> s
 override Twig.Domain.Services.ChangeProposals.ReviewTarget.Equals(object? obj) -> bool
 override Twig.Domain.Services.ChangeProposals.ReviewTarget.GetHashCode() -> int
 override Twig.Domain.Services.ChangeProposals.ReviewTarget.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToString() -> string!
 override Twig.Domain.Services.Plan.AddLinkOperation.<Clone>$() -> Twig.Domain.Services.Plan.AddLinkOperation!
 override Twig.Domain.Services.Plan.AddLinkOperation.Equals(object? obj) -> bool
 override Twig.Domain.Services.Plan.AddLinkOperation.GetHashCode() -> int
@@ -604,115 +747,6 @@ override Twig.Domain.Services.Plan.RemoveLinkOperation.ToString() -> string!
 override Twig.Domain.ValueObjects.PendingChangeDetail.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.PendingChangeDetail.GetHashCode() -> int
 override Twig.Domain.ValueObjects.PendingChangeDetail.ToString() -> string!
-override Twig.Domain.ValueObjects.SeedRemapIdentity.GetHashCode() -> int
-override sealed Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
-override sealed Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
-override sealed Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
-override sealed Twig.Domain.Services.Plan.PublishSeedOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
-override sealed Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
-static Twig.Domain.ReadModels.WorkItemGraph.Build(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>? links = null) -> Twig.Domain.ReadModels.WorkItemGraph!
-Twig.Domain.Enums.LinkKind
-Twig.Domain.Enums.LinkKind.Artifact = 3 -> Twig.Domain.Enums.LinkKind
-Twig.Domain.Enums.LinkKind.ParentChild = 0 -> Twig.Domain.Enums.LinkKind
-Twig.Domain.Enums.LinkKind.PredecessorSuccessor = 1 -> Twig.Domain.Enums.LinkKind
-Twig.Domain.Enums.LinkKind.Related = 2 -> Twig.Domain.Enums.LinkKind
-Twig.Domain.Enums.Role
-Twig.Domain.Enums.Role.Bug = 3 -> Twig.Domain.Enums.Role
-Twig.Domain.Enums.Role.Feature = 2 -> Twig.Domain.Enums.Role
-Twig.Domain.Enums.Role.Initiative = 0 -> Twig.Domain.Enums.Role
-Twig.Domain.Enums.Role.Investigation = 1 -> Twig.Domain.Enums.Role
-Twig.Domain.Enums.Role.Task = 4 -> Twig.Domain.Enums.Role
-Twig.Domain.Interfaces.IReferenceProfileProvider
-Twig.Domain.Interfaces.IReferenceProfileProvider.ComputeLiveFingerprint(Twig.Domain.Interfaces.IProcessConfigurationProvider! liveProcess) -> string!
-Twig.Domain.Interfaces.IReferenceProfileProvider.Load() -> Twig.Domain.Common.Result<Twig.Domain.ValueObjects.ReferenceProfile!>
-Twig.Domain.Interfaces.IReferenceProfileProvider.ValidateAgainstLiveProcess(Twig.Domain.Interfaces.IProcessConfigurationProvider! liveProcess) -> Twig.Domain.Common.Result
-Twig.Domain.ValueObjects.ReferenceProfile
-Twig.Domain.ValueObjects.ReferenceProfile.BaseProcess.get -> Twig.Domain.ValueObjects.ReferenceProfileBaseProcess!
-Twig.Domain.ValueObjects.ReferenceProfile.EmbeddedFingerprint.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfile.Hierarchy.get -> Twig.Domain.ValueObjects.ReferenceProfileHierarchy!
-Twig.Domain.ValueObjects.ReferenceProfile.Identity.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfile.LinkKinds.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileLinkKind!>!
-Twig.Domain.ValueObjects.ReferenceProfile.PrimaryScope.get -> Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope!
-Twig.Domain.ValueObjects.ReferenceProfile.PrimaryScopeAllowTypeNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.ValueObjects.ReferenceProfile.ProfileVersion.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfile.ReferenceProfile(string! identity, string! profileVersion, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess! baseProcess, Twig.Domain.ValueObjects.ReferenceProfileHierarchy! hierarchy, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileType!>! types, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileLinkKind!>! linkKinds, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope! primaryScope, string! embeddedFingerprint) -> void
-Twig.Domain.ValueObjects.ReferenceProfile.RoleByTypeName(string! typeName) -> Twig.Domain.Enums.Role?
-Twig.Domain.ValueObjects.ReferenceProfile.SprintTierTypeName.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfile.TypeByRole(Twig.Domain.Enums.Role role) -> Twig.Domain.ValueObjects.ReferenceProfileType!
-Twig.Domain.ValueObjects.ReferenceProfile.Types.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ReferenceProfileType!>!
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileBaseProcess!
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Deconstruct(out string! ParentRef, out string! TailoringVersion) -> void
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Equals(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? other) -> bool
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ParentRef.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ParentRef.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ReferenceProfileBaseProcess(string! ParentRef, string! TailoringVersion) -> void
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.TailoringVersion.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.TailoringVersion.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileErrors
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileHierarchy!
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Apex.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Apex.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Apex, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Requirement, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Leaf) -> void
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Equals(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? other) -> bool
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Leaf.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Leaf.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.ReferenceProfileHierarchy(System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Apex, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Requirement, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! Leaf) -> void
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Requirement.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
-Twig.Domain.ValueObjects.ReferenceProfileHierarchy.Requirement.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileLinkKind!
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Deconstruct(out Twig.Domain.Enums.LinkKind Kind, out string! Meaning, out string? ForwardRel, out string? ReverseRel) -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Equals(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? other) -> bool
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ForwardRel.get -> string?
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ForwardRel.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Kind.get -> Twig.Domain.Enums.LinkKind
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Kind.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Meaning.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Meaning.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReferenceProfileLinkKind(Twig.Domain.Enums.LinkKind Kind, string! Meaning, string? ForwardRel, string? ReverseRel) -> void
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReverseRel.get -> string?
-Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ReverseRel.init -> void
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope!
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Deconstruct(out string! Kind, out System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! EligibleRoles) -> void
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.EligibleRoles.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>!
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.EligibleRoles.init -> void
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Equals(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? other) -> bool
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Kind.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Kind.init -> void
-Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.ReferenceProfilePrimaryScope(string! Kind, System.Collections.Generic.IReadOnlyList<Twig.Domain.Enums.Role>! EligibleRoles) -> void
-Twig.Domain.ValueObjects.ReferenceProfileType
-Twig.Domain.ValueObjects.ReferenceProfileType.<Clone>$() -> Twig.Domain.ValueObjects.ReferenceProfileType!
-Twig.Domain.ValueObjects.ReferenceProfileType.BacklogBehaviorRef.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileType.BacklogBehaviorRef.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.BacklogRole.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileType.BacklogRole.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.Deconstruct(out Twig.Domain.Enums.Role Role, out string! TypeName, out string! BacklogRole, out string! BacklogBehaviorRef, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>! States) -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.Equals(Twig.Domain.ValueObjects.ReferenceProfileType? other) -> bool
-Twig.Domain.ValueObjects.ReferenceProfileType.ReferenceProfileType(Twig.Domain.Enums.Role Role, string! TypeName, string! BacklogRole, string! BacklogBehaviorRef, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>! States) -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.Role.get -> Twig.Domain.Enums.Role
-Twig.Domain.ValueObjects.ReferenceProfileType.Role.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.States.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.StateEntry>!
-Twig.Domain.ValueObjects.ReferenceProfileType.States.init -> void
-Twig.Domain.ValueObjects.ReferenceProfileType.TypeName.get -> string!
-Twig.Domain.ValueObjects.ReferenceProfileType.TypeName.init -> void
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.BaseProcessParentMismatch = "base-process-parent-mismatch" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.HierarchyLockedVocabularyViolation = "hierarchy-locked-vocabulary-violation" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.LinkKindsNotCanonical = "link-kinds-not-canonical" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.LiveFingerprintMismatch = "live-fingerprint-mismatch" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.LiveHasExtraState = "live-has-extra-state" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.PrimaryScopeEmptyAllowSet = "primary-scope-empty-allow-set" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.PrimaryScopeUnknownRole = "primary-scope-unknown-role" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileBlobNotFound = "profile-blob-not-found" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileFingerprintMismatch = "profile-fingerprint-mismatch" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileHasExtraState = "profile-has-extra-state" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileSchemaInvalid = "profile-schema-invalid" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.RoleSetNotCanonical = "role-set-not-canonical" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.StateCategoryMismatch = "state-category-mismatch" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.StateOrderMismatch = "state-order-mismatch" -> string!
-const Twig.Domain.ValueObjects.ReferenceProfileErrors.TypeNameMissing = "type-name-missing" -> string!
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ToString() -> string!
@@ -722,23 +756,24 @@ override Twig.Domain.ValueObjects.ReferenceProfileHierarchy.ToString() -> string
 override Twig.Domain.ValueObjects.ReferenceProfileLinkKind.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ReferenceProfileLinkKind.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ReferenceProfileLinkKind.ToString() -> string!
+override Twig.Domain.ValueObjects.ReferenceProfilePin.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.ReferenceProfilePin.GetHashCode() -> int
+override Twig.Domain.ValueObjects.ReferenceProfilePin.ToString() -> string!
 override Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.ToString() -> string!
 override Twig.Domain.ValueObjects.ReferenceProfileType.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ReferenceProfileType.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ReferenceProfileType.ToString() -> string!
-static Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.operator !=(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? left, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.operator ==(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? left, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileHierarchy.operator !=(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? left, Twig.Domain.ValueObjects.ReferenceProfileHierarchy? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileHierarchy.operator ==(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? left, Twig.Domain.ValueObjects.ReferenceProfileHierarchy? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileLinkKind.operator !=(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? left, Twig.Domain.ValueObjects.ReferenceProfileLinkKind? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileLinkKind.operator ==(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? left, Twig.Domain.ValueObjects.ReferenceProfileLinkKind? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator !=(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? left, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator ==(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? left, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileType.operator !=(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
-static Twig.Domain.ValueObjects.ReferenceProfileType.operator ==(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
+override Twig.Domain.ValueObjects.SeedRemapIdentity.GetHashCode() -> int
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override sealed Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.PublishSeedOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 static Twig.Domain.Extensions.WorkItemExtensions.ReadCommentCount(this Twig.Domain.Aggregates.WorkItem! item) -> int
+static Twig.Domain.ReadModels.WorkItemGraph.Build(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>? links = null) -> Twig.Domain.ReadModels.WorkItemGraph!
 static Twig.Domain.Services.ChangeProposals.ChangeProposal.operator !=(Twig.Domain.Services.ChangeProposals.ChangeProposal? left, Twig.Domain.Services.ChangeProposals.ChangeProposal? right) -> bool
 static Twig.Domain.Services.ChangeProposals.ChangeProposal.operator ==(Twig.Domain.Services.ChangeProposals.ChangeProposal? left, Twig.Domain.Services.ChangeProposals.ChangeProposal? right) -> bool
 static Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.operator !=(Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? left, Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel? right) -> bool
@@ -765,6 +800,8 @@ static Twig.Domain.Services.ChangeProposals.ReviewPrecondition.operator !=(Twig.
 static Twig.Domain.Services.ChangeProposals.ReviewPrecondition.operator ==(Twig.Domain.Services.ChangeProposals.ReviewPrecondition? left, Twig.Domain.Services.ChangeProposals.ReviewPrecondition? right) -> bool
 static Twig.Domain.Services.ChangeProposals.ReviewTarget.operator !=(Twig.Domain.Services.ChangeProposals.ReviewTarget? left, Twig.Domain.Services.ChangeProposals.ReviewTarget? right) -> bool
 static Twig.Domain.Services.ChangeProposals.ReviewTarget.operator ==(Twig.Domain.Services.ChangeProposals.ReviewTarget? left, Twig.Domain.Services.ChangeProposals.ReviewTarget? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool
 static Twig.Domain.Services.Plan.AddLinkOperation.operator !=(Twig.Domain.Services.Plan.AddLinkOperation? left, Twig.Domain.Services.Plan.AddLinkOperation? right) -> bool
 static Twig.Domain.Services.Plan.AddLinkOperation.operator ==(Twig.Domain.Services.Plan.AddLinkOperation? left, Twig.Domain.Services.Plan.AddLinkOperation? right) -> bool
 static Twig.Domain.Services.Plan.BatchOperation.operator !=(Twig.Domain.Services.Plan.BatchOperation? left, Twig.Domain.Services.Plan.BatchOperation? right) -> bool
@@ -799,6 +836,18 @@ static Twig.Domain.Services.Plan.RemoveLinkOperation.operator !=(Twig.Domain.Ser
 static Twig.Domain.Services.Plan.RemoveLinkOperation.operator ==(Twig.Domain.Services.Plan.RemoveLinkOperation? left, Twig.Domain.Services.Plan.RemoveLinkOperation? right) -> bool
 static Twig.Domain.ValueObjects.PendingChangeDetail.operator !=(Twig.Domain.ValueObjects.PendingChangeDetail? left, Twig.Domain.ValueObjects.PendingChangeDetail? right) -> bool
 static Twig.Domain.ValueObjects.PendingChangeDetail.operator ==(Twig.Domain.ValueObjects.PendingChangeDetail? left, Twig.Domain.ValueObjects.PendingChangeDetail? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.operator !=(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? left, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.operator ==(Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? left, Twig.Domain.ValueObjects.ReferenceProfileBaseProcess? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileHierarchy.operator !=(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? left, Twig.Domain.ValueObjects.ReferenceProfileHierarchy? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileHierarchy.operator ==(Twig.Domain.ValueObjects.ReferenceProfileHierarchy? left, Twig.Domain.ValueObjects.ReferenceProfileHierarchy? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileLinkKind.operator !=(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? left, Twig.Domain.ValueObjects.ReferenceProfileLinkKind? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileLinkKind.operator ==(Twig.Domain.ValueObjects.ReferenceProfileLinkKind? left, Twig.Domain.ValueObjects.ReferenceProfileLinkKind? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfilePin.operator !=(Twig.Domain.ValueObjects.ReferenceProfilePin? left, Twig.Domain.ValueObjects.ReferenceProfilePin? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfilePin.operator ==(Twig.Domain.ValueObjects.ReferenceProfilePin? left, Twig.Domain.ValueObjects.ReferenceProfilePin? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator !=(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? left, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope.operator ==(Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? left, Twig.Domain.ValueObjects.ReferenceProfilePrimaryScope? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileType.operator !=(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
+static Twig.Domain.ValueObjects.ReferenceProfileType.operator ==(Twig.Domain.ValueObjects.ReferenceProfileType? left, Twig.Domain.ValueObjects.ReferenceProfileType? right) -> bool
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator !=(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
 static Twig.Domain.ValueObjects.SeedRemapIdentity.operator ==(Twig.Domain.ValueObjects.SeedRemapIdentity left, Twig.Domain.ValueObjects.SeedRemapIdentity right) -> bool
 virtual Twig.Domain.Services.Plan.PlanOperationDefinition.EqualityContract.get -> System.Type!
@@ -808,24 +857,3 @@ virtual Twig.Domain.Services.Plan.PlanOperationDefinition.PrintMembers(System.Te
 ~override Twig.Domain.Services.ChangeProposals.ProposalAuthorizationDecision.ToString() -> string
 ~override Twig.Domain.ValueObjects.SeedRemapIdentity.Equals(object obj) -> bool
 ~override Twig.Domain.ValueObjects.SeedRemapIdentity.ToString() -> string
-Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.get -> bool
-Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.init -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Deconstruct(out int ItemId, out string! Type, out string! ToState, out System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? other) -> bool
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.get -> int
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ItemId.init -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.MissingFields.init -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.RequiredFieldsMissing(int ItemId, string! Type, string! ToState, System.Collections.Generic.IReadOnlyList<string!>! MissingFields) -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.get -> string!
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToState.init -> void
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.get -> string!
-Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Type.init -> void
-override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing!
-override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(object? obj) -> bool
-override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.GetHashCode() -> int
-override Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.ToString() -> string!
-override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
-static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool
-static Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.RequiredFieldsMissing? right) -> bool

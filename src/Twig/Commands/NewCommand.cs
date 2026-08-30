@@ -13,6 +13,7 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
 using Twig.RenderTree;
 using Twig.Rendering;
+using Twig.Domain.Services.ReferenceProfile;
 
 namespace Twig.Commands;
 
@@ -27,6 +28,7 @@ public sealed class NewCommand(
     TwigConfiguration config,
     SeedFactory seedFactory,
     IStagedIdentityRegistry stagedIdentityRegistry,
+    SprintEntryPolicy sprintEntryPolicy,
     RendererFactory? rendererFactory = null,
     ContextChangeService? contextChangeService = null,
     TextReader? stdinReader = null)
@@ -264,6 +266,19 @@ public sealed class NewCommand(
             }
 
             seed = updateResult.Value;
+        }
+
+        // AB#735 criterion (c). `twig new` creates in ADO directly rather than
+        // going through SeedPublishOrchestrator, so it needs the sprint-entry
+        // gate in its own right — gating only the orchestrator would leave the
+        // most direct publish path in the CLI wide open.
+        var sprintEntry = sprintEntryPolicy.Evaluate(seed.Type, seed.IterationPath);
+        if (!sprintEntry.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"{sprintEntry.Error}: only the reference profile's sprint-tier type may be committed "
+                + $"directly to a sprint iteration ('{seed.IterationPath.Value}')."));
+            return 1;
         }
 
         int newId;

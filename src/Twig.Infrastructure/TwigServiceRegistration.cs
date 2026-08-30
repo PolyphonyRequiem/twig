@@ -5,6 +5,7 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
+using Twig.Domain.Services.ReferenceProfile;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -109,11 +110,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
-        // T3 (AB#734) profile-lookup seam. Single owning service; the loaded profile
-        // is cached per process (see EmbeddedReferenceProfileProvider). Registered
-        // beside IProcessConfigurationProvider because the two answer complementary
-        // questions ("reference" vs "live") and downstream services often need both.
-        services.AddSingleton<IReferenceProfileProvider>(_ => new EmbeddedReferenceProfileProvider());
+        services.AddReferenceProfileSeam();
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
@@ -155,9 +152,14 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<TwigPaths>(),
                 sp.GetRequiredService<TwigConfiguration>(),
                 sp.GetService<TimeProvider>() ?? TimeProvider.System));
+        // T1 §8.1 cutover (AB#735): the allow-set now comes from the embedded
+        // reference profile through the T3 seam. The checked-in
+        // policy.primaryScopeTypes list is a materialization of that profile, so
+        // reading it as the authority let a hand-edited manifest widen the gate
+        // with no signal.
         services.TryAddSingleton<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>(sp =>
-            new Twig.Infrastructure.Config.CheckedInProfilePolicySource(
-                sp.GetRequiredService<TwigConfiguration>()));
+            new Twig.Infrastructure.Config.ReferenceProfilePolicySource(
+                sp.GetRequiredService<IReferenceProfileProvider>()));
         services.TryAddSingleton<Twig.Domain.Interfaces.IPrimaryScopeTypeEligibility>(sp =>
             new Twig.Infrastructure.Config.ConfigPrimaryScopeTypeEligibility(
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.IPrimaryScopePolicySource>()));
@@ -208,7 +210,8 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Domain.Services.Attachment.IWorktreeFingerprintProvider>(),
                 sp.GetRequiredService<TwigConfiguration>(),
                 sp.GetRequiredService<TwigPaths>(),
-                sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
+                sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>(),
+                sp.GetRequiredService<Twig.Domain.Interfaces.IReferenceProfileProvider>()));
 
         // AB#739 — local claim lifecycle. Every seam is registered here so
         // any surface (CLI, MCP, TUI, integration test) resolves the same
@@ -339,6 +342,15 @@ public static class TwigServiceRegistration
         // byte-stability assertable at all: with a live clock the capture timestamp moves and
         // there is no way to tell a real ordering defect from the one permitted variance.
         services.AddSingleton(TimeProvider.System);
+
+        // The reference-profile seam. Registered HERE as well as in
+        // AddConnectionServices because SeedPublishOrchestrator lives in this
+        // module and now depends on SprintEntryPolicy, and this module must
+        // resolve its own dependency graph — the MCP connection scope composes
+        // it without the broader module. The helper uses TryAdd throughout, so
+        // composing both modules yields one registration rather than a
+        // last-wins race.
+        services.AddReferenceProfileSeam();
 
         // The process description assembler — the ONE seam both the CLI and the agent
         // surface assemble through, so exactly one document format exists rather than two
@@ -472,7 +484,8 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<IUnitOfWork>(),
             sp.GetRequiredService<BacklogOrderer>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IPublishIntentRepository>()));
+            sp.GetRequiredService<IPublishIntentRepository>(),
+            sp.GetRequiredService<SprintEntryPolicy>()));
         services.AddSingleton<SeedLinkRepair>(sp => new SeedLinkRepair(
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -639,6 +652,48 @@ public static class TwigServiceRegistration
     {
         services.AddConnectionServices(config, twigDir, startDir);
         services.AddTwigNetworkServices(config, resolvedGitProject, resolvedRepository);
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the T3 (AB#734) reference-profile seam and the AB#735 gates
+    /// built on it: the <c>twig.json</c> pin source, the embedded profile
+    /// provider, and the sprint-entry policy.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Extracted because two modules need it — <c>AddConnectionServices</c>
+    /// (whose <c>IProfileRegistrySource</c> resolves the provider) and
+    /// <c>AddConnectionDomainServices</c> (whose <c>SeedPublishOrchestrator</c>
+    /// resolves the policy) — and the MCP connection scope composes the second
+    /// without the first. Copying the three registrations into both would make
+    /// them silently divergent the first time one side changed.
+    /// </para>
+    /// <para>
+    /// <c>TryAdd</c> throughout, so composing both modules produces exactly one
+    /// registration instead of a last-wins race whose winner depends on call
+    /// order.
+    /// </para>
+    /// </remarks>
+    private static IServiceCollection AddReferenceProfileSeam(this IServiceCollection services)
+    {
+        // The pin source (T1 §5.1) is what lets the seam answer "does this
+        // repository agree with this binary?" without knowing how twig.json loads.
+        services.TryAddSingleton<IReferenceProfilePinSource>(sp =>
+            new TwigJsonReferenceProfilePinSource(sp.GetRequiredService<TwigConfiguration>()));
+
+        // Single owning service; the loaded profile is cached per process (see
+        // EmbeddedReferenceProfileProvider). It sits beside
+        // IProcessConfigurationProvider because the two answer complementary
+        // questions ("reference" vs "live") and consumers often need both.
+        services.TryAddSingleton<IReferenceProfileProvider>(sp =>
+            new EmbeddedReferenceProfileProvider(sp.GetRequiredService<IReferenceProfilePinSource>()));
+
+        // AB#735 criterion (c): the sprint-entry invariant resolved through the
+        // seam rather than a literal type name, consumed by the publish flow.
+        services.TryAddSingleton(sp =>
+            new SprintEntryPolicy(sp.GetRequiredService<IReferenceProfileProvider>()));
+
         return services;
     }
 }

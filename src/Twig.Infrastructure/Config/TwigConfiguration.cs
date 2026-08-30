@@ -64,6 +64,7 @@ public sealed class TwigConfiguration
     public TrackingConfig Tracking { get => UserPrefs.Tracking; set => UserPrefs.Tracking = value; }
     public AreasConfig Areas { get => RepoCoords.Areas; set => RepoCoords.Areas = value; }
     public PolicyConfig? Policy { get => RepoCoords.Policy; set => RepoCoords.Policy = value; }
+    public ProfilePinConfig? Profile { get => RepoCoords.Profile; set => RepoCoords.Profile = value; }
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -795,37 +796,52 @@ public sealed class TwigRepoConfig
     /// permitting every type.
     /// </summary>
     public PolicyConfig? Policy { get; set; }
+
+    /// <summary>
+    /// The three-field <c>profile</c> pin T1 (AB#732) §2 and §5.1 fix on the
+    /// checked-in <c>twig.json</c>. Couples this repository to exactly one
+    /// released reference profile so a profile change is reviewable as a diff
+    /// of the shipped profile plus the repo-side pin bump.
+    /// <para>
+    /// Nullable at the JSON layer so the absence is a NAMED load-time failure
+    /// (<c>twig-json-profile-block-missing</c>) rather than a default that
+    /// silently matches whatever binary happens to be installed. T1 §6.1
+    /// exact-matches all three fields; any subset match is a reject.
+    /// </para>
+    /// </summary>
+    public ProfilePinConfig? Profile { get; set; }
 }
 
 /// <summary>
-/// The <c>policy</c> block in the checked-in <c>twig.json</c>. Portable
-/// per-repo policy that survives every worktree init and that AB#738's
-/// eligibility gate consults through
-/// <see cref="Twig.Domain.Services.Attachment.IPrimaryScopePolicySource"/>.
-/// AB#736 §4.1 pins the block as the materialized policy of the selected
-/// pinned profile: <see cref="SelectedProfile"/> binds the identity + version
-/// (the same identity AB#727 will publish through profile storage) and
-/// <see cref="PrimaryScopeTypes"/> carries the concrete allow-set that
-/// binding materializes. There is no permanently-unavailable default: init
-/// writes a policy block, so a checked-in twig.json without one is a
-/// migration issue the eligibility gate names explicitly.
+/// The <c>policy</c> block in the checked-in <c>twig.json</c>, per AB#736 §4.1.
+/// <para>
+/// 🔴 <b>No longer the runtime authority for primary-scope eligibility.</b>
+/// AB#735 completed the T1 §8.1 cutover: <c>IPrimaryScopePolicySource</c> is now
+/// a thin adapter over the embedded reference profile, so the eligibility gate
+/// reads <c>IReferenceProfileProvider.PrimaryScopeAllowTypeNames</c> and never
+/// this block. Editing <see cref="PrimaryScopeTypes"/> does not widen or narrow
+/// what may be attached — T1 §3.6 is explicit that narrowing the allow-set means
+/// publishing a different profile identity, not editing a repository file.
+/// </para>
+/// <para>
+/// What survives is its materialization role: <c>twig init</c> records the
+/// selected profile binding and the allow-set that binding produced, so the
+/// manifest still shows a reviewer what this worktree was bound with. The
+/// exact-match coupling between repository and binary lives in the separate
+/// three-field <see cref="TwigRepoConfig.Profile"/> pin.
+/// </para>
 /// </summary>
 public sealed class PolicyConfig
 {
-    /// <summary>The pinned profile identity + version this repository is
-    /// bound to. Both fields are opaque strings; validated as non-empty by
-    /// the checked-in policy source. AB#727 will match this binding against
-    /// its own registry; until that lands, the binding is a self-describing
-    /// materialization the eligibility gate consumes directly.</summary>
+    /// <summary>The pinned profile identity + version this repository was
+    /// initialized against. Recorded for review; not consulted by the
+    /// eligibility gate.</summary>
     public SelectedProfileBinding? SelectedProfile { get; set; }
 
     /// <summary>
-    /// Work-item type allow-set for primary-scope attachment (AB#738).
-    /// Comparison is case-insensitive. Values are opaque strings the active
-    /// process description defines. An empty list refuses every type; the
-    /// list is nullable at the JSON layer but init supplies an empty list
-    /// so an untouched managed worktree never surfaces
-    /// <c>eligibility-unavailable</c> for the wrong reason.
+    /// The primary-scope allow-set as MATERIALIZED at init from the selected
+    /// profile. Retained as a record of what that binding produced; the runtime
+    /// authority is the embedded profile itself.
     /// </summary>
     public List<string>? PrimaryScopeTypes { get; set; }
 }
@@ -840,6 +856,38 @@ public sealed class SelectedProfileBinding
 {
     public string Identity { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// The <c>profile</c> block on the checked-in <c>twig.json</c> — T1 (AB#732)
+/// §2's three-field exact pin.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Three fields and not two, per T1 §2. Collapsing
+/// <see cref="ProfileVersion"/> and <see cref="BaseProcessVersion"/> into one
+/// string would tie the T1 and T2 release cadences together, so every
+/// correction on either side would force a version bump on the other. They are
+/// separately owned — T1 owns the profile schema, T2 owns the base process and
+/// its tailoring — and are therefore separately versioned and separately
+/// matched.
+/// </para>
+/// <para>
+/// All three values are opaque to Twig core: it compares them byte-equal
+/// against the embedded profile and never parses them. That is what keeps the
+/// pin process-agnostic.
+/// </para>
+/// </remarks>
+public sealed class ProfilePinConfig
+{
+    /// <summary>Matched against the embedded profile's <c>identity</c>. Mismatch: <c>profile-identity-unknown</c>.</summary>
+    public string Identity { get; set; } = string.Empty;
+
+    /// <summary>Matched byte-equal against the embedded <c>profileVersion</c>. Mismatch: <c>profile-version-mismatch</c>.</summary>
+    public string ProfileVersion { get; set; } = string.Empty;
+
+    /// <summary>Matched byte-equal against the embedded <c>baseProcess.tailoringVersion</c>. Mismatch: <c>base-process-version-mismatch</c>.</summary>
+    public string BaseProcessVersion { get; set; } = string.Empty;
 }
 
 /// <summary>

@@ -70,7 +70,8 @@ public class SeedPublishIntentTests
             _unitOfWork,
             new BacklogOrderer(_adoService, _fieldDefinitionStore),
             pendingChangeStore: Substitute.For<IPendingChangeStore>(),
-            publishIntentRepo: _intentRepo);
+            publishIntentRepo: _intentRepo,
+            sprintEntryPolicy: ReferenceProfileBuilder.SprintPolicy());
     }
 
     private WorkItem ArrangeSeed()

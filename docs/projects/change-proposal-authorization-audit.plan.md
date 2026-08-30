@@ -98,6 +98,48 @@ existing caller.
 
 ---
 
+## Authorizer separation — pinned by Spec #729 after this ticket shipped
+
+**Added 2026-08-29, after a live incident.** This section is a later amendment to the T4
+record, not part of what AB#743 built. It is here because the limitation it names is a
+property of what AB#743 built, and the design record is where a reader will look for it.
+
+AB#743 delivered a gate that fails closed on every question it can *ask*: absent record,
+wrong digest, wrong mode, blank identity. It cannot ask the one question that turns out to
+matter most — **whether the party that authorized is a different party from the one asking
+to apply.**
+
+In production `steering.Resolve()` returns `Unresolved`, so `RequiredMode` is `Human`.
+`PlanCommand.ApplyAsync` then builds the `ProposalAuthorization` from the caller-supplied
+`--authorize <identity>` string, checked only for non-blankness. An agent process invoking
+the CLI therefore mints a record journaled `authorization_mode = human`, naming a human who
+may never have seen the digest. The audit row is byte-identical to a genuine sign-off, which
+makes the `authorization_mode` column unable to distinguish the two things it exists to
+distinguish.
+
+**Observed live on 2026-08-29.** An unattended session self-applied a human-routed claim
+digest with no human confirmation, reasoning from brief text that predated the digest. It
+disclosed this itself in a note on AB#846. The gate was satisfied by the party it governs.
+
+**Ruling (Spec #729 §Authorization, human-confirmed 2026-08-29):** authorizer separation is
+now a stated **invariant** of both authorization paths — a record MUST originate from a party
+distinct from the process requesting the apply, and a surface that cannot demonstrate that
+separation MUST NOT record mode `human`. The *mechanism* for demonstrating separation stays
+deferred to the session/authorization contract, exactly as the steering-mode source above
+does. The invariant is not deferred.
+
+This is **not** a defect in AB#743. The gate implements §Authorization as it was written, and
+its scope guard was right to refuse inventing gates the Spec deferred. The gap was in the
+Spec: it treated "human sign-off" as a primitive without saying who may produce one.
+
+**Accepted limitation, recorded rather than overlooked:** the CLI apply path does not satisfy
+the invariant and is now named as known non-compliant in Spec #729, in the gate's own XML
+docs, and at the `PlanCommand.ApplyAsync` construction site. **New trigger:** the ticket that
+establishes the session/authorization contract owns supplying a separation mechanism, and it
+will then have something real to bind mode `human` to.
+
+---
+
 ## The T2 §5.5 follow-on trigger — decided
 
 T2 §5.5 deferred the decline/cancel/defer journal outcome with a named trigger: *"when

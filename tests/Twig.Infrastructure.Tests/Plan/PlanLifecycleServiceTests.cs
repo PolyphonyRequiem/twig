@@ -897,6 +897,158 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         status.Issues.ShouldContain(i => i.Message.Contains("does not match active workspace"));
     }
 
+    // ── AB#832: replaced plan files ────────────────────────────────────────
+    //
+    // Plan files are single-use, but nothing outside twig enforces that: two sessions sharing
+    // one plans directory can compute the same "next free sequence" and write the same path.
+    // Because the journal is keyed by digest, an overwritten path silently resolves to
+    // whichever transaction matches the bytes now on disk. These tests pin both observable
+    // shapes of that clobber, and the two honest cases they must not swallow.
+
+    /// <summary>
+    /// The window observed first-hand on 2026-08-28: the file was overwritten, but the
+    /// replacing document had not been previewed yet. Status used to return null here, which
+    /// the CLI renders as a bare <c>found:false</c> — indistinguishable from "you never
+    /// previewed this plan", and so the destroyed audit trail read as a missing one.
+    /// </summary>
+    [Fact]
+    public async Task Status_ReplacedBeforeReplacementPreviewed_ReportsNamedConditionNotBareNotFound()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 815, expectedRev: 1, state: "Active"));
+        var svc = BuildService();
+        var originalDigest = (await svc.PreviewAsync(file)).Digest!;
+
+        // A sibling session allocates the same sequence and writes a different document.
+        File.WriteAllText(file, BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed"));
+
+        var status = await svc.StatusAsync(file);
+
+        status.ShouldNotBeNull();
+        status!.Found.ShouldBeFalse();
+        var replacement = status.Replacement.ShouldNotBeNull();
+        replacement.SourcePath.ShouldBe(file);
+        replacement.CurrentDigestJournaled.ShouldBeFalse();
+        replacement.SupersededDigests.ShouldBe([originalDigest]);
+        replacement.CurrentDigest.ShouldNotBe(originalDigest);
+    }
+
+    /// <summary>
+    /// The silent shape: the replacing document has its own journal, so status answers
+    /// truthfully about the bytes and falsely about the file's history. A caller reading only
+    /// <c>found</c>/<c>state</c> is handed a transaction this file never produced.
+    /// The replacing journal is imported through the repository directly because
+    /// <see cref="PlanLifecycleService.PreviewAsync"/> now refuses to create it (see below);
+    /// this reproduces a database written before that guard existed.
+    /// </summary>
+    [Fact]
+    public async Task Status_ReplacedAfterReplacementJournaled_ReportsReplacementBesideTheJournal()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 815, expectedRev: 1, state: "Active"));
+        var svc = BuildService();
+        var originalDigest = (await svc.PreviewAsync(file)).Digest!;
+
+        var siblingSource = BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed");
+        File.WriteAllText(file, siblingSource);
+        var sibling = new PlanDocumentParser().Parse(siblingSource);
+        await _journal.ImportAsync(
+            sibling.Plan!, sibling.CanonicalJson!, sibling.Digest!, file, DateTimeOffset.UnixEpoch.AddDays(1));
+
+        var status = await svc.StatusAsync(file);
+
+        status.ShouldNotBeNull();
+        // The journal for the current bytes really does exist — that is precisely why this
+        // case is dangerous and must carry the condition rather than read as a clean success.
+        status!.Found.ShouldBeTrue();
+        status.Digest.ShouldBe(sibling.Digest);
+        var replacement = status.Replacement.ShouldNotBeNull();
+        replacement.CurrentDigestJournaled.ShouldBeTrue();
+        replacement.SupersededDigests.ShouldBe([originalDigest]);
+    }
+
+    /// <summary>An ordinary previewed file is not a replacement. Guards the false positive.</summary>
+    [Fact]
+    public async Task Status_UnchangedAfterPreview_HasNoReplacement()
+    {
+        var file = WritePlan(ValidPlanSource());
+        var svc = BuildService();
+        await svc.PreviewAsync(file);
+
+        var status = await svc.StatusAsync(file);
+
+        status.ShouldNotBeNull();
+        status!.Found.ShouldBeTrue();
+        status.Replacement.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Re-previewing the same immutable file is explicitly legal (recovery from a stalled
+    /// apply re-previews the same bytes and the same digest), so it must not trip the guard.
+    /// </summary>
+    [Fact]
+    public async Task Preview_SameFileTwice_IsNotAReplacement()
+    {
+        var file = WritePlan(ValidPlanSource());
+        var svc = BuildService();
+        var first = await svc.PreviewAsync(file);
+
+        var second = await svc.PreviewAsync(file);
+
+        second.CanApply.ShouldBeTrue();
+        second.Digest.ShouldBe(first.Digest);
+        second.Issues.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Preview refuses a path that already carries another transaction, and — the part that
+    /// matters — does not journal the replacing document. Importing it would be the write that
+    /// makes the corruption permanent and unreportable.
+    /// </summary>
+    [Fact]
+    public async Task Preview_RefusesReplacedFile_AndDoesNotJournalIt()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 815, expectedRev: 1, state: "Active"));
+        var svc = BuildService();
+        var originalDigest = (await svc.PreviewAsync(file)).Digest!;
+
+        File.WriteAllText(file, BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed"));
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        preview.Issues.ShouldContain(i => i.Code == PlanValidationCodes.SourceReplaced);
+        preview.Issues.ShouldContain(i => i.Message.Contains("single-use"));
+
+        // The path still carries exactly one transaction: the original.
+        var journaled = await _journal.GetDigestsBySourcePathAsync(file);
+        journaled.ShouldBe([originalDigest]);
+    }
+
+    /// <summary>
+    /// Apply re-checks independently of preview. Digest equality cannot catch this: the
+    /// confirmed digest was computed from the very bytes that replaced the original.
+    /// </summary>
+    [Fact]
+    public async Task Apply_RefusesReplacedFile()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 815, expectedRev: 1, state: "Active"));
+        var svc = BuildService();
+        await svc.PreviewAsync(file);
+
+        var siblingSource = BatchOnlyPlan(workItemId: 831, expectedRev: 7, state: "Closed");
+        File.WriteAllText(file, siblingSource);
+        var sibling = new PlanDocumentParser().Parse(siblingSource);
+        await _journal.ImportAsync(
+            sibling.Plan!, sibling.CanonicalJson!, sibling.Digest!, file, DateTimeOffset.UnixEpoch.AddDays(1));
+
+        var apply = await svc.ApplyAsync(file, sibling.Digest!, Authorize(sibling.Digest!));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Error.ShouldNotBeNull();
+        apply.Error!.ShouldContain("single-use");
+        // Refused before the loop: no operation row ran.
+        apply.Operations.ShouldAllBe(o => o.State != PlanOperationState.Verified);
+        await _ado.DidNotReceiveWithAnyArgs().PatchAsync(0, null!, 0, default);
+    }
+
     // ── path guard: symlink resolution ─────────────────────────────────────
 
     [Fact]

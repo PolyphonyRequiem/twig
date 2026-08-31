@@ -32,10 +32,11 @@ Decisions locked here:
    Twig has no plan verb for process customization). Every hierarchy/link seed step is
    a Twig plan operation (`publish-seed`, `add-link`, `batch`).
 4. **Harness structure:** a per-surface evidence bundle stored under
-   `docs/reference-process/harness/<version>/` in the Twig repo. Each of six required
-   surfaces has a named `.json` evidence artifact plus a `.png` screenshot artifact and
-   is produced by a specific plan operation against a dedicated `Twig-Reference-Sandbox`
-   ADO project.
+   `docs/reference-process/harness/<version>/` in the Twig repo. Each of the **ten**
+   required surfaces enumerated in §4.3 has a named `.json` evidence artifact, optionally
+   accompanied by a `.png` screenshot for the backlog and sprint surfaces, and is produced
+   by a specific plan operation against a dedicated `Twig-Reference-Sandbox` ADO project.
+   The `.json` artifact is authoritative — the gate reads JSON and never opens an image.
 5. **Harness gating:** the harness is a **hard gate for committing a new version of the
    reference profile** (owned by #732). It is **not** a runtime gate — Twig core still
    validates the live process against the profile at runtime; the harness only guards
@@ -314,15 +315,15 @@ tailoring with the seed/link operations that exercise the Sandbox.
 | 2 | Create the inherited-from-Basic process. | Human, REST | §2.1 |
 | 3 | Disable `Epic` and `Issue`. | Human, REST | §2.2 |
 | 4 | Add `Twig.Initiative`, `Twig.Investigation`, `Twig.Feature`, `Twig.Bug`. | Human, REST | §2.3 — must precede step 5 so behaviors have types to attach to. |
-| 5 | Assign backlog behaviors. | Human, REST | §2.4 — must precede step 8 so sprint-only-for-Task is enforced before publish. |
+| 5 | Assign backlog behaviors. | Human, REST | §2.4 — must precede step 8 so sprint-only-for-`Task` is enforced before the project is provisioned. |
 | 6 | Verify required-field set. | Human, REST | §2.5 |
-| 7 | Publish the process. | Human, REST or UI | §2.6 |
+| 7 | ~~Publish the process.~~ **Not applicable.** | — | §2.6 — an inherited process is live on creation; no publish transition exists. Retained as a numbered row so steps 8–16 keep their identifiers. |
 | 8 | Provision the `Twig-Reference-Sandbox` project. | Human, REST or UI | §2.7 |
 | 9 | Confirm link kinds available. | Human, UI check | §2.8 |
 | 10 | Record the baseline process description. | Automated (`twig process description`) | §2.9 |
 | 11 | Populate the profile document from step 10's JSON (owned by #732). | Human, doc | #732 ratifies the profile against Sandbox reality. |
 | 12 | Seed the hierarchy in Sandbox: one `Initiative`, one each of `Investigation`/`Feature`/`Bug`, three `Task`s. | **Twig plan** (`publish-seed`) | §4.1 |
-| 13 | Link the hierarchy with parent/child, then predecessor/successor, then related, then artifact links. | **Twig plan** (`add-link`, `batch`) | §4.2 |
+| 13 | Link the hierarchy with parent/child, then predecessor/successor, then related. | **Twig plan** (`add-link`) | §4.2 — one op per `workItemId` per plan file, so parent edges are expressed child-side and split across files. **Artifact links are not expressible as a plan op** and are applied out of band; see §4.2. |
 | 14 | Capture per-surface evidence artifacts. | Automated (`twig show`, `twig tree`, headless browser) | §4.3 |
 | 15 | Run the harness gate check. | Automated (script over the evidence bundle) | §5 |
 | 16 | Ratify the profile document version. | Human, PR merge | §5 gating rule. |
@@ -439,8 +440,32 @@ ops:
     linkType: ArtifactLink
 ```
 
-The plan runs unchanged against a fresh Sandbox; every op resolves against alias-only
-references so no work-item IDs are hardcoded.
+🔴 **The YAML above is illustrative pseudocode, not a runnable plan file.** It was written
+before the native surface existed. Corrected against the shipped contract while executing
+this harness under AB#847 (see `docs/reference-process/harness/1.0.0/`):
+
+- A real plan file is **proposal v1 JSON**: top level is exactly `version`, `workspace`
+  (`organization` + `project`), and `operations`. There is no `ops`, `seed`, `alias`,
+  `from`, `to`, or `linkType` key.
+- Accepted kinds are `batch`, `add-link`, `remove-link`, `publish-seed`, `delete`. A
+  `publish-seed` op carries `stagedIdentity` + `expectedFingerprint` from
+  `twig proposal seed --id <negativeAlias> -o json`; a link op carries `workItemId`,
+  `expectedRevision`, `relation`, and `otherId`.
+- `relation` is a **closed set**: `parent | predecessor | successor | related`.
+  **`ArtifactLink` is therefore not expressible as a plan operation** —
+  `twig proposal validate` rejects it with `plan.invalid_relation`. The artifact-link
+  surface must be applied out of band (ADO REST) and logged as a tooling gap. Closing that
+  gap means either widening the relation set or accepting artifact links as permanently
+  human/REST territory; that decision is not made here.
+- At most **one op per `workItemId` per plan file**. Parent edges must therefore be
+  expressed **child-side** (`workItemId` = child, `relation: parent`, `otherId` = parent)
+  and split across sequence files; the parent-side spelling above puts three ops on
+  `@INIT` in one file and is refused.
+- Seeds are never referenced by real id or negative alias from a downstream op in the same
+  plan, so linking is necessarily a **later** plan file than seeding.
+
+The seeding plan runs unchanged against a fresh Sandbox; the linking plans depend on the
+ids the seed publish returned.
 
 ### 4.3 Required surfaces, evidence artifacts, capture recipe
 
@@ -455,7 +480,7 @@ references so no work-item IDs are hardcoded.
 | 7 | Native predecessor/successor rendering | `twig show @TA -o json` and `twig show @TB -o json` | `07-predecessor-successor.json` | `@TA` has a `System.LinkTypes.Dependency-Forward` link to `@TB`; `@TB` has the reverse |
 | 8 | Native related rendering | `twig show @INV -o json` | `08-related-links.json` | `@INV` has a `System.LinkTypes.Related` link to `@FEAT` |
 | 9 | Artifact link | `twig show @FEAT -o json` | `09-artifact-links.json` | `@FEAT`'s relations contain an `ArtifactLink` matching the seeded branch vstfs URI |
-| 10 | Rank preservation across publish/link | `twig tree @FEAT -o json` immediately after step 12's task publish, again after step 13's link ops | `10-rank-before.json`, `10-rank-after.json`, `10-rank-diff.txt` | The child order under `@FEAT` in `before` equals `after` (task publish order preserved through subsequent link mutations). `diff.txt` is empty. |
+| 10 | Rank preservation across publish/link | Server-owned backlog order for the portfolio and requirement backlogs (`GET /{project}/{team}/_apis/work/backlogs/{backlogId}/workItems`), captured after step 12's publish and again after step 13's link ops | `10-rank-before.json`, `10-rank-after.json`, `10-rank-diff.txt` | The two backlog orders are identical — rank survives publish and subsequent link mutation. `diff.txt` is empty. |
 
 Every row in the table above corresponds to a surface #727 lists as "must be
 observed". No surface is silently skipped. The evidence file names are canonical —

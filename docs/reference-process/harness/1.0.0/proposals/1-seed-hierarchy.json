@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "workspace": {
+    "organization": "PolyphonyRequiem",
+    "project": "Twig-Reference-Sandbox"
+  },
+  "operations": [
+    {
+      "id": "harness-seed-INIT",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-5e36-731d-ab4a-1e307feb64b7",
+      "expectedFingerprint": "0ad4fe1a0cda22879be8ebc69766d381a10e575ac59fe20b01767bd771bb42c8"
+    },
+    {
+      "id": "harness-seed-INV",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-5e6c-734e-9b13-533e59d8b3fa",
+      "expectedFingerprint": "e6664e2db2b5a072557dd4707d027cfe9434d0c0fb7d30dd82db0661bcdc4a0f"
+    },
+    {
+      "id": "harness-seed-FEAT",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-5e9e-7933-bfe7-ce724e0f1e01",
+      "expectedFingerprint": "cc1bd8d141809ab428d2435cc1a5902b1e7a62011a8f8340cb41eb18a07290e0"
+    },
+    {
+      "id": "harness-seed-BUG",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-5ed8-7edf-8a81-a68175ace2f9",
+      "expectedFingerprint": "76fdffda459f2c2f050edd8353620dd1628ed3906782412d2337e853b9b5a52a"
+    },
+    {
+      "id": "harness-seed-TA",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-7302-7e14-a3a3-d40cb8eb11fe",
+      "expectedFingerprint": "d21ca2889d2551c0df70f138cfb9f4b0d92c161c409e2bde249709f989daa9bf"
+    },
+    {
+      "id": "harness-seed-TB",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-7333-7b31-9fe6-82ca7e0cb8f1",
+      "expectedFingerprint": "d4ad9d3d591d25e7c31e089d392acd1a0f8d362e5acb71cf051bb7b66646478a"
+    },
+    {
+      "id": "harness-seed-TC",
+      "kind": "publish-seed",
+      "stagedIdentity": "01a05955-736d-7ccc-86e7-9c3adbf94789",
+      "expectedFingerprint": "a612e9c088530c60b153cac6f45cf7ff854eb51779838cbafb62c8f4af65484f"
+    }
+  ]
+}

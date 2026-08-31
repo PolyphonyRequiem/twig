@@ -1,0 +1,30 @@
+{
+  "kind": "backlogMembership",
+  "surface": null,
+  "backlog": "requirement",
+  "expectedId": 860,
+  "backlogOrder": [
+    858,
+    859,
+    860
+  ],
+  "present": true,
+  "items": [
+    {
+      "id": 860,
+      "type": "Bug",
+      "state": "To do",
+      "title": "Harness Bug",
+      "iterationPath": "Twig-Reference-Sandbox",
+      "stackRank": null,
+      "backlogPriority": null,
+      "relations": [
+        {
+          "rel": "System.LinkTypes.Hierarchy-Reverse",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/857",
+          "name": "Parent"
+        }
+      ]
+    }
+  ]
+}

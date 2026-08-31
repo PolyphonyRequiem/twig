@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "workspace": { "organization": "PolyphonyRequiem", "project": "Twig-Reference-Sandbox" },
+  "operations": [
+    {
+      "id": "harness-artifact-859",
+      "kind": "add-link",
+      "workItemId": 859,
+      "expectedRevision": 1,
+      "relation": "artifact",
+      "otherId": 0
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "kind": "backlogMembership",
+  "surface": null,
+  "backlog": "requirement",
+  "expectedId": 859,
+  "backlogOrder": [
+    858,
+    859,
+    860
+  ],
+  "present": true,
+  "items": [
+    {
+      "id": 859,
+      "type": "Feature",
+      "state": "To do",
+      "title": "Harness Feature",
+      "iterationPath": "Twig-Reference-Sandbox",
+      "stackRank": null,
+      "backlogPriority": null,
+      "relations": [
+        {
+          "rel": "System.LinkTypes.Related",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/858",
+          "name": "Related"
+        },
+        {
+          "rel": "System.LinkTypes.Hierarchy-Forward",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/863",
+          "name": "Child"
+        },
+        {
+          "rel": "System.LinkTypes.Hierarchy-Reverse",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/857",
+          "name": "Parent"
+        },
+        {
+          "rel": "System.LinkTypes.Hierarchy-Forward",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/861",
+          "name": "Child"
+        },
+        {
+          "rel": "System.LinkTypes.Hierarchy-Forward",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/862",
+          "name": "Child"
+        },
+        {
+          "rel": "ArtifactLink",
+          "url": "vstfs:///Git/Ref/2c534971-1a18-4880-9cce-2ca1fb2c3cd6%2F417bcdda-211f-4611-a8eb-c5afac7e0a26%2FGBharness",
+          "name": "Branch"
+        }
+      ]
+    }
+  ]
+}

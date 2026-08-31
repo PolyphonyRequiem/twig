@@ -1,0 +1,56 @@
+{
+  "kind": "rankSnapshot",
+  "phase": "after",
+  "portfolioBacklogOrder": [
+    857
+  ],
+  "requirementBacklogOrder": [
+    858,
+    859,
+    860
+  ],
+  "items": [
+    {
+      "id": 857,
+      "type": "Initiative",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 858,
+      "type": "Investigation",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 859,
+      "type": "Feature",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 860,
+      "type": "Bug",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 861,
+      "type": "Task",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 862,
+      "type": "Task",
+      "stackRank": null,
+      "backlogPriority": null
+    },
+    {
+      "id": 863,
+      "type": "Task",
+      "stackRank": null,
+      "backlogPriority": null
+    }
+  ]
+}

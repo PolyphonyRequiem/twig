@@ -1,0 +1,48 @@
+{
+  "kind": "dependency",
+  "surface": "07-predecessor-successor",
+  "items": [
+    {
+      "id": 861,
+      "type": "Task",
+      "state": "To Do",
+      "title": "Harness Task A",
+      "iterationPath": "Twig-Reference-Sandbox\\Sprint 1",
+      "stackRank": null,
+      "backlogPriority": null,
+      "relations": [
+        {
+          "rel": "System.LinkTypes.Hierarchy-Reverse",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/859",
+          "name": "Parent"
+        },
+        {
+          "rel": "System.LinkTypes.Dependency-Forward",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/862",
+          "name": "Successor"
+        }
+      ]
+    },
+    {
+      "id": 862,
+      "type": "Task",
+      "state": "To Do",
+      "title": "Harness Task B",
+      "iterationPath": "Twig-Reference-Sandbox\\Sprint 1",
+      "stackRank": null,
+      "backlogPriority": null,
+      "relations": [
+        {
+          "rel": "System.LinkTypes.Dependency-Reverse",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/861",
+          "name": "Predecessor"
+        },
+        {
+          "rel": "System.LinkTypes.Hierarchy-Reverse",
+          "url": "https://dev.azure.com/PolyphonyRequiem/2c534971-1a18-4880-9cce-2ca1fb2c3cd6/_apis/wit/workItems/859",
+          "name": "Parent"
+        }
+      ]
+    }
+  ]
+}

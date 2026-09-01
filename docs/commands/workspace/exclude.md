@@ -22,6 +22,7 @@ twig workspace exclude <id> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<id>`|yes|Work item ID to exclude. Positive integer only.|
 
 ## Flags
@@ -62,11 +63,12 @@ $ twig workspace exclude 3980 -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`id <= 0` (seed or invalid ID)|`2` with error on stderr|
 
 ## See also
 
-- [`workspace exclusions`](./workspace-exclusions.md)
-- [`workspace untrack`](./workspace-untrack.md)
+- [`workspace exclusions`](./exclusions.md)
+- [`workspace untrack`](./untrack.md)
 - [`workspace`](./workspace.md)

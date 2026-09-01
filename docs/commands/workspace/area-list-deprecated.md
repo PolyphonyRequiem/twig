@@ -8,7 +8,7 @@ mutates: none
 
 # `twig area list`
 
-**Deprecated.** Use [`twig workspace area list`](./workspace-area-list.md)
+**Deprecated.** Use [`twig workspace area list`](./area-list.md)
 instead. Registered as `[Hidden] [Command("area list")]`; delegates after
 emitting a hint (`src/Twig/Program.cs:1246-1252`).
 
@@ -21,6 +21,7 @@ twig area list [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -39,7 +40,7 @@ twig area list [flags]
    (`src/Twig/Program.cs:1251`).
 
 All behavior, exit codes, and output shapes match
-[`workspace area list`](./workspace-area-list.md).
+[`workspace area list`](./area-list.md).
 
 ## Examples
 
@@ -59,10 +60,11 @@ hint: 'twig area list' is deprecated. Use 'twig workspace area list' instead.
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 
 ## See also
 
-- [`workspace area list`](./workspace-area-list.md) — canonical form
+- [`workspace area list`](./area-list.md) — canonical form
 - [`area`](./area-deprecated.md)
 - [`area sync`](./area-sync-deprecated.md)

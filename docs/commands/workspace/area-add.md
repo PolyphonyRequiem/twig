@@ -21,6 +21,7 @@ twig workspace area add <path> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<path>`|yes|Area path to add, e.g. `Contoso\Team A`. Must be a valid area path — the string is parsed by `AreaPath.Parse`, and invalid input fails fast.|
 
 ## Flags
@@ -67,13 +68,14 @@ $ twig workspace area add "Contoso\Team A" --exact -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Invalid area path syntax|`2` with parser error on stderr|
 |Duplicate entry (case-insensitive)|`1` with error on stderr|
 
 ## See also
 
-- [`workspace area remove`](./workspace-area-remove.md)
-- [`workspace area list`](./workspace-area-list.md)
-- [`workspace area sync`](./workspace-area-sync.md)
-- [`workspace area`](./workspace-area.md)
+- [`workspace area remove`](./area-remove.md)
+- [`workspace area list`](./area-list.md)
+- [`workspace area sync`](./area-sync.md)
+- [`workspace area`](./area.md)

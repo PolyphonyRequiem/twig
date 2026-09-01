@@ -16,7 +16,7 @@ The command is marked `[Hidden]` in the CLI registration
 is not surfaced in tab-completion. It exposes fewer help affordances than the
 canonical form — the positional argument has no description and the
 `--output` option has no short alias
-(`C:/Users/dangreen/projects/_briefs/twig-docs-help/down.txt`).
+(`src/Twig/Program.cs:757-760`).
 
 **Prefer `twig nav down` in new scripts and documentation.**
 

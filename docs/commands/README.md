@@ -17,19 +17,19 @@ The reference uses the source command names. Deprecated aliases remain documente
 | [Workspace](workspace/README.md) | [`twig area remove`](workspace/area-remove-deprecated.md) | Deprecated alias for `workspace area remove`. Prints a deprecation hint on stderr. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig area sync`](workspace/area-sync-deprecated.md) | Deprecated alias for `workspace area sync`. Prints a deprecation hint on stderr. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig workspace`](workspace/workspace.md) | Show the current workspace. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace area`](workspace/workspace-area.md) | Show the area-filtered workspace view. | stable | `none` |
-| [Workspace](workspace/README.md) | [`twig workspace area add`](workspace/workspace-area-add.md) | Add an area path to workspace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace area list`](workspace/workspace-area-list.md) | List configured area paths with match semantics. | stable | `none` |
-| [Workspace](workspace/README.md) | [`twig workspace area remove`](workspace/workspace-area-remove.md) | Remove an area path from workspace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace area sync`](workspace/workspace-area-sync.md) | Fetch team area paths from ADO and replace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace exclude`](workspace/workspace-exclude.md) | Exclude a work item from workspace view. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace exclusions`](workspace/workspace-exclusions.md) | List all excluded work items; also clears or removes exclusions. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace sprint add`](workspace/workspace-sprint-add.md) | Add a sprint iteration expression to workspace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace sprint list`](workspace/workspace-sprint-list.md) | List configured sprint iteration expressions. | stable | `none` |
-| [Workspace](workspace/README.md) | [`twig workspace sprint remove`](workspace/workspace-sprint-remove.md) | Remove a sprint iteration expression from workspace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace track`](workspace/workspace-track.md) | Track a single work item by ID (pinned to workspace). | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace track-tree`](workspace/workspace-track-tree.md) | Track a work item and its subtree. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace untrack`](workspace/workspace-untrack.md) | Remove a work item from tracking. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace area`](workspace/area.md) | Show the area-filtered workspace view. | stable | `none` |
+| [Workspace](workspace/README.md) | [`twig workspace area add`](workspace/area-add.md) | Add an area path to workspace configuration. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace area list`](workspace/area-list.md) | List configured area paths with match semantics. | stable | `none` |
+| [Workspace](workspace/README.md) | [`twig workspace area remove`](workspace/area-remove.md) | Remove an area path from workspace configuration. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace area sync`](workspace/area-sync.md) | Fetch team area paths from ADO and replace configuration. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace exclude`](workspace/exclude.md) | Exclude a work item from workspace view. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace exclusions`](workspace/exclusions.md) | List all excluded work items; also clears or removes exclusions. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace sprint add`](workspace/sprint-add.md) | Add a sprint iteration expression to workspace configuration. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace sprint list`](workspace/sprint-list.md) | List configured sprint iteration expressions. | stable | `none` |
+| [Workspace](workspace/README.md) | [`twig workspace sprint remove`](workspace/sprint-remove.md) | Remove a sprint iteration expression from workspace configuration. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace track`](workspace/track.md) | Track a single work item by ID (pinned to workspace). | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace track-tree`](workspace/track-tree.md) | Track a work item and its subtree. | stable | `local` |
+| [Workspace](workspace/README.md) | [`twig workspace untrack`](workspace/untrack.md) | Remove a work item from tracking. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig ws`](workspace/ws.md) | Short alias for `workspace` — show the current workspace. | stable | `local` |
 | [Bench](bench/README.md) | [`twig bench create`](bench/create.md) | Create a Bench with a name you will recognise later. | stable | `local` |
 | [Bench](bench/README.md) | [`twig bench delete`](bench/delete.md) | Delete a Bench — one holding pins refuses without --confirm. | stable | `local` |
@@ -57,6 +57,7 @@ The reference uses the source command names. Deprecated aliases remain documente
 | [Navigation](navigation/README.md) | [`twig prev`](navigation/prev.md) | Deprecated alias for `nav prev`. | stable | `local` |
 | [Navigation](navigation/README.md) | [`twig up`](navigation/up.md) | Deprecated alias for `nav up`. | stable | `local` |
 | [Process](process/README.md) | [`twig process`](process/process.md) | List work item types, or with a type argument show its states, fields, and transitions. | stable | `none` |
+| [Process](process/README.md) | [`twig process <type>`](process/process-type.md) | Describe one dynamically discovered work-item type. | stable | `none` |
 | [Process](process/README.md) | [`twig process description`](process/process-description.md) | Write a byte-stable structural description of the process, for diffing against another. | stable | `none` |
 | [Process](process/README.md) | [`twig process layout`](process/process-layout.md) | Show the server-defined form layout — tabs, boxes, and ordered fields — for a work item type. | stable | `none` |
 | [Process](process/README.md) | [`twig states`](process/states.md) | Hidden alias — list workflow states for the active work item's type. | stable | `none` |

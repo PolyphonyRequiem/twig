@@ -22,6 +22,7 @@ twig workspace area sync [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -73,6 +74,7 @@ $ twig workspace area sync -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Not connected to ADO|`1` with error on stderr|
 |ADO fetch throws|`1` with `Failed to fetch team area paths: …` on stderr|
@@ -80,7 +82,7 @@ $ twig workspace area sync -o json
 
 ## See also
 
-- [`workspace area list`](./workspace-area-list.md)
-- [`workspace area add`](./workspace-area-add.md)
-- [`workspace area remove`](./workspace-area-remove.md)
-- [`workspace area`](./workspace-area.md)
+- [`workspace area list`](./area-list.md)
+- [`workspace area add`](./area-add.md)
+- [`workspace area remove`](./area-remove.md)
+- [`workspace area`](./area.md)

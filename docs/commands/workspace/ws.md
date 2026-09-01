@@ -23,6 +23,7 @@ twig ws [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -68,6 +69,7 @@ $ twig ws --all --tree -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`--tree` combined with `--flat`|`1`|
 |Tree rendering service unavailable when `--tree` is set|`1`|
@@ -75,5 +77,5 @@ $ twig ws --all --tree -o json
 ## See also
 
 - [`workspace`](./workspace.md) — canonical form
-- [`workspace track`](./workspace-track.md)
-- [`workspace area`](./workspace-area.md)
+- [`workspace track`](./track.md)
+- [`workspace area`](./area.md)

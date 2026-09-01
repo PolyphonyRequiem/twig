@@ -8,7 +8,7 @@ mutates: local
 
 # `twig area add`
 
-**Deprecated.** Use [`twig workspace area add`](./workspace-area-add.md)
+**Deprecated.** Use [`twig workspace area add`](./area-add.md)
 instead. This alias is registered as `[Hidden] [Command("area add")]` and
 delegates to the canonical implementation after emitting a hint
 (`src/Twig/Program.cs:1225-1231`).
@@ -22,6 +22,7 @@ twig area add <path> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<path>`|yes|Area path to add, e.g. `Contoso\Team A`.|
 
 ## Flags
@@ -41,7 +42,7 @@ twig area add <path> [flags]
    (`src/Twig/Program.cs:1230`).
 
 All behavior, validation, exit codes, and output shapes match
-[`workspace area add`](./workspace-area-add.md).
+[`workspace area add`](./area-add.md).
 
 ## Examples
 
@@ -59,15 +60,16 @@ hint: 'twig area add' is deprecated. Use 'twig workspace area add' instead.
 
 ## Exit codes and failure modes
 
-Identical to [`workspace area add`](./workspace-area-add.md).
+Identical to [`workspace area add`](./area-add.md).
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Invalid area path syntax|`2`|
 |Duplicate entry|`1`|
 
 ## See also
 
-- [`workspace area add`](./workspace-area-add.md) — canonical form
+- [`workspace area add`](./area-add.md) — canonical form
 - [`area`](./area-deprecated.md)
 - [`area remove`](./area-remove-deprecated.md)

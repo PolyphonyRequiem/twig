@@ -26,11 +26,13 @@ twig ohmyposh init [--style <style>] [--shell <shell>] [-h|--help] [--version]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
 
 |Flag|Type|Default|Description|
+| --- | --- | --- | --- |
 |`--style <style>`|string|`powerline`|Segment style. Valid: `powerline`, `plain`, `diamond`. Unknown values fall back to `powerline`.|
 |`--shell <shell>`|string|`pwsh`|Target shell for the hook function. Valid: `pwsh`, `bash`, `zsh`, `fish`. Unknown values fall back to `pwsh`.|
 |`-h`, `--help`|switch|—|Print help and exit.|

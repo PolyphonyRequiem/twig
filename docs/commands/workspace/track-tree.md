@@ -22,6 +22,7 @@ twig workspace track-tree <id> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<id>`|yes|Work item ID to track along with its descendants. Positive integer only.|
 
 ## Flags
@@ -66,11 +67,12 @@ $ twig workspace track-tree 4200 -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`id <= 0` (seed or invalid ID)|`2` with error on stderr|
 
 ## See also
 
-- [`workspace track`](./workspace-track.md)
-- [`workspace untrack`](./workspace-untrack.md)
+- [`workspace track`](./track.md)
+- [`workspace untrack`](./untrack.md)
 - [`workspace`](./workspace.md)

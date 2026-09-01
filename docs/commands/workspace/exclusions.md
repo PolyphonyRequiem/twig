@@ -21,6 +21,7 @@ twig workspace exclusions [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -76,12 +77,13 @@ $ twig workspace exclusions --remove 3980 -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`--remove <id>` with `id <= 0`|`2` with error on stderr|
 |`--clear` on an empty list|`0` with `exclusionsClearedEmpty` outcome|
 
 ## See also
 
-- [`workspace exclude`](./workspace-exclude.md)
-- [`workspace untrack`](./workspace-untrack.md)
+- [`workspace exclude`](./exclude.md)
+- [`workspace untrack`](./untrack.md)
 - [`workspace`](./workspace.md)

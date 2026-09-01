@@ -87,6 +87,6 @@ Equivalent to `twig workspace --all --tree --refresh`. `--refresh` runs a sync p
 ## See also
 
 - [`twig sprint`](./sprint.md) — sibling view; use `twig sprint --tree` for the sprint-scoped hierarchy.
-- [`twig show`](../work-items/README.md) — canonical target when `--all` is not set. Prefer `twig show --tree` in new scripts.
+- [`twig show`](../context/show.md) — canonical target when `--all` is not set. Prefer `twig show --tree` in new scripts.
 - [`twig workspace`](../workspace/README.md) — canonical target when `--all` is set. Prefer `twig workspace --tree` in new scripts.
-- [`twig tree-set`](../work-items/README.md) — render an arbitrary set of work items as annotated trees.
+- [`twig tree-set`](../context/tree-set.md) — render an arbitrary set of work items as annotated trees.

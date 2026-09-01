@@ -15,7 +15,7 @@ The command is marked `[Hidden]` in the CLI registration
 (`src/Twig/Program.cs:762-765`), so it does not appear in `twig --help` and
 is not surfaced in tab-completion. The `--output` option has no short `-o`
 alias in the alias form
-(`C:/Users/dangreen/projects/_briefs/twig-docs-help/next.txt`).
+(`src/Twig/Program.cs:762-765`).
 
 **Prefer `twig nav next` in new scripts and documentation.**
 

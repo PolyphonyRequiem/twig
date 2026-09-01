@@ -20,6 +20,7 @@ twig workspace sprint list [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -66,9 +67,10 @@ $ twig workspace sprint list -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 
 ## See also
 
-- [`workspace sprint add`](./workspace-sprint-add.md)
-- [`workspace sprint remove`](./workspace-sprint-remove.md)
+- [`workspace sprint add`](./sprint-add.md)
+- [`workspace sprint remove`](./sprint-remove.md)

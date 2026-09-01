@@ -21,6 +21,7 @@ twig workspace area remove <path> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<path>`|yes|Area path to remove. Matched case-insensitively against the stored `Path` value.|
 
 ## Flags
@@ -63,12 +64,13 @@ $ twig workspace area remove "Contoso\Team A" -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |No area paths configured|`1` with `No area paths configured.` on stderr|
 |Path not found (case-insensitive)|`1` with error on stderr|
 
 ## See also
 
-- [`workspace area add`](./workspace-area-add.md)
-- [`workspace area list`](./workspace-area-list.md)
-- [`workspace area sync`](./workspace-area-sync.md)
+- [`workspace area add`](./area-add.md)
+- [`workspace area list`](./area-list.md)
+- [`workspace area sync`](./area-sync.md)

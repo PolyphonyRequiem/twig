@@ -10,7 +10,8 @@ they are read from the live process (or, where noted, the workspace cache).
 
 |Command|Summary|
 |---|---|
-|[`twig process`](./process.md)|List work item types, or with a type argument show its states, fields, and transitions.|
+|[`twig process`](./process.md)|List dynamically discovered visible work-item types.|
+|[`twig process <type>`](./process-type.md)|Describe one type's dynamically discovered states, fields, and transitions.|
 |[`twig process layout`](./process-layout.md)|Show the server-defined form layout (tabs, boxes, ordered fields) for a work item type.|
 |[`twig process description`](./process-description.md)|Write a byte-stable structural description of the process, for diffing.|
 |[`twig states`](./states.md)|Hidden alias: list states for the active work item's type.|

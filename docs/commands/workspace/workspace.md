@@ -27,6 +27,7 @@ twig workspace [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -92,6 +93,7 @@ $ twig workspace --tree --refresh -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`--tree` combined with `--flat`|`1` with `error: --tree and --flat are mutually exclusive.` on stderr|
 |Tree rendering service unavailable when `--tree` is set|`1` with `error: Tree rendering is not available.` on stderr (`src/Twig/Commands/WorkspaceCommand.cs:242-247`)|
@@ -100,6 +102,6 @@ $ twig workspace --tree --refresh -o json
 ## See also
 
 - [`ws`](./ws.md) — short alias
-- [`workspace track`](./workspace-track.md)
-- [`workspace exclusions`](./workspace-exclusions.md)
-- [`workspace area`](./workspace-area.md)
+- [`workspace track`](./track.md)
+- [`workspace exclusions`](./exclusions.md)
+- [`workspace area`](./area.md)

@@ -60,10 +60,10 @@ instead of reusing a wrong-audience one from a previous sign-in
 
 Failure paths are distinguished so twig can suggest the other flow:
 * `InteractiveAuthErrorKind.PolicyBlocked` combined with `--device-code`
-  emits "Your tenant blocks the device code grant. Try 'twig login'
+  emits "Your tenant blocks the device code grant. Try 'twig auth login'
   (loopback PKCE) instead." (`src/Twig/Commands/AuthLoginCommand.cs:56-59`).
 * `InteractiveAuthErrorKind.LoopbackUnavailable` emits "Could not bind a
-  loopback listener. Try 'twig login --device-code'."
+  loopback listener. Try 'twig auth login --device-code'."
   (`src/Twig/Commands/AuthLoginCommand.cs:60-63`).
 
 The command never echoes the refresh token or access token to the terminal.

@@ -23,6 +23,7 @@ twig workspace area [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -76,12 +77,13 @@ $ twig workspace area -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success (matches found or none)|`0`|
 |Local cache unavailable|`1` with `Cannot show area view: no local cache available.` on stderr|
 
 ## See also
 
-- [`workspace area add`](./workspace-area-add.md)
-- [`workspace area list`](./workspace-area-list.md)
-- [`workspace area sync`](./workspace-area-sync.md)
+- [`workspace area add`](./area-add.md)
+- [`workspace area list`](./area-list.md)
+- [`workspace area sync`](./area-sync.md)
 - [`workspace`](./workspace.md)

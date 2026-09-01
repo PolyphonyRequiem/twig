@@ -8,30 +8,22 @@ mutates: none
 
 # `twig process`
 
-Inspect the work item types this project's process serves. With no argument it
-lists every type (with state counts, colors, icon IDs, and category
-membership); with a positional type name it shows that type's states, fields,
-and transitions. Everything reported is discovered from the process — twig
-holds no hard-coded list of types, states, or categories, and the same command
-gives the same shape of answer against any process template
-(`src/Twig/Commands/ProcessCommand.cs:109-113`).
-
-Both invocation modes share the same argument surface, so this page covers
-`twig process` *and* the `twig process <type>` form together. Routing lives in
-`src/Twig/Program.cs:617-621`; the switch between list and detail is made in
-`ProcessCommand.ExecuteAsync` at `src/Twig/Commands/ProcessCommand.cs:54-57`.
+List the work-item types in the current process. This list mode is the
+starting point for discovering valid type names without assuming an ADO
+process template. To inspect one type's states, fields, and transitions, use
+the dedicated [`twig process <type>`](process-type.md) reference.
 
 ## Synopsis
 
 ```
-twig process [type] [-o|--output <format>] [--org <org> --project <project>] [--include-hidden]
+twig process [-o|--output <format>] [--org <org> --project <project>] [--include-hidden]
 ```
 
 ## Arguments
 
-|Argument|Required|Description|
-|---|---|---|
-|`type`|no|Work item type name to describe. Omit to list every type in the process. The list mode and detail mode are dispatched by whether this argument is present (`src/Twig/Commands/ProcessCommand.cs:54-57`).|
+| Argument | Required | Description |
+| --- | --- | --- |
+| — | — | This list form accepts no positional argument. Use [`twig process <type>`](process-type.md) for type details. |
 
 ## Flags
 
@@ -67,23 +59,6 @@ child-type count, color, icon ID, hidden flag, and category membership
 - The empty-store error is raised **before** the hidden filter, so the
   "run twig sync" hint still fires on a cache that has never been populated.
 
-### Detail mode — `twig process <type>`
-
-Looks up the named type with `IProcessTypeStore.GetByNameAsync`, then renders
-three tables: states (name, category, color), fields (reference name, display
-name, data type, read-only flag), and transitions (from → to, kind) computed
-as every ordered pair of distinct states, marked `Cut` when the target state
-is in the `Removed` category and `Forward` otherwise
-(`src/Twig/Commands/ProcessCommand.cs:145-161`, `230-332`).
-
-- Human output shows only the state list; fields and transitions are emitted
-  to the machine surface only, alongside `type`, `isHidden`, and `categories`
-  (`src/Twig/Commands/ProcessCommand.cs:234-240`, `300-329`).
-- An unknown type name, or a type with no states, exits 1 with
-  `No states found for type '<name>'. Run 'twig sync' to refresh process
-  data.` (`src/Twig/Commands/ProcessCommand.cs:150-154`).
-- `--include-hidden` is ignored: naming a type always describes it, hidden or
-  not.
 
 ### `--org`/`--project` override
 
@@ -114,20 +89,16 @@ Machine output (`-o json`) additionally carries `totalTypes`, per-type
 `childTypeCount`, `iconId`, `isHidden`, and full `categories` arrays
 (`src/Twig/Commands/ProcessCommand.cs:216-225`).
 
-### Describe one type
+### Inspect a discovered type
+
+After listing types, pass the selected name to the dedicated type form:
 
 ```
 $ twig process Task
-  New                 Proposed (#B2B2B2)
-  Active              InProgress (#007ACC)
-  Resolved            Resolved (#FF9D00)
-  Closed              Completed (#339933)
-  Removed             Removed (#B2B2B2)
 ```
 
-Machine output additionally emits the `type`, `isHidden`, `categories`,
-`fields`, and `transitions` sections
-(`src/Twig/Commands/ProcessCommand.cs:300-329`).
+See [`twig process <type>`](process-type.md) for its state/field/transition
+output, override behavior, examples, and failure modes.
 
 ### Describe another project's process live
 
@@ -151,5 +122,6 @@ not consulted or updated (`src/Twig/Program.cs:617-621`).
 ## See also
 
 - [`twig process layout`](./process-layout.md)
+- [`twig process <type>`](process-type.md) — inspect one type's states, fields, and transitions.
 - [`twig process description`](./process-description.md)
 - [`twig states`](./states.md)

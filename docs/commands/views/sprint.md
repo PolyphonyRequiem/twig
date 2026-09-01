@@ -41,10 +41,10 @@ twig sprint [-o|--output <format>] [--all] [--refresh] [--flat] [--tree]
 - Cache-first. `twig sprint` reads the local workspace cache (`.twig/{org}/{project}/twig.db`) and renders immediately. Without `--refresh` it never touches ADO.
 - The sprint scope is defined by the workspace's `sprints` expressions (managed via `twig workspace sprint add|remove|list`). Items whose iteration matches those expressions land in the view; items outside them do not.
 - Grouping is by assignee. Your own items always render; other assignees appear only under `--all`.
-- Rendering fans out by output format. The `human` format on a TTY streams through the async Spectre live renderer for the sprint-layout mode when `--all` is unset (`src/Twig/Commands/WorkspaceCommand.cs:67-68`); everything else — `--all`, machine formats, `--no-live` callers, or piped output — goes through the synchronous path in `ExecuteSyncAsync` and prints `FormatSprintView` (`src/Twig/Commands/WorkspaceCommand.cs:231-232,432-434`).
-- `--refresh` runs a sync pass before rendering. That sync flushes any pending local edits to ADO and then refreshes the cache, so the view can move ADO state as a side effect when pending changes exist.
+- `sprintLayout` forces every sprint invocation through the synchronous rendering path; it never uses the live Spectre renderer (`src/Twig/Commands/WorkspaceCommand.cs:67-72,231-232`).
+- For machine formats, `--refresh` runs `ReadOnly.SyncWorkingSetAsync` before rendering. A refresh failure is non-fatal and falls back to cached data (`src/Twig/Commands/WorkspaceCommand.cs:287-303`). The human sprint path remains cache-based even when `--refresh` is supplied.
+- The refresh path is read-only: it does not flush pending changes to ADO.
 - `--tree` swaps the sprint table for the full backlog hierarchy tree. When combined with `--flat` the command exits with an error before touching the store (`src/Twig/Commands/WorkspaceCommand.cs:54`).
-- Machine formats (`json`, `minimal`) sync first, then render, so scripted consumers always see a consistent snapshot.
 
 ## Examples
 
@@ -92,4 +92,4 @@ $ twig sprint --all --refresh --output json
 - [`twig workspace`](../workspace/README.md) — full workspace dashboard the sprint view is layered on.
 - [`twig workspace sprint add|remove|list`](../workspace/README.md) — manage the sprint expressions this view honors.
 - [`twig tree`](./tree.md) — hidden alias for the hierarchy tree; note that `twig sprint --tree` is the supported spelling.
-- [`twig show`](../work-items/README.md) — drill into a specific item from the sprint list.
+- [`twig show`](../context/show.md) — drill into a specific item from the sprint list.

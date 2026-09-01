@@ -27,11 +27,13 @@ twig mcp [--tool-profile <profile>] [-h|--help] [--version]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
 
 |Flag|Type|Default|Description|
+| --- | --- | --- | --- |
 |`--tool-profile <profile>`|string|`compact`|Advertised tool profile. `compact` (alias `core`) exposes the high-frequency subset; `full` (alias `all`) advertises the entire catalog. Hidden tools remain callable by name even under `compact`.|
 |`-h`, `--help`|switch|—|Print help and exit.|
 |`--version`|switch|—|Print the `twig` version and exit.|

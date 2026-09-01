@@ -107,9 +107,11 @@ preview reports, in the same order.
 `twig proposal apply` requires **both** `--file` and `--confirm <digest>`,
 and refuses to run without them
 (`src/Twig/Commands/PlanCommand.cs:100-109`). The confirmed digest is
-compared **byte-for-byte** against the digest recomputed from the file at
-apply time. Any mismatch — even a whitespace edit between preview and apply
-— fails the run; the fix is to re-preview and pass the new digest.
+compared against the digest recomputed from the file's canonical JSON at
+apply time. A change that alters canonical content — a value, operation, or
+array order — fails the run; formatting-only whitespace and object-key-order
+changes do not alter the digest. Re-preview after a canonical-content change
+and pass the new digest.
 
 Once the digest gate passes, the apply loop walks per-operation states:
 

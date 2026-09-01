@@ -22,6 +22,7 @@ twig workspace track <id> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<id>`|yes|Work item ID to track. Must be a positive integer; seed IDs (negative) are rejected.|
 
 ## Flags
@@ -64,12 +65,13 @@ $ twig workspace track 4211 -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |`id <= 0` (seed or invalid ID)|`2` with error on stderr|
 
 ## See also
 
-- [`workspace track-tree`](./workspace-track-tree.md)
-- [`workspace untrack`](./workspace-untrack.md)
-- [`workspace exclude`](./workspace-exclude.md)
+- [`workspace track-tree`](./track-tree.md)
+- [`workspace untrack`](./untrack.md)
+- [`workspace exclude`](./exclude.md)
 - [`workspace`](./workspace.md)

@@ -22,6 +22,7 @@ twig workspace sprint add <expression> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<expression>`|yes|Sprint expression to subscribe to — e.g. `@current`, `@current-1`, or an absolute iteration path like `Contoso\Sprint 42`.|
 
 ## Flags
@@ -66,12 +67,13 @@ $ twig workspace sprint add "Contoso\Sprint 42" -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Empty or whitespace expression|`2` with error on stderr|
 |Duplicate expression (case-insensitive)|`0` with `sprintAddDuplicate` info outcome|
 
 ## See also
 
-- [`workspace sprint remove`](./workspace-sprint-remove.md)
-- [`workspace sprint list`](./workspace-sprint-list.md)
+- [`workspace sprint remove`](./sprint-remove.md)
+- [`workspace sprint list`](./sprint-list.md)
 - [`workspace`](./workspace.md)

@@ -8,7 +8,7 @@ mutates: local
 
 # `twig area sync`
 
-**Deprecated.** Use [`twig workspace area sync`](./workspace-area-sync.md)
+**Deprecated.** Use [`twig workspace area sync`](./area-sync.md)
 instead. Registered as `[Hidden] [Command("area sync")]`; delegates after
 emitting a hint (`src/Twig/Program.cs:1256-1262`).
 
@@ -21,6 +21,7 @@ twig area sync [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -40,7 +41,7 @@ twig area sync [flags]
 
 Reads team area paths from ADO and replaces the local configuration. All
 other behavior, exit codes, and output shapes match
-[`workspace area sync`](./workspace-area-sync.md).
+[`workspace area sync`](./area-sync.md).
 
 ## Examples
 
@@ -61,9 +62,10 @@ hint: 'twig area sync' is deprecated. Use 'twig workspace area sync' instead.
 
 ## Exit codes and failure modes
 
-Identical to [`workspace area sync`](./workspace-area-sync.md).
+Identical to [`workspace area sync`](./area-sync.md).
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Not connected to ADO|`1`|
 |ADO fetch throws|`1`|
@@ -71,6 +73,6 @@ Identical to [`workspace area sync`](./workspace-area-sync.md).
 
 ## See also
 
-- [`workspace area sync`](./workspace-area-sync.md) — canonical form
+- [`workspace area sync`](./area-sync.md) — canonical form
 - [`area`](./area-deprecated.md)
 - [`area list`](./area-list-deprecated.md)

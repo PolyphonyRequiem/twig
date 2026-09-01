@@ -22,6 +22,7 @@ twig workspace untrack <id> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<id>`|yes|Work item ID to stop tracking. Positive integer only.|
 
 ## Flags
@@ -64,12 +65,13 @@ $ twig workspace untrack 4211 -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success (item was tracked or was not tracked)|`0`|
 |`id <= 0` (seed or invalid ID)|`2` with error on stderr|
 
 ## See also
 
-- [`workspace track`](./workspace-track.md)
-- [`workspace track-tree`](./workspace-track-tree.md)
-- [`workspace exclude`](./workspace-exclude.md)
+- [`workspace track`](./track.md)
+- [`workspace track-tree`](./track-tree.md)
+- [`workspace exclude`](./exclude.md)
 - [`workspace`](./workspace.md)

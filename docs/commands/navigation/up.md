@@ -16,7 +16,7 @@ The command is marked `[Hidden]` in the CLI registration
 not surfaced in tab-completion. It also exposes a strictly smaller flag
 surface than the canonical form: no short `-o` alias for `--output`, and no
 help copy for the option itself
-(`C:/Users/dangreen/projects/_briefs/twig-docs-help/up.txt`).
+(`src/Twig/Program.cs:752-755`).
 
 **Prefer `twig nav up` in new scripts and documentation.**
 

@@ -9,10 +9,12 @@ mutates: ado
 # `twig delete`
 
 Delete a work item from Azure DevOps. This is **permanent and
-irreversible** — prefer `twig state Closed` for anything you might want
-back. `delete` requires an explicit ID (there is no "delete the active
-item" shortcut), refuses seeds and linked items, and gates the deletion
-behind an interactive confirmation that the caller must type `yes` to.
+irreversible** — prefer a non-destructive state transition whenever the
+process offers one; inspect that process's dynamically discovered states with
+`twig process <type>` before deleting. `delete` requires an explicit ID
+(there is no "delete the active item" shortcut), refuses seeds and linked
+items, and gates the deletion behind an interactive confirmation that the
+caller must type `yes` to.
 
 ## Synopsis
 
@@ -41,16 +43,17 @@ Sequence (see `src/Twig/Commands/DeleteCommand.cs:79-158`):
 
 1. **Resolve the item.** `ActiveItemResolver.ResolveByIdAsync` looks in the
    cache first, then ADO, so a bad ID reports a clean "not found" without
-   any destructive side effect. The error message specifically points at
-   `twig state Closed` as the reversible alternative.
+   any destructive side effect. The current source error text suggests
+   `twig state Closed`; that wording is not process-agnostic. Discover an
+   appropriate non-destructive state with `twig process <type>` instead.
 2. **Seed guard.** If the resolved item is a seed, `delete` refuses and
    directs you to `twig seed discard <id>`. Seeds don't exist in ADO;
    there is nothing for `delete` to remove.
 3. **Fresh fetch and link guard.** `DeleteWorkflow.PrepareAsync` fetches
    the item again from ADO and checks its link count. Any link — parent,
    child, related, artifact — blocks the delete with a message listing
-   the link totals and (again) redirecting to `twig state Closed`. Remove
-   every link before retrying (`src/Twig/Commands/DeleteCommand.cs:97-115`).
+   the link totals. Remove every link before retrying
+   (`src/Twig/Commands/DeleteCommand.cs:97-115`).
 4. **Confirmation.** Unless `--force`, twig prints the item's ID, title,
    type, and state, then a warning that the action is permanent, then
    reads a line from stdin. The caller must type `yes` (case-insensitive,
@@ -79,7 +82,7 @@ $ twig delete 1234
   Type:  Task
   State: To Do
 
-⚠ This action is PERMANENT. Consider 'twig state Closed' instead — it preserves history and is reversible.
+⚠ This action is PERMANENT. Consider a supported non-destructive state transition instead — it preserves history and can be reversible.
 
 Type 'yes' to confirm deletion: yes
 Deleted #1234 Fix login redirect.
@@ -96,7 +99,7 @@ Blocked because the item has links:
 
 ```
 $ twig delete 1234
-Cannot delete #1234 'Fix login redirect' — it has 3 link(s): 1 parent, 2 children. Remove all links before deleting. Consider 'twig state Closed' instead — it preserves history and is reversible.
+Cannot delete #1234 'Fix login redirect' — it has 3 link(s): 1 parent, 2 children. Remove all links before deleting. Then choose a process-supported state transition if you need to preserve the work item.
 ```
 
 ## Exit codes and failure modes
@@ -108,15 +111,14 @@ Cannot delete #1234 'Fix login redirect' — it has 3 link(s): 1 parent, 2 child
 | Missing `<id>` | Exit `2` (framework usage error). |
 | Item not found (cache and ADO) | Exit `1`. |
 | Item is a seed | Exit `1`, redirects to `twig seed discard`. |
-| Item has links (any direction) | Exit `1`, redirects to `twig state Closed`. |
+| Item has links (any direction) | Exit `1`; remove every link before retrying. |
 | Non-interactive caller without `--force` | Exit `1`. |
 | Fresh fetch for delete failed | Exit `1`. |
 | ADO delete call failed | Exit `1`. |
 
 ## See also
 
-- [`twig state Closed`](state.md) — reversible alternative that preserves
-  history.
+- [`twig state`](state.md) — transition to a state discovered for the item's process instead of deleting it.
 - [`twig discard`](discard.md) — clear local staged changes, not the
   work item itself.
 - `twig seed discard` — remove an unpublished seed instead of `delete`.

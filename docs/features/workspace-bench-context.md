@@ -1,17 +1,19 @@
 # Connection, Bench, and Context
 
-Twig has three nouns for *where you are working*. They stack:
+Twig's domain model uses three nouns for *where work is organized*. The
+Connection and Bench concepts are present in the current CLI; the
+caller-addressable Context is a settled design record that is not yet exposed
+as a CLI resource. They stack conceptually:
 
 1. **Connection** — one `{org}/{project}` Azure DevOps endpoint, with its
    cache, credentials, and pending set.
 2. **Bench** — a named, durable, saved backlog of work items you return to.
-3. **Context** — a disposable place to stand, holding only the active work
-   item and what derives from it.
+3. **Context** — the planned disposable place to stand, holding only the
+   active item and what derives from it.
 
-Everything else — the workspace view, `twig set`, `twig show` without an
-argument, the workspace tree, `bench switch` — is a consequence of that
-stack. This page explains the model, the rules that hold it together, and
-how a human at a terminal and a script or agent each address it.
+This page distinguishes current commands from that design direction, explains
+why `twig set` is a local pointer and never a claim, and records the rules
+future Context work must preserve.
 
 The naming is settled by wayfinder tickets
 [`0022-bench-and-context.md`](../../wayfinder/tickets/0022-bench-and-context.md)
@@ -82,7 +84,7 @@ Two rules follow from that shape:
   standing on it (ticket 0022 §5).
 - **Exclusions are out of the Bench entirely** (decided 2026-08-06). There
   is no subtracting selector, and the top-level
-  [`workspace exclude`](../commands/workspace/workspace-exclude.md) group
+  [`workspace exclude`](../commands/workspace/exclude.md) group
   continues to own hiding items from the workspace view.
 
 ⚠ **A Bench does not "reconcile" Contexts.** `Reconciliation` is the
@@ -103,24 +105,18 @@ rest through the [`bench`](../commands/bench/README.md) group:
 - [`bench delete`](../commands/bench/delete.md) — remove one; a Bench that
   holds selectors refuses without re-typing the name into `--confirm`.
 
-### Context — a disposable place to stand
+### Context — planned caller-addressable resource
 
-A **Context** is a place you open, work in, and close (ticket 0022 §1).
-It holds only where you are: the active work item, plus what derives from
-it (parent chain, children, navigation history). It is *not* a record of
-interest. Reading a work item does not add it to a Bench and does not
-retroactively join any Context. Being on a Bench means only that you *can*
-stand on it — the Bench does not know who is standing on it.
+The Context described by tickets 0022 and 0023 is a place a caller would
+open, work in, and close. It would hold only where the caller is: an active
+item plus its derived parent chain, children, and navigation history. That
+model must not be mistaken for the current CLI's single active-item pointer:
+there is no current Context open/close command, handle, or per-caller state.
 
-Concurrency lives at the Context level, not the Bench level: **Contexts
-are concurrent, Benches are switchable** (`CONTEXT.md` §4). Several
-Contexts can be open at once against one Connection, each naming which
-Bench it stands on; only one Bench at a time is the "current" one for a
-given Context.
-
-There is **one default Context per Connection**, and it is the only
-Context twig creates on its own — so it is never reaped (ticket 0023
-"RULING"). Everything else is opened deliberately by a caller.
+The design puts concurrency at the Context level and keeps Benches
+switchable. It specifies one default Context per Connection, plus explicit
+handles for additional Contexts. These are future-surface constraints, not
+current options accepted by `twig set`, `twig show`, or `twig workspace`.
 
 ---
 
@@ -141,8 +137,8 @@ item other commands operate on. It is:
   definitions and never runs a working-set sync
   (`docs/commands/context/set.md`).
 
-`set` is how you *point* the current Context at a work item. If you want
-to claim work you own on the ADO board, transition the item and update
+`set` is how you *point* the current active-item pointer at a work item. If
+you want to claim work you own on the ADO board, transition the item and update
 its assignee through the mutation flow (see the
 [`context`](../commands/context/README.md) group and the plan/proposal
 path, not `set`).
@@ -160,128 +156,93 @@ Two subtleties fall out:
 
 ---
 
-## Standing commands vs targeted commands
+## Design vocabulary: standing commands vs targeted commands
 
-Commands split cleanly (ticket 0022 §3):
+Ticket 0022 distinguishes intended command shapes:
 
-- **Standing commands** need a Context. Examples: `tree`, `nav`, `set`
-  with no target named. These read *where you are* — an active item, its
-  neighbours, the current Bench view.
-- **Targeted commands** name their own work item. They need a Connection
-  and nothing else. Reading `twig show 1234`, staging a change against
-  `#1234`, or opening it in the browser must not create or mutate a
-  Context as a side effect.
+- **Standing commands** would need a caller Context. Examples include `tree`,
+  `nav`, and an untargeted `set`; they read where the caller stands.
+- **Targeted commands** name their own work item. They need a Connection and
+  nothing else. A targeted read must not create or mutate a Context as a side
+  effect.
 
-The rich CLI lives mostly in the first kind; the script CLI and MCP live
-mostly in the second, and MCP tools already require every call to name
-its target (see ticket 0021 and
+This distinction is a design constraint on a future Context surface. Current
+CLI commands instead use the existing active-item pointer where applicable;
+MCP tools already name target work items (see
 [`docs/architecture/mcp-server.md`](../architecture/mcp-server.md)).
 
-Design consequence, stated so it is not re-litigated:
-
-- **Reading one work item does not need a Bench and does not join one.**
-- **A targeted read must not mutate a Bench as a side effect**, or scripts
-  silently move the user's view.
+The design preserves two safety rules: reading one work item does not join a
+Bench, and a targeted read must not mutate a Bench as a side effect.
 
 ---
 
-## Addressing a Context — human simple, machine strict
+## Current CLI behavior
 
-Ticket 0023 settled how a caller names its Context. The rule holds across
-every surface:
+Twig's present CLI has a single active-work-item pointer in `IContextStore`.
+`twig set` changes that pointer locally; it does not claim work, write to ADO,
+or open a caller-addressable Context (`src/Twig/Commands/SetCommand.cs:115-118`,
+`src/Twig.Domain/Interfaces/IContextStore.cs:14-25`). Targeted commands that
+name an item act on that target. Do not pass a Context handle or expect
+machine-format Context enforcement: the current command surface does not
+expose either.
 
-| Caller           | Standing command, no Context named           | Non-default Context |
-|------------------|----------------------------------------------|---------------------|
-| human format     | the default Context for the current Connection | must name it       |
-| machine format   | **hard error**                               | must name it        |
-| any              | targeted command                             | no Context involved |
-
-Why the split:
-
-- **A human can never drift.** Silence lands you in the default Context
-  for the current Connection, every time. There is no state where doing
-  nothing puts you somewhere unexpected — the kubectl failure mode, in
-  one sentence.
-- **A machine inherits nothing, ever.** A script has no memory between
-  runs and no prompt to glance at, so requiring the name — even for the
-  default — costs one flag and removes the whole class of quiet-target
-  bugs. This is ticket 0021's rule ("every MCP tool names its work item")
-  one level up.
-- **Format is a declaration, not an inference.** Twig must not sniff for
-  a tty. The output flag is *declared* by the caller, so a command means
-  the same thing in a pipe as at a prompt (see the `-o|--output` flag on
-  every [`bench`](../commands/bench/README.md) subcommand and
-  [`context`](../commands/context/README.md) command).
-
-**An unknown or expired Context is a hard error.** Not a fallback, not a
-warning, not a silent fresh Context. Prior art splits by failure family:
-a *handle* must resolve, so a stale one fails loud (docker, ssh-agent); a
-*name in a shared file* always resolves, so a stale one acts on the wrong
-target silently (kubectl, terraform, gh). Twig is deliberately in the
-first family (ticket 0023 "RULING — twig takes the handle family"). Being
-wrong loudly is the feature.
+The implemented **Bench** is durable: it saves a named backlog view and its
+selectors. Switching Benches changes the view, not pending ADO work. The
+current local pointer remains separate from a claim or assignment mechanism.
 
 ---
 
-## Durable Bench selectors, disposable Context
+## Design record: Context addressing
 
-Two rules of thumb summarise the persistence model:
+Ticket 0023 records the intended Connection → Bench → Context model for a
+future caller-addressable Context surface. It is useful terminology and a
+constraint on future work, but the following rules are **not current CLI
+behavior**:
 
-- **Benches are durable.** Their selectors live in the pending store
-  alongside the pending set and survive cache rebuilds
-  (`src/Twig.Domain/Aggregates/Bench.cs:5-11`, `docs/specs/bench.spec.md`
-  §"What is NOT the problem"). Naming an arrangement is a promise that
-  it will still be there tomorrow.
-- **Contexts are disposable.** A caller opens one, works, and closes.
-  Only the default Context per Connection is created and kept by twig
-  itself (ticket 0023 "Consequence for lifetime"). Everything else was
-  named by someone who can be told it is gone.
+| Caller | Intended standing-command default | Intended non-default Context behavior |
+|---|---|---|
+| human format | default Context for the current Connection | caller names it |
+| machine format | hard error without a Context name | caller names it |
+| any targeted command | no Context involved | naming one is meaningless |
 
-When you switch Bench, selectors on the previous Bench are untouched;
-switching does not migrate pins
-(`docs/commands/bench/switch.md`). When you close a non-default Context,
-no work is lost — because unpushed work belongs to the Connection, not to
-the Context (see below).
+The design chooses an opaque, resolvable handle over a mutable shared name so
+an expired Context fails loudly rather than quietly targeting another one. It
+also assigns unpushed work to the Connection, which would let a Context close
+without silently discarding it. See ticket 0023 for the settled rationale and
+do not treat these design constraints as accepted command-line flags.
 
 ---
 
-## Pending work is Connection-owned
+## Durable Bench selectors and Connection-owned pending work
 
-Every unpushed field change, note, and seed lives on the **Connection**,
-not the Bench and not the Context (ticket 0023 "Corollary — close never
-refuses"). Two structural consequences:
+Benches are durable. Their selectors survive cache rebuilds and describe the
+view rather than its materialized results (`src/Twig.Domain/Aggregates/Bench.cs:5-11`,
+`docs/specs/bench.spec.md` §"What is NOT the problem"). Switching a Bench
+does not migrate selectors or flush pending changes. A Bench is a display
+view, never a reconciliation or sync unit.
 
-1. **Switching Bench never changes what twig owes ADO.** A Bench is a view
-   and never a sync unit. Pending edits stay pending; seeds stay visible
-   even if no selector on the new Bench matches them (ticket 0022 §7 —
-   the "mandatory guard").
-2. **Closing a Context cannot discard work.** Close exits `0` and reports
-   what remains pending against the Connection. There is deliberately no
-   `--force` on close: a force flag that is habitually needed is how the
-   silent-loss class recurs (ticket 0023 "Corollary").
-
-Discard is a separate, explicit verb on the pending set. Reconciliation
-against ADO happens at the Connection level; look at the pending state
-and reconcile through the plan/proposal path, not through a Bench switch.
-
-For the on-disk shape — where the cache lives, how the pending set is
-stored, and how sync flushes it — see
+Pending field changes, notes, and seeds are Connection-scoped in the intended
+model. The existing `twig discard` command remains the explicit way to drop
+pending work; a Bench switch must not hide work twig still owes ADO. For the
+on-disk cache and pending-store implementation, see
 [`docs/architecture/data-layer.md`](../architecture/data-layer.md).
+
 
 ---
 
 ## Putting it together — a worked walk
 
-A human at a terminal, working in one Connection with the default Bench:
+A human at a terminal, using the current single active-item pointer and the
+selected Bench:
 
 ```
 $ twig set 4211                 # local pointer flip; no ADO write
 Set active item: #4211 Wire retry telemetry [Doing]
 
-$ twig show                     # standing read; uses the default Context
+$ twig show                     # reads the current active-item pointer
 #4211 Wire retry telemetry — Doing — You
 
-$ twig workspace                # view rendered on the current Bench
+$ twig workspace                # view rendered from the selected Bench
 Sprint (Iteration \Sprint 42):
   ● #4211  Wire retry telemetry             Doing    You
   …
@@ -302,9 +263,9 @@ $ twig bench switch default
 Now on Bench 'default' (was 'release blockers').
 ```
 
-A script running in CI names its Context, always, including when it wants
-the default — machine callers inherit nothing (see ticket 0023 "RULING"
-and the `-o|--output` flag on every command page).
+The caller-addressable Context contract from ticket 0023 is deliberately not
+shown as a runnable CLI example: no current command accepts a Context handle
+or changes behavior based on machine output format.
 
 ---
 
@@ -315,8 +276,8 @@ and the `-o|--output` flag on every command page).
 - [`bench`](../commands/bench/README.md) — create, list, switch, delete Benches.
 - [`context`](../commands/context/README.md) — `set`, `show`, `show-batch`, `query`, `web`, `history`.
 - [`workspace`](../commands/workspace/README.md) — the view rendered on the current Bench.
-- [`workspace track`](../commands/workspace/workspace-track.md) /
-  [`workspace exclusions`](../commands/workspace/workspace-exclusions.md) — pin and hide items.
+- [`workspace track`](../commands/workspace/track.md) /
+  [`workspace exclusions`](../commands/workspace/exclusions.md) — pin and hide items.
 - [`auth login`](../commands/system/auth-login.md) /
   [`auth status`](../commands/system/auth-status.md) — Connection credentials.
 

@@ -8,7 +8,7 @@ mutates: local
 
 # `twig area remove`
 
-**Deprecated.** Use [`twig workspace area remove`](./workspace-area-remove.md)
+**Deprecated.** Use [`twig workspace area remove`](./area-remove.md)
 instead. The alias is registered as `[Hidden] [Command("area remove")]` and
 delegates after emitting a hint (`src/Twig/Program.cs:1236-1242`).
 
@@ -21,6 +21,7 @@ twig area remove <path> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<path>`|yes|Area path to remove.|
 
 ## Flags
@@ -39,7 +40,7 @@ twig area remove <path> [flags]
    (`src/Twig/Program.cs:1241`).
 
 All behavior, validation, exit codes, and output shapes match
-[`workspace area remove`](./workspace-area-remove.md).
+[`workspace area remove`](./area-remove.md).
 
 ## Examples
 
@@ -57,15 +58,16 @@ hint: 'twig area remove' is deprecated. Use 'twig workspace area remove' instead
 
 ## Exit codes and failure modes
 
-Identical to [`workspace area remove`](./workspace-area-remove.md).
+Identical to [`workspace area remove`](./area-remove.md).
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |No area paths configured|`1`|
 |Path not found|`1`|
 
 ## See also
 
-- [`workspace area remove`](./workspace-area-remove.md) — canonical form
+- [`workspace area remove`](./area-remove.md) — canonical form
 - [`area`](./area-deprecated.md)
 - [`area add`](./area-add-deprecated.md)

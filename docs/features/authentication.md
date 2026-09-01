@@ -323,16 +323,18 @@ the top-level exception path takes over.
 ### `PolicyBlocked` on `auth login --device-code`
 
 The tenant's Conditional Access policy forbids the device-code grant.
-`auth login` detects this and prints `Your tenant blocks the device code
-grant. Try 'twig login' (loopback PKCE) instead.`
-(`src/Twig/Commands/AuthLoginCommand.cs:56-59`).
+`auth login` detects this. The current source message still says
+`Try 'twig login' (loopback PKCE) instead`, but the registered command is
+[`twig auth login`](../commands/system/auth-login.md); use that form
+(`src/Twig/Commands/AuthLoginCommand.cs:56-59`, `src/Twig/Program.cs:1311-1318`).
 
 ### `LoopbackUnavailable` on `auth login` (default PKCE)
 
-Twig could not bind a loopback listener — usually a firewall or an SSH
-session with no port forwarding. `auth login` prints `Could not bind a
-loopback listener. Try 'twig login --device-code'.`
-(`src/Twig/Commands/AuthLoginCommand.cs:60-63`).
+Use `twig auth login --device-code` on a headless machine or remote session
+with no port forwarding. The current source message says `twig login
+--device-code`; the registered recovery command is
+`twig auth login --device-code` (`src/Twig/Commands/AuthLoginCommand.cs:60-63`,
+`src/Twig/Program.cs:1311-1318`).
 
 ### "No PAT found"
 

@@ -25,11 +25,13 @@ twig tui [-h|--help] [--version]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
 
 |Flag|Type|Default|Description|
+| --- | --- | --- | --- |
 |`-h`, `--help`|switch|—|Print help and exit.|
 |`--version`|switch|—|Print the `twig` version and exit.|
 

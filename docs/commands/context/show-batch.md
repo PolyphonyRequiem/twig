@@ -81,5 +81,5 @@ Pending: 0 field changes, 0 notes
 
 - [`twig show`](./show.md) — single‑item detail card, with `--refresh`.
 - [`twig tree-set`](./tree-set.md) — same input shape, forest render.
-- [`twig sync`](../process/README.md) — refresh the local cache before
+- [`twig sync`](../getting-started/sync.md) — refresh the local cache before
   running a batch read.

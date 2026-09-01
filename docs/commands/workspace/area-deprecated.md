@@ -8,7 +8,7 @@ mutates: none
 
 # `twig area`
 
-**Deprecated.** Use [`twig workspace area`](./workspace-area.md) instead. This
+**Deprecated.** Use [`twig workspace area`](./area.md) instead. This
 top-level `area` verb is retained as a hidden alias so that existing scripts
 and skills keep working while callers migrate. It writes a `hint:` line on
 stderr and then delegates to the canonical implementation
@@ -23,6 +23,7 @@ twig area [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -44,7 +45,7 @@ command:
    by `twig workspace area` (`src/Twig/Program.cs:1218`).
 
 All other behavior, exit codes, and output shapes match the canonical form.
-See [`workspace area`](./workspace-area.md) for details.
+See [`workspace area`](./area.md) for details.
 
 ## Examples
 
@@ -64,14 +65,15 @@ hint: 'twig area' is deprecated. Use 'twig workspace area' instead.
 
 ## Exit codes and failure modes
 
-Identical to [`workspace area`](./workspace-area.md).
+Identical to [`workspace area`](./area.md).
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |Local cache unavailable|`1`|
 
 ## See also
 
-- [`workspace area`](./workspace-area.md) — canonical form
+- [`workspace area`](./area.md) — canonical form
 - [`area add`](./area-add-deprecated.md)
 - [`area list`](./area-list-deprecated.md)

@@ -22,6 +22,7 @@ twig workspace area list [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 | — | — | — |
 
 ## Flags
@@ -63,11 +64,12 @@ $ twig workspace area list -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 
 ## See also
 
-- [`workspace area add`](./workspace-area-add.md)
-- [`workspace area remove`](./workspace-area-remove.md)
-- [`workspace area sync`](./workspace-area-sync.md)
-- [`workspace area`](./workspace-area.md)
+- [`workspace area add`](./area-add.md)
+- [`workspace area remove`](./area-remove.md)
+- [`workspace area sync`](./area-sync.md)
+- [`workspace area`](./area.md)

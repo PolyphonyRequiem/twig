@@ -93,7 +93,7 @@
     "summary": "Show the area-filtered workspace view.",
     "stability": "stable",
     "mutates": "none",
-    "path": "workspace/workspace-area.md"
+    "path": "workspace/area.md"
   },
   {
     "command": "workspace area add",
@@ -101,7 +101,7 @@
     "summary": "Add an area path to workspace configuration.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-area-add.md"
+    "path": "workspace/area-add.md"
   },
   {
     "command": "workspace area list",
@@ -109,7 +109,7 @@
     "summary": "List configured area paths with match semantics.",
     "stability": "stable",
     "mutates": "none",
-    "path": "workspace/workspace-area-list.md"
+    "path": "workspace/area-list.md"
   },
   {
     "command": "workspace area remove",
@@ -117,7 +117,7 @@
     "summary": "Remove an area path from workspace configuration.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-area-remove.md"
+    "path": "workspace/area-remove.md"
   },
   {
     "command": "workspace area sync",
@@ -125,7 +125,7 @@
     "summary": "Fetch team area paths from ADO and replace configuration.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-area-sync.md"
+    "path": "workspace/area-sync.md"
   },
   {
     "command": "workspace exclude",
@@ -133,7 +133,7 @@
     "summary": "Exclude a work item from workspace view.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-exclude.md"
+    "path": "workspace/exclude.md"
   },
   {
     "command": "workspace exclusions",
@@ -141,7 +141,7 @@
     "summary": "List all excluded work items; also clears or removes exclusions.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-exclusions.md"
+    "path": "workspace/exclusions.md"
   },
   {
     "command": "workspace sprint add",
@@ -149,7 +149,7 @@
     "summary": "Add a sprint iteration expression to workspace configuration.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-sprint-add.md"
+    "path": "workspace/sprint-add.md"
   },
   {
     "command": "workspace sprint list",
@@ -157,7 +157,7 @@
     "summary": "List configured sprint iteration expressions.",
     "stability": "stable",
     "mutates": "none",
-    "path": "workspace/workspace-sprint-list.md"
+    "path": "workspace/sprint-list.md"
   },
   {
     "command": "workspace sprint remove",
@@ -165,7 +165,7 @@
     "summary": "Remove a sprint iteration expression from workspace configuration.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-sprint-remove.md"
+    "path": "workspace/sprint-remove.md"
   },
   {
     "command": "workspace track",
@@ -173,7 +173,7 @@
     "summary": "Track a single work item by ID (pinned to workspace).",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-track.md"
+    "path": "workspace/track.md"
   },
   {
     "command": "workspace track-tree",
@@ -181,7 +181,7 @@
     "summary": "Track a work item and its subtree.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-track-tree.md"
+    "path": "workspace/track-tree.md"
   },
   {
     "command": "workspace untrack",
@@ -189,7 +189,7 @@
     "summary": "Remove a work item from tracking.",
     "stability": "stable",
     "mutates": "local",
-    "path": "workspace/workspace-untrack.md"
+    "path": "workspace/untrack.md"
   },
   {
     "command": "ws",
@@ -406,6 +406,14 @@
     "stability": "stable",
     "mutates": "none",
     "path": "process/process.md"
+  },
+  {
+    "command": "process <type>",
+    "group": "process",
+    "summary": "Describe one dynamically discovered work-item type.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "process/process-type.md"
   },
   {
     "command": "process description",

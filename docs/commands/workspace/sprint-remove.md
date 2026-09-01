@@ -21,6 +21,7 @@ twig workspace sprint remove <expression> [flags]
 ## Arguments
 
 |Argument|Required|Description|
+| --- | --- | --- |
 |`<expression>`|yes|Sprint expression to remove. Matched case-insensitively against the configured entries.|
 
 ## Flags
@@ -63,11 +64,12 @@ $ twig workspace sprint remove "Contoso\Sprint 42" -o json
 ## Exit codes and failure modes
 
 |Condition|Result|
+| --- | --- |
 |Success|`0`|
 |No sprint expressions configured|`1` with `No sprint expressions configured.` on stderr|
 |Expression not found (case-insensitive)|`1` with error on stderr|
 
 ## See also
 
-- [`workspace sprint add`](./workspace-sprint-add.md)
-- [`workspace sprint list`](./workspace-sprint-list.md)
+- [`workspace sprint add`](./sprint-add.md)
+- [`workspace sprint list`](./sprint-list.md)

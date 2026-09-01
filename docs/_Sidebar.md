@@ -10,3 +10,14 @@
 
 **Guides**
 - [[Oh My Posh|ohmyposh]]
+
+**Command Reference**
+- [[Command Reference|commands/README]]
+
+**Feature Guides**
+- [[Workspace, Bench, and Context|features/workspace-bench-context]]
+- [[Seeds and Publishing|features/seeds-and-publishing]]
+- [[Plans and Proposals|features/proposals]]
+- [[Authentication|features/authentication]]
+- [[Reference Profile|features/reference-profile]]
+- [[Process Description|features/process-description]]

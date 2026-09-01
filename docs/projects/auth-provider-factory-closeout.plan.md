@@ -361,6 +361,7 @@ multiple PRs would create a dependency chain with no reviewability benefit.
 - `MsalCacheTokenProvider` design: `src/Twig.Infrastructure/Auth/MsalCacheTokenProvider.cs`
 - Auth call-site audit in `azcli-auth-timeout.plan.md` (related prior work)
 | **Type** | Deep |
+| --- | --- |
 | **Work Items** | #1935, #1936, #1937 |
 | **Estimated LoC** | ~100 |
 | **Estimated Files** | 4 (1 new factory, 1 new test file, 2 modified) |

@@ -19,6 +19,23 @@
 |----------|-------------|
 | [[Oh My Posh Integration|ohmyposh]] | Shell prompt integration |
 
+## Command Reference
+
+| Document | Description |
+|----------|-------------|
+| [[Command Reference|commands/README]] | Exhaustive command and subcommand reference, including side-effect classifications for automation |
+
+## Feature Guides
+
+| Document | Description |
+|----------|-------------|
+| [[Workspace, Bench, and Context|features/workspace-bench-context]] | Connection, Bench, and Context model |
+| [[Seeds and Publishing|features/seeds-and-publishing]] | Local drafts through ordered ADO publication |
+| [[Plans and Proposals|features/proposals]] | Digest-confirmed proposal lifecycle and journal |
+| [[Authentication|features/authentication]] | Token chain, sign-in, and secure recovery |
+| [[Reference Profile|features/reference-profile]] | Embedded policy profile and repository pin |
+| [[Process Description|features/process-description]] | Byte-stable process descriptors for diffing |
+
 ## Quick Links
 
 - [README](../blob/main/README.md) — Getting started, installation, command reference

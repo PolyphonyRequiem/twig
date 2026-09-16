@@ -74,6 +74,7 @@ internal static class SubcommandGuard
         "ohmyposh",
         "plan",
         "proposal",
+        "skills",
         "workspace sprint",
     ];
 
@@ -115,7 +116,7 @@ internal static class SubcommandGuard
         // Walk the longest chain of words that is still a known command.
         var chain = args[0];
         if (!IsKnownOrPrefix(chain))
-            return null; // unknown TOP-LEVEL command — already handled by GroupedHelp.ShowUnknown.
+            return null; // unknown TOP-LEVEL command — already handled by ProgressiveHelp.ShowUnknown.
 
         var index = 1;
         while (index < args.Length && !args[index].StartsWith('-'))

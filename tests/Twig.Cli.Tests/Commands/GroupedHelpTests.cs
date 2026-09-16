@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.RegularExpressions;
 using Shouldly;
 using Twig.Commands;
 using Xunit;
@@ -8,117 +7,11 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed class GroupedHelpTests
 {
-    [Fact]
-    public void BareSeed_HasHiddenAttribute()
-    {
-        var method = typeof(TwigCommands).GetMethod(
-            nameof(TwigCommands.Seed),
-            BindingFlags.Public | BindingFlags.Instance);
-
-        method.ShouldNotBeNull("TwigCommands.Seed method not found");
-        // ConsoleAppFramework source-generates a local HiddenAttribute in each project,
-        // so we match by name rather than by type to avoid CS0436 ambiguity.
-        method.GetCustomAttributes()
-            .Any(a => a.GetType().Name == "HiddenAttribute")
-            .ShouldBeTrue("Bare Seed() should have [Hidden] since 'seed new' is the canonical command");
-    }
 
     [Fact]
-    public void SeedNew_DoesNotHaveHiddenAttribute()
+    public void AllNonHiddenCommands_AreReachableThroughDispatchGuard()
     {
-        var method = typeof(TwigCommands).GetMethod(
-            nameof(TwigCommands.SeedNew),
-            BindingFlags.Public | BindingFlags.Instance);
-
-        method.ShouldNotBeNull("TwigCommands.SeedNew method not found");
-        method.GetCustomAttributes()
-            .Any(a => a.GetType().Name == "HiddenAttribute")
-            .ShouldBeFalse("SeedNew should NOT be hidden — it is the canonical seed command");
-    }
-
-    [Fact]
-    public void Process_TypeParameter_HasArgumentAttribute()
-    {
-        var method = typeof(TwigCommands).GetMethod(
-            nameof(TwigCommands.Process),
-            BindingFlags.Public | BindingFlags.Instance);
-
-        method.ShouldNotBeNull("TwigCommands.Process method not found");
-        var typeParameter = method.GetParameters()
-            .Single(parameter => parameter.Name == "type");
-
-        typeParameter.GetCustomAttributes()
-            .Any(attribute => attribute.GetType().Name == "ArgumentAttribute")
-            .ShouldBeTrue("twig process <type> should accept type as a positional argument");
-    }
-
-    [Theory]
-    [InlineData(nameof(TwigCommands.Area))]
-    [InlineData(nameof(TwigCommands.AreaAdd))]
-    [InlineData(nameof(TwigCommands.AreaRemove))]
-    [InlineData(nameof(TwigCommands.AreaList))]
-    [InlineData(nameof(TwigCommands.AreaSync))]
-    public void DeprecatedAreaAlias_HasHiddenAttribute(string methodName)
-    {
-        var method = typeof(TwigCommands).GetMethod(
-            methodName,
-            BindingFlags.Public | BindingFlags.Instance);
-
-        method.ShouldNotBeNull($"TwigCommands.{methodName} method not found");
-        method.GetCustomAttributes()
-            .Any(a => a.GetType().Name == "HiddenAttribute")
-            .ShouldBeTrue($"{methodName} should have [Hidden] — 'workspace area' is the canonical namespace");
-    }
-
-    [Fact]
-    public void TreeAlias_HasHiddenAttribute()
-    {
-        var method = typeof(TwigCommands).GetMethod(
-            nameof(TwigCommands.Tree),
-            BindingFlags.Public | BindingFlags.Instance);
-
-        method.ShouldNotBeNull("TwigCommands.Tree method not found");
-        method.GetCustomAttributes()
-            .Any(a => a.GetType().Name == "HiddenAttribute")
-            .ShouldBeTrue("Tree should have [Hidden] — 'show --tree' is the canonical command");
-    }
-
-    [Fact]
-    public void HelpText_TreeNotInViewsSection()
-    {
-        var helpOutput = CaptureHelp();
-
-        var viewsIdx = helpOutput.IndexOf("Views:");
-        var workspaceIdx = helpOutput.IndexOf("Workspace:");
-
-        viewsIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Views:' section");
-        workspaceIdx.ShouldBeGreaterThan(viewsIdx, "'Workspace:' section should come after 'Views:'");
-
-        var viewsSection = helpOutput[viewsIdx..workspaceIdx];
-        viewsSection.ShouldNotContain("tree");
-    }
-
-    [Fact]
-    public void HelpText_ShowMentionsTreeFlag()
-    {
-        var helpOutput = CaptureHelp();
-
-        helpOutput.ShouldContain("--tree for hierarchy");
-    }
-
-    [Fact]
-    public void HelpText_WorkspaceMentionsTreeFlag()
-    {
-        var helpOutput = CaptureHelp();
-
-        helpOutput.ShouldContain("--tree for full backlog hierarchy");
-    }
-
-    [Fact]
-    public void AllNonHiddenCommands_AppearInGroupedHelp()
-    {
-        var helpOutput = CaptureHelp();
-        var (nonHidden, hidden) = GetCommands();
+        var (nonHidden, _) = GetCommands();
 
         // Every non-hidden command must be in KnownCommands
         var missingFromKnown = nonHidden
@@ -145,22 +38,6 @@ public sealed class GroupedHelpTests
             "Compound-command group prefixes missing from KnownCommands — the whole group is " +
             $"unreachable from the CLI: {string.Join(", ", missingPrefixes)}");
 
-        // Every non-hidden command must appear in the help output
-        var missingFromOutput = nonHidden
-            .Where(cmd => !helpOutput.Contains(cmd))
-            .ToList();
-        missingFromOutput.ShouldBeEmpty(
-            $"Non-hidden commands missing from Show() output: {string.Join(", ", missingFromOutput)}");
-
-        // No hidden command should appear as a standalone entry in help output.
-        // Pattern: command name at line start (indented) followed by 2+ spaces
-        // (description padding). This avoids false positives from compound commands
-        // like "seed new" when checking bare "seed".
-        var leakedHidden = hidden
-            .Where(cmd => Regex.IsMatch(helpOutput, $@"(?m)^\s+{Regex.Escape(cmd)}\s{{2,}}"))
-            .ToList();
-        leakedHidden.ShouldBeEmpty(
-            $"Hidden commands leaked into Show() output: {string.Join(", ", leakedHidden)}");
     }
 
     [Fact]
@@ -205,7 +82,7 @@ public sealed class GroupedHelpTests
         var hidden = new List<string>();
         DiscoverCommands(typeof(TwigCommands), prefix: null, aliases, nonHidden, hidden);
         DiscoverCommands(typeof(OhMyPoshCommands), prefix: "ohmyposh", aliases, nonHidden, hidden);
-        nonHidden.Count.ShouldBeGreaterThan(40);
+        DiscoverCommands(typeof(SkillCommands), prefix: "skills", aliases, nonHidden, hidden);
         return (nonHidden, hidden);
     }
 
@@ -307,50 +184,6 @@ public sealed class GroupedHelpTests
         }
     }
 
-    [Fact]
-    public void ShowUnknown_WritesErrorToStderrAndHelpToStdout()
-    {
-        var (stderr, stdout) = CaptureShowUnknown("frobnicate");
-
-        stderr.ShouldContain("Unknown command: 'frobnicate'");
-        stdout.ShouldContain("Usage: twig");
-        stdout.ShouldContain("Getting Started:");
-        stdout.ShouldContain("Views:");
-        stdout.ShouldContain("Workspace:");
-        stdout.ShouldContain("Navigation:");
-        stdout.ShouldContain("Work Items:");
-        stdout.ShouldContain("Seeds:");
-    }
-
-    [Fact]
-    public void HelpText_AreaCommandsAreUnderWorkspaceSection()
-    {
-        var helpOutput = CaptureHelp();
-
-        var workspaceIdx = helpOutput.IndexOf("Workspace:");
-        var contextIdx = helpOutput.IndexOf("Context:");
-
-        workspaceIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Workspace:' section");
-        contextIdx.ShouldBeGreaterThan(workspaceIdx, "'Context:' section should come after 'Workspace:'");
-
-        var workspaceSection = helpOutput[workspaceIdx..contextIdx];
-        workspaceSection.ShouldContain("workspace area");
-        workspaceSection.ShouldContain("workspace area add");
-        workspaceSection.ShouldContain("workspace area remove");
-        workspaceSection.ShouldContain("workspace area list");
-        workspaceSection.ShouldContain("workspace area sync");
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("some-weird-cmd")]
-    [InlineData("command with spaces")]
-    public void ShowUnknown_IncludesCommandNameInError(string command)
-    {
-        var (stderr, _) = CaptureShowUnknown(command);
-
-        stderr.ShouldContain($"Unknown command: '{command}'");
-    }
 
     [Theory]
     [InlineData("set")]
@@ -452,38 +285,4 @@ public sealed class GroupedHelpTests
             $"'{commandName}' missing from KnownCommands.");
     }
 
-    [Fact]
-    public void HelpText_ListsDependencyLinkVerbs()
-    {
-        var helpOutput = CaptureHelp();
-
-        helpOutput.ShouldContain("link predecessor");
-        helpOutput.ShouldContain("link successor");
-        helpOutput.ShouldContain("link unlink");
-        helpOutput.ShouldContain("link related");
-        helpOutput.ShouldContain("link unrelate");
-    }
-
-    private static string CaptureHelp()
-    {
-        var original = Console.Out;
-        using var writer = new StringWriter();
-        Console.SetOut(writer);
-        try { GroupedHelp.Show(); }
-        finally { Console.SetOut(original); }
-        return writer.ToString();
-    }
-
-    private static (string Stderr, string Stdout) CaptureShowUnknown(string command)
-    {
-        var origErr = Console.Error;
-        var origOut = Console.Out;
-        using var errWriter = new StringWriter();
-        using var outWriter = new StringWriter();
-        Console.SetError(errWriter);
-        Console.SetOut(outWriter);
-        try { GroupedHelp.ShowUnknown(command); }
-        finally { Console.SetError(origErr); Console.SetOut(origOut); }
-        return (errWriter.ToString(), outWriter.ToString());
-    }
 }

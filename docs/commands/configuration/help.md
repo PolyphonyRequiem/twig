@@ -1,101 +1,66 @@
 ---
 command: help
 group: configuration
-summary: Grouped help fast-path — canonical form is `twig --help`.
+summary: Task-oriented help with targeted group and leaf discovery.
 stability: stable
 mutates: none
 ---
 
 # `twig help`
 
-Fast-path that prints the grouped `twig` help — the same output the top-level `--help` flag
-produces — without touching disk, network, or the ConsoleAppFramework command router. The
-canonical spelling is `twig --help` (or `twig -h`); `twig help` is the accepted pseudo-command
-alias, registered in `GroupedHelp.KnownCommands` alongside every real verb
-(`src/Twig/Program.cs:1593-1594`).
+Help is available without a checkout, workspace, authentication or network.
+Start with the short task-oriented root, select a group, then a leaf command.
+The executable embeds the canonical command reference's behavior sections;
+ConsoleAppFramework generates syntax, options and defaults from declarations.
 
 ## Synopsis
 
-```
+```text
 twig --help
-twig -h
-twig help
+twig <group> --help
+twig <command> --help
+twig help <command>
+twig --help-all
+twig --skill
 ```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-|—|—|—|—|
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-|—|—|—|—|
 
 ## Behavior
 
-- Single-arg fast-path: when `args.Length == 1` and the argument is `-h`, `--help`, or the
-  literal `help`, the CLI invokes `GroupedHelp.Show()` and returns immediately, before any
-  service registration, self-update sweep, or companion first-run check runs
-  (`src/Twig/Program.cs:131-135`).
-- Zero-arg smart landing: `twig` with no arguments prints the same grouped help when no
-  workspace has been initialized, and otherwise routes to `twig show`
-  (`src/Twig/Program.cs:136-150`).
-- Unknown-command guard: an unrecognized top-level verb is reported with
-  `Unknown command: '<arg>'` followed by the grouped help and exit code `1`
-  (`src/Twig/Program.cs:154-159`, `GroupedHelp.ShowUnknown` at
-  `src/Twig/Program.cs:1652-1657`).
-- Grouped output is organized into sections that mirror this documentation set — Getting
-  Started, Views, Workspace, Bench, Context, Navigation, Work Items, Seeds, Proposals,
-  System, Experimental (`src/Twig/Program.cs:1667-1785`).
-- Multi-arg forms (`twig help <topic>`, `twig <command> --help`) are **not** handled by this
-  fast-path — they fall through to ConsoleAppFramework's per-command help renderer, with
-  additional examples appended by `CommandExamples.ShowIfPresent` after `app.Run`
-  (`src/Twig/Program.cs:225-226`).
-- No side effects: the fast-path exits above the block that runs `SelfUpdater.CleanupOldBinary`
-  and `CompanionStartup.RunFirstRunCheck`, so `--help` never allocates a database, contacts
-  ADO, or downloads a companion binary (`src/Twig/Program.cs:210-220`).
+- `--help`, `-h` and `help` show the same short root. Bare `twig` does so only
+  outside an initialized workspace; inside a workspace bare `twig` still runs `show`.
+- Group help lists only that group's descendants. Groups with a bare operation,
+  such as `process`, retain its options before the focused child list.
+- Leaf help preserves generated usage, options and defaults, registered examples,
+  and the bundled reference's behavior, conditional effects and failure sections.
+  Hidden compatibility aliases remain reachable through targeted help.
+- `--help-all` is the explicit complete generated catalog, including registered
+  aliases. Unknown commands fail with a short discovery hint rather than dumping it.
+- `--skill` prints the executable-matched generic `twig-cli` entry and package
+  identity. See [skill delivery](../../features/skills.md) for installation of
+  the generic family and separately supplied companions.
+- Help exits before workspace services, native database initialization, self-update
+  cleanup and companion downloads. Supplying work-item arguments with `--help`
+  does not execute that operation. A help token following `--` remains argument data.
 
 ## Examples
 
-Print grouped help via the canonical flag:
-
-```
-$ twig --help
-twig 1.0.0
-
-Usage: twig [command] [-h|--help] [--version]
-
-Getting Started:
-  init                 Initialize a new Twig workspace.
-  sync                 Flush pending changes then refresh from ADO.
-...
-```
-
-Use the pseudo-command form; output is byte-identical to `twig --help`:
-
-```
-$ twig help
-twig 1.0.0
-
-Usage: twig [command] [-h|--help] [--version]
-...
+```sh
+twig proposal --help                 # choose a proposal operation
+twig proposal apply --help           # exact syntax, gates, effects and errors
+twig help workspace area add         # equivalent targeted-help spelling
+twig --help-all                      # complete discovery escape hatch
+twig --skill                         # offline entry guidance from this build
 ```
 
 ## Exit codes and failure modes
 
 |Condition|Result|
 |---|---|
-|Grouped help printed (`--help`, `-h`, or `help`)|`0`|
-|Zero-arg invocation in an uninitialized workspace|`0` with grouped help|
-|Unknown top-level command|`1` with `Unknown command:` prefix on stderr|
+|Known root, group or leaf help|`0`|
+|Unknown command or help topic|`1`, compact diagnostic on stderr|
+|Missing or invalid arguments to an actual operation|That command's normal failure contract; help does not execute it|
 
 ## See also
 
-- [`config`](./config.md)
-- [`config status-fields`](./config-status-fields.md)
-- [`migrate-config`](./migrate-config.md)
+- [Skill delivery](../../features/skills.md)
+- [Command reference](../README.md)

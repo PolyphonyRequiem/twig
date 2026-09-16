@@ -1,63 +1,74 @@
 ---
 name: twig-cli
-description: Use when operating Twig to inspect, query, or navigate work items; create or publish seeds; change work items; run proposal lifecycle; or sync, configure, authenticate, and manage workspace or Bench views.
+description: Use when operating Twig to inspect, query, or navigate work items; author seeds; discover process rules; authenticate; or manage workspace and Bench views. For reviewable board changes, also load twig-changes.
 ---
 
 # Twig CLI
 
-Use Twig through its current source-derived documentation. This skill carries the
-operating model; the command reference owns command syntax, flags, defaults, and
-exit behavior.
+## Discover the installed contract
 
-## Route before acting
+Run `twig --version` to identify the executable. Run `twig --skill` when this
+entry guidance is missing or may belong to another build. Installed guidance is
+stamped with the executable's version/build and content digest; inspect it with
+`twig skills status --help` and update explicitly with `twig skills update`.
+Ordinary Twig use does not update skills or provider settings.
 
-| Need | Read first |
-|---|---|
-| Exact command, flags, side effects, or aliases | [Command reference](../../../docs/commands/README.md) |
-| Workspace, Bench, active-item pointer, or Context terminology | [Workspace, Bench, and Context](../../../docs/features/workspace-bench-context.md) |
-| Local drafts, validation, publishing, or reconciliation | [Seeds and publishing](../../../docs/features/seeds-and-publishing.md) and [seed commands](../../../docs/commands/seeds/README.md) |
-| Reviewable ADO mutation through the proposal journal | [Plans and proposals](../../../docs/features/proposals.md) and [proposal commands](../../../docs/commands/plans/README.md) |
-| Token acquisition, sign-in, cache recovery, or PATs | [Authentication](../../../docs/features/authentication.md) |
-| Type, state, field, transition, or layout discovery | [Process commands](../../../docs/commands/process/README.md) and [Process description](../../../docs/features/process-description.md) |
-| Profile pin or process-policy resolution | [Reference profile](../../../docs/features/reference-profile.md) |
-| Explicit TUI, MCP, or Oh My Posh use | [Experimental commands](../../../docs/commands/experimental/README.md) |
+Start with `twig --help`, then `twig <group> --help` or
+`twig <command> --help` for the operation you need. Leaf help carries declaration-derived
+syntax, defaults and examples plus bundled behavior, failure and side-effect guidance.
+Use `twig --help-all` only for complete command discovery. No source checkout,
+Python, authentication or workspace is needed to read help or this guidance.
 
-## Invariants
+## Operate from evidence
 
-- **Discover, do not assume.** Work-item types, states, fields, transitions, and
-  layouts come from the target process at runtime. Read the process reference
-  before choosing a type, state, or field for an unfamiliar project.
-- **Read `mutates` before executing.** `none` is read-only; `local` changes only
-  local workspace/cache/pending state; `ado` can write Azure DevOps. Treat this
-  field in the command index as the safety boundary.
-- **`twig set` is a local pointer.** It neither claims work nor syncs nor changes
-  a Bench. Claim-like board changes require the documented mutation path.
-- **Seeds are local until published.** Validate before publishing; use the seed
-  reconciliation path after an interrupted publish rather than inventing repair.
-- **Proposals are auditable.** Use canonical `proposal` commands. Validate, then
-  preview, then apply only with the previewed digest and required authorization;
-  inspect the journal/result afterward. `plan` is a retained deprecated alias.
-- **Protect credentials.** Never place PATs, access tokens, refresh tokens, or
-  token-cache contents in command arguments, logs, notes, or issue text.
+1. Confirm the intended connection and work item. A git remote is not proof of
+   the tracker project. The active-item pointer is local context, not a work claim.
+2. Read the targeted help before execution. Distinguish local/cache writes from
+   ADO writes, including conditional effects such as refresh, output files and
+   pending-change pushes. A successful read does not authorize a write.
+3. Discover types, states, fields and gates through `twig process --help` and
+   `twig process description --help`. Use that project's returned names and
+   reference names; user process policy is separate from generic Twig procedure.
+4. Choose human output for direct use, JSON when actually parsing, or minimal
+   for a documented pipe contract. Keep the full-data route available. Treat
+   absent, unknown, stale and failed data as different outcomes.
+5. Inspect exit status and every result, including stderr. Refresh-read writes
+   before reporting them landed; distinguish pending local changes from ADO state.
 
-## Operating loop
+## Local authoring and board changes
 
-1. Classify the request with the table above and read its pointer.
-2. Select the canonical command; use an alias only when compatibility requires it.
-3. Check its `mutates` value, required context, and failure behavior.
-4. Select an output format for the consumer. Use JSON only when the caller will
-   parse it; use the documented human or minimal format when that is the contract.
-5. Execute the command and inspect its result. Verify a mutation through the
-   documented read/refresh or proposal-status path before claiming success.
+For drafts, read `twig seed --help`, then the needed leaf help. Seeds are local
+until published. Validate before publication; after an interruption inspect the
+seed reconciliation and proposal status paths instead of repeating creation.
+For a reviewable mutation, load the separately named **twig-changes** skill.
+`twig proposal --help` is the no-skill fallback to its executable contract.
 
-## Terms
+`twig set` changes the local pointer; it does not claim, assign, sync or change a
+Bench. `twig sync --pull-only` refreshes without pushing pending edits; ordinary
+sync can push. Inspect pending changes before deciding to push or discard them.
+Keep tokens, PATs, credentials and token-cache contents out of arguments, logs,
+notes and work-item text. Follow `twig auth --help` for authentication operations.
 
-- **Connection:** one Azure DevOps `{org}/{project}` endpoint and local mirror.
-- **Bench:** a durable, named backlog view made from selectors.
-- **Active-item pointer:** the current CLI-local target changed by `twig set`;
-  never a work claim.
-- **Seed:** a negative-ID local draft work item.
-- **Proposal:** a declarative mutation file with a digest-keyed journal; canonical
-  replacement for the older `plan` name.
+## Additive user companions
 
-For any detail not named here, start at the [command reference](../../../docs/commands/README.md) rather than inferring syntax or behavior.
+When installed, read `references/user-selections.json` beside this skill. Its
+`selections` map selects a separately named companion by provider and scenario.
+The file is absent in repository guidance and `--skill` output; absence means
+base guidance, not an error. Inspect or change selections explicitly through
+`twig skills configure --help`; this preserves user-authored skill bodies.
+
+Load the selected companion with the host's normal skill reader in addition to
+this base. User instructions may select another explicitly named companion.
+A companion may customize presentation or add a workflow, but cannot conceal
+material effects, drop failed/untouched results, invent data or grant authority.
+If optional presentation content is unavailable or shadowed, report the problem
+and fall back to usable base output. If a missing companion carries required
+correctness or approval instructions, stop the affected operation until those
+requirements are available; presentation fallback is not an authorization fallback.
+
+This initial package contains only generic Twig skills. Separately supplied
+integration or variant skills can be installed later with explicit local source
+and target selection; provider-specific operational adapters are not default
+integration guidance. Installation reports bounded discovery, not proof of host
+trust, enablement, precedence or actual model loading. Verify the actual loaded
+skill in the chosen host before claiming composition works.

@@ -22,10 +22,16 @@ jobs:
     # irreversibly) was already fixed in #362: the `nuget` job now `needs: build`.
     # This is the other half — test the platforms we actually ship, on every PR.
     #
-    # macOS is deliberately omitted for now. Windows is the platform that broke,
-    # and it has the most divergent path and process semantics; macOS costs the
-    # most CI minutes per unit of risk retired. Add osx-arm64 here if a
-    # macOS-specific defect ever escapes.
+    # macOS was deliberately omitted at AB#140, with an explicit re-entry condition:
+    # "Add osx-arm64 here if a macOS-specific defect ever escapes." One has. The
+    # v0.92.0 release run's macOS ARM64 leg failed 38 CLI skill tests (AB#886) —
+    # Path.GetTempPath() is /var/folders/... on macOS and /var is a symlink, which
+    # the skill link guard correctly refuses. The defect was macOS-only, was invisible
+    # to this workflow, and was therefore first executed DURING a release: precisely
+    # the failure mode the comment above says this matrix exists to abolish.
+    #
+    # The cost/risk trade that justified omitting macOS was made when no macOS-specific
+    # defect had escaped. That premise is now falsified, so the condition it named is met.
     strategy:
       # fail-fast: false so one platform's failure does not cancel the other's
       # run. The point of this matrix is learning about every platform from a
@@ -38,6 +44,8 @@ jobs:
             os: ubuntu-latest
           - rid: win-x64
             os: windows-latest
+          - rid: osx-arm64
+            os: macos-latest
 
     runs-on: ${{ matrix.os }}
 

@@ -38,6 +38,8 @@ public sealed class CanonicalTempRootTests : IDisposable
     [Fact]
     public void Canonicalize_resolves_a_symlinked_ancestor()
     {
+        if (OperatingSystem.IsWindows()) return; // Windows symlink privilege is not assumed.
+
         var real = Path.Combine(scratch, "real");
         Directory.CreateDirectory(Path.Combine(real, "child"));
         var link = Path.Combine(scratch, "link");
@@ -48,8 +50,59 @@ public sealed class CanonicalTempRootTests : IDisposable
     }
 
     [Fact]
+    public void Canonicalize_resolves_a_link_whose_own_target_sits_under_a_link()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        // outer -> inner/real, and inner is itself a link. A single ResolveLinkTarget hop lands on
+        // a path that still contains a symlink, which is exactly the case the guard would refuse.
+        var realInner = Path.Combine(scratch, "inner-real");
+        Directory.CreateDirectory(Path.Combine(realInner, "real"));
+        var innerLink = Path.Combine(scratch, "inner");
+        Directory.CreateSymbolicLink(innerLink, realInner);
+        var outer = Path.Combine(scratch, "outer");
+        Directory.CreateSymbolicLink(outer, Path.Combine(innerLink, "real"));
+
+        var canonical = CanonicalTempRoot.Canonicalize(outer);
+
+        canonical.ShouldBe(Path.Combine(realInner, "real"));
+        Should.NotThrow(() => SkillPaths.RejectLinks(canonical));
+    }
+
+    [Fact]
+    public void Canonicalize_resolves_a_link_declared_with_a_relative_target()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var real = Path.Combine(scratch, "rel-real");
+        Directory.CreateDirectory(real);
+        var link = Path.Combine(scratch, "rel-link");
+        Directory.CreateSymbolicLink(link, "./rel-real"); // relative, resolved against the link's dir
+
+        CanonicalTempRoot.Canonicalize(link).ShouldBe(real);
+    }
+
+    [Fact]
+    public void Canonicalize_leaves_a_not_yet_existing_tail_alone()
+    {
+        var tail = Path.Combine(scratch, "does-not-exist", "nor-this");
+
+        CanonicalTempRoot.Canonicalize(tail).ShouldBe(tail);
+    }
+
+    [Fact]
+    public void Canonicalize_handles_the_filesystem_root()
+    {
+        var root = Path.GetPathRoot(scratch)!;
+
+        Should.NotThrow(() => CanonicalTempRoot.Canonicalize(root));
+    }
+
+    [Fact]
     public void Deliberate_symlinks_are_still_rejected_the_guard_is_not_weakened()
     {
+        if (OperatingSystem.IsWindows()) return;
+
         var real = Path.Combine(scratch, "real");
         Directory.CreateDirectory(real);
         var link = Path.Combine(scratch, "link");
@@ -57,6 +110,17 @@ public sealed class CanonicalTempRootTests : IDisposable
 
         Should.Throw<SkillLifecycleException>(() => SkillPaths.RejectLinks(link));
         Should.Throw<SkillLifecycleException>(() => SkillPaths.RejectLinks(Path.Combine(link, "nested")));
+    }
+
+    [Fact]
+    public void A_dangling_link_inside_the_canonical_root_is_still_rejected()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var link = Path.Combine(scratch, "dangling");
+        Directory.CreateSymbolicLink(link, Path.Combine(scratch, "no-such-target"));
+
+        Should.Throw<SkillLifecycleException>(() => SkillPaths.RejectLinks(link));
     }
 
     public void Dispose()

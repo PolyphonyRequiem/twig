@@ -59,8 +59,15 @@ internal static class CanonicalTempRoot
 
             // Only directories can appear as an ancestor; a missing component cannot be a link.
             if (!Directory.Exists(resolved)) continue;
-            if (Directory.ResolveLinkTarget(resolved, returnFinalTarget: true) is { } target)
-                resolved = target.FullName;
+
+            // Re-resolve after each substitution: returnFinalTarget follows a chain of links, but
+            // the final target may itself sit under a symlinked ancestor that has not been walked.
+            // Bounded so a pathological layout cannot spin.
+            for (var hop = 0; hop < 40; hop++)
+            {
+                if (Directory.ResolveLinkTarget(resolved, returnFinalTarget: true) is not { } target) break;
+                resolved = Canonicalize(target.FullName);
+            }
         }
 
         return resolved;

@@ -25,7 +25,7 @@ public static class RenderingServiceModule
             return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries);
         });
         services.AddSingleton<OutputFormatterFactory>();
-        services.AddSingleton<RendererFactory>();
+        services.AddSingleton<RendererFactory>(sp => new RendererFactory(sp.GetRequiredService<SpectreTheme>()));
 
         // Spectre.Console rendering pipeline
         services.AddSingleton<IAnsiConsole>(AnsiConsole.Console);

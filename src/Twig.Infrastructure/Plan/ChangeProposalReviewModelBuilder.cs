@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
@@ -25,6 +26,12 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
 {
     private readonly IWorkItemRepository _workItems = workItems
         ?? throw new ArgumentNullException(nameof(workItems));
+
+    private IFieldDefinitionStore? _fields;
+
+    /// <summary>Enrich with locally cached field labels and types.</summary>
+    public ChangeProposalReviewModelBuilder(IWorkItemRepository workItems, IFieldDefinitionStore fields) : this(workItems)
+        => _fields = fields;
 
     /// <summary>Authorization choices offered when the proposal is currently applicable.</summary>
     private static readonly string[] ApplicableChoices = ["apply", "revise", "decline"];
@@ -61,7 +68,52 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             operations.Add(ProjectOperation(ordinal, op, roles));
         }
 
-        var affected = await EnrichAsync(roles, ct).ConfigureAwait(false);
+        var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);
+        var byId = known.ToDictionary(i => i.Id);
+        var affected = roles.OrderBy(p => p.Key).Select(p => Item(p.Key, p.Value, byId.GetValueOrDefault(p.Key), definition.Workspace)).ToArray();
+        var fieldDefinitions = _fields is null ? [] : await _fields.GetAllAsync(ct).ConfigureAwait(false);
+        var labels = fieldDefinitions.ToDictionary(f => f.ReferenceName, StringComparer.OrdinalIgnoreCase);
+        var seeds = definition.Operations.Any(o => o is PublishSeedOperation)
+            ? await _workItems.GetSeedsAsync(ct).ConfigureAwait(false) : [];
+        var staged = seeds.Where(s => s.Id < 0 && s.StagedIdentity is not null)
+            .ToDictionary(s => s.StagedIdentity!.Value.Value.ToString());
+        for (var i = 0; i < operations.Count; i++)
+        {
+            var op = operations[i];
+            if (definition.Operations[i] is BatchOperation batch)
+            {
+                var item = byId.GetValueOrDefault(batch.WorkItemId);
+                operations[i] = op with { Consequences = op.Consequences.Select(c =>
+                {
+                    var before = Before(item, batch.ExpectedRevision, c.Field!, pendingChanges.Any(p => p.WorkItemId == batch.WorkItemId));
+                    labels.TryGetValue(c.Field!, out var metadata);
+                    return c with { FieldLabel = metadata?.DisplayName ?? c.Field, FieldType = metadata?.DataType,
+                        Before = before, TextChange = string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase) && before.State != "unknown"
+                            ? ReviewTextChange.Measure(before.Value ?? "", c.To ?? "") : null };
+                }).ToArray() };
+            }
+            else if (op.Target.StagedIdentity is { } identity && staged.TryGetValue(identity, out var seed))
+                operations[i] = op with { Target = op.Target with { Seed = new ReviewSeedDisplay
+                { DisplayAlias = seed.Id, Title = seed.Title, Type = seed.Type.Value, State = seed.State, ParentId = seed.ParentId } } };
+        }
+        // Resolve display ambiguity once for every presenter, across requested effects only.
+        // Repeated uses of one reference are not a collision; unrelated cached fields do not expand labels.
+        var ambiguousLabels = operations.SelectMany(o => o.Consequences).Where(c => c.Field is not null)
+            .GroupBy(c => c.FieldLabel ?? c.Field!, StringComparer.Ordinal)
+            .Where(g => g.Select(c => c.Field!).Distinct(StringComparer.OrdinalIgnoreCase).Skip(1).Any())
+            .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        if (ambiguousLabels.Count > 0)
+            for (var i = 0; i < operations.Count; i++)
+                operations[i] = operations[i] with { Consequences = operations[i].Consequences.Select(c =>
+                    c.Field is not null && ambiguousLabels.Contains(c.FieldLabel ?? c.Field)
+                        ? c with { FieldLabel = $"{c.FieldLabel ?? c.Field} ({c.Field})" } : c).ToArray() };
+
+        // One hop only. Missing parents remain named context; never recurse through a corrupt cycle.
+        var parentIds = affected.Select(i => i.ParentId).Concat(operations.Select(o => o.Target.Seed?.ParentId))
+            .Where(id => id is not null && !roles.ContainsKey(id.Value)).Select(id => id!.Value).Distinct().Order().ToArray();
+        var parents = parentIds.Length == 0 ? [] : await _workItems.GetByIdsAsync(parentIds, ct).ConfigureAwait(false);
+        var parentMap = parents.ToDictionary(i => i.Id);
+        var context = parentIds.Select(id => Item(id, "context", parentMap.GetValueOrDefault(id), definition.Workspace)).ToArray();
 
         return new ChangeProposalReviewModel
         {
@@ -70,6 +122,7 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             Rationale = rationale,
             Recipe = recipe,
             AffectedItems = affected,
+            ContextItems = context,
             Operations = operations,
             AuthorizationChoices = canApply ? ApplicableChoices : BlockedChoices,
             Blockers = ProjectBlockers(issues, pendingChanges),
@@ -223,32 +276,36 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             roles[id] = "peer";
     }
 
-    private async Task<IReadOnlyList<ReviewAffectedItem>> EnrichAsync(
-        Dictionary<int, string> roles,
-        CancellationToken ct)
+    private static ReviewAffectedItem Item(int id, string role, WorkItem? item, PlanWorkspace workspace) => new()
     {
-        if (roles.Count == 0)
-            return [];
+        Id = id, Role = role, Title = item?.Title, Type = item?.Type.Value, State = item?.State,
+        ParentId = item?.ParentId, Revision = item?.Revision,
+        Url = id > 0 ? $"https://dev.azure.com/{Uri.EscapeDataString(workspace.Organization)}/{Uri.EscapeDataString(workspace.Project)}/_workitems/edit/{id}" : null,
+    };
 
-        var ids = roles.Keys.OrderBy(static id => id).ToArray();
-        var known = await _workItems.GetByIdsAsync(ids, ct).ConfigureAwait(false);
-        var byId = known.ToDictionary(static item => item.Id);
-
-        var affected = new List<ReviewAffectedItem>(ids.Length);
-        foreach (var id in ids)
+    private static ReviewBeforeValue Before(WorkItem? item, int expectedRevision, string field, bool pending)
+    {
+        string? reason = item is null ? "item-not-cached"
+            : item.Revision != expectedRevision || item.Revision <= 0 ? "revision-mismatch"
+            : item.IsDirty || pending ? "local-edits" : null;
+        string? value = null;
+        if (reason is null)
         {
-            byId.TryGetValue(id, out var item);
-            affected.Add(new ReviewAffectedItem
+            // Canonical properties are hydrated separately from the arbitrary field bag.
+            switch (field.ToLowerInvariant())
             {
-                Id = id,
-                Type = item?.Type.Value,
-                Title = item?.Title,
-                State = item?.State,
-                Role = roles[id],
-            });
+                case "system.title": value = item!.Title; break;
+                case "system.state": value = item!.State; break;
+                case "system.assignedto": value = item!.AssignedTo; break;
+                case "system.areapath": value = item!.AreaPath.Value; break;
+                case "system.iterationpath": value = item!.IterationPath.Value; break;
+                default:
+                    if (!item!.Fields.TryGetValue(field, out value)) reason = "field-not-cached";
+                    break;
+            }
         }
-
-        return affected;
+        return new ReviewBeforeValue { State = reason is not null ? "unknown" : value is null ? "absent" : "value",
+            Value = reason is null ? value : null, Revision = item?.Revision, Reason = reason };
     }
 
     private static IReadOnlyList<ReviewBlocker> ProjectBlockers(

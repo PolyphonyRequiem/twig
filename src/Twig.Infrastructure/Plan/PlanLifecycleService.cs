@@ -147,7 +147,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             adoService, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
-        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);
         _steering = steering;
     }
 

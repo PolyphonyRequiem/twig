@@ -102,6 +102,29 @@ its normal path first, or fold it into the proposal file. The rows that
 show up in [`twig pending`](../commands/plans/pending.md) are the same rows
 preview reports, in the same order.
 
+### Shared review, brief and expanded
+
+Preview builds one canonical `reviewModel` for the built-in terminal presenter
+and structured CLI/MCP consumers. It carries ordered operations, preconditions,
+effects, blockers, choices and the exact digest. Cache-only enrichment adds
+readable field labels, item links, immediate parent context and staged seed
+display metadata; none changes the proposal identity or apply policy.
+
+Human preview is brief by default: grouped item headings, scalar before-to-after
+rows, and description replacement sizes instead of full bodies. Before values
+are trusted only at the expected clean cache revision. Unknown observations,
+known null, empty strings and explicit clearing remain distinct. Description
+metrics strip equal prefixes/suffixes and count removed/inserted Unicode scalars
+(`common-affix-replacement-v1`), including HTML source; this is not minimal edit
+distance. A missing baseline yields no invented change count.
+
+`--full` exposes available source values with terminal controls escaped. JSON
+is always exact regardless of human density. Explicit `--interactive` adds a
+TTY-only Details/Back/Cancel loop over the same captured observation; it never
+refreshes, authorizes or applies. Ordinary preview never waits for input.
+See [preview flags and behavior](../commands/plans/proposal-preview.md) and the
+[shared review contract](../specs/shared-proposal-review.md) for host obligations.
+
 ### 3. `apply --confirm <digest>` — the gated mutation
 
 `twig proposal apply` requires **both** `--file` and `--confirm <digest>`,

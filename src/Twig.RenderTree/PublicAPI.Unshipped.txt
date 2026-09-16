@@ -12,3 +12,40 @@ override Twig.RenderTree.RenderValue.Array.ToString() -> string!
 override sealed Twig.RenderTree.RenderValue.Array.Equals(Twig.RenderTree.RenderValue? other) -> bool
 static Twig.RenderTree.RenderValue.Array.operator !=(Twig.RenderTree.RenderValue.Array? left, Twig.RenderTree.RenderValue.Array? right) -> bool
 static Twig.RenderTree.RenderValue.Array.operator ==(Twig.RenderTree.RenderValue.Array? left, Twig.RenderTree.RenderValue.Array? right) -> bool
+Twig.RenderTree.RenderNode.FieldBlock
+Twig.RenderTree.RenderNode.FieldBlock.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode.KeyValue!>! Fields, out int LabelWidth) -> void
+Twig.RenderTree.RenderNode.FieldBlock.Equals(Twig.RenderTree.RenderNode.FieldBlock? other) -> bool
+Twig.RenderTree.RenderNode.FieldBlock.FieldBlock(System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode.KeyValue!>! Fields, int LabelWidth) -> void
+Twig.RenderTree.RenderNode.FieldBlock.Fields.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode.KeyValue!>!
+Twig.RenderTree.RenderNode.FieldBlock.Fields.init -> void
+Twig.RenderTree.RenderNode.FieldBlock.LabelWidth.get -> int
+Twig.RenderTree.RenderNode.FieldBlock.LabelWidth.init -> void
+Twig.RenderTree.RenderTreeBranch.Body.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>!
+Twig.RenderTree.RenderTreeBranch.Body.init -> void
+override Twig.RenderTree.RenderNode.FieldBlock.<Clone>$() -> Twig.RenderTree.RenderNode.FieldBlock!
+override Twig.RenderTree.RenderNode.FieldBlock.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.FieldBlock.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.FieldBlock.ToString() -> string!
+override sealed Twig.RenderTree.RenderNode.FieldBlock.Equals(Twig.RenderTree.RenderNode? other) -> bool
+static Twig.RenderTree.RenderNode.FieldBlock.operator !=(Twig.RenderTree.RenderNode.FieldBlock? left, Twig.RenderTree.RenderNode.FieldBlock? right) -> bool
+static Twig.RenderTree.RenderNode.FieldBlock.operator ==(Twig.RenderTree.RenderNode.FieldBlock? left, Twig.RenderTree.RenderNode.FieldBlock? right) -> bool
+Twig.RenderTree.RenderCell.Spans.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderTextSpan!>?
+Twig.RenderTree.RenderCell.Spans.init -> void
+Twig.RenderTree.RenderTextRole
+Twig.RenderTree.RenderTextRole.After = 2 -> Twig.RenderTree.RenderTextRole
+Twig.RenderTree.RenderTextRole.Before = 1 -> Twig.RenderTree.RenderTextRole
+Twig.RenderTree.RenderTextRole.Plain = 0 -> Twig.RenderTree.RenderTextRole
+Twig.RenderTree.RenderTextSpan
+Twig.RenderTree.RenderTextSpan.<Clone>$() -> Twig.RenderTree.RenderTextSpan!
+Twig.RenderTree.RenderTextSpan.Deconstruct(out string! Text, out Twig.RenderTree.RenderTextRole Role) -> void
+Twig.RenderTree.RenderTextSpan.Equals(Twig.RenderTree.RenderTextSpan? other) -> bool
+Twig.RenderTree.RenderTextSpan.RenderTextSpan(string! Text, Twig.RenderTree.RenderTextRole Role = Twig.RenderTree.RenderTextRole.Plain) -> void
+Twig.RenderTree.RenderTextSpan.Role.get -> Twig.RenderTree.RenderTextRole
+Twig.RenderTree.RenderTextSpan.Role.init -> void
+Twig.RenderTree.RenderTextSpan.Text.get -> string!
+Twig.RenderTree.RenderTextSpan.Text.init -> void
+override Twig.RenderTree.RenderTextSpan.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderTextSpan.GetHashCode() -> int
+override Twig.RenderTree.RenderTextSpan.ToString() -> string!
+static Twig.RenderTree.RenderTextSpan.operator !=(Twig.RenderTree.RenderTextSpan? left, Twig.RenderTree.RenderTextSpan? right) -> bool
+static Twig.RenderTree.RenderTextSpan.operator ==(Twig.RenderTree.RenderTextSpan? left, Twig.RenderTree.RenderTextSpan? right) -> bool

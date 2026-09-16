@@ -40,6 +40,18 @@ exit behavior.
 - **Protect credentials.** Never place PATs, access tokens, refresh tokens, or
   token-cache contents in command arguments, logs, notes, or issue text.
 
+## Review presentation
+
+For host-specific proposal review (for example Discord), pair this procedural skill
+with `twig-review-presenter`. Use `twig proposal preview --file <plan.json> -o json`
+as the semantic source; do not scrape colored CLI text. That companion skill includes
+an offline reference consumer, not a transport or authorization handler. Twig's own
+human fallback supports `--full` and opt-in `--interactive` without launching the TUI.
+The consumer quotes literal strings separately from clear/absent markers, keeps split
+field content inside quoted continuation blocks, and refuses detectably inconsistent
+baselines or metrics. It is not a signature verifier; the retained canonical payload
+and Twig's authorization/apply lifecycle remain authoritative.
+
 ## Operating loop
 
 1. Classify the request with the table above and read its pointer.

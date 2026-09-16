@@ -77,3 +77,4 @@ static Twig.Infrastructure.Plan.PlanCanonicalizer.CanonicalizeToString(System.Te
 static Twig.Infrastructure.Plan.PlanCanonicalizer.ComputeDigest(System.ReadOnlySpan<byte> canonical) -> string!
 static Twig.Infrastructure.Plan.PlanDocumentWriter.WireKind(Twig.Domain.Services.Plan.PlanOperationKind kind) -> string!
 static Twig.Infrastructure.Plan.PlanDocumentWriter.Write(Twig.Domain.Services.Plan.PlanDefinition! definition) -> string!
+Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder.ChangeProposalReviewModelBuilder(Twig.Domain.Interfaces.IWorkItemRepository! workItems, Twig.Domain.Interfaces.IFieldDefinitionStore! fields) -> void

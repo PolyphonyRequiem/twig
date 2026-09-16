@@ -72,6 +72,9 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
             case RenderNode.Table table:
                 this.WriteTable(table);
                 break;
+            case RenderNode.FieldBlock block:
+                foreach (var field in block.Fields) WriteNode(field, depth);
+                break;
             case RenderNode.TreeView treeView:
                 WriteBranch(treeView.Root, depth);
                 break;
@@ -127,6 +130,7 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
         var line = string.Join(" ", branch.Row.Cells.Values.Select(c => c.DisplayText));
         output.WriteLine($"{indent}{line}".TrimEnd());
 
+        foreach (var node in branch.Body) WriteNode(node, depth + 1);
         foreach (var child in branch.Children)
         {
             WriteBranch(child, depth + 1);

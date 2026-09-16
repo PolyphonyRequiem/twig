@@ -52,6 +52,14 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
+      - name: Host presenter contract tests
+        if: matrix.rid == 'linux-x64'
+        run: python3 -m unittest discover -s .github/skills/twig-review-presenter/scripts -p 'test_*.py' -v
+
+      - name: Offline CLI to host presenter smoke
+        if: matrix.rid == 'linux-x64'
+        run: python3 tools/verify-proposal-presenters.py --binary src/Twig/bin/Debug/net11.0/twig.dll --output artifacts/proposal-presenter-smoke
+
       # GitHub issue #311 instrumentation.
       #
       # #311 was closed on the strength of the ADO #43 BuildFixture fix. That fix is

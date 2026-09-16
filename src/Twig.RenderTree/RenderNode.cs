@@ -80,6 +80,9 @@ public abstract record RenderNode
         IReadOnlyList<RenderColumn> Columns,
         IReadOnlyList<RenderRow> Rows) : RenderNode;
 
+    /// <summary>Inset label/value rows with a shared preferred label width. No heading or delta marker.</summary>
+    public sealed record FieldBlock(IReadOnlyList<KeyValue> Fields, int LabelWidth) : RenderNode;
+
     /// <summary>A hierarchy of rows. See <see cref="RenderTreeBranch"/>.</summary>
     public sealed record TreeView(RenderTreeBranch Root) : RenderNode;
 

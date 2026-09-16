@@ -1,5 +1,6 @@
 using System.Text;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Skills;
 using Xunit;
 
@@ -11,7 +12,7 @@ namespace Twig.Cli.Tests.Skills;
 /// </summary>
 public sealed class SkillExternalTests : IDisposable
 {
-    private readonly string sandbox = Path.Combine(Path.GetTempPath(), "twig-external-" + Guid.NewGuid().ToString("N"));
+    private readonly string sandbox = CanonicalTempRoot.Create("twig-external-");
     private string Target => Path.Combine(sandbox, "skills");
     private string SourceRoot => Path.Combine(sandbox, "sources");
 

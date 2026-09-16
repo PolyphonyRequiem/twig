@@ -60,7 +60,16 @@ Sequence (see `src/Twig/Commands/NewCommand.cs:38-338`):
 1. Validate inputs before any network call. `--field` pairs are parsed via
    `FieldAssignment` and checked against the cached field-definition store
    so an unknown reference name is a local error, not a silent drop by
-   ADO (`src/Twig/Commands/NewCommand.cs:100-122`).
+   ADO (`src/Twig/Commands/NewCommand.cs:100-152`). **AB#879**: if any
+   requested `--field` reference name is not in the local catalog (or the
+   catalog is empty), the command attempts one targeted metadata-only sync
+   through `FieldDefinitionSyncService.SyncAsync`, then re-checks. This
+   avoids surfacing a real "the catalog is stale" problem as a bulk
+   `Unknown field` message when the requested name actually exists on the
+   server. Recovery never pulls work items and never flushes pending
+   writes; cancellation propagates unchanged. If the catalog stays empty
+   the command reports `Metadata not ready` with an empty-or-incomplete catalog diagnosis and a `twig process --refresh` metadata-only recovery hint;
+   if the recovery call throws, the command surfaces `Metadata refresh failed while validating --field: <original error>.` with the original exception text propagated verbatim so the caller can act on the concrete cause.
 2. Validate `--format` and resolve the description body via
    `TextBodySource` (shared with `twig note`/`twig update`), same
    "empty source is an error" rule as those commands.
@@ -132,7 +141,9 @@ Created #4569 Feature 'Passwordless login'
 | Invalid `--format` value | Exit `2`. |
 | Ambiguous or missing description source | Exit `2`. |
 | Malformed `--field` pair | Exit `2`. |
-| Unknown `--field` reference name | Exit `1`. |
+| Unknown `--field` reference name after an authoritative metadata read | Exit `1`; stderr `Unknown field reference name(s): <names>. Use the ADO reference name (e.g. Custom.MyField).` |
+| `--field` catalog is empty/incomplete and cannot be recovered | Exit `1`; stderr identifies `Metadata not ready` and suggests `twig process --refresh` for metadata-only recovery. |
+| `--field` catalog recovery threw (auth/network) | Exit `1`; stderr `Metadata refresh failed while validating --field: <original error>.` — the exception text propagates verbatim. AB#879. |
 | Missing `--type` (or unsupported inference from `--parent`) | Exit `1`. |
 | Invalid work item type | Exit `1`. |
 | Non-positive `--parent` | Exit `1`. |

@@ -21,9 +21,8 @@ namespace Twig.Commands;
 /// When called without an ID, resolves the active work item from context.
 /// If no active item is set, emits a branch detection hint and exits 1.
 /// Unlike <see cref="SetCommand"/>, this command does not change active context or record
-/// navigation history. By default, renders cached data immediately then syncs the item
-/// and revises the display. Reads are cache-only by default (wayfinder 0004 §3);
-/// pass <c>--refresh</c> to opt into a sync pass.
+/// navigation history. Reads are cache-only by default (wayfinder 0004 §3);
+/// pass <c>--refresh</c> to fetch the item and its links, including on a cache miss.
 /// </summary>
 public sealed class ShowCommand(
     CommandContext ctx,
@@ -93,15 +92,28 @@ public sealed class ShowCommand(
 
         Domain.Aggregates.WorkItem item;
         int resolvedId;
+        SyncResult? initialRefreshResult = null;
 
         if (id.HasValue)
         {
             // ── By-ID path — cache-first lookup ──
             resolvedId = id.Value;
             var cached = await workItemRepo.GetByIdAsync(resolvedId, ct);
+            if (cached is null && refresh && resolvedId > 0)
+            {
+                initialRefreshResult = await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, ct);
+                if (initialRefreshResult is SyncFailed failed)
+                {
+                    CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, $"Refresh failed for #{resolvedId}: {failed.Reason}");
+                    return 1;
+                }
+                cached = await workItemRepo.GetByIdAsync(resolvedId, ct);
+            }
             if (cached is null)
             {
-                ctx.StderrWriter.WriteLine($"error: Work item #{resolvedId} not found in local cache. Run 'twig set {resolvedId}' to fetch it.");
+                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, refresh
+                    ? $"Work item #{resolvedId} could not be loaded after refresh; local pending changes may protect it."
+                    : $"Work item #{resolvedId} not found in local cache. Run 'twig show {resolvedId} --refresh' to fetch it without changing context.");
                 return 1;
             }
             item = cached;
@@ -195,6 +207,8 @@ public sealed class ShowCommand(
 
         async Task<SyncResult> RefreshItemAndLinksAsync(CancellationToken refreshCt)
         {
+            if (resolvedId <= 0)
+                return new UpToDate();
             var changedCount = 0;
             var failures = new List<SyncItemFailure>();
 
@@ -219,13 +233,9 @@ public sealed class ShowCommand(
                 }
             }
 
-            var linkSync = await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, refreshCt);
+            var linkSync = initialRefreshResult
+                ?? await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, refreshCt);
             RecordResult(linkSync, resolvedId);
-            if (linkSync is SyncFailed)
-            {
-                var itemSync = await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId], refreshCt);
-                RecordResult(itemSync, resolvedId);
-            }
 
             var refreshedItem = await workItemRepo.GetByIdAsync(resolvedId, refreshCt);
             if (refreshedItem?.ParentId is > 0)
@@ -253,7 +263,19 @@ public sealed class ShowCommand(
         {
             try
             {
-                await RefreshItemAndLinksAsync(ct);
+                var syncResult = await RefreshItemAndLinksAsync(ct);
+                if (syncResult is SyncFailed failed)
+                {
+                    CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, $"Refresh failed for #{resolvedId}: {failed.Reason}");
+                    return 1;
+                }
+                if (syncResult is PartiallyUpdated partial)
+                {
+                    CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
+                        $"Refresh incomplete for #{resolvedId}: " +
+                        string.Join("; ", partial.Failures.Select(f => $"#{f.Id}: {f.Error}")));
+                    return 1;
+                }
 
                 // Reload data from cache after sync
                 var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
@@ -277,7 +299,8 @@ public sealed class ShowCommand(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Sync failure is non-fatal — emit cache-only data
+                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, $"Refresh failed for #{resolvedId}: {ex.Message}");
+                return 1;
             }
         }
 

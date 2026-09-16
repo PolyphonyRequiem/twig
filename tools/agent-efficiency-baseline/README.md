@@ -47,6 +47,32 @@ The frozen run (`evidence/source.json`, `evidence/verification.json`) records **
 
 Live write qualification for HTML, identity, no-op and partial chains remains **unreproduced** without an explicitly authorized disposable ADO fixture. Existing local tests and the offline report do not satisfy that separate live-write gate. Fresh Hermes/OMP agent sessions, outer approval behavior, installation rollout and rollback remain AB#882 qualification, not simulated agent PASS results.
 
+## AB#879 cold-read qualification
+
+The current fixture run adds cold-refresh failure and metadata-predicate negative
+controls. Cached-show counts now come from observed calls and parsed output.
+Metadata readiness requires a positive diagnosis and the targeted
+`twig process --refresh` recovery cue; empty or unrelated errors do not pass.
+The frozen AB#878 evidence remains unchanged.
+
+The September 16 AB#879 run recorded **25 cases, zero safety failures, two unmet
+outcomes**: legacy batch missing-ID disclosure (AB#880) and HTML closing-tag
+whitespace (AB#848). `--require-fixed` therefore still exits 1; this is not a claim
+that those sibling fixes landed.
+
+`native-forwarding-probe.py --offline` exercises the installed Hermes plugin's
+actual Python forwarding seam with intercepted subprocesses. For read-only live
+qualification, pass `--workspace <new-empty-directory> --id <target>
+--source-dll <absolute-source-built-twig.dll>`. Set `TWIG_PLUGIN_ROOT` when the
+plugin is outside the default engineering profile. The live probe inherits the
+caller credential home, creates only a disposable config/cache and launcher,
+and calls read commands; it never installs Twig or modifies plugin configuration.
+Remove the disposable workspace after retaining the JSON report.
+
+Both modes emit explicit assertions and return nonzero on failure. The live
+positive-ID check and remote missing-ID error were exercised through the actual
+handler; neither mode is a fresh Hermes agent session or deployment qualification.
+
 ## Preserved provenance and prior work
 
 Source baseline: `146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb`. Installed version `0.91.6-alpha.0.8`; source build `0.91.6-alpha.0.14`. Equal-version assumptions in earlier audit notes were superseded by this direct measurement. Both engineering executable paths resolved to one installed artifact, SHA-256 `0a1a1f303c03d11b2f27c14c4b61ff0a0f4ba5fd223462ea1952b00b2bf6a4c0`; its exact source ancestry is unknown.

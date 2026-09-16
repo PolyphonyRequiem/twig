@@ -31,7 +31,8 @@ public sealed class NewCommand(
     SprintEntryPolicy sprintEntryPolicy,
     RendererFactory? rendererFactory = null,
     ContextChangeService? contextChangeService = null,
-    TextReader? stdinReader = null)
+    TextReader? stdinReader = null,
+    IIterationService? iterationService = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     private readonly TextReader _stdin = stdinReader ?? Console.In;
@@ -103,6 +104,37 @@ public sealed class NewCommand(
             // rejecting them, so a typo would look like success while the value was
             // never stored. Validate against the cached field definitions so a bad
             // reference name is a clear local error instead of silent data loss.
+            //
+            // AB#879: recovery is targeted metadata-only (never a work-item pull,
+            // never a pending-write flush). It fires when the local catalog is empty
+            // OR the requested field is absent — a nonempty local catalog cannot
+            // prove completeness, so an "Unknown" verdict must come from an authoritative
+            // read, not the cached local one. Recovery uses the existing
+            // FieldDefinitionSyncService; no new sync path.
+            var requested = fieldValues.Select(f => f.FieldName).ToList();
+            var catalog = await MetadataCatalogRecovery.EnsureFieldsAsync(
+                fieldDefStore,
+                iterationService,
+                defs => defs.Count > 0
+                        && requested.All(r => defs.Any(d => string.Equals(d.ReferenceName, r, StringComparison.OrdinalIgnoreCase))),
+                ct);
+            switch (catalog.Outcome)
+            {
+                case MetadataCatalogRecovery.State.NotReady:
+                    // Unconditional per AB#879: helper's NotReady means the catalog
+                    // could not be authoritatively confirmed (no recovery source, or
+                    // sync produced zero rows). A nonempty local catalog missing the
+                    // requested field is ALSO NotReady when we cannot recover — it is
+                    // not a "wrong name" because we never got an authoritative read.
+                    CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                        MetadataCatalogRecovery.Messages.FieldsNotReady());
+                    return 1;
+                case MetadataCatalogRecovery.State.RefreshFailed:
+                    CommandError.Write(_rendererFactory, Console.Error, outputFormat,
+                        MetadataCatalogRecovery.Messages.FieldsRefreshFailed(catalog.RefreshError));
+                    return 1;
+            }
+
             var knownFields = await fieldDefStore.GetAllAsync(ct);
             var knownNames = new HashSet<string>(
                 knownFields.Select(f => f.ReferenceName), StringComparer.OrdinalIgnoreCase);
@@ -114,9 +146,13 @@ public sealed class NewCommand(
 
             if (unknown.Count > 0)
             {
+                // Reached only after an authoritative catalog read (either the initial
+                // one already contained the name — impossible here — or the targeted
+                // sync ran successfully and still doesn't know these). Genuine typo /
+                // wrong reference name.
                 Console.Error.WriteLine(fmt.FormatError(
                     $"Unknown field reference name(s): {string.Join(", ", unknown)}. " +
-                    "Use the ADO reference name (e.g. Custom.MyField); run 'twig refresh' if the field is new."));
+                    "Use the ADO reference name (e.g. Custom.MyField)."));
                 return 1;
             }
         }

@@ -101,6 +101,8 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
             .Returns(Array.Empty<WorkItem>());
         _linkRepo.GetLinksAsync(item.Id, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItemLink>());
+        _adoService.FetchWithLinksAsync(item.Id, Arg.Any<CancellationToken>())
+            .Returns((item, Array.Empty<WorkItemLink>()));
     }
 
     private static WorkItemBuilder Item(int id, string title) =>
@@ -146,25 +148,6 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
 
     // ── Default path: two-pass rendering ────────────────────────────
 
-    [Fact]
-    public async Task Default_TwoPassRendering_RendersCachedThenSyncs()
-    {
-        var item = Item(1, "Two Pass Show Item").Build();
-        SetupCachedItem(item);
-
-        var cmd = CreateCommand(CreateTtyPipelineFactory());
-        // refresh defaults to false — should use RenderWithSyncAsync
-        var result = await cmd.ExecuteAsync(1, "human", refresh: true);
-
-        result.ShouldBe(0);
-
-        var output = _testConsole.Output;
-        output.ShouldContain("#1");
-        output.ShouldContain("Two Pass Show Item");
-
-        // Verify the sync path was actually exercised (not just cache-only)
-        await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task Default_SyncUpdatesData_RevisedViewReflectsChanges()
@@ -174,7 +157,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
 
         // After sync, return an updated item
         var freshItem = Item(1, "Updated Title").Build();
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
+        _adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>()).Returns((freshItem, Array.Empty<WorkItemLink>()));
 
         // First two GetByIdAsync calls return cached data (initial lookup + ProtectedCacheWriter check),
         // third call (buildRevisedView after sync) returns fresh data
@@ -234,23 +217,6 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
 
     // ── Non-TTY sync-first: machine output formats ─────────────────
 
-    [Theory]
-    [InlineData("json")]
-    [InlineData("json-compact")]
-    [InlineData("minimal")]
-    [InlineData("human")]
-    [InlineData("ids")]
-    public async Task NonTty_SyncsBeforeEmitting(string format)
-    {
-        var item = Item(1, "Sync First Item").Build();
-        SetupCachedItem(item);
-
-        var cmd = CreateCommand(); // non-TTY pipeline (isOutputRedirected: true)
-        await CaptureStdout(() => cmd.ExecuteAsync(1, format, refresh: true));
-
-        // Verify sync was exercised — FetchAsync is called by SyncItemSetAsync
-        await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
-    }
 
     [Theory]
     [InlineData("json")]
@@ -277,7 +243,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(cachedItem);
 
         var freshItem = Item(1, "Fresh Title").Build();
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
+        _adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>()).Returns((freshItem, Array.Empty<WorkItemLink>()));
 
         // First GetByIdAsync returns cached (initial lookup),
         // second returns cached (ProtectedCacheWriter check in sync),
@@ -661,7 +627,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         SetupCachedItem(cachedItem);
 
         var freshItem = Item(1, "Updated Title").Build();
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
+        _adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>()).Returns((freshItem, Array.Empty<WorkItemLink>()));
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(cachedItem, cachedItem, freshItem);
 

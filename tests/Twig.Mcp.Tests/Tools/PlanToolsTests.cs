@@ -229,6 +229,125 @@ public sealed class PlanToolsTests
     }
 
     [Fact]
+    public async Task Apply_Diagnostics_ExposesBoundedProjectionBesideRawResult()
+    {
+        // AB#881: the additive `diagnostics` object rides alongside the raw
+        // `result`/`warning`/`error` keys. Its shape is bounded — disposition, code,
+        // revisions, per-field classifications, missing-field names — never the ADO
+        // field bodies. Field values live only in the raw `result` payload.
+        var (sut, lifecycle, _) = BuildSut();
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = ValidDigest,
+                Operations =
+                [
+                    SampleVerifiedOp() with
+                    {
+                        RequestJson = "{\"expectedRevision\":2}",
+                        ResultJson =
+                            "{\"revision\":3,\"diagnostics\":{\"code\":\"verified\","
+                            + "\"expectedRevision\":2,\"observedRevision\":3,"
+                            + "\"fields\":[{\"field\":\"System.Title\",\"classification\":\"exact\"}],"
+                            + "\"missingFields\":[]}}",
+                    },
+                ],
+                Failed = false,
+            });
+
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseData(result);
+        var op = data.GetProperty("operations")[0];
+        // Raw evidence still travels: consumers who want the payload keep reading it.
+        op.GetProperty("result").GetString().ShouldNotBeNullOrEmpty();
+        var diagnostics = op.GetProperty("diagnostics");
+        diagnostics.GetProperty("disposition").GetString().ShouldBe("verified");
+        diagnostics.GetProperty("code").GetString().ShouldBe("verified");
+        diagnostics.GetProperty("expectedRevision").GetInt32().ShouldBe(2);
+        diagnostics.GetProperty("observedRevision").GetInt32().ShouldBe(3);
+        var field0 = diagnostics.GetProperty("fields")[0];
+        field0.GetProperty("field").GetString().ShouldBe("System.Title");
+        field0.GetProperty("classification").GetString().ShouldBe("exact");
+        diagnostics.GetProperty("missingFields").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Apply_Diagnostics_LegacyRowWithoutPayload_KeepsStateAndOmitsCode()
+    {
+        // AB#881: a legacy row that predates the additive diagnostics payload — or whose
+        // ResultJson is null / a bare {"revision":N} shape — never fabricates a code.
+        // Disposition still tracks journal State so a mid-lifecycle row does not collapse
+        // to a terminal. ExpectedRevision falls back to RequestJson so the authored bound
+        // survives.
+        var (sut, lifecycle, _) = BuildSut();
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = ValidDigest,
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0,
+                        OpId = "op-legacy",
+                        Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Applying,
+                        RequestJson = "{\"expectedRevision\":7}",
+                        ResultJson = null,
+                    },
+                ],
+                Failed = false,
+            });
+
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseData(result);
+        var op = data.GetProperty("operations")[0];
+        var diagnostics = op.GetProperty("diagnostics");
+        diagnostics.GetProperty("disposition").GetString().ShouldBe("in-flight");
+        diagnostics.GetProperty("code").ValueKind.ShouldBe(JsonValueKind.Null);
+        diagnostics.GetProperty("expectedRevision").GetInt32().ShouldBe(7);
+        diagnostics.GetProperty("observedRevision").ValueKind.ShouldBe(JsonValueKind.Null);
+        diagnostics.GetProperty("fields").GetArrayLength().ShouldBe(0);
+        diagnostics.GetProperty("missingFields").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Apply_Diagnostics_StrayRevKeyNeverBecomesObservedRevision()
+    {
+        // AB#881: {"rev":N} is a bare PATCH acknowledgment — not an authoritative
+        // post-op readback. Surfacing it as ObservedRevision would let a caller mistake
+        // the ACK for proof the effect landed at that revision.
+        var (sut, lifecycle, _) = BuildSut();
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = ValidDigest,
+                Operations =
+                [
+                    SampleVerifiedOp() with
+                    {
+                        RequestJson = "{\"expectedRevision\":9}",
+                        ResultJson = "{\"rev\":10}",
+                    },
+                ],
+                Failed = false,
+            });
+
+        var result = await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest, authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseData(result);
+        var diagnostics = data.GetProperty("operations")[0].GetProperty("diagnostics");
+        diagnostics.GetProperty("observedRevision").ValueKind.ShouldBe(JsonValueKind.Null);
+        // ExpectedRevision still surfaces from RequestJson.
+        diagnostics.GetProperty("expectedRevision").GetInt32().ShouldBe(9);
+    }
+
+    [Fact]
     public async Task Apply_FailureResult_EmitsFullJournalProjectionWithFailedTrue()
     {
         var (sut, lifecycle, _) = BuildSut();

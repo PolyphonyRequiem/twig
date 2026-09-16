@@ -86,6 +86,15 @@ $ twig proposal apply --file .twig/proposals/close-1234.json \
 { "digest": "3f9c…a1b7", "failed": false, "operations": [ /* rows */ ] }
 ```
 
+### Per-operation `diagnostics`
+
+Each row in `operations` carries an additive bounded `diagnostics` object beside
+the raw `result`, `warning`, and `error` keys — see
+[`proposal status` – Per-operation `diagnostics`](proposal-status.md#per-operation-diagnostics)
+for the shape and vocabularies. The human and minimal surfaces render the
+bounded disposition and summary and never echo the raw `warning`/`error` bodies;
+`-o json` remains the full-evidence route (AB#881).
+
 ## Exit codes and failure modes
 
 |Condition|Result|

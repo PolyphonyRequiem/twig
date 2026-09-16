@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Net.Http;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -1430,7 +1431,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
         row.State.ShouldBe(PlanOperationState.Verified);
-        row.ResultJson.ShouldBe("{\"revision\":4}");
+        RevisionOf(row.ResultJson).ShouldBe(4);
+        DiagnosticsCodeOf(row.ResultJson).ShouldBe("verified");
     }
 
     [Fact]
@@ -1457,7 +1459,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
         row.State.ShouldBe(PlanOperationState.Verified);
-        row.ResultJson.ShouldBe("{\"revision\":3}");
+        RevisionOf(row.ResultJson).ShouldBe(3);
         // Recovery MUST NOT re-issue the write.
         await _revisionBound.DidNotReceive().AddLinkAtRevisionAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>(),
@@ -1486,7 +1488,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
         row.State.ShouldBe(PlanOperationState.Verified);
-        row.ResultJson.ShouldBe("{\"deleted\":true}");
+        RootOf(row.ResultJson).GetProperty("deleted").GetBoolean().ShouldBeTrue();
         // Recovery MUST NOT re-issue the delete.
         await _revisionBound.DidNotReceive().DeleteAtRevisionAsync(
             Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -1534,7 +1536,9 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         row.State.ShouldBe(PlanOperationState.Verified);
         row.AppliedAt.ShouldNotBeNull();
         row.VerifiedAt.ShouldNotBeNull();
-        row.ResultJson.ShouldBe($"{{\"identity\":\"{identity}\",\"publishedId\":4242}}");
+        var seedRoot = RootOf(row.ResultJson);
+        seedRoot.GetProperty("identity").GetString().ShouldBe(identity.ToString());
+        seedRoot.GetProperty("publishedId").GetInt32().ShouldBe(4242);
         // Recovery MUST NOT reissue a publish — the orchestrator was never invoked.
         _seedPublish.CallCount.ShouldBe(0);
     }
@@ -1560,7 +1564,8 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         apply.Failed.ShouldBeFalse();
         var row = apply.Operations[0];
         row.State.ShouldBe(PlanOperationState.Verified);
-        row.ResultJson.ShouldBe("{\"revision\":4}");
+        RevisionOf(row.ResultJson).ShouldBe(4);
+        DiagnosticsCodeOf(row.ResultJson).ShouldBe("verified");
     }
 
     // ── apply: runtime process-rule gate (AB#673) ──────────────────────────
@@ -2726,6 +2731,203 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             State = state,
             Fields = values,
         };
+    }
+
+    // ── AB#881: concise, trustworthy proposal diagnostics on the payload ──
+    //
+    // These tests inspect ResultJson semantically via JsonDocument (never raw-string
+    // equality) so the executor formatter can evolve without a suite-wide rewrite. The
+    // load-bearing contract: winning writes carry BOTH `rev` (PATCH ack) and `revision`
+    // (readback) plus a diagnostics envelope; every terminal outcome — verified, indeterminate,
+    // failed — names WHY, so a CLI/MCP consumer never has to scrape Error strings for keywords.
+
+    [Fact]
+    public async Task Apply_WinningBatch_ResultJsonCarriesAckAndReadbackRevision_WithDiagnostics()
+    {
+        // The winning-execute path stamps the executor's own result JSON (the PATCH ack).
+        // The lifecycle then reads back and promotes Applied → Verified, and the atomic
+        // record threads the readback's shape into the same row. Both revisions land on
+        // the row: `rev` proves what ADO acknowledged, `revision` proves what the refreshed
+        // read observed. Divergence would matter, so both are captured — not just one.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(BuildWorkItem(42, rev: 4, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        var row = apply.Operations[0];
+        row.State.ShouldBe(PlanOperationState.Verified);
+        // AB#881: both revisions AND diagnostics visible on the atomic Applied+result row.
+        RootOf(row.ResultJson).GetProperty("rev").GetInt32().ShouldBe(4);
+        RevisionOf(row.ResultJson).ShouldBe(4);
+        DiagnosticsCodeOf(row.ResultJson).ShouldBe("verified");
+        var fields = DiagnosticFieldsOf(row.ResultJson);
+        fields.ShouldHaveSingleItem();
+        fields[0].Classification.ShouldBe("exact");
+    }
+
+    [Fact]
+    public async Task Apply_MultiOp_VerifiedPrefix_IndeterminateMiddle_UntouchedTail_StatusExposesEveryDiagnostic()
+    {
+        // op-1 verifies. op-2's PATCH lands but the refreshed read shows the server rev
+        // did not advance past op-2's expected rev — the "revision-not-advanced" code proves
+        // the write is not evidenced; op-2 stays Indeterminate, op-3 is NEVER attempted.
+        // StatusAsync must expose the diagnostics on every row a caller cares about, so a
+        // human diagnosing a frozen tail sees exactly WHICH row froze it and WHY.
+        var plan = """
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 42, "expectedRevision": 3,
+                  "fields": { "System.State": "Active" } },
+                { "id": "op-2", "kind": "batch", "workItemId": 42, "expectedRevision": 4,
+                  "fields": { "System.State": "Doing" } },
+                { "id": "op-3", "kind": "batch", "workItemId": 42, "expectedRevision": 5,
+                  "fields": { "System.State": "Done" } }
+              ]
+            }
+            """;
+        var file = WritePlan(plan);
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>()).Returns(4);
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 4, Arg.Any<CancellationToken>()).Returns(5);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(
+            BuildWorkItem(42, rev: 4, state: "Active"),  // op-1 readback: advanced 3→4 ✓
+            BuildWorkItem(42, rev: 4, state: "Doing"));  // op-2 readback: rev NOT past 4
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue(); // header Failed — tail is not all-verified
+        apply.Operations.Count.ShouldBe(3);
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[1].State.ShouldBe(PlanOperationState.Indeterminate);
+        // op-3 was never attempted — no replay was permitted after the middle stalled.
+        apply.Operations[2].State.ShouldNotBe(PlanOperationState.Verified);
+        apply.Operations[2].State.ShouldNotBe(PlanOperationState.Failed);
+        apply.Operations[2].State.ShouldNotBe(PlanOperationState.Applied);
+        apply.Operations[2].ResultJson.ShouldBeNull();
+
+        // StatusAsync surfaces the same diagnostics envelope a CLI/MCP consumer will read.
+        var status = await svc.StatusAsync(file);
+        status.ShouldNotBeNull();
+        status!.Operations.Count.ShouldBe(3);
+
+        DiagnosticsCodeOf(status.Operations[0].ResultJson).ShouldBe("verified");
+        RevisionOf(status.Operations[0].ResultJson).ShouldBe(4);
+
+        DiagnosticsCodeOf(status.Operations[1].ResultJson).ShouldBe("revision-not-advanced");
+        var diag2 = DiagnosticsOf(status.Operations[1].ResultJson);
+        diag2.GetProperty("expectedRevision").GetInt32().ShouldBe(4);
+        diag2.GetProperty("observedRevision").GetInt32().ShouldBe(4);
+
+        status.Operations[2].ResultJson.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RevisionConflict_ResultJsonCarriesRevisionConflictDiagnostics()
+    {
+        // A 412 on the PATCH is deterministic Failed, not a candidate for readback. AB#881
+        // requires the row's ResultJson to name the code AND both revisions, so an operator
+        // sees "we asked for rev 3, server was at rev 7" without parsing the Error string.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new AdoConflictException(7, "412"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations[0];
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.ResultJson.ShouldNotBeNull();
+        DiagnosticsCodeOf(row.ResultJson).ShouldBe("revision-conflict");
+        var diag = DiagnosticsOf(row.ResultJson);
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(3);
+        diag.GetProperty("observedRevision").GetInt32().ShouldBe(7);
+    }
+
+    [Fact]
+    public async Task Apply_Batch_RuleGateRefuses_ResultJsonPersistsMissingRequiredFieldsDiagnostics()
+    {
+        // AB#673 close-gate refusal is terminal Failed BEFORE the wire attempt. AB#881
+        // adds that the row's ResultJson carries diagnostics.code=missing-required-fields
+        // AND names EVERY missing field, so a CLI/MCP client can render exactly what a
+        // reviewer must supply — without a follow-up round-trip and without parsing Error.
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+
+        // Local source cached at rev 3, in a pre-terminal state, with the gate field unset.
+        var source = new WorkItem
+        {
+            Id = 42, Title = "gated", Type = WorkItemType.Parse("Frobnicator").Value,
+        };
+        source.ChangeState("Doing");
+        source.UpdateField("System.State", "Doing");
+        source.MarkSynced(3);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(source);
+
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [new ProcessRule(
+                [new RuleCondition("when", "System.State", "Done")],
+                [new RuleAction("makeRequired", "Custom.Gated", null)],
+                IsDisabled: false)]));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var row = apply.Operations[0];
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.ResultJson.ShouldNotBeNull();
+        DiagnosticsCodeOf(row.ResultJson).ShouldBe("missing-required-fields");
+        MissingFieldsOf(row.ResultJson).ShouldContain("Custom.Gated");
+        // The PATCH must never have run — the diagnostics are the gate refusal, not a
+        // post-wire readback.
+        await _ado.DidNotReceive().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── AB#881 payload-reader helpers (private to this class) ──────────────
+
+    private static JsonElement RootOf(string? json) =>
+        JsonDocument.Parse(json ?? throw new InvalidOperationException("ResultJson is null.")).RootElement;
+
+    private static int RevisionOf(string? json) =>
+        RootOf(json).GetProperty("revision").GetInt32();
+
+    private static JsonElement DiagnosticsOf(string? json) =>
+        RootOf(json).GetProperty("diagnostics");
+
+    private static string DiagnosticsCodeOf(string? json) =>
+        DiagnosticsOf(json).GetProperty("code").GetString()!;
+
+    private static IReadOnlyList<(string Field, string Classification)> DiagnosticFieldsOf(string? json)
+    {
+        var arr = DiagnosticsOf(json).GetProperty("fields");
+        var list = new List<(string, string)>(arr.GetArrayLength());
+        foreach (var el in arr.EnumerateArray())
+            list.Add((el.GetProperty("field").GetString()!, el.GetProperty("classification").GetString()!));
+        return list;
+    }
+
+    private static IReadOnlyList<string> MissingFieldsOf(string? json)
+    {
+        var arr = DiagnosticsOf(json).GetProperty("missingFields");
+        var list = new List<string>(arr.GetArrayLength());
+        foreach (var el in arr.EnumerateArray()) list.Add(el.GetString()!);
+        return list;
     }
 
     // ── helpers ────────────────────────────────────────────────────────────

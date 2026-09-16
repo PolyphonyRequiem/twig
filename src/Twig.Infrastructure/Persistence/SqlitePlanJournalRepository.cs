@@ -525,7 +525,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         PlanOperationState toState,
         DateTimeOffset timestamp,
         CancellationToken ct = default,
-        string? warning = null)
+        string? warning = null,
+        string? resultJson = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
@@ -539,13 +540,21 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // was then lost and which a different actor terminalised as Failed/Indeterminate.
         // COALESCE preserves an existing warning when a caller passes null, so a transition
         // that carries no warning never erases one an earlier transition recorded.
+        //
+        // AB#881: the trustworthy-proposal diagnostics payload rides through the same
+        // conditional UPDATE, using the existing result_json column. Same rationale: a
+        // pre-CAS write could strand diagnostics on a row a different actor then
+        // terminalised, and a post-CAS write carries a crash window. COALESCE preserves
+        // any existing result_json when the caller passes null, so a transition that
+        // carries no diagnostics never overwrites a payload an earlier winner recorded.
         cmd.CommandText = """
             UPDATE proposal_operations
             SET state = @toState,
                 started_at  = CASE WHEN @toState = @applyingState THEN @timestamp ELSE started_at  END,
                 applied_at  = CASE WHEN @toState = @appliedState  THEN @timestamp ELSE applied_at  END,
                 verified_at = CASE WHEN @toState = @verifiedState THEN @timestamp ELSE verified_at END,
-                warning     = COALESCE(@warning, warning)
+                warning     = COALESCE(@warning, warning),
+                result_json = COALESCE(@resultJson, result_json)
             WHERE digest = @digest
               AND op_id = @opId
               AND state = @fromState
@@ -557,6 +566,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@toState", toState.ToString());
         cmd.Parameters.AddWithValue("@timestamp", FormatTimestamp(timestamp));
         cmd.Parameters.AddWithValue("@warning", (object?)warning ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@resultJson", (object?)resultJson ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@applyingState", PlanOperationState.Applying.ToString());
         cmd.Parameters.AddWithValue("@appliedState", PlanOperationState.Applied.ToString());
         cmd.Parameters.AddWithValue("@verifiedState", PlanOperationState.Verified.ToString());
@@ -667,7 +677,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         string error,
         PlanOperationState finalState,
         DateTimeOffset timestamp,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? resultJson = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
@@ -684,12 +695,18 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
+        // AB#881: diagnostics payload rides through the same conditional UPDATE that writes
+        // state + error, using the existing result_json column. The WHERE clause is the
+        // state-gated terminal transition — a row already terminal is left strictly untouched,
+        // so a losing writer cannot overwrite an earlier winner's diagnostics. COALESCE
+        // preserves any existing result_json when the caller passes null: this is additive.
         cmd.CommandText = """
             UPDATE proposal_operations
             SET state = @finalState,
                 error = @error,
                 applied_at  = CASE WHEN @finalState = @appliedState  THEN @timestamp ELSE applied_at  END,
-                verified_at = CASE WHEN @finalState = @verifiedState THEN @timestamp ELSE verified_at END
+                verified_at = CASE WHEN @finalState = @verifiedState THEN @timestamp ELSE verified_at END,
+                result_json = COALESCE(@resultJson, result_json)
             WHERE digest = @digest
               AND op_id = @opId
               AND state NOT IN (@verified, @failed, @indeterminate);
@@ -699,6 +716,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@finalState", finalState.ToString());
         cmd.Parameters.AddWithValue("@error", error);
         cmd.Parameters.AddWithValue("@timestamp", FormatTimestamp(timestamp));
+        cmd.Parameters.AddWithValue("@resultJson", (object?)resultJson ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@verified", PlanOperationState.Verified.ToString());
         cmd.Parameters.AddWithValue("@failed", PlanOperationState.Failed.ToString());
         cmd.Parameters.AddWithValue("@indeterminate", PlanOperationState.Indeterminate.ToString());

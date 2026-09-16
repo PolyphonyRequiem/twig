@@ -572,7 +572,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             if (gate.Outcome.IsRefused)
             {
                 return StepResult.Terminal(await MarkTerminalAsync(
-                    digest, row.OpId, gate.Outcome.Message!, PlanOperationState.Failed, ct)
+                    digest, row.OpId, gate.Outcome.Message!, PlanOperationState.Failed, ct,
+                    gate.Outcome.Fields is { } missingFields
+                        ? PlanOperationExecutor.SerializeMissingFields(opDef, missingFields, gate.Snapshot?.Revision)
+                        : null)
                     .ConfigureAwait(false));
             }
             if (gate.Outcome.IsRefreshRequired)
@@ -607,7 +610,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                         .ConfigureAwait(false),
                 PlanExecutionOutcome.Failed
                     => StepResult.Terminal(await MarkTerminalAsync(
-                        digest, row.OpId, applyResult.Error!, PlanOperationState.Failed, ct)
+                        digest, row.OpId, applyResult.Error!, PlanOperationState.Failed, ct, applyResult.ResultJson)
                         .ConfigureAwait(false)),
                 _ => await ResolveIndeterminateExecuteAsync(digest, row.OpId, opDef, applyResult, carry, ct)
                         .ConfigureAwait(false),
@@ -728,7 +731,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
@@ -739,7 +742,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         return StepResult.Terminal(await MarkTerminalAsync(
             digest, opId, outcome.Error ?? (outcome.Deterministic ? "failed" : "indeterminate"),
-            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
+            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
 
@@ -755,12 +758,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private Task<bool> PromoteAppliedToVerifiedAsync(
         string digest,
         string opId,
+        PlanOperationDefinition operation,
         PlanReadbackOutcome outcome,
         CancellationToken ct)
         => _journal.TryTransitionOperationAsync(
             digest, opId,
             PlanOperationState.Applied, PlanOperationState.Verified,
-            _clock.GetUtcNow(), ct, outcome.Warning);
+            _clock.GetUtcNow(), ct, outcome.Warning,
+            operation is BatchOperation ? outcome.ResultJson : null);
 
     /// <summary>
     /// Winning-execute path: atomic Applying → Applied (with executor's result JSON), then
@@ -808,11 +813,11 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             // The executor could not classify, so its ResultJson is null; the readback that
             // proved the effect carries the canonical shape and stamps result_json here.
             var recorded = await _journal.TryRecordAppliedAsync(
-                digest, opId, applyResult.ResultJson ?? outcome.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
+                digest, opId, outcome.ResultJson ?? applyResult.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
             if (!recorded)
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
 
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));
@@ -823,7 +828,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         // error message wins when readback declined to name a determinate one.
         var error = outcome.Error ?? applyResult.Error ?? "indeterminate";
         var finalState = outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate;
-        return StepResult.Terminal(await MarkTerminalAsync(digest, opId, error, finalState, ct)
+        return StepResult.Terminal(await MarkTerminalAsync(digest, opId, error, finalState, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
 
@@ -843,7 +848,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
         if (outcome.Ok)
         {
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
@@ -852,7 +857,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         return StepResult.Terminal(await MarkTerminalAsync(
             digest, opId, outcome.Error ?? (outcome.Deterministic ? "failed" : "indeterminate"),
-            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
+            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
 
@@ -884,9 +889,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string opId,
         string error,
         PlanOperationState finalState,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? resultJson = null)
     {
-        await _journal.SaveOperationErrorAsync(digest, opId, error, finalState, _clock.GetUtcNow(), ct)
+        await _journal.SaveOperationErrorAsync(digest, opId, error, finalState, _clock.GetUtcNow(), ct, resultJson)
             .ConfigureAwait(false);
         return finalState;
     }

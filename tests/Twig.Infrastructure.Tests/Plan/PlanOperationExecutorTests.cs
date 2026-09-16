@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -1137,7 +1138,8 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
-        outcome.ResultJson.ShouldBe("{\"revision\":7}");
+        RevisionOf(outcome.ResultJson).ShouldBe(7);
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
     }
 
     [Fact]
@@ -1154,7 +1156,7 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
-        outcome.ResultJson.ShouldBe("{\"revision\":11}");
+        RevisionOf(outcome.ResultJson).ShouldBe(11);
     }
 
     [Fact]
@@ -1172,7 +1174,7 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
-        outcome.ResultJson.ShouldBe("{\"revision\":13}");
+        RevisionOf(outcome.ResultJson).ShouldBe(13);
     }
 
     [Fact]
@@ -1190,7 +1192,7 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
-        outcome.ResultJson.ShouldBe("{\"revision\":17}");
+        RevisionOf(outcome.ResultJson).ShouldBe(17);
     }
 
     [Fact]
@@ -1203,7 +1205,7 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         outcome.Ok.ShouldBeTrue();
-        outcome.ResultJson.ShouldBe("{\"deleted\":true}");
+        RootOf(outcome.ResultJson).GetProperty("deleted").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -1229,7 +1231,9 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Ok.ShouldBeTrue();
         outcome.ResultJson.ShouldNotBeNull();
-        outcome.ResultJson.ShouldBe($"{{\"identity\":\"{identity}\",\"publishedId\":4242}}");
+        var publishedRoot = RootOf(outcome.ResultJson);
+        publishedRoot.GetProperty("identity").GetString().ShouldBe(identity.ToString());
+        publishedRoot.GetProperty("publishedId").GetInt32().ShouldBe(4242);
     }
 
     // ── AB#754: server-owned normalized fields verify with warning detail ──
@@ -1270,7 +1274,8 @@ public sealed class PlanOperationExecutorTests
 
         outcome.Ok.ShouldBeTrue();
         outcome.Error.ShouldBeNull();
-        outcome.ResultJson.ShouldBe("{\"revision\":5}");
+        RevisionOf(outcome.ResultJson).ShouldBe(5);
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
         outcome.Warning.ShouldNotBeNull();
         outcome.Warning.ShouldContain("Microsoft.VSTS.Common.ClosedDate");
     }
@@ -1660,6 +1665,326 @@ public sealed class PlanOperationExecutorTests
         };
 
         ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, mislabelled).ShouldBeFalse();
+    }
+
+    // ── AB#881: concise, trustworthy proposal diagnostics on the payload ──
+    //
+    // Each test drives the PUBLIC readback outcome and inspects ResultJson semantically
+    // (JsonDocument, never raw-string equality) so a formatter tweak stays local. The
+    // contract under test: the payload names WHICH fields differed and HOW, without
+    // burying user-visible values inside Error strings the CLI has to grep.
+
+    [Fact]
+    public async Task ReadbackBatch_MultiFieldMismatch_ErrorNamesEveryField_WithoutBuryingValuesInIt()
+    {
+        // Three user-authored fields that did not land. The Error message MUST name every
+        // failing field so a caller has an actionable summary, and MUST NOT paste the
+        // expected/actual values into the same string — those live in fieldEvidence, and
+        // a Windows or CI console line that reprints them defeats the whole redaction plan.
+        var op = new BatchOperation
+        {
+            Id = "multi", WorkItemId = 42, ExpectedRevision = 3,
+            Fields = new Dictionary<string, string?>
+            {
+                ["Custom.Foo"] = "authored-foo",
+                ["Custom.Bar"] = "authored-bar",
+                ["Custom.Baz"] = "authored-baz",
+            },
+        };
+        var wi = new WorkItem { Id = 42, Title = "T" };
+        wi.MarkSynced(4);
+        wi.UpdateField("Custom.Foo", "server-foo");
+        wi.UpdateField("Custom.Bar", "server-bar");
+        wi.UpdateField("Custom.Baz", "server-baz");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("Custom.Foo");
+        outcome.Error.ShouldContain("Custom.Bar");
+        outcome.Error.ShouldContain("Custom.Baz");
+        // Values live in evidence, NEVER in the human-facing Error.
+        outcome.Error.ShouldNotContain("authored-foo");
+        outcome.Error.ShouldNotContain("server-foo");
+        outcome.Error.ShouldNotContain("authored-bar");
+        outcome.Error.ShouldNotContain("server-bar");
+
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("field-mismatch");
+        var fields = DiagnosticFieldsOf(outcome.ResultJson);
+        fields.Count.ShouldBe(3);
+        fields.ShouldAllBe(f => f.Classification == "mismatch");
+        fields.Select(f => f.Field).ShouldBe(new[] { "Custom.Foo", "Custom.Bar", "Custom.Baz" }, ignoreOrder: true);
+
+        var evidence = FieldEvidenceOf(outcome.ResultJson);
+        evidence.Count.ShouldBe(3);
+        evidence.First(e => e.Field == "Custom.Foo").Expected.ShouldBe("authored-foo");
+        evidence.First(e => e.Field == "Custom.Foo").Actual.ShouldBe("server-foo");
+
+        var diag = DiagnosticsOf(outcome.ResultJson);
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(3);
+        diag.GetProperty("observedRevision").GetInt32().ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_HtmlCanonicalization_ClassifiesTheFieldAsCanonicalizedHtml()
+    {
+        // AB#754/755 already prove HTML normalization verifies with a warning. AB#881
+        // adds that the payload names the classification per field, so a downstream
+        // consumer (CLI/MCP) does not need to reparse Warning text.
+        StubFieldDefinition("System.Description", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 9, ExpectedRevision = 2,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.Description"] = "<p class=\"x\">Body</p>",
+            },
+        };
+        var wi = new WorkItem { Id = 9, Title = "T" };
+        wi.MarkSynced(3);
+        wi.UpdateField("System.Description", "<P class='x'>Body</P>");
+        _ado.FetchAsync(9, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
+        var fields = DiagnosticFieldsOf(outcome.ResultJson);
+        fields.ShouldContain(f =>
+            f.Field == "System.Description" && f.Classification == "canonicalized-html");
+        var diag = DiagnosticsOf(outcome.ResultJson);
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(2);
+        diag.GetProperty("observedRevision").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_IdentityCanonicalization_ClassifiesTheFieldAsCanonicalizedIdentity()
+    {
+        StubIdentityField("System.AssignedTo");
+        var op = new BatchOperation
+        {
+            Id = "assign", WorkItemId = 42, ExpectedRevision = 3,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "daniel@danielgreen.net",
+            },
+        };
+        var wi = new WorkItem { Id = 42, Title = "T", AssignedTo = "Daniel Green (daniel danielgreen.net)" };
+        wi.MarkSynced(4);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
+        DiagnosticFieldsOf(outcome.ResultJson).ShouldContain(f =>
+            f.Field == "System.AssignedTo" && f.Classification == "canonicalized-identity");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_ServerGeneratedField_ClassifiesTheFieldAsServerGenerated()
+    {
+        // Same evidence case as the AB#754 canonical test above, now inspected through the
+        // diagnostics payload rather than the Warning string.
+        StubFieldDefinition("Microsoft.VSTS.Common.ClosedDate", "dateTime");
+        var op = new BatchOperation
+        {
+            Id = "close", WorkItemId = 7, ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                ["Custom.TerminalOutcome"] = "completed",
+                ["Microsoft.VSTS.Common.ClosedDate"] = "2026-08-25T00:00:00Z",
+            },
+        };
+        var wi = new WorkItem { Id = 7, Title = "T" };
+        wi.MarkSynced(5);
+        wi.ChangeState("Done");
+        wi.UpdateField("Custom.TerminalOutcome", "completed");
+        wi.UpdateField("Microsoft.VSTS.Common.ClosedDate", "2026-08-25T22:45:08.85Z");
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
+        DiagnosticFieldsOf(outcome.ResultJson).ShouldContain(f =>
+            f.Field == "Microsoft.VSTS.Common.ClosedDate"
+            && f.Classification == "server-generated");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_ExactMatch_ClassifiesFieldAsExact_AndCodeVerified()
+    {
+        // Negative control for classification drift: the ordinary happy path must land the
+        // "exact" per-field verdict, not something looser that would let a mismatch pass.
+        var op = new BatchOperation
+        {
+            Id = "b", WorkItemId = 42, ExpectedRevision = 3,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Active" },
+        };
+        var wi = new WorkItem { Id = 42, Title = "T" };
+        wi.MarkSynced(4);
+        wi.ChangeState("Active");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue();
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("verified");
+        var fields = DiagnosticFieldsOf(outcome.ResultJson);
+        fields.ShouldHaveSingleItem();
+        fields[0].Field.ShouldBe("System.State");
+        fields[0].Classification.ShouldBe("exact");
+        MissingFieldsOf(outcome.ResultJson).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UnchangedRevisionAlreadyMatching_IndeterminateWithRevisionNotAdvanced()
+    {
+        // Values that already match at the expected revision are NOT evidence — nothing
+        // proves this write occurred. The row stays Indeterminate and the diagnostic code
+        // names WHY, so a caller cannot mistake this for a green path just because the
+        // scalar comparison would trivially succeed.
+        var op = new BatchOperation
+        {
+            Id = "b", WorkItemId = 42, ExpectedRevision = 5,
+            Fields = new Dictionary<string, string?> { ["System.State"] = "Active" },
+        };
+        var wi = new WorkItem { Id = 42, Title = "T" };
+        wi.MarkSynced(5);
+        wi.ChangeState("Active");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("revision");
+        // Precise, action-driving code — no scanning the Error text for keywords.
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("revision-not-advanced");
+        var diag = DiagnosticsOf(outcome.ResultJson);
+        diag.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
+        diag.GetProperty("observedRevision").GetInt32().ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_UnreachableFetch_ReadbackUnavailableCode_ErrorIsBoundedGeneric()
+    {
+        // A readback that could not run is a fail-closed unknown. The Error must be a
+        // stable generic sentence a caller can pattern-match; the raw exception message
+        // rides in the payload's failureDetail so an operator has full evidence without
+        // the CLI leaking exception text into a user-facing line.
+        var op = new BatchOperation
+        {
+            Id = "b", WorkItemId = 7, ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+            },
+        };
+        _ado.FetchAsync(7, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO unreachable: connection reset"));
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Error.ShouldNotBeNull();
+        // Bounded generic — does not paste the wire-level exception text into the
+        // human-facing Error line.
+        outcome.Error.ShouldNotContain("connection reset");
+        outcome.ResultJson.ShouldNotBeNull();
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("readback-unavailable");
+        // Original exception preserved as evidence, not as user-facing text.
+        RootOf(outcome.ResultJson).GetProperty("failureDetail").GetString()!
+            .ShouldContain("connection reset");
+    }
+
+    [Fact]
+    public async Task ReadbackBatch_ClearFailed_ClassifiesFieldAsClearFailed_ErrorHidesLingeringValue()
+    {
+        // A clear that did not take is a genuine contradiction. AB#881: the classification
+        // labels it "clear-failed" (not "mismatch"), fieldEvidence carries expected=null
+        // and the surviving actual value, and the human-facing Error names the field but
+        // NOT the value — the value is evidence, not chat.
+        var op = new BatchOperation
+        {
+            Id = "b", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.State"] = null },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.ChangeState("Doing"); // clear failed — the state is still Doing.
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error.ShouldNotBeNull();
+        outcome.Error.ShouldContain("cleared"); // negative-control from AB#754 still holds
+        outcome.Error.ShouldNotContain("Doing"); // AB#881: no value in the user-facing line
+
+        DiagnosticsCodeOf(outcome.ResultJson).ShouldBe("field-mismatch");
+        var fields = DiagnosticFieldsOf(outcome.ResultJson);
+        fields.ShouldHaveSingleItem();
+        fields[0].Field.ShouldBe("System.State");
+        fields[0].Classification.ShouldBe("clear-failed");
+        var evidence = FieldEvidenceOf(outcome.ResultJson);
+        evidence.ShouldHaveSingleItem();
+        evidence[0].Expected.ShouldBeNull();
+        evidence[0].Actual.ShouldBe("Doing");
+    }
+
+    // ── AB#881 payload-reader helpers (private to this class) ──────────────
+
+    private static JsonElement RootOf(string? json) =>
+        JsonDocument.Parse(json ?? throw new InvalidOperationException("ResultJson is null.")).RootElement;
+
+    private static int RevisionOf(string? json) =>
+        RootOf(json).GetProperty("revision").GetInt32();
+
+    private static JsonElement DiagnosticsOf(string? json) =>
+        RootOf(json).GetProperty("diagnostics");
+
+    private static string DiagnosticsCodeOf(string? json) =>
+        DiagnosticsOf(json).GetProperty("code").GetString()!;
+
+    private static IReadOnlyList<(string Field, string Classification)> DiagnosticFieldsOf(string? json)
+    {
+        var arr = DiagnosticsOf(json).GetProperty("fields");
+        var list = new List<(string, string)>(arr.GetArrayLength());
+        foreach (var el in arr.EnumerateArray())
+            list.Add((el.GetProperty("field").GetString()!, el.GetProperty("classification").GetString()!));
+        return list;
+    }
+
+    private static IReadOnlyList<string> MissingFieldsOf(string? json)
+    {
+        var arr = DiagnosticsOf(json).GetProperty("missingFields");
+        var list = new List<string>(arr.GetArrayLength());
+        foreach (var el in arr.EnumerateArray()) list.Add(el.GetString()!);
+        return list;
+    }
+
+    private static IReadOnlyList<(string Field, string? Expected, string? Actual)> FieldEvidenceOf(string? json)
+    {
+        var arr = RootOf(json).GetProperty("fieldEvidence");
+        var list = new List<(string, string?, string?)>(arr.GetArrayLength());
+        foreach (var el in arr.EnumerateArray())
+        {
+            var exp = el.GetProperty("expected");
+            var act = el.GetProperty("actual");
+            list.Add((
+                el.GetProperty("field").GetString()!,
+                exp.ValueKind == JsonValueKind.Null ? null : exp.GetString(),
+                act.ValueKind == JsonValueKind.Null ? null : act.GetString()));
+        }
+        return list;
     }
 
     private static StagedAlias MakeAlias(int negative)

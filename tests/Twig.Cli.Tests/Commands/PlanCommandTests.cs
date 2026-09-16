@@ -290,12 +290,18 @@ public sealed class PlanCommandTests
         stdout.ToString().ShouldContain("op-1");
     }
 
-    [Fact]
-    public async Task Apply_VerifiedWithWarning_RendersWarningLineAndStillExitsZero()
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    public async Task Apply_VerifiedWithWarning_OmitsRawWarningBody_AndPointsAtFullEvidence(string format)
     {
-        // AB#754/755: the warning is rendered on its own line and the command still succeeds.
-        // A Verified operation must not read as failed, and the exit code must not move —
-        // a CI step keyed on exit status would otherwise break on a harmless normalization.
+        // AB#881: the human/minimal surface must not echo the raw Warning body — it can
+        // carry ADO response fragments with user-authored values. The bounded diagnostics
+        // summary and a "-o json" full-evidence pointer appear instead; a Verified row
+        // still exits zero (a CI step keyed on exit status must not break on a harmless
+        // normalization).
+        const string sensitiveWarning =
+            "ADO canonicalized HTML field(s) after apply: System.Description = <secret-token-xyz />.";
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         _lifecycle
@@ -312,22 +318,178 @@ public sealed class PlanCommandTests
                         OpId = "op-1",
                         Kind = PlanOperationKind.Batch,
                         State = PlanOperationState.Verified,
-                        RequestJson = "{}",
-                        Warning = "ADO canonicalized HTML field(s) after apply: System.Description.",
+                        RequestJson = "{\"expectedRevision\":2}",
+                        Warning = sensitiveWarning,
                     },
                 ],
                 Error = null,
             });
 
         var cmd = CreateCommand(stdout, stderr);
-        var exit = await cmd.ApplyAsync("plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null, outputFormat: "human", ct: default);
+        var exit = await cmd.ApplyAsync(
+            "plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null,
+            outputFormat: format, ct: default);
 
         exit.ShouldBe(0);
         var text = stdout.ToString();
         text.ShouldContain("Verified");
-        text.ShouldContain("warning:");
-        text.ShouldContain("System.Description");
+        text.ShouldContain("verified"); // bounded disposition token from diagnostics
+        text.ShouldContain("full evidence");
+        text.ShouldNotContain("secret-token-xyz");
+        text.ShouldNotContain(sensitiveWarning);
         stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    public async Task Apply_FailedOperation_OmitsRawErrorBody_AndPointsAtFullEvidence(string format)
+    {
+        // AB#881 (companion): op.Error can carry an arbitrary ADO response body — a
+        // BadRequest fragment for instance — so the human surface must not echo it. The
+        // bounded diagnostics disposition ("failed") and the full-evidence pointer take
+        // its place; the JSON payload keeps the raw error for consumers that want it.
+        const string sensitiveError =
+            "ADO rejected: System.AssignedTo=\"secret@example.com\" is not a valid identity.";
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = "abc",
+                Failed = true,
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0,
+                        OpId = "op-1",
+                        Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Failed,
+                        RequestJson = "{}",
+                        Error = sensitiveError,
+                    },
+                ],
+                Error = null,
+            });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.ApplyAsync(
+            "plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null,
+            outputFormat: format, ct: default);
+
+        exit.ShouldBe(1);
+        var text = stdout.ToString();
+        text.ShouldContain("failed"); // bounded disposition token
+        text.ShouldContain("full evidence");
+        text.ShouldNotContain("secret@example.com");
+        text.ShouldNotContain(sensitiveError);
+    }
+
+    [Fact]
+    public async Task Apply_JsonProjection_ExposesDiagnosticsBesideRawResultJson()
+    {
+        // AB#881: the JSON `diagnostics` object is additive — the raw `resultJson`,
+        // `warning`, and `error` keys still travel — and its shape is bounded to the
+        // fixed vocabulary a caller can pattern-match on.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle
+            .ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult
+            {
+                Digest = "abc",
+                Failed = false,
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0,
+                        OpId = "op-1",
+                        Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Verified,
+                        RequestJson = "{\"expectedRevision\":2}",
+                        ResultJson =
+                            "{\"revision\":3,\"diagnostics\":{\"code\":\"verified\","
+                            + "\"expectedRevision\":2,\"observedRevision\":3,"
+                            + "\"fields\":[{\"field\":\"System.Title\",\"classification\":\"exact\"}],"
+                            + "\"missingFields\":[]}}",
+                    },
+                ],
+                Error = null,
+            });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.ApplyAsync(
+            "plan.json", "abc", authorizerIdentity: "Test Authorizer", rationale: null,
+            outputFormat: "json", ct: default);
+
+        exit.ShouldBe(0);
+        using var outer = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        var op = outer.RootElement.GetProperty("operations")[0];
+        // Raw evidence still travels.
+        op.GetProperty("resultJson").GetString()
+            .ShouldNotBeNullOrEmpty();
+        var diagnostics = op.GetProperty("diagnostics");
+        diagnostics.GetProperty("disposition").GetString().ShouldBe("verified");
+        diagnostics.GetProperty("code").GetString().ShouldBe("verified");
+        diagnostics.GetProperty("expectedRevision").GetInt32().ShouldBe(2);
+        diagnostics.GetProperty("observedRevision").GetInt32().ShouldBe(3);
+        diagnostics.GetProperty("fields")[0].GetProperty("field").GetString()
+            .ShouldBe("System.Title");
+        diagnostics.GetProperty("fields")[0].GetProperty("classification").GetString()
+            .ShouldBe("exact");
+    }
+
+    [Fact]
+    public async Task Status_JsonProjection_LegacyRowWithoutDiagnostics_PreservesStateAndOmitsCode()
+    {
+        // AB#881: a row from before the additive diagnostics payload landed (or a row
+        // whose ResultJson carries a legacy shape like {"revision":N}) must not
+        // fabricate a code. Disposition still tracks the journal state so a mid-lifecycle
+        // row reads as "in-flight" rather than being collapsed to a terminal.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle
+            .StatusAsync("plan.json", Arg.Any<CancellationToken>())
+            .Returns(new PlanStatusResult
+            {
+                Digest = "abc",
+                State = PlanOperationState.Applying,
+                Found = true,
+                Issues = Array.Empty<PlanValidationIssue>(),
+                Operations =
+                [
+                    new PlanJournalOperation
+                    {
+                        Ordinal = 0,
+                        OpId = "op-1",
+                        Kind = PlanOperationKind.Batch,
+                        State = PlanOperationState.Applying,
+                        RequestJson = "{\"expectedRevision\":5}",
+                        ResultJson = null,
+                    },
+                ],
+            });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.StatusAsync("plan.json", outputFormat: "json", ct: default);
+
+        exit.ShouldBe(0);
+        using var outer = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        var op = outer.RootElement.GetProperty("operations")[0];
+        var diagnostics = op.GetProperty("diagnostics");
+        diagnostics.GetProperty("disposition").GetString().ShouldBe("in-flight");
+        diagnostics.GetProperty("code").ValueKind
+            .ShouldBe(System.Text.Json.JsonValueKind.Null);
+        // ExpectedRevision falls back to the request bound so the operation's authored
+        // target remains visible even without a diagnostics payload.
+        diagnostics.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
+        diagnostics.GetProperty("observedRevision").ValueKind
+            .ShouldBe(System.Text.Json.JsonValueKind.Null);
+        diagnostics.GetProperty("fields").GetArrayLength().ShouldBe(0);
+        diagnostics.GetProperty("missingFields").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]

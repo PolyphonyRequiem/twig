@@ -150,9 +150,9 @@ public sealed class NewCommand(
                 // one already contained the name — impossible here — or the targeted
                 // sync ran successfully and still doesn't know these). Genuine typo /
                 // wrong reference name.
-                Console.Error.WriteLine(fmt.FormatError(
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat,
                     $"Unknown field reference name(s): {string.Join(", ", unknown)}. " +
-                    "Use the ADO reference name (e.g. Custom.MyField)."));
+                    "Use the ADO reference name (e.g. Custom.MyField).");
                 return 1;
             }
         }

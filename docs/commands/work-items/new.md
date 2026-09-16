@@ -70,6 +70,12 @@ Sequence (see `src/Twig/Commands/NewCommand.cs:38-338`):
    writes; cancellation propagates unchanged. If the catalog stays empty
    the command reports `Metadata not ready` with an empty-or-incomplete catalog diagnosis and a `twig process --refresh` metadata-only recovery hint;
    if the recovery call throws, the command surfaces `Metadata refresh failed while validating --field: <original error>.` with the original exception text propagated verbatim so the caller can act on the concrete cause.
+   Recovery opts into the adapter's strict field read, bypassing cached
+   best-effort fallback values. Persistent HTTP 401/403 and transport errors
+   are not converted to empty catalogs or unstructured warnings. These
+   metadata failures and genuinely unknown-field errors each emit one JSON
+   error document in JSON formats. Unrelated enrichment callers retain the
+   adapter's existing tolerant behavior.
 2. Validate `--format` and resolve the description body via
    `TextBodySource` (shared with `twig note`/`twig update`), same
    "empty source is an error" rule as those commands.

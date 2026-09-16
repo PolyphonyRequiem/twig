@@ -403,7 +403,7 @@ public sealed class ProcessCommandTests : IDisposable
                     States = [new WorkItemTypeState { Name = "New", Category = "Proposed" }],
                 },
             });
-        iteration.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
         var cmd = new ProcessCommand(
             _activeItemResolver,
@@ -773,7 +773,7 @@ public sealed class ProcessCommandTests : IDisposable
         var iteration = Substitute.For<IIterationService>();
         iteration.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItemTypeWithStates>());
-        iteration.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
         var cmd = new ProcessCommand(
             _activeItemResolver,
@@ -811,9 +811,9 @@ public sealed class ProcessCommandTests : IDisposable
                     States = [new WorkItemTypeState { Name = "New", Category = "Proposed" }],
                 },
             });
-        iteration.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
-        iteration.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new UnauthorizedAccessException("401 from ADO"));
         var cmd = new ProcessCommand(
             _activeItemResolver,

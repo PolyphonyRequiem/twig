@@ -58,8 +58,17 @@ The frozen AB#878 evidence remains unchanged.
 After integrating the merged AB#848 fix from `origin/main`, the September 16
 AB#879 run recorded **25 cases, zero safety failures, one unmet outcome**:
 legacy batch missing-ID disclosure (AB#880). `--require-fixed` therefore still
-exits 1. The integrated repository pre-push gate passed **9,595 solution-wide
+exits 1. The corrected repository pre-push gate passed **9,615 solution-wide
 tests across six assemblies**, plus the external detail-host probe.
+
+The independent-review correction exercises the real `AdoIterationService`
+with an HTTP handler, not substituted adapter exceptions. Persistent 401/403,
+transport failure, and process-configuration failure after successful types
+must produce a single structured failure without item writes. The same
+adapter's tolerant enrichment calls remain supported; their cached fallback
+cannot hide a later strict recovery failure. Reverting recovery to tolerant
+reads fails 15 adapter cases; strict recovery plus the cold-read suite passes
+33 targeted cases, including cancellation and successful metadata responses.
 
 `native-forwarding-probe.py --offline` exercises the installed Hermes plugin's
 actual Python forwarding seam with intercepted subprocesses. For read-only live

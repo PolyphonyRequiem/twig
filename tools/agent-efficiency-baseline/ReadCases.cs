@@ -862,7 +862,7 @@ internal static class ReadCases
         fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(knownFields);
         var metadata = authoritativeCatalog ? Substitute.For<IIterationService>() : null;
         if (metadata is not null)
-            metadata.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>()).Returns(knownFields);
+            metadata.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>()).Returns(knownFields);
         fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {

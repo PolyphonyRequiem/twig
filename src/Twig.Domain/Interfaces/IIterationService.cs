@@ -62,6 +62,20 @@ public interface IIterationService
     Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Reads metadata for recovery without suppressing source failures.
+    /// Implementations whose ordinary read tolerates errors must override this method.
+    /// </summary>
+    Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsStrictAsync(CancellationToken ct = default)
+        => GetFieldDefinitionsAsync(ct);
+
+    /// <summary>
+    /// Reads process configuration for recovery without suppressing source failures.
+    /// Implementations whose ordinary read tolerates errors must override this method.
+    /// </summary>
+    Task<ProcessConfigurationData> GetProcessConfigurationStrictAsync(CancellationToken ct = default)
+        => GetProcessConfigurationAsync(ct);
+
+    /// <summary>
     /// Gets all team iterations (sprints) from the ADO team settings.
     /// Calls GET /{project}/{team}/_apis/work/teamsettings/iterations without a timeframe filter.
     /// Results are returned in the order provided by ADO (chronological).

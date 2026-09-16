@@ -66,8 +66,13 @@ child-type count, color, icon ID, hidden flag, and category membership
 - A process whose every type is hidden reports an empty list at exit 0 —
   that is the true answer to "which types can I use" and is deliberately not
   an error (`src/Twig/Commands/ProcessCommand.cs:114-118`).
-- The empty-store error is raised **before** the hidden filter, so the
-  "run twig sync" hint still fires on a cache that has never been populated.
+- Metadata readiness is checked **before** the hidden filter. Recovery uses
+  failure-preserving field/configuration reads: persistent HTTP 401/403,
+  transport failures and process-configuration failures produce nonzero exit
+  with one structured JSON error when JSON output is requested. They do not
+  become empty catalogs or a successful partial process result. Cancellation
+  propagates. Existing best-effort enrichment callers retain their tolerant
+  adapter reads; recovery bypasses those cached fallback values.
 
 
 ### `--org`/`--project` override
@@ -79,7 +84,8 @@ the target process live from ADO instead of the workspace cache
 written; a stderr banner announces the live read. Supplying only one of the
 two flags is rejected by the host.
 
-Read-only: this command performs no local writes and no ADO mutations.
+Read-only against ADO: recovery may populate local metadata stores, but never
+pulls work items or flushes pending writes.
 
 ## Examples
 

@@ -64,7 +64,7 @@ internal static class MetadataCatalogRecovery
         int synced;
         try
         {
-            synced = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore, ct);
+            synced = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore, ct, strict: true);
         }
         catch (OperationCanceledException)
         {
@@ -105,7 +105,7 @@ internal static class MetadataCatalogRecovery
         int synced;
         try
         {
-            synced = await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore, ct);
+            synced = await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore, ct, strict: true);
         }
         catch (OperationCanceledException)
         {

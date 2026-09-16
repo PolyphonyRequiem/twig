@@ -14,12 +14,16 @@ public static class FieldDefinitionSyncService
     /// via <paramref name="fieldDefinitionStore"/>. Returns the count of definitions synced.
     /// Does not catch exceptions — callers handle errors.
     /// </summary>
+    /// <param name="strict">Use the failure-preserving metadata source for command recovery; enrichment retains its existing tolerant default.</param>
     public static async Task<int> SyncAsync(
         IIterationService iterationService,
         IFieldDefinitionStore fieldDefinitionStore,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool strict = false)
     {
-        var definitions = await iterationService.GetFieldDefinitionsAsync(ct);
+        var definitions = strict
+            ? await iterationService.GetFieldDefinitionsStrictAsync(ct)
+            : await iterationService.GetFieldDefinitionsAsync(ct);
 
         if (definitions.Count == 0)
             return 0;

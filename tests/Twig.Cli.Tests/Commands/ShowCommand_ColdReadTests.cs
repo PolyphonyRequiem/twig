@@ -28,6 +28,7 @@ public sealed class ShowCommand_ColdReadTests : IDisposable
     private readonly SqlitePendingChangeStore _pending;
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
     private readonly IContextStore _context = Substitute.For<IContextStore>();
+    private readonly ITelemetryClient _telemetry = Substitute.For<ITelemetryClient>();
     private readonly StringWriter _stderr = new();
     private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-cold-show-" + Guid.NewGuid().ToString("N"));
 
@@ -44,7 +45,7 @@ public sealed class ShowCommand_ColdReadTests : IDisposable
         var formatter = new OutputFormatterFactory(new HumanOutputFormatter());
         var renderer = console is null ? null : new SpectreRenderer(console, new SpectreTheme(new DisplayConfig())) { SyncStatusDelay = TimeSpan.Zero };
         var ctx = new CommandContext(new RenderingPipelineFactory(formatter, renderer!, isOutputRedirected: () => console is null),
-            formatter, new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(), Stderr: _stderr);
+            formatter, new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(), Stderr: _stderr, TelemetryClient: _telemetry);
         return new ShowCommand(ctx, _items, _links,
             new SyncCoordinatorFactory(_items, _ado, new ProtectedCacheWriter(_items, _pending), _pending, _links, 30, 30),
             new StatusFieldConfigReader(new TwigPaths(_temp, Path.Combine(_temp, "config"), Path.Combine(_temp, "twig.db"))),
@@ -97,6 +98,24 @@ public sealed class ShowCommand_ColdReadTests : IDisposable
         error.RootElement.GetProperty("error").GetString()!.ShouldContain("local cache");
         _ado.ReceivedCalls().ShouldBeEmpty();
         _context.ReceivedCalls().ShouldBeEmpty();
+        _telemetry.Received().TrackEvent("CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p => p["command"] == "show" && p["exit_code"] == "1"),
+            Arg.Any<Dictionary<string, double>>());
+    }
+
+    [Fact]
+    public async Task ActiveRefreshFetchesRootWithLinksAndRendersRemoteTitle()
+    {
+        _context.GetActiveWorkItemIdAsync().Returns(42);
+        await _items.SaveAsync(new WorkItemBuilder(42, "Cached").Build());
+        _ado.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((new WorkItemBuilder(42, "Remote active").Build(), Array.Empty<WorkItemLink>()));
+        var (exit, stdout) = await Capture(() => Command().ExecuteAsync(outputFormat: "json", refresh: true));
+        exit.ShouldBe(0);
+        using var document = JsonDocument.Parse(stdout);
+        document.RootElement.GetProperty("title").GetString().ShouldBe("Remote active");
+        document.RootElement.GetProperty("linksVerifiedAt").ValueKind.ShouldBe(JsonValueKind.String);
+        await _ado.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]

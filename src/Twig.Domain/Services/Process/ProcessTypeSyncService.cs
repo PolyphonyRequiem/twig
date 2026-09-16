@@ -19,15 +19,19 @@ public static class ProcessTypeSyncService
     /// <paramref name="processTypeStore"/>. Returns the count of types synced.
     /// Does not catch exceptions — callers handle errors.
     /// </summary>
+    /// <param name="strict">Require failure-preserving process configuration for command recovery; enrichment retains its existing tolerant default.</param>
     public static async Task<int> SyncAsync(
         IIterationService iterationService,
         IProcessTypeStore processTypeStore,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool strict = false)
     {
         var typesWithStates = await iterationService.GetWorkItemTypesWithStatesAsync(ct)
             ?? Array.Empty<WorkItemTypeWithStates>();
 
-        var processConfig = await iterationService.GetProcessConfigurationAsync(ct)
+        var processConfig = (strict
+            ? await iterationService.GetProcessConfigurationStrictAsync(ct)
+            : await iterationService.GetProcessConfigurationAsync(ct))
             ?? new ProcessConfigurationData();
 
         var parentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);

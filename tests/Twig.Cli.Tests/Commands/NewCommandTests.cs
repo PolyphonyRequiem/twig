@@ -982,7 +982,7 @@ public class NewCommandTests : IDisposable
         // still-missing field is a *genuine* typo and must surface the classical
         // "Unknown field" message — not the "Metadata not ready" message.
         var iteration = Substitute.For<IIterationService>();
-        iteration.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition>
             {
                 new("System.Title", "Title", "String", false),
@@ -1032,7 +1032,7 @@ public class NewCommandTests : IDisposable
         // network) rather than a fabricated "check your auth" hint the code can't
         // justify at this layer.
         var iteration = Substitute.For<IIterationService>();
-        iteration.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new UnauthorizedAccessException("401 from ADO"));
 
         var repo = Substitute.For<IWorkItemRepository>();
@@ -1072,7 +1072,7 @@ public class NewCommandTests : IDisposable
         // NOT as any of the three metadata classifications. And crucially no create
         // fires downstream.
         var iteration = Substitute.For<IIterationService>();
-        iteration.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         var repo = Substitute.For<IWorkItemRepository>();

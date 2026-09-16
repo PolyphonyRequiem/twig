@@ -266,7 +266,7 @@
   {
     "command": "show-batch",
     "group": "context",
-    "summary": "Display multiple work items by ID from the local cache; missing IDs are silently skipped.",
+    "summary": "Display multiple work items by ID from the local cache; missing IDs are disclosed as errors.",
     "stability": "stable",
     "mutates": "none",
     "path": "context/show-batch.md"

@@ -26,6 +26,7 @@ internal static class CommandExamples
         [
             "twig show 1234             Show work item #1234",
             "twig show 1234 --output json  Show work item #1234 as JSON",
+            "twig show 1234 -o json --fields System.Title,System.State  Read selected fields with provenance",
             "twig show --tree           Show work item tree hierarchy for the active item",
             "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
             "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",
@@ -42,6 +43,7 @@ internal static class CommandExamples
             "twig show-batch 1234,5678,9012         Batch lookup work items",
             "twig show-batch --batch 1234,5678,9012 --output json  Batch lookup as JSON array",
             "twig show-batch --batch 42             Single item batch lookup",
+            "twig show-batch 1234,5678 -o json --fields System.State  Read selected fields, disclosing misses",
         ],
         ["query"] =
         [
@@ -80,6 +82,7 @@ internal static class CommandExamples
             "twig process description                            Summarise every type in this project's process",
             "twig process description -o json --out proc.json    Write the complete document, for diffing",
             "twig process description Niflheim.Grilling          Describe one type, by its reference name",
+            "twig process description Niflheim.Grilling -o json --sections requirements  Read scoped requirements",
         ],
         ["new"] =
         [

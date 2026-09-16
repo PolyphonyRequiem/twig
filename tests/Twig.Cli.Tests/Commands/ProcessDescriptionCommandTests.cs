@@ -1557,4 +1557,205 @@ public sealed class ProcessDescriptionCommandTests : IDisposable
         unresolved.ShouldNotContain("type list");
         unfetchable.ShouldNotContain("does not resolve");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Compact route — AB#880: opt-in --sections / --fields projection
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 🔴 The compact route is OPT-IN. Without <c>--sections</c>, the command emits the
+    /// byte-stable full descriptor — the same behaviour every existing caller depends on.
+    /// This defends the "preserve default byte-stable full descriptor" acceptance.
+    /// </summary>
+    [Fact]
+    public async Task Execute_WithoutSections_EmitsFullDescriptorNotCompactEnvelope()
+    {
+        var path = TempFile(".json");
+
+        await BuildCommand().ExecuteAsync(null, path, ProcessDescriptionCommand.CompleteFormat);
+
+        var content = await File.ReadAllTextAsync(path);
+        // The compact contract version never appears in the full descriptor.
+        content.ShouldNotContain("process-description-compact");
+        // And the full descriptor's own version tag is there.
+        content.ShouldContain("descriptorVersion");
+    }
+
+    /// <summary>
+    /// <c>--sections fields</c> switches the command to the single-line compact envelope.
+    /// </summary>
+    [Fact]
+    public async Task Execute_WithSectionsFields_EmitsCompactEnvelopeCarryingContractVersion()
+    {
+        var originalOut = Console.Out;
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var exitCode = await BuildCommand().ExecuteAsync(
+                typeName: "Niflheim.Grilling",
+                outPath: null,
+                outputFormat: ProcessDescriptionCommand.CompleteFormat,
+                ct: default,
+                sections: "fields",
+                fields: null);
+
+            exitCode.ShouldBe(0);
+            var envelope = stdout.ToString().Trim();
+            envelope.ShouldNotContain("\n");
+            var doc = JsonDocument.Parse(envelope);
+            doc.RootElement.GetProperty("contractVersion").GetString()
+                .ShouldBe("process-description-compact/1");
+            doc.RootElement.GetProperty("sections").EnumerateArray()
+                .Select(e => e.GetString()).ShouldContain("fields");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    /// <summary>
+    /// A field filter narrows the fields section rows — the whole point of --fields.
+    /// </summary>
+    [Fact]
+    public async Task Execute_WithFieldsFilter_LimitsFieldRowsToNamedRefs()
+    {
+        var originalOut = Console.Out;
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            await BuildCommand().ExecuteAsync(
+                typeName: "Niflheim.Grilling",
+                outPath: null,
+                outputFormat: ProcessDescriptionCommand.CompleteFormat,
+                ct: default,
+                sections: "fields",
+                fields: "Custom.GrillingOnly");
+
+            var doc = JsonDocument.Parse(stdout.ToString().Trim());
+            foreach (var type in doc.RootElement.GetProperty("types").EnumerateArray())
+            {
+                foreach (var f in type.GetProperty("fields").EnumerateArray())
+                {
+                    f.GetProperty("ref").GetString().ShouldBe("Custom.GrillingOnly");
+                }
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    /// <summary>
+    /// An unknown section token is rejected with a named remedy — before any fetch.
+    /// </summary>
+    [Fact]
+    public async Task Execute_UnknownSectionToken_ReturnsExitCode1WithNamedRemedy()
+    {
+        var exitCode = await BuildCommand().ExecuteAsync(
+            typeName: "Niflheim.Grilling",
+            outPath: null,
+            outputFormat: ProcessDescriptionCommand.CompleteFormat,
+            ct: default,
+            sections: "layout",
+            fields: null);
+
+        exitCode.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("layout");
+        stderr.ShouldContain("fields, requirements");
+    }
+
+    /// <summary>
+    /// <c>--fields</c> without <c>--sections</c> is a mistake worth naming: silently
+    /// falling through to the full descriptor would let a caller believe their filter took
+    /// effect when it did not.
+    /// </summary>
+    [Fact]
+    public async Task Execute_FieldsFilterWithoutSections_ReturnsExitCode1WithGuidance()
+    {
+        var exitCode = await BuildCommand().ExecuteAsync(
+            typeName: "Niflheim.Grilling",
+            outPath: null,
+            outputFormat: ProcessDescriptionCommand.CompleteFormat,
+            ct: default,
+            sections: null,
+            fields: "Custom.GrillingOnly");
+
+        exitCode.ShouldBe(1);
+        _stderr.ToString().ShouldContain("--fields");
+    }
+
+    /// <summary>
+    /// <c>--out</c> writes the compact envelope atomically and reports the CONTRACT
+    /// version (not the descriptor version), because the file at rest is the compact
+    /// envelope.
+    /// </summary>
+    [Fact]
+    public async Task Execute_CompactWithOutPath_WritesFileAndConfirmsCompactContract()
+    {
+        var path = TempFile(".json");
+
+        var exitCode = await BuildCommand().ExecuteAsync(
+            typeName: "Niflheim.Grilling",
+            outPath: path,
+            outputFormat: ProcessDescriptionCommand.CompleteFormat,
+            ct: default,
+            sections: "requirements",
+            fields: null);
+
+        exitCode.ShouldBe(0);
+        File.Exists(path).ShouldBeTrue();
+        var envelope = await File.ReadAllTextAsync(path);
+        JsonDocument.Parse(envelope).RootElement
+            .GetProperty("contractVersion").GetString()
+            .ShouldBe("process-description-compact/1");
+
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("compact process description");
+        stderr.ShouldContain("process-description-compact/1");
+    }
+
+    /// <summary>
+    /// AB#880 preflight: a compact request WITHOUT an explicit typeName is rejected
+    /// before any fetch. A process-wide compact envelope would negate the projection's
+    /// whole point (a smaller response) and Program.cs promises the CLI enforces this.
+    /// </summary>
+    [Fact]
+    public async Task Execute_CompactWithoutTypeName_ReturnsExitCode1_NamingTheRemedy()
+    {
+        var exitCode = await BuildCommand().ExecuteAsync(
+            typeName: null,
+            outPath: null,
+            outputFormat: ProcessDescriptionCommand.CompleteFormat,
+            ct: default,
+            sections: "requirements",
+            fields: null);
+
+        exitCode.ShouldBe(1);
+        _stderr.ToString().ShouldContain("explicit type");
+    }
+
+    /// <summary>
+    /// AB#880 preflight: a compact request with a non-JSON output format is rejected
+    /// before any fetch. The compact envelope is a JSON contract; a caller that combined
+    /// <c>--sections</c> with <c>-o tree</c> would silently drop the format otherwise.
+    /// </summary>
+    [Fact]
+    public async Task Execute_CompactWithNonJsonFormat_ReturnsExitCode1_NamingTheRemedy()
+    {
+        var exitCode = await BuildCommand().ExecuteAsync(
+            typeName: "Niflheim.Grilling",
+            outPath: null,
+            outputFormat: "tree",
+            ct: default,
+            sections: "requirements",
+            fields: null);
+
+        exitCode.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Compact requests emit JSON");
+    }
 }

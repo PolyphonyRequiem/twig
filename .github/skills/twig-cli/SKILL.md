@@ -9,6 +9,24 @@ Use Twig through its current source-derived documentation. This skill carries th
 operating model; the command reference owns command syntax, flags, defaults, and
 exit behavior.
 
+For compact reads, first bind the qualified executable (absolute path + SHA-256,
+not version alone), workspace and its `twig.json` organization/project. Keep that
+binding for every call. From a source checkout, select one command's guidance with
+`python3 tools/agent-efficiency-baseline/command-guide.py --executable <path> --workspace <root> show`
+(or `--source-dll <path>` for a qualified source build). It combines the existing
+command index with that executable's help before returning a tool response.
+Reuse only while executable hash, index hash and contract version match.
+
+Use `show <id> -o json --fields System.Title,System.State` for selected item facts;
+add `--sections links` when edges matter. Use
+`process description <type-reference> -o json --sections requirements` for one
+type's requirements, or `--sections fields --fields <reference,...>` for its field
+constraints. Preserve the returned unknown/absent distinction and completeness:
+these are not transition authorization. Follow `fullRead` when omitted facts are
+needed. Process capture is scoped to connection/process and is not a server
+revision; rerun the description for fresh metadata before mutation decisions.
+An unknown command is an error: select its documented route, not a guessing loop.
+
 ## Route before acting
 
 | Need | Read first |

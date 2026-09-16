@@ -94,7 +94,8 @@ internal sealed class ProcessDescriptionCommand(
         => OutputFormats.Normalize(outputFormat) is "json" or "json-full" or "json-compact";
 
     /// <summary>
-    /// Executes <c>twig process description [&lt;type&gt;] [--out path] [-o format]</c>.
+    /// Executes <c>twig process description [&lt;type&gt;] [--out path] [-o format]
+    /// [--sections &lt;csv&gt;] [--fields &lt;csv&gt;]</c>.
     /// </summary>
     /// <param name="typeName">
     /// A type's REFERENCE name to describe just that type, or <c>null</c> for every type in
@@ -102,11 +103,33 @@ internal sealed class ProcessDescriptionCommand(
     /// </param>
     /// <param name="outPath">Optional file to write the rendered document to.</param>
     /// <param name="outputFormat">The rendering. <c>json</c> is complete; others are abridged.</param>
+    /// <param name="ct">Cancellation for the whole run.</param>
+    /// <param name="sections">
+    /// Opt-in compact projection selector. <c>null</c> or empty means the full byte-stable
+    /// descriptor is emitted, unchanged. Otherwise a comma-separated list of
+    /// <c>fields</c> and/or <c>requirements</c> — the compact envelope is emitted instead,
+    /// carrying only those sections plus the connection/process/capture identity a consumer
+    /// needs to reason about staleness. See
+    /// <see cref="ProcessDescriptionCompactProjection"/> for the exact envelope shape and
+    /// the ruling that keeps the default path untouched.
+    /// </param>
+    /// <param name="fields">
+    /// Optional comma-separated reference-name filter applied to the compact sections. No
+    /// effect on the full descriptor path, which is byte-stable and unfiltered.
+    /// </param>
+    /// <remarks>
+    /// 🔴 The compact envelope is FINALIZED before any byte is written (contract: the
+    /// response must originate before the tool response). A serialization failure disposes
+    /// the buffer; a partial file cannot reach the caller. That mirrors the temp-file rule
+    /// the default path already ships.
+    /// </remarks>
     public async Task<int> ExecuteAsync(
         string? typeName = null,
         string? outPath = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? sections = null,
+        string? fields = null)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -122,6 +145,81 @@ internal sealed class ProcessDescriptionCommand(
                 "'-o ids' cannot render a process description: the document contains no "
                 + $"numeric ids. Use '-o {CompleteFormat}' for the complete document."));
             return 1;
+        }
+
+        // 🔴 The compact flags are PARSED before any fetch — an unknown section token has
+        // nothing to do with the network and reporting it after a round-trip would waste one
+        // for a caller who mistyped. Parsed and validated here; SHAPED after `description` is
+        // in hand, so the same assembler seam feeds both the full descriptor and the compact
+        // envelope. There is deliberately no separate cache or evaluator (Contract).
+        var parseOutcome = ProcessDescriptionCompactProjection.Parse(sections, fields);
+        ProcessDescriptionCompactProjection.CompactRequest? compactRequest = null;
+        switch (parseOutcome)
+        {
+            case ProcessDescriptionCompactProjection.CompactParseResult.Parsed parsed:
+                compactRequest = parsed.Request;
+                break;
+
+            case ProcessDescriptionCompactProjection.CompactParseResult.UnknownSection unknown:
+                // Named remedy, not a blanket "invalid argument". The compact route's whole
+                // point is a shorter response — telling a caller which spelling failed is
+                // consistent with the surface they came here for.
+                _stderr.WriteLine(fmt.FormatError(
+                    $"'--sections {unknown.Token}' is not a compact section. Valid sections: "
+                    + "fields, requirements. Omit --sections for the full descriptor."));
+                return 1;
+
+            case ProcessDescriptionCompactProjection.CompactParseResult.NoSections:
+                // A `--fields …` with no `--sections` would silently produce the full
+                // descriptor while the caller expects a filter to have taken effect — the
+                // exact silent-drop failure the compact envelope's own `unknownFieldRef`
+                // warning exists to prevent, arriving one layer up. Only trip when the
+                // caller SUPPLIED something, so the bare default path stays untouched.
+                if (!string.IsNullOrWhiteSpace(fields))
+                {
+                    _stderr.WriteLine(fmt.FormatError(
+                        "'--fields' only applies to the compact route. Add '--sections "
+                        + "fields' or '--sections requirements' (or both), or omit --fields "
+                        + "for the full descriptor."));
+                    return 1;
+                }
+
+                break;
+        }
+
+        // Compact route preflight — the two things Program.cs promises the CLI enforces
+        // BEFORE the network is touched, so a caller who mistyped either does not wait for
+        // a round-trip to hear about it.
+        //
+        //   (1) typeName is REQUIRED. The compact envelope is per-type; a process-wide
+        //   compact fetch would carry every type's rules and negate the very point of the
+        //   opt-in projection (a smaller response).
+        //
+        //   (2) outputFormat MUST be json. The compact envelope is a JSON contract; a
+        //   caller who passed '-o tree' or '-o html' alongside '--sections' would get a
+        //   silent format-drop otherwise.
+        if (compactRequest is not null)
+        {
+            if (typeName is null)
+            {
+                _stderr.WriteLine(fmt.FormatError(
+                    "Compact requests require an explicit type reference name. Example: "
+                    + "'twig process description Niflheim.Grilling --sections requirements "
+                    + $"-o {ProcessDescriptionDocument.CompleteFormat}'."));
+                return 1;
+            }
+
+            if (!string.Equals(
+                    OutputFormats.Normalize(outputFormat),
+                    ProcessDescriptionDocument.CompleteFormat,
+                    StringComparison.Ordinal))
+            {
+                _stderr.WriteLine(fmt.FormatError(
+                    "Compact requests emit JSON. Add "
+                    + $"'-o {ProcessDescriptionDocument.CompleteFormat}' or omit --sections "
+                    + "for the abridged renderers."));
+                return 1;
+            }
         }
 
         // 🔴 Exhaustively matched, and each arm gets its OWN message (AB#244). Before this the
@@ -174,6 +272,24 @@ internal sealed class ProcessDescriptionCommand(
             default:
                 throw new UnreachableException(
                     $"Unhandled ProcessDescriptionResult: {outcome.Value?.GetType().Name}");
+        }
+
+        // 🔴 The compact branch. The envelope is FINALIZED to a string before any output is
+        // written, so a mid-serialization fault cannot leave a partial document behind — the
+        // same guarantee the full-path temp-file move gives, one layer up. `--out` still
+        // writes atomically via temp-and-move; the confirmation on stderr names the compact
+        // contract version so a scripted reader can gate on it.
+        if (compactRequest is not null)
+        {
+            var envelope = ProcessDescriptionCompactProjection.Serialize(description, compactRequest);
+
+            if (outPath is null)
+            {
+                Console.Out.WriteLine(envelope);
+                return 0;
+            }
+
+            return await WriteAtomicAsync(outPath, envelope, description, fmt);
         }
 
         var tree = BuildTree(description, outputFormat);
@@ -235,6 +351,52 @@ internal sealed class ProcessDescriptionCommand(
         try { File.Delete(path); }
         catch (IOException) { /* best effort */ }
         catch (UnauthorizedAccessException) { /* best effort */ }
+    }
+
+    /// <summary>
+    /// Atomically writes <paramref name="content"/> to <paramref name="outPath"/> via a
+    /// scratch file in the same directory, then renames into place. Shared by the compact
+    /// envelope path with the same guarantee the full path already gives: a mid-write fault
+    /// leaves no partial file behind.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 The confirmation names the compact contract version rather than the descriptor
+    /// version, because the file at rest is the compact envelope — reporting the descriptor
+    /// version here would tell a scripted reader that the file's shape is the full one,
+    /// which is exactly the mis-dispatch the versioning distinction exists to prevent.
+    /// </remarks>
+    private async Task<int> WriteAtomicAsync(
+        string outPath,
+        string content,
+        ProcessDescription description,
+        Twig.Formatters.IOutputFormatter fmt)
+    {
+        var tempPath = outPath + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(outPath));
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            await File.WriteAllTextAsync(tempPath, content);
+            File.Move(tempPath, outPath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            TryDelete(tempPath);
+            _stderr.WriteLine(fmt.FormatError($"Could not write '{outPath}': {ex.Message}"));
+            return 1;
+        }
+        catch
+        {
+            TryDelete(tempPath);
+            throw;
+        }
+
+        _stderr.WriteLine(
+            $"Wrote compact process description ({description.Types.Count} type(s), contract " +
+            $"{ProcessDescriptionCompactProjection.CompactContractVersion}) to {outPath}");
+        return 0;
     }
 
     /// <summary>

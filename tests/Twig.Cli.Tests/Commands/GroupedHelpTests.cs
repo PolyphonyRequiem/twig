@@ -308,18 +308,12 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
-    public void ShowUnknown_WritesErrorToStderrAndHelpToStdout()
+    public void ShowUnknown_ReportsFailureWithoutDumpingCatalog()
     {
         var (stderr, stdout) = CaptureShowUnknown("frobnicate");
 
-        stderr.ShouldContain("Unknown command: 'frobnicate'");
-        stdout.ShouldContain("Usage: twig");
-        stdout.ShouldContain("Getting Started:");
-        stdout.ShouldContain("Views:");
-        stdout.ShouldContain("Workspace:");
-        stdout.ShouldContain("Navigation:");
-        stdout.ShouldContain("Work Items:");
-        stdout.ShouldContain("Seeds:");
+        stderr.ShouldContain("frobnicate");
+        stdout.ShouldBeEmpty();
     }
 
     [Fact]

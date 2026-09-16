@@ -47,10 +47,16 @@ public sealed class ShowCommand(
     private readonly WorkingSetService? _workingSetService = workingSetService;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
+        var request = ShowProjection.Request.Parse(fields, sections);
+        if (request.IsActive && (tree || OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact")))
+        {
+            CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, "Field/section projection requires JSON output and cannot be combined with --tree.");
+            return 2;
+        }
 
         if (tree)
         {
@@ -69,24 +75,33 @@ public sealed class ShowCommand(
             return exitCode;
         }
 
-        exitCode = await ExecuteCoreAsync(id, outputFormat, refresh, ct);
+        exitCode = await ExecuteCoreAsync(id, outputFormat, refresh, request, ct);
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     /// <summary>
-    /// Batch lookup: accepts comma-separated IDs, returns all found items.
-    /// Cache-only — no ADO fetch. Missing IDs are silently skipped.
+    /// Batch lookup: accepts comma-separated IDs, returns found items on stdout and a
+    /// structured stderr disclosure of any requested IDs the cache does not carry (AB#880).
+    /// Cache-only — no ADO fetch. When <paramref name="fields"/> or <paramref name="sections"/>
+    /// is set, the response is a compact projection envelope with truthful field statuses
+    /// (present / absent / unknown) instead of the full items[] array.
     /// </summary>
-    public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteBatchCoreAsync(batch, outputFormat, ct);
+        var request = ShowProjection.Request.Parse(fields, sections);
+        if (request.IsActive && OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact"))
+        {
+            CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat, "Field/section projection requires JSON output.");
+            return 2;
+        }
+        var exitCode = await ExecuteBatchCoreAsync(batch, outputFormat, request, ct);
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show-batch", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool refresh, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool refresh, ShowProjection.Request request, CancellationToken ct)
     {
         var (fmt, renderer) = ctx.Resolve(outputFormat);
 
@@ -156,6 +171,11 @@ public sealed class ShowCommand(
             }
             resolvedId = item.Id;
         }
+
+        // AB#880 opt-in projection: bypass full-detail enrichment when the
+        // caller asked for a slice; omit both flags to get the full read back.
+        if (request.IsActive)
+            return await ExecuteProjectionAsync(item, resolvedId, outputFormat, refresh, request, initialRefreshResult, ct);
 
         // Wayfinder 0004 §3: the read reports freshness rather than acting on it. Only the
         // rich/human surface renders the hint; machine formats keep a stable, quiet contract.
@@ -755,16 +775,23 @@ public sealed class ShowCommand(
         });
     }
 
-    private async Task<int> ExecuteBatchCoreAsync(string batch, string outputFormat, CancellationToken ct)
+    private async Task<int> ExecuteBatchCoreAsync(string batch, string outputFormat, ShowProjection.Request request, CancellationToken ct)
     {
         var ids = ParseBatchIds(batch);
         var items = new List<Domain.Aggregates.WorkItem>();
+        // Track requested-but-missing ids in caller order. Non-positive segments
+        // (parse failures, negative-id staged seeds) are excluded so a caller who
+        // passes `10, garbage, 20` is not told #0 is missing — the input parser
+        // simply never mapped that segment to an id worth reporting.
+        var missing = new List<int>();
 
         foreach (var id in ids)
         {
             var item = await workItemRepo.GetByIdAsync(id, ct);
             if (item is not null)
                 items.Add(item);
+            else if (id > 0)
+                missing.Add(id);
         }
 
         // ADO #154: links belong to the SET, so they are read for every item found —
@@ -794,6 +821,9 @@ public sealed class ShowCommand(
             }
         }
 
+        if (request.IsActive)
+            return await RenderBatchProjectionAsync(ids, items, missing, links, linksVerifiedAt, request, outputFormat, ct);
+
         var graph = WorkItemGraph.Build(items, links);
 
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
@@ -813,6 +843,149 @@ public sealed class ShowCommand(
             RenderBatchAsTree(graph, linksVerifiedAt, outputFormat);
         }
 
+        // AB#880: a batch that was asked for ids the cache does not carry MUST
+        // disclose the shortfall. The found-items stdout shape is unchanged so
+        // legacy consumers keep parsing; the loss is disclosed on stderr as a
+        // structured error carrying every missing id in `#N` form, and the exit
+        // code becomes 1 so a caller who cares about completeness sees it.
+        if (missing.Count > 0)
+        {
+            CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
+                ShowProjection.FormatMissingMessage(missing));
+            return 1;
+        }
+
+        return 0;
+    }
+
+    private async Task<int> RenderBatchProjectionAsync(
+        IReadOnlyList<int> requestedIds,
+        IReadOnlyList<Domain.Aggregates.WorkItem> items,
+        IReadOnlyList<int> missing,
+        IReadOnlyList<WorkItemLink> links,
+        IReadOnlyDictionary<int, DateTimeOffset> linksVerifiedAt,
+        ShowProjection.Request request,
+        string outputFormat,
+        CancellationToken ct)
+    {
+        bool needLinks = false, needParent = false, needChildren = false;
+        foreach (var s in request.Sections)
+        {
+            if (string.Equals(s, "links", StringComparison.OrdinalIgnoreCase)) needLinks = true;
+            else if (string.Equals(s, "parent", StringComparison.OrdinalIgnoreCase)) needParent = true;
+            else if (string.Equals(s, "children", StringComparison.OrdinalIgnoreCase)) needChildren = true;
+        }
+
+        var graph = needLinks ? WorkItemGraph.Build(items, links) : null;
+        var itemDocs = new List<RenderNode.Document>(items.Count);
+        foreach (var item in items)
+        {
+            var itemLinks = needLinks && graph is not null
+                ? graph.GetLinks(item.Id)
+                : (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>();
+            DateTimeOffset? verifiedAt = linksVerifiedAt.TryGetValue(item.Id, out var v) ? v : null;
+
+            Domain.Aggregates.WorkItem? parent = null;
+            if (needParent && item.ParentId.HasValue)
+                parent = await workItemRepo.GetByIdAsync(item.ParentId.Value, ct);
+
+            IReadOnlyList<Domain.Aggregates.WorkItem> children = needChildren
+                ? await workItemRepo.GetChildrenAsync(item.Id, ct)
+                : Array.Empty<Domain.Aggregates.WorkItem>();
+
+            itemDocs.Add(ShowProjection.BuildItem(
+                item, itemLinks, verifiedAt, parent, children, request,
+                connection: ShowProjection.FormatConnection(ctx.Config),
+                route: ShowProjection.ReadRoute.Cache));
+        }
+
+        var envelope = ShowProjection.BuildBatch(
+            requestedIds: requestedIds,
+            foundItems: itemDocs,
+            missingIds: missing,
+            connection: ShowProjection.FormatConnection(ctx.Config),
+            route: ShowProjection.ReadRoute.Cache);
+
+        var tree = new Twig.RenderTree.RenderTree([envelope]);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
+
+        return missing.Count > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Single-item projection path (AB#880). Reuses the refresh sync when
+    /// <paramref name="refresh"/> is set; loads links/parent/children only when
+    /// requested. Skips git context, status-field lookups, child-progress, and
+    /// all-fields definitions.
+    /// </summary>
+    private async Task<int> ExecuteProjectionAsync(
+        Domain.Aggregates.WorkItem item,
+        int resolvedId,
+        string outputFormat,
+        bool refresh,
+        ShowProjection.Request request,
+        SyncResult? initialRefreshResult,
+        CancellationToken ct)
+    {
+        if (refresh && resolvedId > 0)
+        {
+            var syncResult = initialRefreshResult
+                ?? await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, ct);
+            if (syncResult is SyncFailed failed)
+            {
+                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
+                    $"Refresh failed for #{resolvedId}: {failed.Reason}");
+                return 1;
+            }
+            if (syncResult is PartiallyUpdated partial)
+            {
+                CommandError.Write(_rendererFactory, ctx.StderrWriter, outputFormat,
+                    $"Refresh incomplete for #{resolvedId}: " +
+                    string.Join("; ", partial.Failures.Select(f => $"#{f.Id}: {f.Error}")));
+                return 1;
+            }
+            var refreshed = await workItemRepo.GetByIdAsync(resolvedId, ct);
+            if (refreshed is not null)
+                item = refreshed;
+        }
+
+        bool needLinks = false, needParent = false, needChildren = false;
+        foreach (var s in request.Sections)
+        {
+            if (string.Equals(s, "links", StringComparison.OrdinalIgnoreCase)) needLinks = true;
+            else if (string.Equals(s, "parent", StringComparison.OrdinalIgnoreCase)) needParent = true;
+            else if (string.Equals(s, "children", StringComparison.OrdinalIgnoreCase)) needChildren = true;
+        }
+
+        // linksVerifiedAt is part of freshness, read whether or not the caller
+        // requested the links section.
+        IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
+        DateTimeOffset? linksVerifiedAt = null;
+        try
+        {
+            linksVerifiedAt = await linkRepo.GetLinksVerifiedAtAsync(item.Id, ct);
+            if (needLinks)
+                links = await linkRepo.GetLinksAsync(item.Id, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { linksVerifiedAt = null; }
+
+        Domain.Aggregates.WorkItem? parent = null;
+        if (needParent && item.ParentId.HasValue)
+            parent = await workItemRepo.GetByIdAsync(item.ParentId.Value, ct);
+
+        IReadOnlyList<Domain.Aggregates.WorkItem> children = needChildren
+            ? await workItemRepo.GetChildrenAsync(item.Id, ct)
+            : Array.Empty<Domain.Aggregates.WorkItem>();
+
+        var doc = ShowProjection.BuildItem(
+            item, links, linksVerifiedAt, parent, children, request,
+            ShowProjection.FormatConnection(ctx.Config),
+            refresh ? ShowProjection.ReadRoute.Refresh : ShowProjection.ReadRoute.Cache);
+
+        var tree = new Twig.RenderTree.RenderTree([doc]);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
         return 0;
     }
 

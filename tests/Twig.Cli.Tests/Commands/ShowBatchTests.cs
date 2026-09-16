@@ -23,6 +23,7 @@ public sealed class ShowBatchTests
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly StringWriter _stderr;
     private readonly ShowCommand _cmd;
 
     public ShowBatchTests()
@@ -40,7 +41,8 @@ public sealed class ShowBatchTests
 
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
-        var ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, new TwigConfiguration(), TelemetryClient: _telemetryClient);
+        _stderr = new StringWriter();
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, new TwigConfiguration(), TelemetryClient: _telemetryClient, Stderr: _stderr);
 
         var tempDir = Path.Combine(Path.GetTempPath(), "twig-showbatch-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -108,31 +110,78 @@ public sealed class ShowBatchTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Missing IDs — silently skipped
+    //  Missing IDs — AB#880 structured disclosure + non-zero exit
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ShowBatch_MissingIds_SkippedSilently()
+    public async Task ShowBatch_MissingIds_DisclosedOnStderrAndReturnsExit1()
     {
+        // AB#880: a missing id used to be silently dropped; now the stdout
+        // array keeps its found-items shape, the shortfall is disclosed on
+        // stderr as `#N` tokens, and the exit code becomes 1.
         var item = new WorkItemBuilder(10, "Found Item").Build();
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
         var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,99", "json"));
 
-        result.ShouldBe(0);
+        result.ShouldBe(1);
         output.ShouldContain("\"id\": 10");
         output.ShouldNotContain("\"id\": 99");
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("#99");
+        stderr.ShouldContain("not found in cache");
     }
 
     [Fact]
-    public async Task ShowBatch_AllMissing_ReturnsEmptyArray()
+    public async Task ShowBatch_MissingIds_JsonFormat_StderrIsStructuredJson()
+    {
+        // JSON format routes stderr through CommandError.Write → structured
+        // `{ "error": "…" }`. Every missing id MUST appear.
+        _workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var (result, _) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("100,200,300", "json"));
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString().Trim();
+        stderr.ShouldStartWith("{");
+        stderr.ShouldContain("\"error\"");
+        stderr.ShouldContain("#100");
+        stderr.ShouldContain("#200");
+        stderr.ShouldContain("#300");
+    }
+
+    [Fact]
+    public async Task ShowBatch_AllFound_HasNoStderr_AndReturnsExit0()
+    {
+        var a = new WorkItemBuilder(11, "Alpha").Build();
+        var b = new WorkItemBuilder(22, "Beta").Build();
+        _workItemRepo.GetByIdAsync(11, Arg.Any<CancellationToken>()).Returns(a);
+        _workItemRepo.GetByIdAsync(22, Arg.Any<CancellationToken>()).Returns(b);
+
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("11,22", "json"));
+
+        result.ShouldBe(0);
+        output.ShouldContain("\"id\": 11");
+        output.ShouldContain("\"id\": 22");
+        _stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ShowBatch_AllMissing_EmptyStdoutArray_Exit1_AllIdsDisclosed()
     {
         _workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
-        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("1,2,3", "json"));
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("1,2,3", "json"));
 
+        // Empty JSON array on stdout preserves the found-items contract; the
+        // shortfall lives on stderr and in the exit code.
         output.Trim().ShouldBe("[]");
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("#1");
+        stderr.ShouldContain("#2");
+        stderr.ShouldContain("#3");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -291,18 +340,24 @@ public sealed class ShowBatchTests
     }
 
     [Fact]
-    public async Task ShowBatch_IdsFormat_MissingItems_OnlyOutputsFoundIds()
+    public async Task ShowBatch_IdsFormat_MissingItems_StdoutOnlyFound_ExitNonZero()
     {
+        // The ids surface keeps its found-only shape — a walker reading the id
+        // stream still gets one id per line — but AB#880 non-zero exit still
+        // fires and the missing id is disclosed on stderr. This preserves the
+        // ids consumer contract while making the miss legible to a caller who
+        // wants completeness.
         var item = new WorkItemBuilder(10, "Found").Build();
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
         var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,99", "ids"));
 
-        result.ShouldBe(0);
+        result.ShouldBe(1);
         var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim()).ToArray();
         lines.ShouldBe(new[] { "10" });
+        _stderr.ToString().ShouldContain("#99");
     }
 
     [Fact]

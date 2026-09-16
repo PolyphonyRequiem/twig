@@ -149,8 +149,7 @@ if (args.Length == 0)
     }
 }
 
-// Pre-routing interception: show grouped help for unknown commands instead of
-// ConsoleAppFramework's default flat error output.
+// Unknown commands fail without importing the full help catalog into the response.
 if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(args))
 {
     GroupedHelp.ShowUnknown(args[0]);
@@ -534,15 +533,19 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct);
+    /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
+    /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections);
 
-    /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
+    /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
     /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
+    /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
     [Command("show-batch")]
-    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null)
     {
         var resolved = ResolveBatch(batch, batchArg);
 
@@ -556,7 +559,7 @@ public sealed class TwigCommands(IServiceProvider services)
             return 1;
         }
 
-        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct);
+        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections);
     }
 
     /// <summary>
@@ -638,9 +641,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
     /// <param name="out">Write the rendered description to this file instead of stdout.</param>
     /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
+    /// <param name="sections">Comma-separated fields, requirements sections for opt-in compact JSON; requires a type.</param>
+    /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
-    public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct);
+    public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? sections = null, string? fields = null)
+        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct, sections: sections, fields: fields);
 
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1653,8 +1658,7 @@ internal static class GroupedHelp
     internal static void ShowUnknown(string command)
     {
         Console.Error.WriteLine($"Unknown command: '{command}'");
-        Console.Error.WriteLine();
-        Show();
+        Console.Error.WriteLine("Use 'twig <command> --help' for a known command, or 'twig --help' to browse.");
     }
 
     internal static void Show()

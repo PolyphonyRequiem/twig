@@ -95,7 +95,9 @@ internal static class ProcessOverrideScope
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<IFieldDefinitionStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<RendererFactory>()));
+            sp.GetRequiredService<RendererFactory>(),
+            stderr: null,
+            iterationService: sp.GetRequiredService<IIterationService>()));
 
         services.AddSingleton(sp => new ProcessLayoutCommand(
             sp.GetRequiredService<IFormLayoutProvider>(),

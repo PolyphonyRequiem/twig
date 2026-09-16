@@ -65,6 +65,7 @@ internal static class CommandExamples
             "twig process               List all work item types with state counts",
             "twig process Task          Show states, fields, and transitions for Task type",
             "twig process Bug -o json   Show Bug type details as JSON",
+            "twig process --refresh     Recover process and field metadata without syncing work items",
             "twig process --org otherorg --project otherproj   Describe another project's process (live read, no workspace needed)",
         ],
         ["process layout"] =

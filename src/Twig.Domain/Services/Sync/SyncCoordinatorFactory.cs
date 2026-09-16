@@ -23,8 +23,10 @@ public sealed class SyncCoordinatorFactory
         if (readOnlyStaleMinutes < readWriteStaleMinutes)
             readOnlyStaleMinutes = readWriteStaleMinutes;
 
+        // An explicit read must never discard local work on an inaccessible/deleted item.
+        // Eviction belongs to a write-side synchronization, not a display refresh.
         ReadOnly = new SyncCoordinator(workItemRepo, adoService, protectedCacheWriter,
-            pendingChangeStore, linkRepo, readOnlyStaleMinutes);
+            pendingChangeStore, linkRepo, readOnlyStaleMinutes, evictMissing: false);
         ReadWrite = new SyncCoordinator(workItemRepo, adoService, protectedCacheWriter,
             pendingChangeStore, linkRepo, readWriteStaleMinutes);
     }

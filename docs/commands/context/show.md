@@ -37,10 +37,10 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
 
 ## Behavior
 
-- **By ID.** The item is fetched from the local cache via
-  `IWorkItemRepository.GetByIdAsync`. A cache miss exits `1` with a hint
-  to run `twig set <id>` to fetch it
-  (`src/Twig/Commands/ShowCommand.cs:97-108`).
+- **By ID.** Reads the local cache first. With `--refresh`, a cache miss
+  fetches the item and its links through the protected, pull-only sync path;
+  no active item is needed. Without `--refresh`, a miss exits `1` and
+  suggests `twig show <id> --refresh`, not a context-changing `set`.
 - **No ID.** The active work item comes from `IContextStore`. Missing
   context prints a branch‑detection hint and exits `1`
   (`src/Twig/Commands/ShowCommand.cs:110-146`).
@@ -49,18 +49,24 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
   `SyncCoordinatorFactory.ReadOnly.ReadItemAsync`: a `Stale` result adds
   a `StaleHint` on stderr for human formats, and unverified links add an
   `UnverifiedLinksHint` (`src/Twig/Commands/ShowCommand.cs:148-180`).
-- **`--refresh`.** The item, its links, and its parent (when present)
-  are synced through the read‑only sync coordinator before rendering
-  (`src/Twig/Commands/ShowCommand.cs:196-248`).
+- **`--refresh`.** Fetches the item and its links, materializes immediate
+  link targets, and refreshes its parent when present. It never flushes
+  pending writes or changes active selection, navigation history or Bench.
+  Dirty/pending item fields remain local; refreshed links carry
+  `linksVerifiedAt`. Missing or inaccessible items do not discard local
+  work or pending rows. Seeds are not fetched from ADO.
 - **Enrichment.** After the item is resolved the command loads children,
   parent, links (with `linksVerifiedAt`), field definitions, status
   fields, child progress, pending changes, and git context — all
   best‑effort, all from cache
   (`src/Twig/Commands/ShowCommand.cs:157-194`).
 - **Machine formats** (`json`, `minimal`) sync synchronously when
-  `--refresh` is set and then emit a single complete output. Human TTY
-  output renders cached data immediately, syncs in the background, then
-  re‑renders.
+  `--refresh` is set and then emit a single complete output. Failed or
+  incomplete refresh exits `1` with a format-aware error on stderr rather
+  than presenting stale cache data as a successful fresh read. The error
+  retains the underlying network/permission failure and affected IDs;
+  cancellation propagates. Human TTY output can render cached data first
+  and then revise it; an uncached item is fetched before its first render.
 - **`--tree`** hands off to `TreeRenderingService.RenderTreeAsync`,
   which produces the parent chain + child forest and honors the same
   `--refresh` semantics (`src/Twig/Commands/ShowCommand.cs:56-71`).
@@ -80,7 +86,7 @@ Branch:   sdlc/1234 (PR #987: Active)
 ```
 
 ```
-$ twig show --refresh --output json
+$ twig show 1234 --refresh --output json
 {"id":1234,"title":"Fix login redirect","state":"Doing","type":"Task", ... }
 ```
 
@@ -89,9 +95,9 @@ $ twig show --refresh --output json
 | Condition | Result |
 |---|---|
 | Item rendered | `0` |
-| ID not present in local cache | `1` |
+| ID not present in local cache and refresh not requested | `1` |
 | No active work item set and no ID given | `1` |
-| Active item unreachable from ADO under `--refresh` | `1` |
+| Item inaccessible, or machine refresh failed/incomplete | `1` |
 | Tree rendering requested but service unavailable | `1` |
 
 ## See also

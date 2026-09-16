@@ -49,6 +49,12 @@ public sealed class ProcessCommandTests : IDisposable
             _formatterFactory,
             _rendererFactory,
             stderr: _stderr);
+
+        // AB#879: tests that render a type-detail view but don't care about the fields
+        // section still trip the empty-field-catalog readiness check. Give them a
+        // minimal default field. Tests that specifically want to see the empty case
+        // override this with SetupFields([]).
+        SetupFields([new FieldDefinition("System.Title", "Title", "String", false)]);
     }
 
     public void Dispose()
@@ -63,14 +69,18 @@ public sealed class ProcessCommandTests : IDisposable
     [Fact]
     public async Task Execute_NoArgs_NoTypes_ReturnsExitCode1()
     {
+        // AB#879: an empty catalog with no recovery source wired (test constructs the
+        // command with a null IIterationService) must classify as Metadata-not-ready.
+        // The predicate the native-forwarding cases pin to lives in the two substrings
+        // asserted here.
         _processTypeStore.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ProcessTypeRecord>());
 
         var result = await _cmd.ExecuteAsync(typeName: null, outputFormat: "json");
 
         result.ShouldBe(1);
-        _stderr.ToString().ShouldContain("No process types found");
-        _stderr.ToString().ShouldContain("twig sync");
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
     }
 
     [Fact]
@@ -352,16 +362,63 @@ public sealed class ProcessCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Execute_WithType_TypeNotFound_ReturnsExitCode1()
+    public async Task Execute_WithType_ColdCatalog_ClassifiesMetadataNotReady()
     {
+        // AB#879: type-detail with an entirely empty local catalog and no wired
+        // IIterationService must classify as Metadata-not-ready (targeted recovery
+        // is a no-op), not as an "unknown type" of the old phrasing.
         _processTypeStore.GetByNameAsync("Unknown", Arg.Any<CancellationToken>())
             .Returns((ProcessTypeRecord?)null);
 
         var result = await _cmd.ExecuteAsync(typeName: "Unknown", outputFormat: "json");
 
         result.ShouldBe(1);
-        _stderr.ToString().ShouldContain("No states found");
-        _stderr.ToString().ShouldContain("twig sync");
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
+    }
+
+    [Fact]
+    public async Task Execute_WithType_PopulatedCatalogMissingType_ReturnsUnknownType()
+    {
+        // AB#879: after an authoritative recovery attempt (the iteration service
+        // returns [Task]) the caller sees the requested "Ghost" is genuinely absent
+        // and reports it as an Unknown work-item type — NOT metadata-not-ready.
+        // Predicate: "Unknown work-item type" AND NOT "Metadata not ready".
+        _processTypeStore.GetByNameAsync("Ghost", Arg.Any<CancellationToken>())
+            .Returns((ProcessTypeRecord?)null);
+        SetupProcessTypes([
+            new ProcessTypeRecord
+            {
+                TypeName = "Task",
+                States = [new StateEntry("New", StateCategory.Proposed, null)],
+            },
+        ]);
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItemTypeWithStates>
+            {
+                new()
+                {
+                    Name = "Task",
+                    States = [new WorkItemTypeState { Name = "New", Category = "Proposed" }],
+                },
+            });
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
+            .Returns(new ProcessConfigurationData());
+        var cmd = new ProcessCommand(
+            _activeItemResolver,
+            _processTypeStore,
+            _fieldDefinitionStore,
+            _formatterFactory,
+            _rendererFactory,
+            stderr: _stderr,
+            iterationService: iteration);
+
+        var result = await cmd.ExecuteAsync(typeName: "Ghost", outputFormat: "json");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Unknown work-item type");
+        _stderr.ToString().ShouldNotContain("Metadata not ready");
     }
 
     [Fact]
@@ -373,6 +430,74 @@ public sealed class ProcessCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(typeName: "Task", outputFormat: "json");
 
         result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Execute_WithType_TypeKnownButFieldsEmpty_ClassifiesMetadataNotReady()
+    {
+        // AB#879 (Main's acceptance edge): a populated process-type catalog with the
+        // requested type present must NOT emit an "" answer for its fields
+        // when the field-definition catalog is empty and no iteration service is
+        // wired to recover it. That would be a false answer to "what fields does
+        // this type carry". Classify as Metadata-not-ready instead — same predicate
+        // BaselineNative pins to.
+        SetupProcessType("Task", [new StateEntry("New", StateCategory.Proposed, null)]);
+        // Bypass the SetupFields([]) helper (which no-ops so the many states-only
+        // tests that pass [] as a "don't care" disclaimer still reach the render
+        // path). This test specifically needs an empty field catalog AND no
+        // recovery source, so the store returns [] and iterationService stays null.
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<FieldDefinition>());
+
+        var result = await _cmd.ExecuteAsync(typeName: "Task", outputFormat: "json");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
+    }
+
+    [Fact]
+    public async Task Execute_WithType_TypeRecordExistsButStatesEmpty_ClassifiesMetadataNotReady()
+    {
+        // AB#879 (Main's acceptance edge): a process-type record whose States list is
+        // empty is not a genuine "unknown type" — the catalog knows the name but the
+        // state definition never landed. Classify as Metadata-not-ready so the
+        // operator's next step is a refresh, not renaming their type.
+        var stub = new ProcessTypeRecord { TypeName = "Task", States = [] };
+        _processTypeStore.GetByNameAsync("Task", Arg.Any<CancellationToken>()).Returns(stub);
+        SetupProcessTypes([stub]);
+
+        var result = await _cmd.ExecuteAsync(typeName: "Task", outputFormat: "json");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldNotContain("Unknown work-item type");
+    }
+
+
+    [Fact]
+    public async Task Execute_WithType_CancellationBubbles_NoRender()
+    {
+        // AB#879: cancellation is preserved as OperationCanceledException — never
+        // classified as one of the three metadata outcomes, and never renders a tree.
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        var cmd = new ProcessCommand(
+            _activeItemResolver,
+            _processTypeStore,
+            _fieldDefinitionStore,
+            _formatterFactory,
+            _rendererFactory,
+            stderr: _stderr,
+            iterationService: iteration);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Should.ThrowAsync<OperationCanceledException>(async () =>
+            await cmd.ExecuteAsync(typeName: "Task", outputFormat: "json", ct: cts.Token));
     }
 
     [Fact]
@@ -416,7 +541,7 @@ public sealed class ProcessCommandTests : IDisposable
         SetupProcessType("Task", [
             new StateEntry("New", StateCategory.Proposed, null),
         ]);
-        SetupFields([]);
+        SetupFields([new FieldDefinition("System.Title", "Title", "String", false)]);
 
         var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync(typeName: "Task", outputFormat: "json"));
 
@@ -486,16 +611,18 @@ public sealed class ProcessCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteStates_TypeNotInStore_ReturnsExitCode1AndWritesError()
+    public async Task ExecuteStates_ColdCatalog_ClassifiesMetadataNotReady()
     {
+        // AB#879 mirrors Execute_WithType_ColdCatalog: the states alias delegates to
+        // the same type-detail path, so the classifier fires on the same predicate.
         SetupActiveItem(42, "My Task", "Task");
         _processTypeStore.GetByNameAsync("Task", Arg.Any<CancellationToken>()).Returns((ProcessTypeRecord?)null);
 
         var result = await _cmd.ExecuteStatesAsync("json");
 
         result.ShouldBe(1);
-        _stderr.ToString().ShouldContain("No states found");
-        _stderr.ToString().ShouldContain("twig sync");
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
     }
 
     [Fact]
@@ -605,6 +732,106 @@ public sealed class ProcessCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  AB#879 late-corrections regression (unconditional NotReady + list --refresh syncs fields + sync count authority)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_WithType_NonemptyIncompleteCatalog_NoRecoverySource_ClassifiesMetadataNotReady()
+    {
+        // AB#879 (Main's must-fix): a nonempty local catalog missing the requested
+        // type, with NO IIterationService wired, must classify as Metadata-not-ready
+        // — NOT Unknown. A nonempty local catalog cannot prove completeness, and
+        // without a recovery source we cannot get an authoritative read. Falling
+        // through to "Unknown" here would falsely blame the operator's typing for
+        // a stale-cache problem.
+        SetupProcessTypes([
+            new ProcessTypeRecord { TypeName = "Task", States = [new StateEntry("New", StateCategory.Proposed, null)] },
+        ]);
+        _processTypeStore.GetByNameAsync("Ghost", Arg.Any<CancellationToken>())
+            .Returns((ProcessTypeRecord?)null);
+
+        var result = await _cmd.ExecuteAsync(typeName: "Ghost", outputFormat: "json");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
+        _stderr.ToString().ShouldNotContain("Unknown work-item type");
+    }
+
+    [Fact]
+    public async Task Execute_NoArgs_RefreshFlag_SyncSourceReturnsZero_ClassifiesMetadataNotReady()
+    {
+        // AB#879 (Main's must-fix): FieldDefinitionSyncService returns 0 without
+        // touching the store when the remote list is empty. A stale populated cache
+        // would otherwise be indistinguishable from a successful source read — so
+        // the helper trusts the SYNC RETURN COUNT, not the post-sync cached count.
+        // A zero-count remote read after --refresh must classify as Metadata-not-ready
+        // regardless of whatever old rows the cache still carries.
+        SetupProcessTypes([
+            new ProcessTypeRecord { TypeName = "Task", States = [new StateEntry("New", StateCategory.Proposed, null)] },
+        ]);
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemTypeWithStates>());
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
+            .Returns(new ProcessConfigurationData());
+        var cmd = new ProcessCommand(
+            _activeItemResolver,
+            _processTypeStore,
+            _fieldDefinitionStore,
+            _formatterFactory,
+            _rendererFactory,
+            stderr: _stderr,
+            iterationService: iteration);
+
+        var result = await cmd.ExecuteAsync(typeName: null, outputFormat: "json", refresh: true);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Metadata not ready");
+        _stderr.ToString().ShouldContain("twig process --refresh");
+    }
+
+    [Fact]
+    public async Task Execute_NoArgs_RefreshFlag_SyncsFieldDefsToo()
+    {
+        // AB#879 (Main's must-fix): --refresh is advertised as the recovery for
+        // BOTH process-type AND field-definition catalog errors. So --refresh on the
+        // list view must sync both catalogs — a field-def sync failure on --refresh
+        // must surface, not be swallowed.
+        SetupProcessTypes([
+            new ProcessTypeRecord { TypeName = "Task", States = [new StateEntry("New", StateCategory.Proposed, null)] },
+        ]);
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItemTypeWithStates>
+            {
+                new()
+                {
+                    Name = "Task",
+                    States = [new WorkItemTypeState { Name = "New", Category = "Proposed" }],
+                },
+            });
+        iteration.GetProcessConfigurationStrictAsync(Arg.Any<CancellationToken>())
+            .Returns(new ProcessConfigurationData());
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new UnauthorizedAccessException("401 from ADO"));
+        var cmd = new ProcessCommand(
+            _activeItemResolver,
+            _processTypeStore,
+            _fieldDefinitionStore,
+            _formatterFactory,
+            _rendererFactory,
+            stderr: _stderr,
+            iterationService: iteration);
+
+        var result = await cmd.ExecuteAsync(typeName: null, outputFormat: "json", refresh: true);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Metadata refresh failed");
+        _stderr.ToString().ShouldContain("401 from ADO");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
@@ -615,19 +842,36 @@ public sealed class ProcessCommandTests : IDisposable
         _workItemRepo.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(item);
     }
 
+    // AB#879: ExecuteTypeDetail also inspects GetAllAsync (for the AB#879
+    // catalog-readiness predicate), not just GetByNameAsync. Every SetupProcessType
+    // call now feeds a running list into GetAllAsync so single-type test setups
+    // continue to reach the render path.
+    private readonly List<ProcessTypeRecord> _wiredTypes = [];
+
     private void SetupProcessType(string typeName, IReadOnlyList<StateEntry> states)
     {
         var record = new ProcessTypeRecord { TypeName = typeName, States = states };
         _processTypeStore.GetByNameAsync(typeName, Arg.Any<CancellationToken>()).Returns(record);
+        _wiredTypes.Add(record);
+        _processTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(_wiredTypes.ToArray());
     }
 
     private void SetupProcessTypes(IReadOnlyList<ProcessTypeRecord> types)
     {
+        _wiredTypes.Clear();
+        _wiredTypes.AddRange(types);
         _processTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(types);
     }
 
     private void SetupFields(IReadOnlyList<FieldDefinition> fields)
     {
+        // AB#879: an empty field-def catalog is now Metadata-not-ready, so a test that
+        // renders states-only and passes SetupFields([]) purely to disclaim caring
+        // about the fields column would break. Skip the override in that case; the
+        // ctor already wired a minimal default field for exactly this reason. Tests
+        // that specifically want to see the empty-fields path call it directly on
+        // the substitute (see Execute_WithType_TypeKnownButFieldsEmpty_...).
+        if (fields.Count == 0) return;
         _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(fields);
     }
 }

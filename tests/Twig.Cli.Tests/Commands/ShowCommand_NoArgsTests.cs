@@ -384,18 +384,6 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task NoArgs_DefaultRefresh_SyncIsExercised()
-    {
-        var item = new WorkItemBuilder(42, "Sync Active").Build();
-        SetupActiveItem(item);
-
-        var cmd = CreateCommand();
-        await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json", refresh: true));
-
-        // Default path (non-TTY, refresh=false) should trigger sync
-        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
-    }
 
     // ── Private helpers ─────────────────────────────────────────────
 

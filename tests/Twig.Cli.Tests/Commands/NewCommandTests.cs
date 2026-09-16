@@ -925,4 +925,204 @@ public class NewCommandTests : IDisposable
                 r.Fields["Custom.WayfinderExecutionMode"] == "AFK"),
             Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#879 — cold / incomplete / unavailable metadata catalog
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task New_Field_ColdCatalog_NoRecoverySource_ClassifiesMetadataNotReady()
+    {
+        // AB#879: an empty local field-def catalog with no wired IIterationService
+        // must classify as Metadata-not-ready. The old code path would have flagged
+        // Custom.WayfinderExecutionMode (a real, known-on-the-server field) as
+        // "Unknown field" simply because the local cache had no rows — hiding a
+        // real "refresh the catalog" problem behind a bulk-typo message.
+        //
+        // Reproduction: the empty-catalog fixture is built INSIDE the test so it does
+        // not affect other cases in this class (which share a populated field store).
+        var repo = Substitute.For<IWorkItemRepository>();
+        var ado = Substitute.For<IAdoWorkItemService>();
+        var ctx = Substitute.For<IContextStore>();
+        var fieldStore = Substitute.For<IFieldDefinitionStore>();
+        fieldStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<FieldDefinition>());
+
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var cmd = new NewCommand(
+            ado, repo, ctx, fieldStore,
+            Substitute.For<IEditorLauncher>(),
+            _formatterFactory, _hintEngine, _config,
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
+
+        var result = await cmd.ExecuteAsync(
+            "My Epic", "Epic",
+            fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        result.ShouldBe(1);
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("Metadata not ready");
+        stderr.ShouldContain("twig process --refresh");
+        // The predicate BaselineNative pins to: no bulk-typo "Unknown field" leaked
+        // through when the true problem was an empty catalog.
+        stderr.ShouldNotContain("Unknown field");
+
+        // No item created when metadata is not ready — this is the "no item writes
+        // through real command boundary" case.
+        await ado.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_ColdCatalog_RecoverySucceeds_ThenGenuineUnknownReported()
+    {
+        // AB#879: after a targeted metadata recovery brings the catalog online, a
+        // still-missing field is a *genuine* typo and must surface the classical
+        // "Unknown field" message — not the "Metadata not ready" message.
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>
+            {
+                new("System.Title", "Title", "String", false),
+                new("Custom.Query", "Query", "String", false),
+            });
+
+        var repo = Substitute.For<IWorkItemRepository>();
+        var ado = Substitute.For<IAdoWorkItemService>();
+        var ctx = Substitute.For<IContextStore>();
+
+        // A stateful in-test store: starts empty, becomes populated once SaveBatchAsync
+        // is invoked by FieldDefinitionSyncService.SyncAsync. This is the observable
+        // recovery — exactly the surface AB#879 targets.
+        var fieldStore = new InMemoryFieldDefinitionStore();
+
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var cmd = new NewCommand(
+            ado, repo, ctx, fieldStore,
+            Substitute.For<IEditorLauncher>(),
+            _formatterFactory, _hintEngine, _config,
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            iterationService: iteration);
+
+        var result = await cmd.ExecuteAsync(
+            "My Epic", "Epic",
+            fields: ["Custom.NotARealField=x"]);
+
+        result.ShouldBe(1);
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("Unknown field reference name(s): Custom.NotARealField");
+        stderr.ShouldNotContain("Metadata not ready");
+        stderr.ShouldNotContain("Metadata unavailable");
+
+        await ado.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_ColdCatalog_RecoveryThrows_ClassifiesRefreshFailed()
+    {
+        // AB#879: an auth or network failure during metadata recovery surfaces as
+        // Metadata-refresh-failed. Predicate contains the propagated original
+        // exception text so the caller can act on the concrete cause (auth vs.
+        // network) rather than a fabricated "check your auth" hint the code can't
+        // justify at this layer.
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new UnauthorizedAccessException("401 from ADO"));
+
+        var repo = Substitute.For<IWorkItemRepository>();
+        var ado = Substitute.For<IAdoWorkItemService>();
+        var ctx = Substitute.For<IContextStore>();
+        var fieldStore = Substitute.For<IFieldDefinitionStore>();
+        fieldStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<FieldDefinition>());
+
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var cmd = new NewCommand(
+            ado, repo, ctx, fieldStore,
+            Substitute.For<IEditorLauncher>(),
+            _formatterFactory, _hintEngine, _config,
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            iterationService: iteration);
+
+        var result = await cmd.ExecuteAsync(
+            "My Epic", "Epic",
+            fields: ["Custom.WayfinderExecutionMode=AFK"]);
+
+        result.ShouldBe(1);
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("Metadata refresh failed");
+        stderr.ShouldContain("401 from ADO");
+        // No item creation across the auth/network boundary.
+        await ado.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_Field_ColdCatalog_CancellationBubbles_NoItemWrite()
+    {
+        // AB#879: cancellation is preserved — surfaces as OperationCanceledException,
+        // NOT as any of the three metadata classifications. And crucially no create
+        // fires downstream.
+        var iteration = Substitute.For<IIterationService>();
+        iteration.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        var repo = Substitute.For<IWorkItemRepository>();
+        var ado = Substitute.For<IAdoWorkItemService>();
+        var ctx = Substitute.For<IContextStore>();
+        var fieldStore = Substitute.For<IFieldDefinitionStore>();
+        fieldStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<FieldDefinition>());
+
+        var cmd = new NewCommand(
+            ado, repo, ctx, fieldStore,
+            Substitute.For<IEditorLauncher>(),
+            _formatterFactory, _hintEngine, _config,
+            new SeedFactory(), new FakeStagedIdentityRegistry(),
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            iterationService: iteration);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Should.ThrowAsync<OperationCanceledException>(async () =>
+            await cmd.ExecuteAsync(
+                "My Epic", "Epic",
+                fields: ["Custom.WayfinderExecutionMode=AFK"],
+                ct: cts.Token));
+
+        await ado.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Minimal store used by the AB#879 "recovery repopulates the catalog then a
+    /// genuine typo surfaces" case: starts empty, becomes populated once the sync
+    /// service saves a batch. The real command traverses the same
+    /// <see cref="IFieldDefinitionStore"/> boundary; this fixture just observes it.
+    /// </summary>
+    private sealed class InMemoryFieldDefinitionStore : IFieldDefinitionStore
+    {
+        private readonly List<FieldDefinition> _rows = new();
+
+        public Task<FieldDefinition?> GetByReferenceNameAsync(string referenceName, CancellationToken ct = default)
+            => Task.FromResult<FieldDefinition?>(
+                _rows.FirstOrDefault(f => string.Equals(f.ReferenceName, referenceName, StringComparison.OrdinalIgnoreCase)));
+
+        public Task<IReadOnlyList<FieldDefinition>> GetAllAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<FieldDefinition>>(_rows.ToList());
+
+        public Task SaveBatchAsync(IReadOnlyList<FieldDefinition> definitions, CancellationToken ct = default)
+        {
+            _rows.AddRange(definitions);
+            return Task.CompletedTask;
+        }
+    }
 }

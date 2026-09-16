@@ -71,6 +71,7 @@ import argparse
 import importlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -378,7 +379,7 @@ def _make_dotnet_launcher(root: Path, dll: Path) -> Path:
     launcher.write_text(
         textwrap.dedent(f"""\
         #!/bin/sh
-        exec dotnet {json.dumps(str(dll))} "$@"
+        exec dotnet {shlex.quote(str(dll.resolve()))} "$@"
         """),
         encoding="utf-8",
     )

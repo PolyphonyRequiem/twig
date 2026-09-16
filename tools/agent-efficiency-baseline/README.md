@@ -55,10 +55,11 @@ Metadata readiness requires a positive diagnosis and the targeted
 `twig process --refresh` recovery cue; empty or unrelated errors do not pass.
 The frozen AB#878 evidence remains unchanged.
 
-The September 16 AB#879 run recorded **25 cases, zero safety failures, two unmet
-outcomes**: legacy batch missing-ID disclosure (AB#880) and HTML closing-tag
-whitespace (AB#848). `--require-fixed` therefore still exits 1; this is not a claim
-that those sibling fixes landed.
+After integrating the merged AB#848 fix from `origin/main`, the September 16
+AB#879 run recorded **25 cases, zero safety failures, one unmet outcome**:
+legacy batch missing-ID disclosure (AB#880). `--require-fixed` therefore still
+exits 1. The integrated repository pre-push gate passed **9,595 solution-wide
+tests across six assemblies**, plus the external detail-host probe.
 
 `native-forwarding-probe.py --offline` exercises the installed Hermes plugin's
 actual Python forwarding seam with intercepted subprocesses. For read-only live

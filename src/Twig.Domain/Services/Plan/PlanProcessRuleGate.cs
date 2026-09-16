@@ -80,9 +80,9 @@ internal readonly record struct PlanProcessRuleGateOutcome(
 
     /// <summary>
     /// A refusal that also carries EVERY required-but-unsupplied field, not just the first
-    /// one named in <paramref name="message"/>. The plan surface reports one field because a
-    /// plan author fixes the batch and re-previews; an interactive caller (<c>twig state</c>)
-    /// needs the whole set so a close gate with two fields does not cost two round trips.
+    /// one named in <paramref name="message"/>. Proposal outcome diagnostics and interactive
+    /// callers consume the complete set so repairing a multi-field gate needs one review,
+    /// not a separate failed attempt for each missing field.
     /// </summary>
     public static PlanProcessRuleGateOutcome Refuse(string message, IReadOnlyList<string> fields)
         => new(PlanProcessRuleGateOutcomeKind.Refused, message, fields);

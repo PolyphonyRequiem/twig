@@ -83,6 +83,16 @@ public interface IPlanJournalRepository
     /// terminalised as Failed/Indeterminate. Passing <c>null</c> preserves any warning already
     /// recorded; it never erases one.
     /// </para>
+    /// <para>
+    /// AB#881: <paramref name="resultJson"/> carries the trustworthy-proposal diagnostics
+    /// payload the parent constructs at the terminal boundary. It is written by the SAME
+    /// conditional UPDATE that performs the transition, using the existing <c>result_json</c>
+    /// column, so a Applied → Verified (or any state-gated) transition and its diagnostics
+    /// land in one atomic row update — a lost CAS never strands diagnostics on a row another
+    /// actor terminalised, and a transition that carries no payload never overwrites one an
+    /// earlier winner recorded. Passing <c>null</c> preserves any existing <c>result_json</c>;
+    /// it never erases one.
+    /// </para>
     /// </summary>
     Task<bool> TryTransitionOperationAsync(
         string digest,
@@ -91,7 +101,8 @@ public interface IPlanJournalRepository
         PlanOperationState toState,
         DateTimeOffset timestamp,
         CancellationToken ct = default,
-        string? warning = null);
+        string? warning = null,
+        string? resultJson = null);
 
     /// <summary>
     /// Records the outcome of an apply attempt: writes <paramref name="resultJson"/> onto an
@@ -149,6 +160,15 @@ public interface IPlanJournalRepository
     /// <summary>
     /// Records a terminal failure for an operation and moves it to <paramref name="finalState"/>
     /// (<see cref="PlanOperationState.Failed"/> or <see cref="PlanOperationState.Indeterminate"/>).
+    /// <para>
+    /// AB#881: <paramref name="resultJson"/> carries the trustworthy-proposal diagnostics
+    /// payload the parent constructs at the terminal boundary. When non-null it is written by
+    /// the SAME conditional UPDATE that performs the terminal transition, using the existing
+    /// <c>result_json</c> column, so the state, error, and diagnostics land in one atomic row
+    /// update. Passing <c>null</c> preserves any existing <c>result_json</c>; it never erases
+    /// one. Rows already terminal are left strictly untouched — the terminal-immutability
+    /// contract applies to diagnostics exactly as it does to error and state.
+    /// </para>
     /// </summary>
     Task SaveOperationErrorAsync(
         string digest,
@@ -156,7 +176,8 @@ public interface IPlanJournalRepository
         string error,
         PlanOperationState finalState,
         DateTimeOffset timestamp,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        string? resultJson = null);
 
     /// <summary>
     /// Moves the top-level plan to a terminal state and stamps <paramref name="completedAt"/>.

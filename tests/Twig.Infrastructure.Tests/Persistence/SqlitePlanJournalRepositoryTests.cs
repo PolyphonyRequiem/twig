@@ -1107,6 +1107,181 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.SaveOperationErrorAsync(plan.Digest, opId, "oops", PlanOperationState.Applying, Now()));
     }
 
+    // ─── diagnostics payload persistence (AB#881) ───────────────────────────────
+
+    [Fact]
+    public async Task TryTransitionOperation_WithResultJson_PersistsItInTheSameRowUpdateAsTheTransition()
+    {
+        // The trustworthy-proposal diagnostics ride through the CAS, not a preceding write.
+        // A pre-CAS write could strand diagnostics on a row whose transition was then lost
+        // and which a different actor terminalised — the whole point of the atomic UPDATE.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Planned, PlanOperationState.Applied, Now())).ShouldBeTrue();
+
+        const string diagnostics = """{"diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":4,"fields":[{"field":"System.State","classification":"exact"}],"missingFields":[]},"fieldEvidence":[{"field":"System.State","expected":"Active","actual":"Active"}]}""";
+        var verified = await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now(),
+            default, warning: null, resultJson: diagnostics);
+
+        verified.ShouldBeTrue();
+        var journal = await _repo.GetAsync(plan.Digest);
+        var op = journal!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Verified);
+        op.ResultJson.ShouldBe(diagnostics);
+    }
+
+    [Fact]
+    public async Task TryTransitionOperation_LostCas_DoesNotWriteTheResultJson()
+    {
+        // The stranding scenario the in-CAS write exists to prevent: a caller whose transition
+        // is refused must leave no trace on the row, diagnostics included. Otherwise a loser
+        // could scribble its version of the outcome onto a row a different actor terminalised.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+
+        var changed = await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now(),
+            default, warning: null, resultJson: """{"diagnostics":{"code":"verified"}}""");
+
+        changed.ShouldBeFalse();
+        var journal = await _repo.GetAsync(plan.Digest);
+        var op = journal!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Planned);
+        op.ResultJson.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task TryTransitionOperation_NullResultJson_PreservesAnAlreadyRecordedPayload()
+    {
+        // COALESCE semantics: a follow-up transition that carries no diagnostics must not
+        // erase a payload an earlier winner recorded. Otherwise the Applying→Applied atomic
+        // save + Applied→Verified transition sequence would lose the diagnostics on the
+        // second hop.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await WalkOpToState(plan.Digest, opId, PlanOperationState.Applying);
+
+        const string diagnostics = """{"diagnostics":{"code":"verified"}}""";
+        (await _repo.TryRecordAppliedAsync(plan.Digest, opId, diagnostics, Now())).ShouldBeTrue();
+
+        // A follow-up Applied → Verified with no resultJson MUST preserve the payload.
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now()))
+            .ShouldBeTrue();
+
+        var journal = await _repo.GetAsync(plan.Digest);
+        var op = journal!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Verified);
+        op.ResultJson.ShouldBe(diagnostics);
+    }
+
+    [Fact]
+    public async Task TryTransitionOperation_TerminalRowIsNotOverwrittenByLaterDiagnostics()
+    {
+        // Terminal-immutability: a row already Verified / Failed / Indeterminate is untouched
+        // by later diagnostic writes even when the caller names the correct fromState. The
+        // NOT IN (@verified, @failed, @indeterminate) guard is what the trustworthy contract
+        // depends on — otherwise a late-arriving actor could overwrite the settled outcome.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await WalkOpToState(plan.Digest, opId, PlanOperationState.Applied);
+
+        const string first = """{"diagnostics":{"code":"verified"}}""";
+        (await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Applied, PlanOperationState.Verified, Now(),
+            default, warning: null, resultJson: first)).ShouldBeTrue();
+
+        // A rerun that observed Verified out-of-band tries to rewrite. Terminal-guard refuses.
+        var second = await _repo.TryTransitionOperationAsync(
+            plan.Digest, opId, PlanOperationState.Verified, PlanOperationState.Verified, Now(),
+            default, warning: null, resultJson: """{"diagnostics":{"code":"revision-conflict"}}""");
+
+        second.ShouldBeFalse();
+        var journal = await _repo.GetAsync(plan.Digest);
+        journal!.Operations.Single(o => o.OpId == opId).ResultJson.ShouldBe(first);
+    }
+
+    [Fact]
+    public async Task SaveOperationError_WithResultJson_PersistsItAtomicallyWithTheTerminalTransition()
+    {
+        // Parent can attach diagnostics to a Failed / Indeterminate outcome — state, error,
+        // and result_json must land in one row update. A ledger that carried the terminal
+        // state without the diagnostics that classified it would strip the evidence Main
+        // constructs the whole payload for.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await WalkOpToState(plan.Digest, opId, PlanOperationState.Applied);
+
+        const string diagnostics = """{"diagnostics":{"code":"revision-not-advanced","expectedRevision":3,"observedRevision":3,"fields":[],"missingFields":[]},"fieldEvidence":[]}""";
+        await _repo.SaveOperationErrorAsync(
+            plan.Digest, opId, "readback classified Indeterminate",
+            PlanOperationState.Indeterminate, Now(), default, resultJson: diagnostics);
+
+        var op = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Indeterminate);
+        op.Error.ShouldBe("readback classified Indeterminate");
+        op.ResultJson.ShouldBe(diagnostics);
+    }
+
+    [Fact]
+    public async Task SaveOperationError_TerminalRow_IsNotOverwrittenByLaterDiagnostics()
+    {
+        // The terminal-immutability guard on SaveOperationError already refuses to move state
+        // or overwrite the error message — AB#881's diagnostics inherit the same protection.
+        // The state-gated WHERE keeps the result_json COALESCE from touching a settled row.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await WalkOpToState(plan.Digest, opId, PlanOperationState.Applied);
+
+        const string firstDiagnostics = """{"diagnostics":{"code":"field-mismatch"}}""";
+        await _repo.SaveOperationErrorAsync(
+            plan.Digest, opId, "first failure",
+            PlanOperationState.Failed, Now(), default, resultJson: firstDiagnostics);
+
+        await _repo.SaveOperationErrorAsync(
+            plan.Digest, opId, "later",
+            PlanOperationState.Failed, Now().AddHours(1), default,
+            resultJson: """{"diagnostics":{"code":"outcome-unknown"}}""");
+
+        var op = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Failed);
+        op.Error.ShouldBe("first failure");
+        op.ResultJson.ShouldBe(firstDiagnostics);
+    }
+
+    [Fact]
+    public async Task SaveOperationError_NullResultJson_PreservesAnAlreadyRecordedPayload()
+    {
+        // COALESCE: a terminal write that carries no diagnostics never erases an existing
+        // result_json. Concretely, this is the crash-recovery path where the previous run's
+        // Applying → Applied atomic save left diagnostics on the row and the current run
+        // classifies the outcome as Failed without a fresh payload to add.
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await WalkOpToState(plan.Digest, opId, PlanOperationState.Applying);
+
+        const string diagnostics = """{"diagnostics":{"code":"verified"}}""";
+        (await _repo.TryRecordAppliedAsync(plan.Digest, opId, diagnostics, Now())).ShouldBeTrue();
+
+        await _repo.SaveOperationErrorAsync(
+            plan.Digest, opId, "readback error",
+            PlanOperationState.Failed, Now(), default, resultJson: null);
+
+        var op = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == opId);
+        op.State.ShouldBe(PlanOperationState.Failed);
+        op.Error.ShouldBe("readback error");
+        op.ResultJson.ShouldBe(diagnostics);
+    }
+
     [Fact]
     public async Task Operations_ReturnedInChronologicalOrder()
     {

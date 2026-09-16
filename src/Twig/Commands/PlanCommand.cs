@@ -317,6 +317,12 @@ public sealed class PlanCommand(
 
     private void RenderApply(PlanApplyResult result, string outputFormat)
     {
+        if (!IsJsonOutput(outputFormat))
+        {
+            _rendererFactory.GetRenderer(outputFormat, _stdout).Render(
+                new RenderTree.RenderTree([new RenderNode.Section(null, BuildApplyHumanLines(result))]));
+            return;
+        }
         var fields = new List<DocumentField>
         {
             new("digest", new RenderNode.KeyValue("digest", RenderCell.String(result.Digest))),
@@ -324,9 +330,8 @@ public sealed class PlanCommand(
             new("operations", new RenderNode.KeyValue("operations", JournalOperationsCell(result.Operations))),
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
-        var human = new RenderNode.Section(null, BuildApplyHumanLines(result));
         var doc = new RenderNode.Document("proposalApply", fields);
-        var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
+        var tree = new RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
 
@@ -350,31 +355,61 @@ public sealed class PlanCommand(
     /// contract — a row that reads one way after apply must read the same way on a later
     /// status — so they share one writer rather than two hunks that can drift.
     /// <para>
-    /// AB#754/755: a warning is its own indented line at <see cref="Severity.Warning"/>,
-    /// never appended to the state line and never rendered as an error. It is additive
-    /// detail on a row that is already <c>Verified</c>; a Verified operation must not read
-    /// as failed merely because ADO normalized a field it owns.
+    /// AB#754/755/881: the row line names the disposition token and, when the shared
+    /// <see cref="PlanOperationDiagnostics"/> yielded a bounded per-code summary, an
+    /// indented diagnostics line follows. Neither <see cref="PlanJournalOperation.Error"/>
+    /// nor <see cref="PlanJournalOperation.Warning"/> is echoed inline: both may carry
+    /// arbitrary ADO response fragments with user-authored values, and human/minimal is
+    /// where a hurried reader looks. Callers who need the full evidence read <c>-o json</c>
+    /// (raw <c>resultJson</c> / <c>warning</c> / <c>error</c> keys preserved).
     /// </para>
     /// </summary>
     private static void AppendOperationLines(
         IReadOnlyList<PlanJournalOperation> operations,
         List<RenderNode> lines)
     {
+        var anyEvidence = false;
         foreach (var op in operations)
         {
-            var line = $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}";
-            if (!string.IsNullOrEmpty(op.Error))
-                line += $"  ({op.Error})";
-            lines.Add(new RenderNode.Text(line));
-            if (!string.IsNullOrEmpty(op.Warning))
-                lines.Add(new RenderNode.Text($"      warning: {op.Warning}", Severity.Warning));
+            var diagnostics = op.Diagnostics;
+            lines.Add(new RenderNode.Text(
+                $"  [{op.Ordinal}] {op.OpId} {op.Kind} → {op.State}  ({diagnostics.Disposition})",
+                SeverityFor(diagnostics.Disposition)));
+            if (!string.Equals(diagnostics.Summary, diagnostics.Disposition, StringComparison.Ordinal))
+                lines.Add(new RenderNode.Text(
+                    $"      {(op.Warning is null ? "diagnostics" : "warning")}: {diagnostics.Summary}",
+                    op.Warning is null ? SeverityFor(diagnostics.Disposition) : Severity.Warning));
+            if (diagnostics.ExpectedRevision is not null || diagnostics.ObservedRevision is not null)
+                lines.Add(new RenderNode.Text(
+                    $"      revisions: expected={diagnostics.ExpectedRevision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "(unknown)"}, "
+                    + $"observed={diagnostics.ObservedRevision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "(unknown)"}"));
+            if (!string.IsNullOrEmpty(op.Error) || !string.IsNullOrEmpty(op.Warning)
+                || op.ResultJson is not null)
+                anyEvidence = true;
         }
+        if (anyEvidence)
+            lines.Add(new RenderNode.Text(
+                "  full evidence: rerun with '-o json' to inspect raw resultJson/warning/error."));
     }
+
+    private static Severity SeverityFor(string disposition) => disposition switch
+    {
+        "verified" => Severity.Success,
+        "failed" => Severity.Error,
+        "outcome-unknown" => Severity.Warning,
+        _ => Severity.Info,
+    };
 
     // ── status ────────────────────────────────────────────────────────
 
     private void RenderStatus(PlanStatusResult result, string outputFormat)
     {
+        if (!IsJsonOutput(outputFormat))
+        {
+            _rendererFactory.GetRenderer(outputFormat, _stdout).Render(
+                new RenderTree.RenderTree([new RenderNode.Section(null, BuildStatusHumanLines(result))]));
+            return;
+        }
         var fields = new List<DocumentField>
         {
             new("digest", new RenderNode.KeyValue("digest", DigestCell(result.Digest))),
@@ -382,9 +417,8 @@ public sealed class PlanCommand(
             new("operations", new RenderNode.KeyValue("operations", JournalOperationsCell(result.Operations))),
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
-        var human = new RenderNode.Section(null, BuildStatusHumanLines(result));
         var doc = new RenderNode.Document("proposalStatus", fields);
-        var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
+        var tree = new RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
     }
 
@@ -396,7 +430,8 @@ public sealed class PlanCommand(
             new RenderNode.Text($"state:  {result.State?.ToString() ?? "(none)"}"),
         };
         AppendOperationLines(result.Operations, lines);
-        if (!string.IsNullOrEmpty(result.Error))
+        if (!string.IsNullOrEmpty(result.Error)
+            && !result.Operations.Any(op => string.Equals(op.Error, result.Error, StringComparison.Ordinal)))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
         return lines;
     }
@@ -476,6 +511,9 @@ public sealed class PlanCommand(
         };
         _rendererFactory.GetRenderer(outputFormat, _stderr).Render(new RenderTree.RenderTree(new[] { node }));
     }
+
+    private static bool IsJsonOutput(string outputFormat)
+        => outputFormat.ToLowerInvariant() is "json" or "json-full" or "json-compact" or "ids";
 
     private static RenderNode WrapHumanOverride(RenderNode.Document machine, RenderNode human, string outputFormat)
     {
@@ -734,11 +772,55 @@ public sealed class PlanCommand(
                 // Always present so a consumer can read it without probing for the key;
                 // null means "no server-generated normalization was observed".
                 ["warning"] = NullableStringCell(op.Warning),
+                // AB#881: bounded shared projection so CLI and MCP surface the same
+                // disposition/code/revisions/field-classifications on the same row. Full
+                // evidence (raw resultJson/warning/error) stays present above.
+                ["diagnostics"] = DiagnosticsCell(op.Diagnostics),
             };
             items.Add(new RenderCell($"[{op.Ordinal}] {op.OpId} {op.State}", new RenderValue.Object(obj)));
         }
         return new RenderCell($"{operations.Count} op(s)", new RenderValue.Array(items));
     }
+
+    /// <summary>
+    /// Projects a <see cref="PlanOperationDiagnostics"/> row into the shared render
+    /// vocabulary. Every key is always present so a consumer never has to probe for
+    /// existence — <c>null</c> is a first-class value here. Raw field expected/actual
+    /// bodies are deliberately not emitted; the raw <c>resultJson</c> on the parent row
+    /// is the full-evidence route (AB#881).
+    /// </summary>
+    private static RenderCell DiagnosticsCell(PlanOperationDiagnostics diagnostics)
+    {
+        var fieldItems = new List<RenderCell>(diagnostics.Fields.Count);
+        foreach (var field in diagnostics.Fields)
+        {
+            var fieldObj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["field"] = RenderCell.String(field.Field),
+                ["classification"] = RenderCell.String(field.Classification),
+            };
+            fieldItems.Add(new RenderCell($"{field.Field}={field.Classification}",
+                new RenderValue.Object(fieldObj)));
+        }
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["disposition"] = RenderCell.String(diagnostics.Disposition),
+            ["code"] = NullableStringCell(diagnostics.Code),
+            ["expectedRevision"] = NullableIntCell(diagnostics.ExpectedRevision),
+            ["observedRevision"] = NullableIntCell(diagnostics.ObservedRevision),
+            ["fields"] = new RenderCell(
+                $"{diagnostics.Fields.Count} field(s)",
+                new RenderValue.Array(fieldItems)),
+            ["missingFields"] = StringArrayCell(diagnostics.MissingFields),
+            ["summary"] = RenderCell.String(diagnostics.Summary),
+        };
+        return new RenderCell(diagnostics.Summary, new RenderValue.Object(obj));
+    }
+
+    private static RenderCell NullableIntCell(int? value)
+        => value is null
+            ? new RenderCell("(none)", new RenderValue.Null())
+            : RenderCell.Integer(value.Value);
 
     private static RenderCell TimestampCell(DateTimeOffset? when)
         => when is null

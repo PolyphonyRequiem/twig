@@ -74,6 +74,11 @@ internal static class PlanJsonWriter
             // operation failed.
             if (op.Warning is not null) writer.WriteString("warning", op.Warning);
             else writer.WriteNull("warning");
+            // AB#881: additive `diagnostics` object next to raw result/warning/error.
+            // Bounded — disposition/code/revisions/field-classifications/summary — never
+            // the ADO field bodies. Consumers that want full evidence read the raw
+            // `result`/`warning`/`error` above.
+            WriteDiagnostics(writer, op.Diagnostics);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -147,6 +152,40 @@ internal static class PlanJsonWriter
     {
         if (value is null) writer.WriteNull(name);
         else writer.WriteString(name, value.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// Writes the bounded per-operation diagnostics object under <c>diagnostics</c>.
+    /// Every key is always present so callers never probe for existence; nullable
+    /// numeric/string keys emit as JSON null. Raw field expected/actual bodies are
+    /// deliberately not emitted — the raw <c>result</c> above is the full-evidence
+    /// route (AB#881).
+    /// </summary>
+    public static void WriteDiagnostics(Utf8JsonWriter writer, PlanOperationDiagnostics diagnostics)
+    {
+        writer.WriteStartObject("diagnostics");
+        writer.WriteString("disposition", diagnostics.Disposition);
+        if (diagnostics.Code is not null) writer.WriteString("code", diagnostics.Code);
+        else writer.WriteNull("code");
+        if (diagnostics.ExpectedRevision is int expected) writer.WriteNumber("expectedRevision", expected);
+        else writer.WriteNull("expectedRevision");
+        if (diagnostics.ObservedRevision is int observed) writer.WriteNumber("observedRevision", observed);
+        else writer.WriteNull("observedRevision");
+        writer.WriteStartArray("fields");
+        foreach (var field in diagnostics.Fields)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("field", field.Field);
+            writer.WriteString("classification", field.Classification);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("missingFields");
+        foreach (var name in diagnostics.MissingFields)
+            writer.WriteStringValue(name);
+        writer.WriteEndArray();
+        writer.WriteString("summary", diagnostics.Summary);
+        writer.WriteEndObject();
     }
 
     /// <summary>

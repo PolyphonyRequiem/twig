@@ -188,7 +188,7 @@ public sealed class SubcommandGuardTests
     [InlineData("frobnicate", "wildly")]
     public void UnknownTopLevelCommand_IsLeftToTheExistingGuard(params string[] args)
     {
-        // GroupedHelp.ShowUnknown already handles this and already exits 1. Claiming it here
+        // ProgressiveHelp.ShowUnknown already handles this and already exits 1. Claiming it here
         // would produce two different messages for one condition.
         SubcommandGuard.Validate(args).ShouldBeNull();
     }

@@ -26,6 +26,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +38,15 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Twig.Cli.Tests" />
     <InternalsVisibleTo Include="Twig.Benchmarks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../../.github/skills/twig-cli/SKILL.md" LogicalName="Twig.Skills.Package.twig-cli/SKILL.md" />
+    <EmbeddedResource Include="../../.github/skills/twig-changes/SKILL.md" LogicalName="Twig.Skills.Package.twig-changes/SKILL.md" />
+    <EmbeddedResource Include="../../docs/commands/**/*.md">
+      <LogicalName>Twig.CommandReference/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../../docs/commands/index.json" LogicalName="Twig.CommandReference/index.json" />
   </ItemGroup>
 
 </Project>

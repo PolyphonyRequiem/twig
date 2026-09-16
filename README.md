@@ -19,6 +19,18 @@ twig sync
 twig ws
 ```
 
+### Offline help and agent guidance
+
+`twig --help` starts with common tasks; `twig <group> --help` narrows discovery
+and `twig <command> --help` gives full syntax, examples, effects and failures.
+`twig --help-all` retains the complete catalog.
+
+`twig --skill` prints executable-matched generic guidance without a workspace or
+authentication. `twig skills --help` covers explicit Hermes, OMP and Copilot CLI
+installation, updates and user-companion selection. Only generic Twig skills
+ship initially; integration/variant packages are separately supplied.
+See [skill delivery and ownership](docs/features/skills.md).
+
 ## Working with Items
 
 Twig uses an **active context** model — you set a work item as your focus, then all

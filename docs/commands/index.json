@@ -786,7 +786,7 @@
   {
     "command": "help",
     "group": "configuration",
-    "summary": "Grouped help fast-path \u2014 canonical form is `twig --help`.",
+    "summary": "Task-oriented help with targeted group and leaf discovery.",
     "stability": "stable",
     "mutates": "none",
     "path": "configuration/help.md"
@@ -870,5 +870,45 @@
     "stability": "experimental",
     "mutates": "local",
     "path": "experimental/tui.md"
+  },
+  {
+    "command": "skills install",
+    "group": "configuration",
+    "summary": "Install the generic Twig skill family into an explicit root.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "configuration/skills-install.md"
+  },
+  {
+    "command": "skills update",
+    "group": "configuration",
+    "summary": "Update unedited Twig-owned guidance while preserving companions.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "configuration/skills-update.md"
+  },
+  {
+    "command": "skills configure",
+    "group": "configuration",
+    "summary": "Select or clear an additive companion for one provider and scenario.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "configuration/skills-configure.md"
+  },
+  {
+    "command": "skills status",
+    "group": "configuration",
+    "summary": "Inspect installed guidance identity, integrity and bounded discovery.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "configuration/skills-status.md"
+  },
+  {
+    "command": "skills add",
+    "group": "configuration",
+    "summary": "Install one separately supplied integration or variant skill.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "configuration/skills-add.md"
   }
 ]

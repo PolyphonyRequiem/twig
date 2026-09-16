@@ -16,7 +16,12 @@ command help, executable path/hash/version, index hash, and full documentation
 route. It never invokes a command catalog on an unknown name. Keep the workspace
 and its connection binding fixed; reuse guidance only for the same executable
 hash, index hash and helper contract version. No persistent cache is created.
-Portable installed guidance and broader help design remain pending separate approval.
+
+Installed Twig provides offline guidance without Python or a source checkout:
+start with `twig --help`, use `twig <command> --help` for targeted guidance, or
+`twig --help-all` for the full catalog. `twig --skill` exposes executable-matched
+agent guidance; see [installed skills](../features/skills.md) for package installation
+and updates.
 
 | Group | Command | Summary | Stability | Mutates |
 |---|---|---|---|---|
@@ -118,8 +123,13 @@ Portable installed guidance and broader help design remain pending separate appr
 | [Plans and Proposals](plans/README.md) | [`twig proposal validate`](plans/proposal-validate.md) | Validate a proposal v1 file without touching ADO. | stable | `none` |
 | [Configuration](configuration/README.md) | [`twig config`](configuration/config.md) | Read or set a configuration value. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig config status-fields`](configuration/config-status-fields.md) | Configure which fields appear in the status view. | stable | `local` |
-| [Configuration](configuration/README.md) | [`twig help`](configuration/help.md) | Grouped help fast-path — canonical form is `twig --help`. | stable | `none` |
+| [Configuration](configuration/README.md) | [`twig help`](configuration/help.md) | Progressive offline root, group and leaf help. | stable | `none` |
 | [Configuration](configuration/README.md) | [`twig migrate-config`](configuration/migrate-config.md) | Split a legacy .twig/config into a committed twig.json and gitignored user prefs. | stable | `local` |
+| [Configuration](configuration/README.md) | [`twig skills install`](configuration/skills-install.md) | Install the generic skill family into an explicit root. | stable | `local` |
+| [Configuration](configuration/README.md) | [`twig skills update`](configuration/skills-update.md) | Update Twig guidance while preserving companions. | stable | `local` |
+| [Configuration](configuration/README.md) | [`twig skills configure`](configuration/skills-configure.md) | Select or clear a scenario companion. | stable | `local` |
+| [Configuration](configuration/README.md) | [`twig skills status`](configuration/skills-status.md) | Inspect package identity, integrity and bounded discovery. | stable | `none` |
+| [Configuration](configuration/README.md) | [`twig skills add`](configuration/skills-add.md) | Install a separately supplied integration or variant skill. | stable | `local` |
 | [System](system/README.md) | [`twig auth clear`](system/auth-clear.md) | Wipe the refresh-token store and cached access token, and flush the in-process copy. | stable | `local` |
 | [System](system/README.md) | [`twig auth login`](system/auth-login.md) | Sign in to Azure DevOps interactively and persist a refresh token under ~/.twig/. | stable | `local` |
 | [System](system/README.md) | [`twig auth status`](system/auth-status.md) | Inspect the refresh-token store and cached ADO access token without ever printing the token. | stable | `none` |

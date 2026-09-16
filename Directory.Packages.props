@@ -17,6 +17,8 @@
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
     <!-- Markdown -->
     <PackageVersion Include="Markdig" Version="1.1.2" />
+    <!-- YAML event parsing only; no reflection-based object deserialization. -->
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
     <!-- Rendering -->
     <PackageVersion Include="Spectre.Console" Version="0.57.2" />
     <!-- TUI -->

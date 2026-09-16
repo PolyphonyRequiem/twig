@@ -469,8 +469,8 @@ internal static class CommandExamples
         ],
         ["proposal apply"] =
         [
-            "twig proposal apply --file proposal.json --confirm <digest>    Apply the proposal; the digest MUST match.",
-            "twig proposal apply --file proposal.json --confirm <digest> --output json    Emit per-operation journal outcomes as JSON.",
+            "twig proposal apply --file proposal.json --confirm <digest> --authorize <identity>    Apply the exact reviewed proposal with its authorizer.",
+            "twig proposal apply --file proposal.json --confirm <digest> --authorize <identity> --output json    Emit every operation's journal outcome.",
         ],
         ["proposal status"] =
         [
@@ -486,6 +486,31 @@ internal static class CommandExamples
         [
             "twig pending                           List raw staged pending changes in exact staging order.",
             "twig pending --output json             Emit the raw pending rows as JSON — values preserved verbatim.",
+        ],
+        ["skills install"] =
+        [
+            "twig skills install --provider omp --target /path/to/skills    Install generic Twig guidance.",
+            "twig skills install --provider hermes --target /path/to/skills -o json    Prepare an explicit profile root.",
+        ],
+        ["skills update"] =
+        [
+            "twig skills update --provider omp --target /path/to/skills    Update only Twig-owned guidance.",
+            "twig skills update --provider copilot --target /path/to/skills -o json    Preserve user companions and settings.",
+        ],
+        ["skills configure"] =
+        [
+            "twig skills configure --provider omp --target /path/to/skills --scenario terminal --companion my-presenter    Select an additive companion.",
+            "twig skills configure --provider omp --target /path/to/skills --scenario terminal --clear    Return to base guidance.",
+        ],
+        ["skills status"] =
+        [
+            "twig skills status --provider hermes --target /path/to/skills    Inspect package identity and integrity.",
+            "twig skills status --provider copilot --target /path/to/skills --scan-root /path/to/other-skills -o json    Check bounded shadowing.",
+        ],
+        ["skills add"] =
+        [
+            "twig skills add --provider omp --target /path/to/skills --source /path/to/my-presenter    Add separately supplied guidance.",
+            "twig skills add --provider copilot --target /path/to/skills --source /path/to/my-integration -o json    Install an external package without executing it.",
         ],
     };
 

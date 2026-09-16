@@ -1,0 +1,161 @@
+{
+  "schema": "twig.agent-efficiency-runtime.v1",
+  "evidence_kind": "historical observed run; never used as a synthetic service response",
+  "captured_date": "2026-09-16",
+  "source_commit": "146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb",
+  "installed": {
+    "version": "0.91.6-alpha.0.8",
+    "sha256": "0a1a1f303c03d11b2f27c14c4b61ff0a0f4ba5fd223462ea1952b00b2bf6a4c0",
+    "resolved_paths": [
+      "$LOGIN_HOME/.twig/bin/twig",
+      "$ENGINEERING_HOME/.twig/bin/twig"
+    ],
+    "same_file": true,
+    "source_ancestry": "unknown"
+  },
+  "source": {
+    "version": "0.91.6-alpha.0.14",
+    "entrypoint": "dotnet $BASELINE_WORKTREE/src/Twig/bin/Debug/net11.0/twig.dll"
+  },
+  "plugin": {
+    "runner.py": {
+      "relative_path": "plugins/twig/runner.py",
+      "sha256": "ef715e5f35189fdde05b1938a03ccbaea6f199dc7f245666ce265a5c489b7865"
+    },
+    "tools.py": {
+      "relative_path": "plugins/twig/tools.py",
+      "sha256": "37adb8ec9b17f631b0bec090cd9037992e726e20d7af00877fb1af460995c14a"
+    },
+    "schemas.py": {
+      "relative_path": "plugins/twig/schemas.py",
+      "sha256": "ba730ee9bf1211cb22aae4b50b7b3dddd2523f92d98b18ef08a031b09608b1a8"
+    }
+  },
+  "binding": {
+    "organization": "PolyphonyRequiem",
+    "project": "Twig",
+    "process_name": "Hyperbright",
+    "process_id": "ba4e268d-7d67-43bd-8065-df7ab52fba0c",
+    "descriptor_captured_at": "2026-09-16T13:57:56.3339108+00:00",
+    "descriptor_version": "0.1",
+    "completeness": "descriptor captured; ordinary process fields are not per-transition requirement authority",
+    "initial_pull_only_item_count": 180
+  },
+  "isolated_mirror_schemas": {
+    "installed": 14,
+    "source": 16,
+    "method": "each CLI creates its OWN empty temporary cache, metadata read via mode=ro, no mixed-version cache experiment"
+  },
+  "claim_comparison": {
+    "installed": {
+      "exit_code": 1,
+      "journal": "Failed",
+      "revision": 1,
+      "diagnostic": "Refusing to write work item 878: an enabled process rule requires field 'Microsoft.VSTS.Common.ActivatedBy' when state is 'Doing', but the effective value is empty."
+    },
+    "source_fresh_proposal": {
+      "exit_code": 0,
+      "journal": "Verified",
+      "revision": 2,
+      "server_supplied_ActivatedBy": true
+    },
+    "classification": "installation skew",
+    "boundary": "real authorized claim, not production test probe; no failed-file retry"
+  },
+  "handler": {
+    "entrypoint": "tools.show({work_item_id:731,refresh:true})",
+    "cwd": "$LOGIN_HOME/repos/hyperbright-core",
+    "credential_home": "$ENGINEERING_HOME",
+    "result": "{\n  \"error\": \"error: Work item #731 not found in local cache. Run 'twig set 731' to fetch it.\"\n}",
+    "transport": "real installed Python handler invoked from OMP eval, not Hermes outer smoke"
+  },
+  "command_captures": [
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "show",
+        "731",
+        "--refresh",
+        "-o",
+        "json"
+      ],
+      "cwd": "$BASELINE_WORKTREE",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "error: Work item #731 not found in local cache. Run 'twig set 731' to fetch it.\n"
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "process",
+        "Task",
+        "-o",
+        "json"
+      ],
+      "cwd": "$BASELINE_WORKTREE",
+      "exit_code": 0,
+      "stdout": "{\n  \"type\": \"Task\",\n  \"isHidden\": false,\n  \"categories\": [\n    \"Microsoft.TaskCategory\"\n  ],\n  \"states\": [\n    {\n      \"name\": \"To Do\",\n      \"category\": \"Proposed\",\n      \"color\": \"b2b2b2\"\n    },\n    {\n      \"name\": \"Doing\",\n      \"category\": \"InProgress\",\n      \"color\": \"007acc\"\n    },\n    {\n      \"name\": \"Done\",\n      \"category\": \"Completed\",\n      \"color\": \"339933\"\n    }\n  ],\n  \"fields\": [\n    {\n      \"referenceName\": \"Custom.ChangelogSummary\",\n      \"displayName\": \"Changelog Summary\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.ClosingStatement\",\n      \"displayName\": \"Closing Statement\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.DecisionStanding\",\n      \"displayName\": \"Decision Standing\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.FalsificationCriteria\",\n      \"displayName\": \"Falsification Criteria\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.IdeaOutcome\",\n      \"displayName\": \"Idea Outcome\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.Maturity\",\n      \"displayName\": \"Maturity\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.MaturityNote\",\n      \"displayName\": \"Maturity Note\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.PriorityBand\",\n      \"displayName\": \"Priority Band\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.SupersededBy\",\n      \"displayName\": \"Superseded By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.TerminalOutcome\",\n      \"displayName\": \"Terminal Outcome\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.VerificationMode\",\n      \"displayName\": \"Verification Mode\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.WayfinderAnswer\",\n      \"displayName\": \"Answer\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.WayfinderDecisionMaturity\",\n      \"displayName\": \"Decision Maturity\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.WayfinderDecisionsSoFar\",\n      \"displayName\": \"Decisions So Far\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.WayfinderDestination\",\n      \"displayName\": \"Destination\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Custom.WayfinderExecutionMode\",\n      \"displayName\": \"Execution Mode\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Build.IntegrationBuild\",\n      \"displayName\": \"Integration Build\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.AcceptedBy\",\n      \"displayName\": \"Accepted By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.AcceptedDate\",\n      \"displayName\": \"Accepted Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ClosedStatus\",\n      \"displayName\": \"Closed Status\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ClosedStatusCode\",\n      \"displayName\": \"Closed Status Code\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ClosingComment\",\n      \"displayName\": \"Closing Comment\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.Context\",\n      \"displayName\": \"Associated Context\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ContextCode\",\n      \"displayName\": \"Associated Context Code\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ContextOwner\",\n      \"displayName\": \"Associated Context Owner\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.CodeReview.ContextType\",\n      \"displayName\": \"Associated Context Type\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ActivatedBy\",\n      \"displayName\": \"Activated By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ActivatedDate\",\n      \"displayName\": \"Activated Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.Activity\",\n      \"displayName\": \"Activity\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ClosedBy\",\n      \"displayName\": \"Closed By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ClosedDate\",\n      \"displayName\": \"Closed Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.Issue\",\n      \"displayName\": \"Issue\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.Priority\",\n      \"displayName\": \"Priority\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.Rating\",\n      \"displayName\": \"Rating\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ResolvedBy\",\n      \"displayName\": \"Resolved By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ResolvedDate\",\n      \"displayName\": \"Resolved Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.ReviewedBy\",\n      \"displayName\": \"Reviewed By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.StackRank\",\n      \"displayName\": \"Stack Rank\",\n      \"dataType\": \"double\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.StateChangeDate\",\n      \"displayName\": \"State Change Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Common.StateCode\",\n      \"displayName\": \"State Code\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Feedback.ApplicationLaunchInstructions\",\n      \"displayName\": \"Application Launch Instructions\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Feedback.ApplicationStartInformation\",\n      \"displayName\": \"Application Start Information\",\n      \"dataType\": \"plainText\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Feedback.ApplicationType\",\n      \"displayName\": \"Application Type\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.CompletedWork\",\n      \"displayName\": \"Completed Work\",\n      \"dataType\": \"double\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.Effort\",\n      \"displayName\": \"Effort\",\n      \"dataType\": \"double\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.FinishDate\",\n      \"displayName\": \"Finish Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.RemainingWork\",\n      \"displayName\": \"Remaining Work\",\n      \"dataType\": \"double\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.StartDate\",\n      \"displayName\": \"Start Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.Scheduling.TargetDate\",\n      \"displayName\": \"Target Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.AutomatedTestId\",\n      \"displayName\": \"Automated Test Id\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.AutomatedTestName\",\n      \"displayName\": \"Automated Test Name\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.AutomatedTestStorage\",\n      \"displayName\": \"Automated Test Storage\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.AutomatedTestType\",\n      \"displayName\": \"Automated Test Type\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.AutomationStatus\",\n      \"displayName\": \"Automation status\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.LocalDataSource\",\n      \"displayName\": \"Local Data Source\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.Parameters\",\n      \"displayName\": \"Parameters\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.QueryText\",\n      \"displayName\": \"Query Text\",\n      \"dataType\": \"plainText\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.Steps\",\n      \"displayName\": \"Steps\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.SystemInfo\",\n      \"displayName\": \"System Info\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.TestSuiteAudit\",\n      \"displayName\": \"Test Suite Audit\",\n      \"dataType\": \"plainText\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.TestSuiteType\",\n      \"displayName\": \"Test Suite Type\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"Microsoft.VSTS.TCM.TestSuiteTypeId\",\n      \"displayName\": \"Test Suite Type Id\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.AreaId\",\n      \"displayName\": \"Area ID\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.AreaPath\",\n      \"displayName\": \"Area Path\",\n      \"dataType\": \"treePath\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.AssignedTo\",\n      \"displayName\": \"Assigned To\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.AttachedFileCount\",\n      \"displayName\": \"Attached File Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.AuthorizedAs\",\n      \"displayName\": \"Authorized As\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.AuthorizedDate\",\n      \"displayName\": \"Authorized Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.BoardColumn\",\n      \"displayName\": \"Board Column\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.BoardColumnDone\",\n      \"displayName\": \"Board Column Done\",\n      \"dataType\": \"boolean\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.BoardLane\",\n      \"displayName\": \"Board Lane\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.ChangedBy\",\n      \"displayName\": \"Changed By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.ChangedDate\",\n      \"displayName\": \"Changed Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.CommentCount\",\n      \"displayName\": \"Comment Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.CreatedBy\",\n      \"displayName\": \"Created By\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.CreatedDate\",\n      \"displayName\": \"Created Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.Description\",\n      \"displayName\": \"Description\",\n      \"dataType\": \"html\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.ExternalLinkCount\",\n      \"displayName\": \"External Link Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.History\",\n      \"displayName\": \"History\",\n      \"dataType\": \"history\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.HyperLinkCount\",\n      \"displayName\": \"Hyperlink Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.Id\",\n      \"displayName\": \"ID\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.IterationId\",\n      \"displayName\": \"Iteration ID\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.IterationPath\",\n      \"displayName\": \"Iteration Path\",\n      \"dataType\": \"treePath\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.NodeName\",\n      \"displayName\": \"Node Name\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.Parent\",\n      \"displayName\": \"Parent\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.Reason\",\n      \"displayName\": \"Reason\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.RelatedLinkCount\",\n      \"displayName\": \"Related Link Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.RemoteLinkCount\",\n      \"displayName\": \"Remote Link Count\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.Rev\",\n      \"displayName\": \"Rev\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.RevisedDate\",\n      \"displayName\": \"Revised Date\",\n      \"dataType\": \"dateTime\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.State\",\n      \"displayName\": \"State\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.Tags\",\n      \"displayName\": \"Tags\",\n      \"dataType\": \"plainText\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.TeamProject\",\n      \"displayName\": \"Team Project\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.Title\",\n      \"displayName\": \"Title\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    },\n    {\n      \"referenceName\": \"System.Watermark\",\n      \"displayName\": \"Watermark\",\n      \"dataType\": \"integer\",\n      \"isReadOnly\": true\n    },\n    {\n      \"referenceName\": \"System.WorkItemType\",\n      \"displayName\": \"Work Item Type\",\n      \"dataType\": \"string\",\n      \"isReadOnly\": false\n    }\n  ],\n  \"transitions\": [\n    {\n      \"from\": \"To Do\",\n      \"to\": \"Doing\",\n      \"kind\": \"Forward\"\n    },\n    {\n      \"from\": \"To Do\",\n      \"to\": \"Done\",\n      \"kind\": \"Forward\"\n    },\n    {\n      \"from\": \"Doing\",\n      \"to\": \"To Do\",\n      \"kind\": \"Forward\"\n    },\n    {\n      \"from\": \"Doing\",\n      \"to\": \"Done\",\n      \"kind\": \"Forward\"\n    },\n    {\n      \"from\": \"Done\",\n      \"to\": \"To Do\",\n      \"kind\": \"Forward\"\n    },\n    {\n      \"from\": \"Done\",\n      \"to\": \"Doing\",\n      \"kind\": \"Forward\"\n    }\n  ]\n}",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "show",
+        "--help"
+      ],
+      "cwd": "$BASELINE_WORKTREE",
+      "exit_code": 0,
+      "stdout": "Usage: show [arguments...] [options...] [-h|--help] [--version]\n\nDisplay a work item without changing context. Cache-only by default; use --refresh to sync first.\n\nArguments:\n  [0] <int?>    Work item ID to display. Omit to show the active work item.\n\nOptions:\n  -o, --output <string>    Output format: human, json, minimal. [Default: @\"human\"]\n  --tree                   Display as hierarchy tree instead of detail card.\n  --refresh                Sync from ADO before displaying, instead of reading cache only.\n\nExamples:\n  twig show 1234             Show work item #1234\n  twig show 1234 --output json  Show work item #1234 as JSON\n  twig show --tree           Show work item tree hierarchy for the active item\n  twig show 1234 --tree      Show tree hierarchy rooted at #1234\n  twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "new",
+        "--help"
+      ],
+      "cwd": "$BASELINE_WORKTREE",
+      "exit_code": 0,
+      "stdout": "Usage: new [arguments...] [options...] [-h|--help] [--version]\n\nCreate a new work item in ADO.\n\nArguments:\n  [0] <string?>    Work item type, positionally: twig new task \"Write tests\". The shipped examples document this spelling.\n  [1] <string?>    Title as the second positional argument. Quote multi-word titles.\n\nOptions:\n  --title <string?>               Title for the new work item. [Default: null]\n  --type <string?>                Work item type (e.g., Task, Bug, User Story). [Default: null]\n  --area <string?>                Area path for the new work item. [Default: null]\n  --iteration <string?>           Iteration path for the new work item. [Default: null]\n  --description <string?>         Description text for the new work item. [Default: null]\n  --parent <int?>                 Parent work item ID to link under. [Default: null]\n  --set                           Set the new work item as the active context after creation.\n  --editor                        Open an external editor to fill in fields.\n  --format <string?>              Convert --description before sending. Supported: \"markdown\" (force convert) or \"raw\" (never convert). Default: auto \u2014 convert when System.Description is HTML-typed. [Default: null]\n  --field <string[]?>             Set a field at creation time: fieldReferenceName=value. Repeatable. Required for types with required custom fields. Values convert Markdown only for HTML-typed fields (not affected by --format); an explicit --field System.Description overrides --description. [Default: null]\n  -o, --output <string>           Output format: human, json, minimal. [Default: @\"human\"]\n  --description-file <string?>    Read the description body from a file instead of --description. [Default: null]\n  --description-stdin             Read the description body from piped standard input.\n\nExamples:\n  twig new task \"Write tests\"         Create a new Task under the active item\n  twig new bug \"Login fails on edge\"  Create a new Bug under the active item\n",
+      "stderr": ""
+    }
+  ],
+  "metrics": {
+    "process_Task_stdout_characters": 16153,
+    "process_Task_field_count": 96,
+    "tokens": null,
+    "initial_collector_outer_calls": 1,
+    "initial_collector_cli_executions": 7,
+    "initial_batch_syntax_repair_rounds": 1,
+    "repair_attribution": "worker used --ids instead of positional batch argument; not a core defect"
+  },
+  "prior_art": {
+    "AB848_844_835": "HTML whitespace",
+    "AB753_755": "shared warning-bearing semantic readback; no new states",
+    "AB802_803": "merged; qualify deployment",
+    "AB634": "by-type skill initiative",
+    "AB688": "cache-reset context retention",
+    "AB847_PR439": "PR freshly observed OPEN with null mergeCommit"
+  },
+  "raw_local_evidence_root": "twig-agent-efficiency-20260916/878-evidence",
+  "live_write_limits": [
+    "HTML whitespace, identity, no-op and partial-write disposable ADO qualification not performed",
+    "fresh Hermes and OMP agent outer transport qualification not performed"
+  ],
+  "source_warm_metrics": {
+    "resume-source-process": {
+      "exit_code": 0,
+      "stdout_characters": 16153,
+      "stdout_bytes": 16153,
+      "stderr_characters": 0,
+      "complete_local_capture": "878-evidence/resume-source-process.json"
+    },
+    "resume-source-detail": {
+      "exit_code": 0,
+      "stdout_characters": 9443,
+      "stdout_bytes": 9443,
+      "stderr_characters": 0,
+      "complete_local_capture": "878-evidence/resume-source-detail.json"
+    }
+  }
+}

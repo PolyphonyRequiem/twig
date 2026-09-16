@@ -1,0 +1,148 @@
+{
+  "source_commit": "146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb",
+  "exit_code": 1,
+  "fixture_exit_code": 0,
+  "regression_exit_code": 1,
+  "installed_sha256": "0a1a1f303c03d11b2f27c14c4b61ff0a0f4ba5fd223462ea1952b00b2bf6a4c0",
+  "installed_unchanged": true,
+  "isolated_schemas": {
+    "installed": [
+      {
+        "relative_path": ".twig/cache/twig.db",
+        "mirror_schema": "14"
+      }
+    ],
+    "source": [
+      {
+        "relative_path": ".twig/cache/twig.db",
+        "mirror_schema": "16"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "version"
+      ],
+      "cwd": "$ISOLATED_INSTALLED_WORKSPACE",
+      "exit_code": 0,
+      "stdout": "0.91.6-alpha.0.8\n",
+      "stderr": "",
+      "result_bytes": 17,
+      "result_characters": 17,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "show",
+        "--help"
+      ],
+      "cwd": "$ISOLATED_INSTALLED_WORKSPACE",
+      "exit_code": 0,
+      "stdout": "Usage: show [arguments...] [options...] [-h|--help] [--version]\n\nDisplay a work item without changing context. Cache-only by default; use --refresh to sync first.\n\nArguments:\n  [0] <int?>    Work item ID to display. Omit to show the active work item.\n\nOptions:\n  -o, --output <string>    Output format: human, json, minimal. [Default: @\"human\"]\n  --tree                   Display as hierarchy tree instead of detail card.\n  --refresh                Sync from ADO before displaying, instead of reading cache only.\n\nExamples:\n  twig show 1234             Show work item #1234\n  twig show 1234 --output json  Show work item #1234 as JSON\n  twig show --tree           Show work item tree hierarchy for the active item\n  twig show 1234 --tree      Show tree hierarchy rooted at #1234\n  twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep\n",
+      "stderr": "",
+      "result_bytes": 854,
+      "result_characters": 854,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "show",
+        "42",
+        "-o",
+        "json"
+      ],
+      "cwd": "$ISOLATED_INSTALLED_WORKSPACE",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "error: Work item #42 not found in local cache. Run 'twig set 42' to fetch it.\n",
+      "result_bytes": 78,
+      "result_characters": 78,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "$INSTALLED_TWIG",
+        "process",
+        "Frobnicator",
+        "-o",
+        "json"
+      ],
+      "cwd": "$ISOLATED_INSTALLED_WORKSPACE",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "\u2717 error: No states found for type 'Frobnicator'. Run 'twig sync' to refresh process data.\n",
+      "result_bytes": 92,
+      "result_characters": 90,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "dotnet",
+        "$BASELINE_WORKTREE/src/Twig/bin/Debug/net11.0/twig.dll",
+        "version"
+      ],
+      "cwd": "$ISOLATED_SOURCE_WORKSPACE",
+      "exit_code": 0,
+      "stdout": "0.91.6-alpha.0.14\n",
+      "stderr": "",
+      "result_bytes": 18,
+      "result_characters": 18,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "dotnet",
+        "$BASELINE_WORKTREE/src/Twig/bin/Debug/net11.0/twig.dll",
+        "show",
+        "--help"
+      ],
+      "cwd": "$ISOLATED_SOURCE_WORKSPACE",
+      "exit_code": 0,
+      "stdout": "Usage: show [arguments...] [options...] [-h|--help] [--version]\n\nDisplay a work item without changing context. Cache-only by default; use --refresh to sync first.\n\nArguments:\n  [0] <int?>    Work item ID to display. Omit to show the active work item.\n\nOptions:\n  -o, --output <string>    Output format: human, json, minimal. [Default: @\"human\"]\n  --tree                   Display as hierarchy tree instead of detail card.\n  --refresh                Sync from ADO before displaying, instead of reading cache only.\n\nExamples:\n  twig show 1234             Show work item #1234\n  twig show 1234 --output json  Show work item #1234 as JSON\n  twig show --tree           Show work item tree hierarchy for the active item\n  twig show 1234 --tree      Show tree hierarchy rooted at #1234\n  twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep\n",
+      "stderr": "",
+      "result_bytes": 854,
+      "result_characters": 854,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "dotnet",
+        "$BASELINE_WORKTREE/src/Twig/bin/Debug/net11.0/twig.dll",
+        "show",
+        "42",
+        "-o",
+        "json"
+      ],
+      "cwd": "$ISOLATED_SOURCE_WORKSPACE",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "error: Work item #42 not found in local cache. Run 'twig set 42' to fetch it.\n",
+      "result_bytes": 78,
+      "result_characters": 78,
+      "tokens": null
+    },
+    {
+      "argv": [
+        "dotnet",
+        "$BASELINE_WORKTREE/src/Twig/bin/Debug/net11.0/twig.dll",
+        "process",
+        "Frobnicator",
+        "-o",
+        "json"
+      ],
+      "cwd": "$ISOLATED_SOURCE_WORKSPACE",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "\u2717 error: No states found for type 'Frobnicator'. Run 'twig sync' to refresh process data.\n",
+      "result_bytes": 92,
+      "result_characters": 90,
+      "tokens": null
+    }
+  ],
+  "outer_model_calls": 1,
+  "tokens": null
+}

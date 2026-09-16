@@ -1,0 +1,51 @@
+{
+  "source_commit": "146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb",
+  "command": "python3 tools/agent-efficiency-baseline/run.py --output <fresh-output> --installed <existing-twig>",
+  "final_exit_code": 1,
+  "source_fixture_cases": 23,
+  "safety_failures": 0,
+  "unmet_desired_outcomes": 5,
+  "require_fixed_exit_code": 1,
+  "repeated_case_records_identical": true,
+  "infrastructure_tests": {
+    "passed": 2390,
+    "failed": 1,
+    "skipped": 0,
+    "exit_code": 1,
+    "test": "LoopbackPkceFlowTests.RunAsync_TokenExchangeFailure_ReturnsTokenExchangeFailedError",
+    "reason": "flow never reported the authorize URL"
+  },
+  "initial_infrastructure_attempt": {
+    "passed": 2390,
+    "failed": 1,
+    "exit_code": 1,
+    "test": "LoopbackPkceFlowTests.RunAsync_TimeoutExpiresWithNoRedirect_ReturnsTimeoutError",
+    "expected": "Timeout",
+    "actual": "LoopbackUnavailable",
+    "note": "unchanged auth test; preserved, not skipped or fixed; subsequent complete suite passed"
+  },
+  "prior_full_baseline": {
+    "Cli": 3494,
+    "Domain": 2091,
+    "Infrastructure": 2391,
+    "exit_code": 0,
+    "total": 7976
+  },
+  "overwrite_guard_exit_code": 2,
+  "installed_sha256_after": "0a1a1f303c03d11b2f27c14c4b61ff0a0f4ba5fd223462ea1952b00b2bf6a4c0",
+  "live_probe_writes": 0,
+  "scope": "AB878 only; operational authorized claim and notes are not test probes",
+  "metrics_note": "source.json OutputCharacters measures complete serialized fixture-output envelope; nested stdout retains exact command response; subprocess metrics live in capture summary. Neither is billed tokens.",
+  "final_fixture_exit_code": 0,
+  "successful_infrastructure_attempt": {
+    "passed": 2391,
+    "failed": 0,
+    "skipped": 0,
+    "exit_code": 0
+  },
+  "review": {
+    "standards": "Two accepted isolation/evidence fixes; filename concern disproved by actual smoke; source assembly hash is intentional; no single-file publication supported.",
+    "spec": "No blocking scope mismatch; offline/live limitation and delegated existing supplier regressions explicitly retained."
+  },
+  "bare_filename_smoke_exit_code": 0
+}

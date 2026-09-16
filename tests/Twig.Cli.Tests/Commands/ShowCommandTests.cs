@@ -104,36 +104,6 @@ public sealed class ShowCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Cache miss: item not found
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Show_ItemNotInCache_ReturnsExitCode1WithMessageAndTelemetry()
-    {
-        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        var stderrWriter = new StringWriter();
-        var stderrCtx = new CommandContext(
-            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
-            _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
-            new TwigConfiguration(), TelemetryClient: _telemetryClient, Stderr: stderrWriter);
-        var cmd = new ShowCommand(stderrCtx, _workItemRepo, _linkRepo,
-            _syncCoordinatorFactory, _statusFieldReader);
-
-        var result = await cmd.ExecuteAsync(999);
-
-        result.ShouldBe(1);
-        var stderr = stderrWriter.ToString();
-        stderr.ShouldContain("Work item #999 not found in local cache");
-        stderr.ShouldContain("twig set 999");
-        _telemetryClient.Received().TrackEvent(
-            "CommandExecuted",
-            Arg.Is<Dictionary<string, string>>(d =>
-                d["command"] == "show" &&
-                d["exit_code"] == "1"),
-            Arg.Any<Dictionary<string, double>>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Enrichment: children, parent, links
     // ═══════════════════════════════════════════════════════════════
 

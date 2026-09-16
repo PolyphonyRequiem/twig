@@ -18,6 +18,7 @@ public sealed class SyncCoordinator
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IWorkItemLinkRepository? _linkRepo;
     private readonly int _cacheStaleMinutes;
+    private readonly bool _evictMissing;
 
     public SyncCoordinator(
         IWorkItemRepository workItemRepo,
@@ -25,7 +26,8 @@ public sealed class SyncCoordinator
         ProtectedCacheWriter protectedCacheWriter,
         IPendingChangeStore pendingChangeStore,
         IWorkItemLinkRepository? linkRepo,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        bool evictMissing = true)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -33,6 +35,7 @@ public sealed class SyncCoordinator
         _pendingChangeStore = pendingChangeStore;
         _linkRepo = linkRepo;
         _cacheStaleMinutes = cacheStaleMinutes;
+        _evictMissing = evictMissing;
     }
 
     public SyncCoordinator(
@@ -126,7 +129,7 @@ public sealed class SyncCoordinator
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            if (_evictMissing && ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
             {
                 await _pendingChangeStore.ClearChangesAsync(id, ct);
                 await _workItemRepo.DeleteByIdAsync(id, ct);
@@ -212,7 +215,7 @@ public sealed class SyncCoordinator
         }));
 
         // Evict items confirmed deleted in ADO — prevents stale cache ghosts
-        var notFoundIds = fetchResults.Where(r => r.NotFound).Select(r => r.Id).ToList();
+        var notFoundIds = fetchResults.Where(r => r.NotFound && _evictMissing).Select(r => r.Id).ToList();
         foreach (var id in notFoundIds)
         {
             await _pendingChangeStore.ClearChangesAsync(id, ct);
@@ -220,7 +223,7 @@ public sealed class SyncCoordinator
         }
 
         var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
-        var fetchFailures = fetchResults.Where(r => r.Error is not null && !r.NotFound)
+        var fetchFailures = fetchResults.Where(r => r.Error is not null && (!r.NotFound || !_evictMissing))
             .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
             .ToList();
 

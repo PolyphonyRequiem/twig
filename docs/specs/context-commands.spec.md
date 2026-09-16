@@ -144,6 +144,12 @@ Same as above, except:
 - Does NOT change the active context (read-only)
 - Does NOT record navigation history
 - Branch detection hints are not applicable
+- Cache-only by default; an uncached explicit ID exits 1 without fetching.
+- `--refresh` fetches an uncached positive ID and its links without requiring active
+  context. Dirty fields, seeds, pending rows and Bench selection remain protected.
+- A machine refresh failure (including an inaccessible immediate link target or parent)
+  exits 1 with a format-aware diagnosis, rather than emitting stale data as success.
+  Read-only refresh does not evict missing items or discard their pending work.
 
 ### Behavior — Batch Mode
 

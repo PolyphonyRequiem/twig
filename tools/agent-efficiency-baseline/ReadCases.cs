@@ -34,6 +34,7 @@ internal static class ReadCases
         return
         [
             await ShowUncachedIdWithRefreshAsync(),
+            await ShowUncachedIdWithRefreshFailurePropagatesAsync(),
             await ShowBatchMixedFoundMissingAsync(),
             await ShowExplicitFoundAsync(),
             await ShowExplicitFoundAsync(selected: true),
@@ -41,6 +42,7 @@ internal static class ReadCases
             await NewIncompleteCatalogRejectsValidRefAsync(),
             await NewWarmCatalogAcceptsKnownRefAsync(),
             await NewWarmCatalogRejectsUnknownRefAsync(),
+            await MetadataPredicateNegativeControlAsync(),
             await ProcessListBroadAsync(),
             await ProcessTypeDetailAsync(),
         ];
@@ -49,10 +51,11 @@ internal static class ReadCases
     // ── Case 1: Show — explicit id, cache miss, refresh requested ────────────
     //
     // Wayfinder read: with --refresh on a valid work item that ADO has, a user
-    // expects Twig to fetch the item and render it. Today ShowCommand's cache
-    // gate short-circuits on cache miss BEFORE consulting the refresh flag,
-    // so an uncached id fails with exit=1 even when refresh=true and the
-    // remote service knows the item.
+    // expects Twig to fetch the item and render it. Since AB#879 the cold
+    // explicit-refresh path calls IAdoWorkItemService.FetchWithLinksAsync
+    // (there is no fallback FetchAsync-root), and the observation binds to
+    // that seam so an accidental regression to a root-only fetch surfaces as
+    // FetchWithLinksAsyncCalls == 0.
     private static async Task<Observation> ShowUncachedIdWithRefreshAsync()
     {
         const int missingFromCache = 707;
@@ -61,6 +64,7 @@ internal static class ReadCases
             .WithAreaPath("Prototype")
             .WithIterationPath("Prototype\\Sprint 3")
             .Build();
+        var verifiedAt = new DateTimeOffset(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
 
         using var reads = BuildReadHarness();
         WorkItem? cached = null;
@@ -72,16 +76,27 @@ internal static class ReadCases
                 cached = call.Arg<WorkItem>();
                 return Task.CompletedTask;
             });
-        reads.AdoService.FetchAsync(missingFromCache, Arg.Any<CancellationToken>()).Returns(remoteItem);
+        reads.WorkItemRepo.GetChildrenAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        reads.LinkRepo.GetLinksAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemLink>());
+        reads.LinkRepo.GetLinksVerifiedAtAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns((DateTimeOffset?)verifiedAt);
+        reads.AdoService.FetchWithLinksAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns((remoteItem, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         var stderr = new StringWriter();
         var cmd = reads.NewShowCommand(stderr);
 
         var (exit, stdout) = await CaptureStdoutAsync(() => cmd.ExecuteAsync(missingFromCache, outputFormat: "json", refresh: true));
 
-        var fetchCalls = reads.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchAsync));
-        var saves = reads.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
+        var fetchWithLinksCalls = reads.AdoService.ReceivedCalls()
+            .Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchWithLinksAsync));
+        var fetchAsyncCalls = reads.AdoService.ReceivedCalls()
+            .Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchAsync));
+        var saveCalls = reads.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
         var contextWrites = reads.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
+        var (parsedId, parsedTitle, hasVerifiedLinks) = ParseShowJson(stdout);
 
         var input = new InvocationEvidence(
             Command: "show",
@@ -95,24 +110,31 @@ internal static class ReadCases
             BatchIds: null,
             CacheHasItem: false,
             RemoteHasItem: true,
-            Notes: "--refresh should let ShowCommand fetch through IAdoWorkItemService when the cache is empty.");
+            Notes: "--refresh must reach IAdoWorkItemService.FetchWithLinksAsync (post-AB#879); a root-only FetchAsync fallback is a regression.");
 
         var output = new OutcomeEvidence(
             ExitCode: exit,
             Stdout: stdout,
             Stderr: stderr.ToString(),
-            FetchAsyncCalls: fetchCalls,
+            FetchAsyncCalls: fetchAsyncCalls,
             CreateAsyncCalls: 0,
-            SaveAsyncCalls: saves,
+            SaveAsyncCalls: saveCalls,
             SetActiveWorkItemIdCalls: contextWrites,
-            WorkItemsInOutput: null,
+            WorkItemsInOutput: parsedId is null ? null : 1,
             MissingIdsSurfaced: null,
             ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
-            Notes: "Desired: exit=0, FetchAsyncCalls>=1, item rendered. Observed exit encodes the fix state.");
+            Notes: $"FetchWithLinksAsyncCalls={fetchWithLinksCalls}; parsed id={parsedId?.ToString() ?? "null"}; parsed title present={parsedTitle}; verified-links stamp visible={hasVerifiedLinks}.");
 
-        // Classify from what actually happened. When the defect is fixed, the same
-        // fixture will observe exit=0 + a real fetch and flip its own classification.
-        var desiredMet = exit == 0 && fetchCalls >= 1 && stdout.Contains("Sprint retro follow-up", StringComparison.Ordinal);
+        // Post-AB#879 positive predicate: exit 0, FetchWithLinksAsync observed,
+        // rendered payload carries the id and title verbatim (not a cache-only
+        // fake shape), and the link-verified-at stamp landed. FetchAsync on the
+        // root is now a regression signal and MUST stay at zero.
+        var desiredMet = exit == 0
+            && fetchWithLinksCalls >= 1
+            && fetchAsyncCalls == 0
+            && parsedId == missingFromCache
+            && parsedTitle
+            && hasVerifiedLinks;
         var classification = desiredMet ? "already fixed" : "current defect";
 
         return new Observation(
@@ -121,7 +143,81 @@ internal static class ReadCases
             DesiredSatisfied: desiredMet,
             Input: JsonData.Serialize(input),
             Output: JsonData.Serialize(output),
-            SafetyPassed: contextWrites == 0);
+            SafetyPassed: contextWrites == 0 && fetchAsyncCalls == 0);
+    }
+
+    // ── Case 1b: Show — cold explicit refresh, root fetch fails (AB#879) ─────
+    //
+    // The parallel machine-format guarantee: a FetchWithLinks failure on the
+    // root MUST NOT be papered over with a cache-only fake success. The
+    // command emits a format-aware error and exits 1; no SaveAsync fires; no
+    // renderable payload appears on stdout. This is the "no fake cache
+    // success" pair to Case 1.
+    private static async Task<Observation> ShowUncachedIdWithRefreshFailurePropagatesAsync()
+    {
+        const int missingFromCache = 4242;
+
+        using var reads = BuildReadHarness();
+        reads.WorkItemRepo.GetByIdAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        reads.AdoService.FetchWithLinksAsync(missingFromCache, Arg.Any<CancellationToken>())
+            .Returns<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)>(_ => throw new InvalidOperationException("simulated ADO 500"));
+
+        var stderr = new StringWriter();
+        var cmd = reads.NewShowCommand(stderr);
+
+        var (exit, stdout) = await CaptureStdoutAsync(() => cmd.ExecuteAsync(missingFromCache, outputFormat: "json", refresh: true));
+
+        var fetchWithLinksCalls = reads.AdoService.ReceivedCalls()
+            .Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchWithLinksAsync));
+        var saveCalls = reads.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
+        var contextWrites = reads.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
+        var stderrText = stderr.ToString();
+        var mentionsFailure = stderrText.Contains("Refresh failed", StringComparison.Ordinal)
+            && stderrText.Contains($"#{missingFromCache}", StringComparison.Ordinal);
+        var stdoutIsMachineEmpty = string.IsNullOrWhiteSpace(stdout) || stdout.Trim() == "{}" || stdout.Trim() == "null";
+
+        var input = new InvocationEvidence(
+            Command: "show",
+            Scenario: "uncached-id-refresh-fetch-failure",
+            OutputFormat: "json",
+            Refresh: true,
+            WorkItemId: missingFromCache,
+            WorkItemType: null,
+            RequestedFields: null,
+            KnownCatalogFields: null,
+            BatchIds: null,
+            CacheHasItem: false,
+            RemoteHasItem: false,
+            Notes: "Simulated FetchWithLinksAsync exception must surface as format-aware exit 1, never a fake cache success.");
+
+        var output = new OutcomeEvidence(
+            ExitCode: exit,
+            Stdout: stdout,
+            Stderr: stderrText,
+            FetchAsyncCalls: 0,
+            CreateAsyncCalls: 0,
+            SaveAsyncCalls: saveCalls,
+            SetActiveWorkItemIdCalls: contextWrites,
+            WorkItemsInOutput: 0,
+            MissingIdsSurfaced: null,
+            ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
+            Notes: $"FetchWithLinksAsyncCalls={fetchWithLinksCalls}; stderr mentions '#id Refresh failed'={mentionsFailure}; stdout empty-for-machine={stdoutIsMachineEmpty}.");
+
+        var desiredMet = exit == 1
+            && fetchWithLinksCalls >= 1
+            && saveCalls == 0
+            && mentionsFailure
+            && stdoutIsMachineEmpty;
+        var classification = desiredMet ? "already fixed" : "current defect";
+
+        return new Observation(
+            Id: "read.show.uncached-refresh-failure",
+            Classification: classification,
+            DesiredSatisfied: desiredMet,
+            Input: JsonData.Serialize(input),
+            Output: JsonData.Serialize(output),
+            SafetyPassed: contextWrites == 0 && saveCalls == 0);
     }
 
     // ── Case 2: Show — batch of ids, some missing from cache ─────────────────
@@ -211,7 +307,17 @@ internal static class ReadCases
 
         var (exit, stdout) = await CaptureStdoutAsync(() => cmd.ExecuteAsync(selected ? null : 42, outputFormat: "json", refresh: false));
 
+        // Measure the substitute surfaces rather than reporting a constant.
+        // Review §2 flagged this envelope's hard-coded zeros as a future
+        // false-reporting risk; the fixture now surfaces the same numbers the
+        // batch case already interrogates, so a regression that starts
+        // spending fetch/create/save calls on the cache-hit path is visible.
+        var fetchWithLinksCalls = reads.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchWithLinksAsync));
+        var fetchAsyncCalls = reads.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchAsync));
+        var createCalls = reads.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.CreateAsync));
+        var saveCalls = reads.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
         var contextWrites = reads.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
+        var (parsedId, parsedTitle, _) = ParseShowJson(stdout);
 
         var input = new InvocationEvidence(
             Command: "show",
@@ -231,16 +337,22 @@ internal static class ReadCases
             ExitCode: exit,
             Stdout: stdout,
             Stderr: stderr.ToString(),
-            FetchAsyncCalls: 0,
-            CreateAsyncCalls: 0,
-            SaveAsyncCalls: 0,
+            FetchAsyncCalls: fetchAsyncCalls + fetchWithLinksCalls,
+            CreateAsyncCalls: createCalls,
+            SaveAsyncCalls: saveCalls,
             SetActiveWorkItemIdCalls: contextWrites,
-            WorkItemsInOutput: 1,
+            WorkItemsInOutput: parsedId is null ? null : 1,
             MissingIdsSurfaced: null,
             ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
-            Notes: null);
+            Notes: $"Observed via NSubstitute: FetchAsync={fetchAsyncCalls}, FetchWithLinksAsync={fetchWithLinksCalls}, CreateAsync={createCalls}, SaveAsync={saveCalls}. WorkItemsInOutput parsed from JSON payload (parsed id={parsedId?.ToString() ?? "null"}, title present={parsedTitle}).");
 
-        var desiredMet = exit == 0 && stdout.Contains("Design proposal review", StringComparison.Ordinal);
+        // Cache-hit MUST NOT reach ADO at all — a positive count here is a
+        // regression, not a happy path.
+        var networkTouched = fetchAsyncCalls > 0 || fetchWithLinksCalls > 0 || createCalls > 0;
+        var desiredMet = exit == 0
+            && parsedId == 42
+            && parsedTitle
+            && !networkTouched;
 
         return new Observation(
             Id: selected ? "read.show.selected-cache-hit" : "read.show.explicit-cache-hit",
@@ -248,7 +360,7 @@ internal static class ReadCases
             DesiredSatisfied: desiredMet,
             Input: JsonData.Serialize(input),
             Output: JsonData.Serialize(output),
-            SafetyPassed: desiredMet && contextWrites == 0);
+            SafetyPassed: desiredMet && contextWrites == 0 && !networkTouched);
     }
 
     // ── Case 4: New — empty field catalog rejects a valid Custom.* ref ───────
@@ -326,7 +438,7 @@ internal static class ReadCases
         string id, string scenario, IReadOnlyList<FieldDefinition> knownFields,
         IReadOnlyList<string> requested, int desiredExit, bool requestedIsUnknownAtBoundary)
     {
-        var writes = BuildWriteHarness(knownFields);
+        var writes = BuildWriteHarness(knownFields, authoritativeCatalog: id == "read.new.warm-catalog-rejects-unknown");
 
         var stderrCapture = new StringWriter();
         var stdoutCapture = new StringWriter();
@@ -389,14 +501,40 @@ internal static class ReadCases
 
         if (requestedIsUnknownAtBoundary)
         {
-            // Safety-critical: never punch through to the network on unknown ref.
+            // Safety-critical: never punch through to the network on an unknown ref.
             safetyPassed = createCalls == 0 && saveCalls == 0 && contextWrites == 0;
-            var metadataIncomplete = id is "read.new.empty-catalog-rejects" or "read.new.incomplete-catalog-rejects";
             var diagnostics = stdoutCapture.ToString() + stderrCapture;
-            // Safe refusal is required, but calling a valid server field "unknown"
-            // is the separate metadata-readiness defect this baseline measures.
-            desiredMet = exit == desiredExit && safetyPassed
-                && (!metadataIncomplete || !diagnostics.Contains("Unknown field", StringComparison.OrdinalIgnoreCase));
+            var metadataIncomplete = id is "read.new.empty-catalog-rejects" or "read.new.incomplete-catalog-rejects";
+
+            // Semantic diagnosis, not the absence of a bad phrase (AB#879 review §1):
+            //  * empty/incomplete catalog → "Metadata not ready" + "twig process --refresh"
+            //  * targeted metadata sync failed → "Metadata refresh failed" (+ original reason)
+            //  * catalog present, ref genuinely absent → "Unknown field reference name(s)"
+            // A cold path that emits only "Unknown field" (or nothing meaningful) is
+            // NOT a fix — it is still the AB#879 defect, and this predicate refuses it.
+            var metadataNotReady = IsMetadataNotReadyDiagnostic(diagnostics);
+            var metadataRefreshFailed = IsMetadataRefreshFailedDiagnostic(diagnostics);
+            var genuineUnknownField = IsGenuineUnknownFieldDiagnostic(diagnostics);
+
+            if (metadataIncomplete)
+            {
+                // Either the targeted sync ran and the catalog is still empty,
+                // or the sync itself failed with an actionable reason. Both are
+                // valid semantic outcomes on the cold path; neither may claim
+                // the caller's ref is genuinely unknown.
+                desiredMet = exit == desiredExit && safetyPassed
+                    && (metadataNotReady || metadataRefreshFailed)
+                    && !genuineUnknownField;
+            }
+            else
+            {
+                // Warm catalog, ref really is absent: retain the crisp
+                // "Unknown field reference name(s)" diagnostic and refuse if
+                // the cold-path phrasing leaked into a hot-path refusal.
+                desiredMet = exit == desiredExit && safetyPassed
+                    && genuineUnknownField
+                    && !(metadataNotReady || metadataRefreshFailed);
+            }
             classification = desiredMet ? "expected refusal" : "current defect";
         }
         else
@@ -415,11 +553,60 @@ internal static class ReadCases
             SafetyPassed: safetyPassed);
     }
 
+    // ── Semantic diagnostic predicates (AB#879) ─────────────────────────────
+    //
+    // The revised metadata contract (Metadata879):
+    //   * empty-or-incomplete catalog with the requested ref/type still absent
+    //     after a targeted metadata-only sync → stderr carries "Metadata not
+    //     ready" AND "twig process --refresh" (the recovery is a *metadata*
+    //     refresh, not a full workspace 'twig refresh' — that would pull work
+    //     items and is the wrong actionable);
+    //   * the targeted sync itself failed (auth/network) → stderr carries
+    //     "Metadata refresh failed" plus the propagated exception text;
+    //   * catalog is present, the ref genuinely does not exist → stderr keeps
+    //     the existing "Unknown field reference name(s)" wording, and the
+    //     cold-path "Metadata not ready" / "Metadata refresh failed" MUST NOT
+    //     appear.
+    // Everything is a case-sensitive substring check per Metadata879's contract.
+    private const string MetadataNotReadyHeader = "Metadata not ready";
+    private const string MetadataNotReadyRecoveryHint = "twig process --refresh";
+    private const string MetadataRefreshFailedHeader = "Metadata refresh failed";
+    private const string GenuineUnknownFieldHeader = "Unknown field reference name(s)";
+
+    private static bool IsMetadataNotReadyDiagnostic(string diagnostics) =>
+        diagnostics.Contains(MetadataNotReadyHeader, StringComparison.Ordinal)
+        && diagnostics.Contains(MetadataNotReadyRecoveryHint, StringComparison.Ordinal);
+
+    private static bool IsMetadataRefreshFailedDiagnostic(string diagnostics) =>
+        diagnostics.Contains(MetadataRefreshFailedHeader, StringComparison.Ordinal);
+
+    private static bool IsGenuineUnknownFieldDiagnostic(string diagnostics) =>
+        diagnostics.Contains(GenuineUnknownFieldHeader, StringComparison.Ordinal);
+
+    // Negative-control fixtures for the predicates above. These prove the
+    // predicate rejects meaningless or half-formed diagnostics, so a future
+    // "current defect" → "expected refusal" flip cannot be produced by an
+    // empty stderr or an unrelated error message; the predicate itself is
+    // held to the same evidence bar as the case that consumes it.
+    private static readonly (string Label, string Text, bool ExpectMetadataNotReady, bool ExpectMetadataRefreshFailed, bool ExpectGenuineUnknownField)[]
+        MetadataPredicateSamples =
+        [
+            ("empty-diagnostic", "", false, false, false),
+            ("unrelated-network-error", "error: connection reset by peer", false, false, false),
+            ("only-header-no-actionable", "Metadata not ready: field catalog is empty after a targeted refresh.", false, false, false),
+            ("only-actionable-no-header", "Run twig process --refresh and retry.", false, false, false),
+            ("legacy-unknown-only", "Unknown field: Custom.NotAField.", false, false, false),
+            ("legacy-recovery-with-wrong-command", "Metadata not ready: catalog is empty. Run 'twig refresh' to populate.", false, false, false),
+            ("full-not-ready", "Metadata not ready: field catalog is empty after a targeted refresh. Run 'twig process --refresh' to force a metadata-only sync.", true, false, false),
+            ("refresh-failure-with-reason", "Metadata refresh failed: HTTP 401 Unauthorized while contacting the fields endpoint.", false, true, false),
+            ("genuine-unknown-field", "Unknown field reference name(s): Custom.NotAField.", false, false, true),
+        ];
+
     // ── Case 8: Process — broad list, all types rendered ─────────────────────
     private static async Task<Observation> ProcessListBroadAsync()
     {
-        var (cmd, stderr, processTypeStore, _) = BuildProcessHarness();
-        processTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ProcessTypeRecord>
+        var harness = BuildProcessHarness();
+        harness.ProcessTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ProcessTypeRecord>
         {
             new()
             {
@@ -446,7 +633,13 @@ internal static class ReadCases
             },
         });
 
-        var (exit, stdout) = await CaptureStdoutAsync(() => cmd.ExecuteAsync(typeName: null, outputFormat: "json"));
+        var (exit, stdout) = await CaptureStdoutAsync(() => harness.Cmd.ExecuteAsync(typeName: null, outputFormat: "json"));
+
+        var fetchCalls = harness.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name is nameof(IAdoWorkItemService.FetchAsync) or nameof(IAdoWorkItemService.FetchWithLinksAsync));
+        var createCalls = harness.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.CreateAsync));
+        var saveCalls = harness.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
+        var contextWrites = harness.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
+        var typeCount = CountProcessTypes(stdout);
 
         var input = new InvocationEvidence(
             Command: "process",
@@ -465,19 +658,24 @@ internal static class ReadCases
         var output = new OutcomeEvidence(
             ExitCode: exit,
             Stdout: stdout,
-            Stderr: stderr.ToString(),
-            FetchAsyncCalls: 0,
-            CreateAsyncCalls: 0,
-            SaveAsyncCalls: 0,
-            SetActiveWorkItemIdCalls: 0,
-            WorkItemsInOutput: null,
+            Stderr: harness.Stderr.ToString(),
+            FetchAsyncCalls: fetchCalls,
+            CreateAsyncCalls: createCalls,
+            SaveAsyncCalls: saveCalls,
+            SetActiveWorkItemIdCalls: contextWrites,
+            WorkItemsInOutput: typeCount,
             MissingIdsSurfaced: null,
-            ContextInvariant: "preserved",
-            Notes: null);
+            ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
+            Notes: $"Observed via NSubstitute; typeCount parsed from JSON payload = {typeCount?.ToString() ?? "null"}. Process list is a metadata read; any ADO/save/context activity here is a regression.");
 
         var desiredMet = exit == 0
-            && stdout.Contains("\"typeName\": \"Task\"", StringComparison.Ordinal)
-            && stdout.Contains("\"typeName\": \"Investigation\"", StringComparison.Ordinal);
+            && typeCount == 2
+            && fetchCalls == 0
+            && createCalls == 0
+            && saveCalls == 0
+            && contextWrites == 0
+            && ProcessListContainsType(stdout, "Task")
+            && ProcessListContainsType(stdout, "Investigation");
 
         return new Observation(
             Id: "read.process.broad-list",
@@ -485,14 +683,14 @@ internal static class ReadCases
             DesiredSatisfied: desiredMet,
             Input: JsonData.Serialize(input),
             Output: JsonData.Serialize(output),
-            SafetyPassed: true);
+            SafetyPassed: exit == 0 && fetchCalls == 0 && createCalls == 0 && saveCalls == 0 && contextWrites == 0);
     }
 
     // ── Case 9: Process <type> detail ────────────────────────────────────────
     private static async Task<Observation> ProcessTypeDetailAsync()
     {
-        var (cmd, stderr, processTypeStore, fieldDefStore) = BuildProcessHarness();
-        processTypeStore.GetByNameAsync("Investigation", Arg.Any<CancellationToken>()).Returns(new ProcessTypeRecord
+        var harness = BuildProcessHarness();
+        var type = new ProcessTypeRecord
         {
             TypeName = "Investigation",
             States =
@@ -502,14 +700,22 @@ internal static class ReadCases
                 new StateEntry("Closed", StateCategory.Completed, "339933"),
             ],
             CategoryReferenceNames = new[] { "Microsoft.RequirementCategory" },
-        });
-        fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<FieldDefinition>
+        };
+        harness.ProcessTypeStore.GetByNameAsync("Investigation", Arg.Any<CancellationToken>()).Returns(type);
+        harness.ProcessTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[] { type });
+        harness.FieldDefStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<FieldDefinition>
         {
             new("System.Title", "Title", "String", false),
             new("System.State", "State", "String", true),
         });
 
-        var (exit, stdout) = await CaptureStdoutAsync(() => cmd.ExecuteAsync(typeName: "Investigation", outputFormat: "json"));
+        var (exit, stdout) = await CaptureStdoutAsync(() => harness.Cmd.ExecuteAsync(typeName: "Investigation", outputFormat: "json"));
+
+        var fetchCalls = harness.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name is nameof(IAdoWorkItemService.FetchAsync) or nameof(IAdoWorkItemService.FetchWithLinksAsync));
+        var createCalls = harness.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.CreateAsync));
+        var saveCalls = harness.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
+        var contextWrites = harness.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
+        var (typeInPayload, analyzingPresent) = ParseProcessTypeDetail(stdout, expectedType: "Investigation", expectedState: "Analyzing");
 
         var input = new InvocationEvidence(
             Command: "process",
@@ -528,19 +734,23 @@ internal static class ReadCases
         var output = new OutcomeEvidence(
             ExitCode: exit,
             Stdout: stdout,
-            Stderr: stderr.ToString(),
-            FetchAsyncCalls: 0,
-            CreateAsyncCalls: 0,
-            SaveAsyncCalls: 0,
-            SetActiveWorkItemIdCalls: 0,
-            WorkItemsInOutput: null,
+            Stderr: harness.Stderr.ToString(),
+            FetchAsyncCalls: fetchCalls,
+            CreateAsyncCalls: createCalls,
+            SaveAsyncCalls: saveCalls,
+            SetActiveWorkItemIdCalls: contextWrites,
+            WorkItemsInOutput: typeInPayload ? 1 : (int?)null,
             MissingIdsSurfaced: null,
-            ContextInvariant: "preserved",
-            Notes: null);
+            ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
+            Notes: $"Observed via NSubstitute; typeInPayload={typeInPayload}, analyzingPresent={analyzingPresent}. Parsed semantically, not via indent-coupled substring.");
 
         var desiredMet = exit == 0
-            && stdout.Contains("\"type\": \"Investigation\"", StringComparison.Ordinal)
-            && stdout.Contains("\"name\": \"Analyzing\"", StringComparison.Ordinal);
+            && typeInPayload
+            && analyzingPresent
+            && fetchCalls == 0
+            && createCalls == 0
+            && saveCalls == 0
+            && contextWrites == 0;
 
         return new Observation(
             Id: "read.process.type-detail",
@@ -548,7 +758,7 @@ internal static class ReadCases
             DesiredSatisfied: desiredMet,
             Input: JsonData.Serialize(input),
             Output: JsonData.Serialize(output),
-            SafetyPassed: true);
+            SafetyPassed: exit == 0 && fetchCalls == 0 && createCalls == 0 && saveCalls == 0 && contextWrites == 0);
     }
 
 
@@ -597,6 +807,8 @@ internal static class ReadCases
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
+        workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         var iterationService = Substitute.For<IIterationService>();
         var fieldDefStore = Substitute.For<IFieldDefinitionStore>();
@@ -641,13 +853,16 @@ internal static class ReadCases
         public required NewCommand NewCmd { get; init; }
     }
 
-    private static WriteHarness BuildWriteHarness(IReadOnlyList<FieldDefinition> knownFields)
+    private static WriteHarness BuildWriteHarness(IReadOnlyList<FieldDefinition> knownFields, bool authoritativeCatalog)
     {
         var adoService = Substitute.For<IAdoWorkItemService>();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var contextStore = Substitute.For<IContextStore>();
         var fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(knownFields);
+        var metadata = authoritativeCatalog ? Substitute.For<IIterationService>() : null;
+        if (metadata is not null)
+            metadata.GetFieldDefinitionsStrictAsync(Arg.Any<CancellationToken>()).Returns(knownFields);
         fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
@@ -693,7 +908,7 @@ internal static class ReadCases
             config,
             new SeedFactory(),
             stagedRegistry,
-            ReferenceProfileBuilder.UnpinnedSprintPolicy());
+            ReferenceProfileBuilder.UnpinnedSprintPolicy(), iterationService: metadata);
 
         return new WriteHarness
         {
@@ -705,7 +920,16 @@ internal static class ReadCases
         };
     }
 
-    private static (ProcessCommand Cmd, StringWriter Stderr, IProcessTypeStore ProcessTypeStore, IFieldDefinitionStore FieldDefStore) BuildProcessHarness()
+    private sealed record ProcessHarness(
+        ProcessCommand Cmd,
+        StringWriter Stderr,
+        IProcessTypeStore ProcessTypeStore,
+        IFieldDefinitionStore FieldDefStore,
+        IAdoWorkItemService AdoService,
+        IWorkItemRepository WorkItemRepo,
+        IContextStore ContextStore);
+
+    private static ProcessHarness BuildProcessHarness()
     {
         var contextStore = Substitute.For<IContextStore>();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
@@ -722,7 +946,7 @@ internal static class ReadCases
             new OutputFormatterFactory(new HumanOutputFormatter()),
             new RendererFactory(),
             stderr: stderr);
-        return (cmd, stderr, processTypeStore, fieldDefStore);
+        return new ProcessHarness(cmd, stderr, processTypeStore, fieldDefStore, adoService, workItemRepo, contextStore);
     }
 
     // ── Shared JSON evidence shapes ──────────────────────────────────────────
@@ -742,6 +966,212 @@ internal static class ReadCases
             Console.SetOut(priorOut);
         }
     }
+
+    // ── Semantic JSON parsers (AB#879) ───────────────────────────────────────
+    //
+    // The frozen assertions used indent-coupled substring probes on `show`
+    // and `process` JSON. AB#879 rewrites the ShowCommand cold path and the
+    // process presenter both may reformat their output; parsing semantically
+    // keeps the acceptance bar bound to observable content, not spelling.
+    private static (int? Id, bool TitlePresent, bool HasVerifiedLinks) ParseShowJson(string stdout)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return (null, false, false);
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            // ShowCommand emits an object for a single item; batch is an array.
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                if (root.GetArrayLength() == 0) return (null, false, false);
+                root = root[0];
+            }
+            int? id = null;
+            if (root.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var idValue)) id = idValue;
+            var title = root.TryGetProperty("title", out var titleProp)
+                && titleProp.ValueKind == JsonValueKind.String
+                && !string.IsNullOrEmpty(titleProp.GetString());
+            var hasVerifiedLinks = root.TryGetProperty("linksVerifiedAt", out var verifiedProp)
+                && verifiedProp.ValueKind is JsonValueKind.String or JsonValueKind.Number;
+            return (id, title, hasVerifiedLinks);
+        }
+        catch (JsonException)
+        {
+            return (null, false, false);
+        }
+    }
+
+    private static int? CountProcessTypes(string stdout)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Array) return root.GetArrayLength();
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("types", out var typesProp)
+                && typesProp.ValueKind == JsonValueKind.Array)
+            {
+                return typesProp.GetArrayLength();
+            }
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool ProcessListContainsType(string stdout, string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            JsonElement array;
+            if (root.ValueKind == JsonValueKind.Array) array = root;
+            else if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("types", out var typesProp)
+                && typesProp.ValueKind == JsonValueKind.Array) array = typesProp;
+            else return false;
+
+            foreach (var element in array.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object) continue;
+                foreach (var propName in new[] { "typeName", "type", "name" })
+                {
+                    if (element.TryGetProperty(propName, out var nameProp)
+                        && nameProp.ValueKind == JsonValueKind.String
+                        && string.Equals(nameProp.GetString(), typeName, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static (bool TypeInPayload, bool StatePresent) ParseProcessTypeDetail(string stdout, string expectedType, string expectedState)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return (false, false);
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return (false, false);
+
+            var typeMatch = false;
+            foreach (var propName in new[] { "type", "typeName", "name" })
+            {
+                if (root.TryGetProperty(propName, out var typeProp)
+                    && typeProp.ValueKind == JsonValueKind.String
+                    && string.Equals(typeProp.GetString(), expectedType, StringComparison.Ordinal))
+                {
+                    typeMatch = true;
+                    break;
+                }
+            }
+
+            var stateMatch = false;
+            if (root.TryGetProperty("states", out var statesProp) && statesProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var state in statesProp.EnumerateArray())
+                {
+                    if (state.ValueKind == JsonValueKind.Object
+                        && state.TryGetProperty("name", out var nameProp)
+                        && nameProp.ValueKind == JsonValueKind.String
+                        && string.Equals(nameProp.GetString(), expectedState, StringComparison.Ordinal))
+                    {
+                        stateMatch = true;
+                        break;
+                    }
+                }
+            }
+            return (typeMatch, stateMatch);
+        }
+        catch (JsonException)
+        {
+            return (false, false);
+        }
+    }
+
+    // ── Negative-control observation for the metadata predicates ─────────────
+    //
+    // Explicit red-team check: replay every synthetic diagnostic in
+    // MetadataPredicateSamples through the three predicates and verify each
+    // sample is classified exactly as expected. The observation only passes
+    // when all samples classify correctly, so an accidental predicate widening
+    // (e.g. dropping the recovery-hint conjunct) reports SafetyPassed=false.
+    private static Task<Observation> MetadataPredicateNegativeControlAsync()
+    {
+        var perSample = new List<MetadataPredicateSampleResult>();
+        var allMatch = true;
+        foreach (var sample in MetadataPredicateSamples)
+        {
+            var notReady = IsMetadataNotReadyDiagnostic(sample.Text);
+            var refreshFailed = IsMetadataRefreshFailedDiagnostic(sample.Text);
+            var genuineUnknown = IsGenuineUnknownFieldDiagnostic(sample.Text);
+            var matches = notReady == sample.ExpectMetadataNotReady
+                && refreshFailed == sample.ExpectMetadataRefreshFailed
+                && genuineUnknown == sample.ExpectGenuineUnknownField;
+            if (!matches) allMatch = false;
+            perSample.Add(new MetadataPredicateSampleResult(
+                Label: sample.Label,
+                Text: sample.Text,
+                ObservedMetadataNotReady: notReady,
+                ObservedMetadataRefreshFailed: refreshFailed,
+                ObservedGenuineUnknownField: genuineUnknown,
+                ExpectMetadataNotReady: sample.ExpectMetadataNotReady,
+                ExpectMetadataRefreshFailed: sample.ExpectMetadataRefreshFailed,
+                ExpectGenuineUnknownField: sample.ExpectGenuineUnknownField,
+                Matches: matches));
+        }
+
+        var input = new InvocationEvidence(
+            Command: "meta",
+            Scenario: "metadata-predicate-negative-control",
+            OutputFormat: "json",
+            Refresh: null,
+            WorkItemId: null,
+            WorkItemType: null,
+            RequestedFields: null,
+            KnownCatalogFields: null,
+            BatchIds: null,
+            CacheHasItem: false,
+            RemoteHasItem: false,
+            Notes: $"Replay of {MetadataPredicateSamples.Length} synthetic diagnostics against IsMetadataNotReadyDiagnostic / IsMetadataRefreshFailedDiagnostic / IsGenuineUnknownFieldDiagnostic. Includes empty stderr, unrelated network error, header-only, hint-only, and legacy-recovery-with-wrong-command samples. If any sample misclassifies, the metadata cases downstream cannot claim 'expected refusal' honestly.");
+
+        var output = new OutcomeEvidence(
+            ExitCode: allMatch ? 0 : 1,
+            Stdout: JsonData.Serialize(perSample),
+            Stderr: string.Empty,
+            FetchAsyncCalls: 0,
+            CreateAsyncCalls: 0,
+            SaveAsyncCalls: 0,
+            SetActiveWorkItemIdCalls: 0,
+            WorkItemsInOutput: null,
+            MissingIdsSurfaced: null,
+            ContextInvariant: "preserved",
+            Notes: allMatch
+                ? "All samples classified as expected; predicates are not vacuously permissive."
+                : "At least one sample misclassified. See stdout for per-sample decisions.");
+
+        return Task.FromResult(new Observation(
+            Id: "read.meta.predicate-negative-control",
+            Classification: allMatch ? "already fixed" : "current defect",
+            DesiredSatisfied: allMatch,
+            Input: JsonData.Serialize(input),
+            Output: JsonData.Serialize(output),
+            SafetyPassed: allMatch));
+    }
+
 }
 
 /// <summary>
@@ -784,10 +1214,22 @@ internal sealed record OutcomeEvidence(
     string? Notes);
 
 /// <summary>
-/// Registers the <see cref="ReadCases"/> DTOs with the source-generated context so
-/// <see cref="JsonData"/> can round-trip them without reflection. Combines with the
-/// declaration in <c>Program.cs</c>; C# merges the partial attribute lists.
+/// Per-sample decision for the metadata-predicate negative control (AB#879).
+/// Captured on <see cref="Observation.Output"/> so a broken predicate reports
+/// exactly which sample it misclassified.
 /// </summary>
+internal sealed record MetadataPredicateSampleResult(
+    string Label,
+    string Text,
+    bool ObservedMetadataNotReady,
+    bool ObservedMetadataRefreshFailed,
+    bool ObservedGenuineUnknownField,
+    bool ExpectMetadataNotReady,
+    bool ExpectMetadataRefreshFailed,
+    bool ExpectGenuineUnknownField,
+    bool Matches);
+
 [JsonSerializable(typeof(InvocationEvidence))]
 [JsonSerializable(typeof(OutcomeEvidence))]
+[JsonSerializable(typeof(List<MetadataPredicateSampleResult>))]
 internal partial class BaselineJsonContext;

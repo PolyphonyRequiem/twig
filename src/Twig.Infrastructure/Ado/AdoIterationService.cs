@@ -217,6 +217,13 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default) =>
         _fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct);
 
+    // Recovery must observe the source, not a cached tolerant fallback from enrichment.
+    public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsStrictAsync(CancellationToken ct = default) =>
+        FetchFieldDefinitionsAsync(ct, strict: true);
+
+    public Task<ProcessConfigurationData> GetProcessConfigurationStrictAsync(CancellationToken ct = default) =>
+        FetchProcessConfigurationAsync(ct, strict: true);
+
     public Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default) =>
         _teamIterationsCache ??= FetchTeamIterationsAsync(ct);
 
@@ -847,7 +854,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         control.IsContribution);
 
 
-    private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct)
+    private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct, bool strict = false)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={AdoApiVersions.ProcessConfiguration}";
         try
@@ -870,14 +877,14 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
             };
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
+        catch (Exception ex) when (!strict && ex is AdoException)
         {
             Console.Error.WriteLine($"⚠ Could not fetch process configuration: {ex.Message}. Parent-child relationships will not be populated.");
             return new ProcessConfigurationData();
         }
     }
 
-    private async Task<IReadOnlyList<FieldDefinition>> FetchFieldDefinitionsAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<FieldDefinition>> FetchFieldDefinitionsAsync(CancellationToken ct, bool strict = false)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={AdoApiVersions.Fields}";
         try
@@ -902,7 +909,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
             return defs;
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
+        catch (Exception ex) when (!strict && ex is AdoException)
         {
             Console.Error.WriteLine($"⚠ Could not fetch field definitions: {ex.Message}. Dynamic columns will use derived display names.");
             return Array.Empty<FieldDefinition>();

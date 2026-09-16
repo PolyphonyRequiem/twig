@@ -31,7 +31,8 @@ public sealed class ProcessCommand(
     IFieldDefinitionStore fieldDefinitionStore,
     OutputFormatterFactory formatterFactory,
     RendererFactory rendererFactory,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    IIterationService? iterationService = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
@@ -49,11 +50,12 @@ public sealed class ProcessCommand(
         string? typeName = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         bool includeHidden = false,
+        bool refresh = false,
         CancellationToken ct = default)
     {
         return typeName is null
-            ? await ExecuteListAsync(outputFormat, includeHidden, ct)
-            : await ExecuteTypeDetailAsync(typeName, outputFormat, ct);
+            ? await ExecuteListAsync(outputFormat, includeHidden, refresh, ct)
+            : await ExecuteTypeDetailAsync(typeName, outputFormat, refresh, ct);
     }
 
     /// <summary>
@@ -91,7 +93,7 @@ public sealed class ProcessCommand(
             return 1;
         }
 
-        return await ExecuteTypeDetailAsync(item.Type.Value, outputFormat, ct);
+        return await ExecuteTypeDetailAsync(item.Type.Value, outputFormat, refresh: false, ct);
     }
 
     /// <summary>
@@ -117,16 +119,59 @@ public sealed class ProcessCommand(
     /// 0 instead — that is a true answer to "which types can I use", not a failure.
     /// </para>
     /// </remarks>
-    private async Task<int> ExecuteListAsync(string outputFormat, bool includeHidden, CancellationToken ct)
+    private async Task<int> ExecuteListAsync(string outputFormat, bool includeHidden, bool refresh, CancellationToken ct)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
-        var types = await processTypeStore.GetAllAsync(ct);
-
-        if (types.Count == 0)
+        // AB#879 targeted metadata-only recovery. `refresh=true` forces a resync even
+        // when the local catalog has rows — that is the "actionable rerun" surface
+        // behind the Metadata-not-ready message. Otherwise recovery only fires when
+        // the local catalog is empty (list view has no per-name predicate). No
+        // work-item enumeration, no pending-write flush. Cancellation propagates.
+        var typesCatalog = await MetadataCatalogRecovery.EnsureProcessTypesAsync(
+            processTypeStore,
+            iterationService,
+            defs => !refresh && defs.Count > 0,
+            ct);
+        switch (typesCatalog.Outcome)
         {
-            _stderr.WriteLine(fmt.FormatError("No process types found. Run 'twig sync' to refresh process data."));
-            return 1;
+            case MetadataCatalogRecovery.State.NotReady:
+                // Unconditional: helper's NotReady already means we could not
+                // authoritatively confirm the catalog (either no recovery source or the
+                // sync produced zero rows). Callers do NOT re-check catalog count here.
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.ProcessTypesNotReady());
+                return 1;
+            case MetadataCatalogRecovery.State.RefreshFailed:
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.ProcessTypesRefreshFailed(typesCatalog.RefreshError));
+                return 1;
         }
+
+        // AB#879: `twig process --refresh` is advertised as the recovery for
+        // field-definition errors too, so an explicit --refresh on the list view must
+        // also resync the field-def catalog. A failure here propagates the same as the
+        // process-type failure — the operator asked for a metadata refresh, they get
+        // one honest verdict per catalog.
+        if (refresh)
+        {
+            var fieldsCatalog = await MetadataCatalogRecovery.EnsureFieldsAsync(
+                fieldDefinitionStore,
+                iterationService,
+                _ => false,
+                ct);
+            switch (fieldsCatalog.Outcome)
+            {
+                case MetadataCatalogRecovery.State.NotReady:
+                    CommandError.Write(rendererFactory, _stderr, outputFormat,
+                        MetadataCatalogRecovery.Messages.FieldsNotReady());
+                    return 1;
+                case MetadataCatalogRecovery.State.RefreshFailed:
+                    CommandError.Write(rendererFactory, _stderr, outputFormat,
+                        MetadataCatalogRecovery.Messages.FieldsRefreshFailed(fieldsCatalog.RefreshError));
+                    return 1;
+            }
+        }
+
+        var types = await processTypeStore.GetAllAsync(ct);
 
         var visible = includeHidden
             ? types
@@ -135,22 +180,80 @@ public sealed class ProcessCommand(
         var tree = BuildTypesListTree(visible);
         rendererFactory.GetRenderer(outputFormat).Render(tree);
 
-        // Human output is a sequence of unterminated lines from the renderer;
-        // the legacy formatter emitted them via Console.WriteLine which adds a
-        // trailing newline. SpectreNodeRenderer writes through MarkupLine so
-        // each line is already terminated — no extra newline needed.
         return 0;
     }
 
-    private async Task<int> ExecuteTypeDetailAsync(string typeName, string outputFormat, CancellationToken ct)
+    private async Task<int> ExecuteTypeDetailAsync(string typeName, string outputFormat, bool refresh, CancellationToken ct)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
-        var typeRecord = await processTypeStore.GetByNameAsync(typeName, ct);
+        // AB#879: the requested type may be absent because (a) the catalog is empty,
+        // (b) it lacks THIS type even though populated (a nonempty local catalog cannot
+        // prove completeness), or (c) the catalog has the record but its states list is
+        // empty. In each case one targeted metadata-only recovery runs before deciding
+        // whether "Unknown" is the right answer. The `refresh` flag forces the sync even
+        // when the local record looks satisfactory.
+        var typesCatalog = await MetadataCatalogRecovery.EnsureProcessTypesAsync(
+            processTypeStore,
+            iterationService,
+            defs =>
+            {
+                if (refresh) return false;
+                var match = defs.FirstOrDefault(d => string.Equals(d.TypeName, typeName, StringComparison.OrdinalIgnoreCase));
+                return match is not null && match.States.Count > 0;
+            },
+            ct);
+        switch (typesCatalog.Outcome)
+        {
+            case MetadataCatalogRecovery.State.NotReady:
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.ProcessTypesNotReady(
+                        $"process-type catalog cannot resolve '{typeName}'"));
+                return 1;
+            case MetadataCatalogRecovery.State.RefreshFailed:
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.ProcessTypesRefreshFailed(typesCatalog.RefreshError));
+                return 1;
+        }
 
+        var typeRecord = await processTypeStore.GetByNameAsync(typeName, ct);
         if (typeRecord is null || typeRecord.States.Count == 0)
         {
-            _stderr.WriteLine(fmt.FormatError($"No states found for type '{typeName}'. Run 'twig sync' to refresh process data."));
+            // Reached only after an authoritative catalog read. If states are still empty
+            // the recovery was incomplete for this type — surface as Metadata-not-ready,
+            // NOT as Unknown, per AB#879 (the catalog may know the type name but the
+            // state definition is still missing).
+            if (typeRecord is not null && typeRecord.States.Count == 0)
+            {
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.ProcessTypesNotReady(
+                        $"process-type record for '{typeName}' has no states after refresh"));
+                return 1;
+            }
+
+            CommandError.Write(rendererFactory, _stderr, outputFormat,
+                $"Unknown work-item type '{typeName}' — not present in the refreshed process-type catalog.");
             return 1;
+        }
+
+        // AB#879: the type-detail view renders a fields table. An empty field-definition
+        // catalog would previously report `fields=[]` as if the type had zero fields —
+        // a false answer to "what fields does this type carry". Attempt one targeted
+        // field-definition sync; if it stays empty (or fails), classify as Metadata-not-ready.
+        var fieldsCatalog = await MetadataCatalogRecovery.EnsureFieldsAsync(
+            fieldDefinitionStore,
+            iterationService,
+            defs => !refresh && defs.Count > 0,
+            ct);
+        switch (fieldsCatalog.Outcome)
+        {
+            case MetadataCatalogRecovery.State.NotReady:
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.FieldsNotReady(
+                        $"required to describe fields on '{typeName}'"));
+                return 1;
+            case MetadataCatalogRecovery.State.RefreshFailed:
+                CommandError.Write(rendererFactory, _stderr, outputFormat,
+                    MetadataCatalogRecovery.Messages.FieldsRefreshFailed(fieldsCatalog.RefreshError));
+                return 1;
         }
 
         var fields = await fieldDefinitionStore.GetAllAsync(ct);

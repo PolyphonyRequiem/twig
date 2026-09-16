@@ -42,6 +42,8 @@ twig process description [<type>] [--out <path>] [-o|--output <format>]
 | `--version` | flag | — | Print the twig version and exit. |
 |`--out`|`string?`|`null`|Write the rendered description to this file instead of stdout. Directory is created if needed. Writes go via a `.tmp-<random>` scratch file and atomically move into place so a mid-render crash never leaves a truncated document at the target path (`src/Twig/Commands/ProcessDescriptionCommand.cs:187-219`).|
 |`-o`, `--output`|`string`|`human`|Output format. **Only `json` (and aliases `json-full`, `json-compact`) produces the complete document**; every other format renders an abridged summary and self-declares the abridgement in its banner. `-o ids` is refused explicitly (`src/Twig/Commands/ProcessDescriptionCommand.cs:78-125`).|
+|`--sections`|`string?`|`null`|Opt-in compact JSON: `fields`, `requirements`, or both. Requires an explicit type and JSON output.|
+|`--fields`|`string?`|`null`|Comma-separated reference-name filter within selected compact sections. Requires `--sections`.|
 
 ## Behavior
 
@@ -74,9 +76,27 @@ cells, and a process description carries no numeric ids at all, so it would
 produce an empty file with a zero exit code and no notice
 (`src/Twig/Commands/ProcessDescriptionCommand.cs:113-125`).
 
-`-o json`, `-o json-full`, and `-o json-compact` all produce the **complete**
-document and share a JSON renderer; only truly abridged formats print the
-abridged banner (`src/Twig/Commands/ProcessDescriptionCommand.cs:78-94`).
+Without projection flags, `-o json`, `-o json-full`, and `-o json-compact` all
+produce the complete document and share a JSON renderer.
+
+### Compact type requirements
+
+`twig process description <type-reference> -o json --sections requirements`
+returns states, required-field rows and raw rules from the same assembled
+description, without layout or unrelated fields. `--sections fields --fields
+System.Title,System.State` selects field constraints instead. Connection/process
+identity, capture time, descriptor/compact versions, section coverage, warnings
+and a named full-read route remain in the response.
+
+Rules are not evaluated against an item. A known server default is distinguished
+from unknown supply; missing defaults do not imply that the caller must supply a
+field. Raw rule actions remain available, and all conditions (including unsupported
+ones) are explicitly unevaluated. Field filters never truncate the rules or their
+warnings. This view does not authorize a transition.
+
+No new metadata cache is created. Each invocation reassembles the live description;
+reuse is scoped to its connection/process/capture/completeness, not a fabricated
+server-wide revision. Rerun before relying on current requirements.
 
 Descriptor version is currently **0.1** (`under design`), and known gaps are
 declared positively — `KnownGaps` is emitted even when empty, so a future

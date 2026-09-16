@@ -1,16 +1,16 @@
 ---
 command: show-batch
 group: context
-summary: Display multiple work items by ID from the local cache; missing IDs are silently skipped.
+summary: Display multiple work items by ID from the local cache; missing IDs are disclosed as errors.
 stability: stable
 mutates: none
 ---
 
 # `twig show-batch`
 
-Cache‑only bulk read: given a comma‑separated list of IDs it emits a
-document per item. Missing or non‑numeric segments are dropped silently
-so the command is safe to feed with a machine‑generated list.
+Cache-only bulk read: given a comma-separated list of IDs it emits the found
+items. Missing numeric IDs are disclosed as errors and return exit `1`; a
+cache miss is not proof that the item is absent from ADO.
 
 ## Synopsis
 
@@ -33,6 +33,8 @@ twig show-batch --batch <ids> [--output <format>]
 | `--version` | flag | — | Print the twig version and exit. |
 | `--batch` | string | none | Comma‑separated work item IDs; equivalent to the positional form. |
 | `-o`, `--output` | `human` \| `json` \| `minimal` | `human` | Output format. |
+| `--fields` | string | none | Comma-separated field references; opt into the selected-item JSON contract. |
+| `--sections` | string | none | Comma-separated `links`, `children`, `parent`; opt into selected-item JSON. |
 
 ## Behavior
 
@@ -42,9 +44,9 @@ twig show-batch --batch <ids> [--output <format>]
   usage error on stderr (`src/Twig/Program.cs:553-557`).
 - The list is executed as a **cache‑only** read via
   `IWorkItemRepository`; there is no ADO fetch and no `--refresh` flag.
-  Missing IDs and non‑numeric segments are dropped without a warning —
-  the command is intentionally lossy so it can be driven from a wide
-  input list (`src/Twig/Commands/ShowCommand.cs:78-88`).
+  Missing IDs are listed in a format-aware error on stderr and exit `1`.
+  Without projection flags, the successful JSON array on stdout is preserved.
+  Non-numeric segments retain their legacy ignored behavior.
 - Per‑row `links` and `relations` share the exact wire shape used by
   `twig show` for the single‑item document (see
   `src/Twig/Commands/ShowCommand.cs:684-702`).
@@ -74,7 +76,8 @@ Pending: 0 field changes, 0 notes
 
 | Condition | Result |
 |---|---|
-| Any items rendered (or empty result) | `0` |
+| Every requested numeric ID found | `0` |
+| One or more requested numeric IDs absent from cache | `1`; found items retained, missing IDs disclosed |
 | No id list supplied on positional or `--batch` | `1` (usage error on stderr) |
 
 ## See also

@@ -495,8 +495,11 @@ internal static class ExceptionHandler
 /// not during startup DI resolution. This allows <c>twig init</c> (which
 /// creates <c>.twig/</c>) to run before the database exists.
 /// </summary>
-public sealed class TwigCommands(IServiceProvider services)
+public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
+    protected override Task<int> PreviewLegacyAsync(string? file, string output, CancellationToken ct)
+        => PlanPreview(file, output, false, false, ct);
+
     /// <summary>
     /// Splits <c>seed chain</c>'s comma-separated titles into the array the command takes.
     ///
@@ -554,15 +557,19 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct);
+    /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
+    /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections);
 
-    /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
+    /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
     /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
+    /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
     [Command("show-batch")]
-    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null)
     {
         var resolved = ResolveBatch(batch, batchArg);
 
@@ -576,7 +583,7 @@ public sealed class TwigCommands(IServiceProvider services)
             return 1;
         }
 
-        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct);
+        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections);
     }
 
     /// <summary>
@@ -658,9 +665,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="type">Work item type REFERENCE name (e.g. Niflheim.Grilling); omit to describe every type.</param>
     /// <param name="out">Write the rendered description to this file instead of stdout.</param>
     /// <param name="output">-o, Output format. Only json (and its aliases) is complete; others are abridged summaries.</param>
+    /// <param name="sections">Comma-separated fields, requirements sections for opt-in compact JSON; requires a type.</param>
+    /// <param name="fields">Comma-separated field reference names to select in compact JSON.</param>
     [Command("process description")]
-    public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct);
+    public async Task<int> ProcessDescription([Argument] string? type = null, string? @out = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? sections = null, string? fields = null)
+        => await services.GetRequiredService<ProcessDescriptionCommand>().ExecuteAsync(type, @out, output, ct, sections: sections, fields: fields);
 
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1384,9 +1393,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Preview a proposal: import journal, snapshot pending changes, report digest and canApply. No ADO mutation. Canonical verb is <c>proposal preview</c>; <c>plan preview</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="full">Show exact full description bodies instead of brief effects.</param>
+    /// <param name="interactive">Opt into a terminal-only Details/Back/Cancel review loop. Never applies.</param>
     [Command("proposal preview|plan preview")]
-    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
+    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false, bool interactive = false, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, full, interactive, ct);
 
     /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly, and --authorize &lt;identity&gt; recording who signed it off. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>

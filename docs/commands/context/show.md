@@ -34,6 +34,8 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
 | `-o`, `--output` | `human` \| `json` \| `minimal` | `human` | Output format. |
 | `--tree` | bool | `false` | Render the parent chain + children as a tree instead of the detail card. |
 | `--refresh` | bool | `false` | Sync the item and its links from ADO before rendering. |
+| `--fields` | string | none | Comma-separated field reference names; opt into compact JSON. |
+| `--sections` | string | none | Comma-separated `links`, `children`, `parent`; opt into compact JSON. |
 
 ## Behavior
 
@@ -70,6 +72,25 @@ twig show [<id>] [--tree] [--refresh] [--output <format>]
 - **`--tree`** hands off to `TreeRenderingService.RenderTreeAsync`,
   which produces the parent chain + child forest and honors the same
   `--refresh` semantics (`src/Twig/Commands/ShowCommand.cs:56-71`).
+
+### Selected JSON reads
+
+`twig show 1234 -o json --fields System.Title,System.State` returns only the
+requested facts plus connection, revision, freshness, completeness and a
+`fullRead` command. Both flags require JSON and are incompatible with `--tree`.
+Core fields use the same field-value resolver as the detail document.
+`requestedFields` entries distinguish `present` (with the complete value),
+`absent` (known empty), and `unknown` (not carried by Twig). A field's absence
+from the cached dictionary alone is never proof of absence on ADO.
+
+`--sections links` includes cached edges and their verification timestamp;
+unverified edges are `unknown`, not an authoritative empty set. Cached children
+are a `partial` view. Freshness includes `hasLocalChanges` so a protected local
+body is not mistaken for a clean server snapshot. This uses the same union of
+dirty items and pending-change IDs as sync protection (one plural lookup for a
+batch). It is `null` if that local evidence is unavailable, unless the item is
+already known dirty; unavailable does not mean clean. Omit both flags for the
+unchanged full-detail path; `--refresh` retains the protected pull-only behavior.
 
 ## Examples
 

@@ -152,6 +152,9 @@ public sealed class JsonRenderer : IRenderer
                 WriteTableRowsAsArray(writer, table);
                 writer.WriteEndObject();
                 break;
+            case RenderNode.FieldBlock block:
+                WriteFieldBlock(writer, block);
+                break;
             case RenderNode.TreeView treeView:
                 WriteBranch(writer, treeView.Root);
                 break;
@@ -224,6 +227,13 @@ public sealed class JsonRenderer : IRenderer
         writer.WriteEndArray();
     }
 
+    private static void WriteFieldBlock(Utf8JsonWriter writer, RenderNode.FieldBlock block)
+    {
+        writer.WriteStartArray();
+        foreach (var field in block.Fields) WriteNodeAsArrayElement(writer, field);
+        writer.WriteEndArray();
+    }
+
     private static void WriteBranch(Utf8JsonWriter writer, RenderTreeBranch branch)
     {
         writer.WriteStartObject();
@@ -243,6 +253,12 @@ public sealed class JsonRenderer : IRenderer
             WriteRenderValue(writer, cell.Value, cell.DisplayText);
         }
 
+        if (branch.Body.Count > 0)
+        {
+            writer.WriteStartArray("body");
+            foreach (var node in branch.Body) WriteNodeAsArrayElement(writer, node);
+            writer.WriteEndArray();
+        }
         if (branch.Children.Count > 0)
         {
             writer.WriteStartArray("children");
@@ -298,6 +314,9 @@ public sealed class JsonRenderer : IRenderer
                 break;
             case RenderNode.Document nestedDoc:
                 WriteDocumentAsObject(writer, nestedDoc, emitKind: true);
+                break;
+            case RenderNode.FieldBlock block:
+                WriteFieldBlock(writer, block);
                 break;
             case RenderNode.TreeView tv:
                 WriteBranch(writer, tv.Root);

@@ -63,8 +63,20 @@ public sealed class PlanCommand(
     /// Exit 0 on success (even when <c>CanApply=false</c> because pending rows exist),
     /// 1 when the file is invalid, 2 for usage errors.
     /// </summary>
-    public async Task<int> PreviewAsync(string? file, string outputFormat, CancellationToken ct)
+    public Task<int> PreviewAsync(string? file, string outputFormat, CancellationToken ct)
+        => PreviewAsync(file, outputFormat, false, false, ct);
+
+    internal Func<bool> IsReviewTerminal { get; init; } = () => !Console.IsInputRedirected && !Console.IsOutputRedirected;
+    internal TextReader ReviewInput { get; init; } = Console.In;
+
+    /// <summary>Preview with explicit density and an optional review-only line loop. Never applies.</summary>
+    public async Task<int> PreviewAsync(string? file, string outputFormat, bool full, bool interactive, CancellationToken ct)
     {
+        if (interactive && (!string.Equals(outputFormat, "human", StringComparison.OrdinalIgnoreCase) || !IsReviewTerminal()))
+        {
+            WriteUsage("--interactive requires human output and terminal input/output; use --full for noninteractive details.", outputFormat);
+            return 2;
+        }
         if (!TryRequireFile(file, out var resolved, out var usageError))
         {
             WriteUsage(usageError, outputFormat);
@@ -72,7 +84,25 @@ public sealed class PlanCommand(
         }
 
         var result = await lifecycle.PreviewAsync(resolved, ct);
-        RenderPreview(result, outputFormat);
+        RenderPreview(result, outputFormat, full);
+        if (interactive && result.ReviewModel is { } model && ChangeProposalReviewRenderer.IsSupported(model.ModelVersion))
+        {
+            while (true)
+            {
+                _stdout.Write("Review only — Details / Back / Cancel: ");
+                _stdout.Flush();
+                var answer = await ReviewInput.ReadLineAsync(ct);
+                if (answer is null || answer.Trim().Equals("cancel", StringComparison.OrdinalIgnoreCase) || answer.Trim().Equals("c", StringComparison.OrdinalIgnoreCase))
+                {
+                    _stdout.WriteLine("Review closed. Not applied.");
+                    break;
+                }
+                var option = answer.Trim().ToLowerInvariant();
+                if (option is "details" or "d") RenderPreview(result, outputFormat, true);
+                else if (option is "back" or "b") RenderPreview(result, outputFormat, false);
+                else _stdout.WriteLine("Choose Details, Back, or Cancel. No authorization or apply occurs here.");
+            }
+        }
         return result.Issues.Count == 0 ? 0 : 1;
     }
 
@@ -246,7 +276,7 @@ public sealed class PlanCommand(
 
     // ── preview ───────────────────────────────────────────────────────
 
-    private void RenderPreview(PlanPreviewResult result, string outputFormat)
+    private void RenderPreview(PlanPreviewResult result, string outputFormat, bool full)
     {
         var fields = new List<DocumentField>
         {
@@ -262,7 +292,7 @@ public sealed class PlanCommand(
             // purely additive key.
             new("reviewModel", new RenderNode.KeyValue("reviewModel", ReviewModelCell(result.ReviewModel))),
         };
-        var human = new RenderNode.Section(null, BuildPreviewHumanLines(result));
+        var human = new RenderNode.Section(null, BuildPreviewHumanLines(result, full));
         var doc = new RenderNode.Document("proposalPreview", fields);
         var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
@@ -280,7 +310,7 @@ public sealed class PlanCommand(
     /// presentations of one proposal, and the shorter one is the one a hurried reviewer reads.
     /// </para>
     /// </summary>
-    private IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result)
+    private IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result, bool full)
     {
         var lines = new List<RenderNode>();
         if (result.Issues.Count != 0)
@@ -294,7 +324,7 @@ public sealed class PlanCommand(
 
         if (result.ReviewModel is { } model)
         {
-            lines.AddRange(ChangeProposalReviewRenderer.Render(model, steering.Resolve()));
+            lines.AddRange(ChangeProposalReviewRenderer.Render(model, steering.Resolve(), full));
             lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
         }
         else
@@ -585,130 +615,25 @@ public sealed class PlanCommand(
     /// </summary>
     private static RenderCell ReviewModelCell(ChangeProposalReviewModel? model)
     {
-        if (model is null)
-            return new RenderCell("(none)", new RenderValue.Null());
-
-        var workspace = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-        {
-            ["organization"] = RenderCell.String(model.Workspace.Organization),
-            ["project"] = RenderCell.String(model.Workspace.Project),
-        };
-
-        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-        {
-            ["model"] = RenderCell.String(model.Model),
-            ["modelVersion"] = RenderCell.Integer(model.ModelVersion),
-            ["digest"] = RenderCell.String(model.Digest),
-            ["workspace"] = new RenderCell(
-                $"{model.Workspace.Organization}/{model.Workspace.Project}",
-                new RenderValue.Object(workspace)),
-            ["rationale"] = NullableStringCell(model.Rationale),
-            ["recipe"] = RecipeCell(model.Recipe),
-            ["affectedItems"] = AffectedItemsCell(model.AffectedItems),
-            ["operations"] = ReviewOperationsCell(model.Operations),
-            ["authorizationChoices"] = StringArrayCell(model.AuthorizationChoices),
-            ["blockers"] = BlockersCell(model.Blockers),
-        };
-
-        return new RenderCell($"{model.Model} v{model.ModelVersion}", new RenderValue.Object(obj));
+        if (model is null) return new RenderCell("(none)", new RenderValue.Null());
+        // Same writer as MCP and audit. This adapter only converts JSON primitives to cells.
+        var serialized = Twig.Infrastructure.Plan.ChangeProposalReviewModelJson.Serialize(model);
+        using var json = System.Text.Json.JsonDocument.Parse(serialized);
+        // Minimal renders DisplayText; JSON keeps the same structured object value.
+        return JsonCell(json.RootElement) with { DisplayText = serialized };
     }
 
-    private static RenderCell RecipeCell(ChangeRecipeReference? recipe)
+    private static RenderCell JsonCell(System.Text.Json.JsonElement value) => value.ValueKind switch
     {
-        // Null is meaningful: the proposal is ad hoc and there is no template to inspect.
-        if (recipe is null)
-            return new RenderCell("(ad hoc)", new RenderValue.Null());
-
-        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-        {
-            ["recipeId"] = RenderCell.String(recipe.RecipeId),
-            ["version"] = RenderCell.Integer(recipe.Version),
-        };
-        return new RenderCell($"{recipe.RecipeId} v{recipe.Version}", new RenderValue.Object(obj));
-    }
-
-    private static RenderCell AffectedItemsCell(IReadOnlyList<ReviewAffectedItem> items)
-    {
-        if (items.Count == 0)
-            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
-
-        var cells = new List<RenderCell>(items.Count);
-        foreach (var item in items)
-        {
-            var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-            {
-                ["id"] = RenderCell.Integer(item.Id),
-                ["type"] = NullableStringCell(item.Type),
-                ["title"] = NullableStringCell(item.Title),
-                ["state"] = NullableStringCell(item.State),
-                ["role"] = RenderCell.String(item.Role),
-            };
-            cells.Add(new RenderCell($"#{item.Id} ({item.Role})", new RenderValue.Object(obj)));
-        }
-        return new RenderCell($"{items.Count} item(s)", new RenderValue.Array(cells));
-    }
-
-    private static RenderCell ReviewOperationsCell(IReadOnlyList<ReviewOperation> operations)
-    {
-        if (operations.Count == 0)
-            return new RenderCell("[]", new RenderValue.Array(Array.Empty<RenderCell>()));
-
-        var cells = new List<RenderCell>(operations.Count);
-        foreach (var op in operations)
-        {
-            var target = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-            {
-                ["workItemId"] = op.Target.WorkItemId is { } id
-                    ? RenderCell.Integer(id)
-                    : new RenderCell("(none)", new RenderValue.Null()),
-                ["stagedIdentity"] = NullableStringCell(op.Target.StagedIdentity),
-            };
-
-            var preconditions = new List<RenderCell>(op.Preconditions.Count);
-            foreach (var pre in op.Preconditions)
-            {
-                var preObj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-                {
-                    ["kind"] = RenderCell.String(pre.Kind),
-                    ["value"] = RenderCell.String(pre.Value),
-                };
-                preconditions.Add(new RenderCell($"{pre.Kind}={pre.Value}", new RenderValue.Object(preObj)));
-            }
-
-            var consequences = new List<RenderCell>(op.Consequences.Count);
-            foreach (var con in op.Consequences)
-            {
-                var conObj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-                {
-                    ["kind"] = RenderCell.String(con.Kind),
-                    ["field"] = NullableStringCell(con.Field),
-                    ["to"] = NullableStringCell(con.To),
-                    ["relation"] = NullableStringCell(con.Relation),
-                    ["otherId"] = con.OtherId is { } other
-                        ? RenderCell.Integer(other)
-                        : new RenderCell("(none)", new RenderValue.Null()),
-                };
-                consequences.Add(new RenderCell(con.Kind, new RenderValue.Object(conObj)));
-            }
-
-            var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
-            {
-                ["ordinal"] = RenderCell.Integer(op.Ordinal),
-                ["opId"] = RenderCell.String(op.OpId),
-                ["kind"] = RenderCell.String(op.Kind),
-                ["target"] = new RenderCell(
-                    op.Target.WorkItemId is { } tid ? $"#{tid}" : op.Target.StagedIdentity ?? "(none)",
-                    new RenderValue.Object(target)),
-                ["summary"] = RenderCell.String(op.Summary),
-                ["preconditions"] = new RenderCell(
-                    $"{preconditions.Count} precondition(s)", new RenderValue.Array(preconditions)),
-                ["consequences"] = new RenderCell(
-                    $"{consequences.Count} consequence(s)", new RenderValue.Array(consequences)),
-            };
-            cells.Add(new RenderCell($"[{op.Ordinal}] {op.Summary}", new RenderValue.Object(obj)));
-        }
-        return new RenderCell($"{operations.Count} op(s)", new RenderValue.Array(cells));
-    }
+        System.Text.Json.JsonValueKind.Object => new RenderCell("", new RenderValue.Object(value.EnumerateObject()
+            .ToDictionary(p => p.Name, p => JsonCell(p.Value), StringComparer.Ordinal))),
+        System.Text.Json.JsonValueKind.Array => new RenderCell("", new RenderValue.Array(value.EnumerateArray().Select(JsonCell).ToArray())),
+        System.Text.Json.JsonValueKind.String => RenderCell.String(value.GetString()!),
+        System.Text.Json.JsonValueKind.Number => RenderCell.Integer(value.GetInt64()),
+        System.Text.Json.JsonValueKind.True => RenderCell.Boolean(true),
+        System.Text.Json.JsonValueKind.False => RenderCell.Boolean(false),
+        _ => new RenderCell("(none)", new RenderValue.Null()),
+    };
 
     private static RenderCell BlockersCell(IReadOnlyList<ReviewBlocker> blockers)
     {

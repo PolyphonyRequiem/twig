@@ -31,6 +31,111 @@ public sealed class ChangeProposalReviewModelBuilderTests
 
     private ChangeProposalReviewModelBuilder Builder() => new(_workItems);
 
+    [Fact]
+    public async Task Enrichment_UsesOnlyCleanMatchingRevision_AndKeepsEmptyDistinctFromAbsent()
+    {
+        var item = new WorkItem { Id = 742, Title = "Target", Type = WorkItemType.Task };
+        item.ImportFields(new Dictionary<string, string?> { ["Custom.Empty"] = "", ["Custom.Absent"] = null });
+        item.MarkSynced(4);
+        _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<WorkItem>>([item]));
+        var doc = Document(new BatchOperation { Id = "edit", WorkItemId = 742, ExpectedRevision = 4,
+            Fields = new Dictionary<string, string?> { ["Custom.Empty"] = null, ["Custom.Absent"] = "x", ["Custom.Missing"] = "y" } });
+        var model = await Builder().BuildAsync(doc, "digest", [], [], true);
+        var effects = model.Operations.Single().Consequences;
+        effects[0].Before!.State.ShouldBe("value");
+        effects[0].Before!.Value.ShouldBe("");
+        effects[1].Before!.State.ShouldBe("absent");
+        effects[2].Before!.State.ShouldBe("unknown");
+        effects[2].Before!.Reason.ShouldBe("field-not-cached");
+        item.MarkSynced(5);
+        var stale = await Builder().BuildAsync(doc, "digest", [], [], true);
+        stale.Operations.Single().Consequences.ShouldAllBe(c => c.Before!.State == "unknown" && c.Before.Reason == "revision-mismatch");
+        stale.Digest.ShouldBe(model.Digest);
+        stale.AuthorizationChoices.ShouldBe(model.AuthorizationChoices);
+    }
+
+    [Fact]
+    public async Task Enrichment_KeepsSeedIdentity_AndBoundsCachedParentContextToOneHop()
+    {
+        var identity = StagedIdentity.New();
+        var seed = new WorkItem { Id = -2, IsSeed = true, StagedIdentity = identity, Title = "Draft", Type = WorkItemType.Task, ParentId = 10 };
+        _workItems.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<WorkItem>>([seed]));
+        _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<WorkItem>>(call.Arg<IEnumerable<int>>().Where(id => id == 10)
+                .Select(id => new WorkItem { Id = id, Title = "Parent", Type = WorkItemType.Feature, ParentId = 99 }).ToArray()));
+        var model = await Builder().BuildAsync(Document(new PublishSeedOperation { Id = "publish", StagedIdentity = identity, ExpectedFingerprint = "exact-fingerprint" }), "digest", [], [], true);
+        var target = model.Operations.Single().Target;
+        target.WorkItemId.ShouldBeNull(); target.StagedIdentity.ShouldBe(identity.Value.ToString());
+        target.Seed!.DisplayAlias.ShouldBe(-2); target.Seed.Title.ShouldBe("Draft"); target.Seed.Type.ShouldBe("Task");
+        model.AffectedItems.ShouldBeEmpty();
+        model.ContextItems.Single().Id.ShouldBe(10); model.ContextItems.Single().Role.ShouldBe("context");
+        model.ContextItems.Single().Url.ShouldBe("https://dev.azure.com/acme/cache/_workitems/edit/10");
+        model.Operations.Single().Preconditions.Single().Value.ShouldBe("exact-fingerprint");
+    }
+
+    [Fact]
+    public async Task Enrichment_LabelsAndMetricComeFromCore_AndDirtyOrMissingBaselineNeverInventCounts()
+    {
+        var item = new WorkItem { Id = 742, Title = "Target", Type = WorkItemType.Task };
+        item.ImportFields(new Dictionary<string, string?> { ["System.Description"] = "A😀Z" });
+        item.MarkSynced(4);
+        _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<WorkItem>>([item]));
+        var fields = Substitute.For<IFieldDefinitionStore>();
+        fields.GetAllAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<FieldDefinition>>([new("System.Description", "Description", "html", false)]));
+        var builder = new ChangeProposalReviewModelBuilder(_workItems, fields);
+        var doc = Document(new BatchOperation { Id = "edit", WorkItemId = 742, ExpectedRevision = 4, Fields = new Dictionary<string, string?> { ["System.Description"] = "A😁Z" } });
+        var model = await builder.BuildAsync(doc, "digest", [], [], true);
+        var con = model.Operations.Single().Consequences.Single();
+        con.FieldLabel.ShouldBe("Description"); con.FieldType.ShouldBe("html");
+        con.Before!.Value.ShouldBe("A😀Z"); con.TextChange!.Removed.ShouldBe(1); con.TextChange.Inserted.ShouldBe(1);
+        item.UpdateField("System.Description", "local text");
+        var dirty = await builder.BuildAsync(doc, "digest", [], [], true);
+        dirty.Operations.Single().Consequences.Single().Before!.Reason.ShouldBe("local-edits");
+        dirty.Operations.Single().Consequences.Single().TextChange.ShouldBeNull();
+        _workItems.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<WorkItem>>([]));
+        var missing = await builder.BuildAsync(doc, "digest", [], [], true);
+        missing.Operations.Single().Consequences.Single().Before!.Reason.ShouldBe("item-not-cached");
+        missing.Operations.Single().Consequences.Single().TextChange.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Enrichment_DisambiguatesLabelsAcrossRequestedEffectsOnly_WithoutChangingReferences()
+    {
+        var fields = Substitute.For<IFieldDefinitionStore>();
+        var definitions = new FieldDefinition[]
+        {
+            new("Custom.BusinessPriority", "Priority", "integer", false),
+            new("Custom.SupportPriority", "Priority", "integer", false),
+            new("System.State", "State", "string", false),
+            new("Custom.UnusedState", "State", "string", false),
+        };
+        fields.GetAllAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<FieldDefinition>>(definitions));
+        var builder = new ChangeProposalReviewModelBuilder(_workItems, fields);
+        var doc = Document(
+            new BatchOperation { Id = "business", WorkItemId = 742, ExpectedRevision = 4,
+                Fields = new Dictionary<string, string?> { ["Custom.BusinessPriority"] = "1", ["System.State"] = "Doing" } },
+            new BatchOperation { Id = "support", WorkItemId = 743, ExpectedRevision = 5,
+                Fields = new Dictionary<string, string?> { ["Custom.SupportPriority"] = null, ["System.State"] = "New" } },
+            new BatchOperation { Id = "business-again", WorkItemId = 744, ExpectedRevision = 6,
+                Fields = new Dictionary<string, string?> { ["Custom.BusinessPriority"] = "2", ["Custom.NoMetadata"] = "exact" } });
+        var model = await builder.BuildAsync(doc, "digest", [], [], true);
+        var effects = model.Operations.SelectMany(o => o.Consequences).ToArray();
+        effects.Select(c => c.FieldLabel).ShouldBe([
+            "Priority (Custom.BusinessPriority)", "State", "Priority (Custom.SupportPriority)", "State",
+            "Priority (Custom.BusinessPriority)", "Custom.NoMetadata",
+        ]);
+        var references = new[] { "Custom.BusinessPriority", "System.State", "Custom.SupportPriority", "System.State", "Custom.BusinessPriority", "Custom.NoMetadata" };
+        effects.Select(c => c.Field).ShouldBe(references);
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var wireEffects = json.RootElement.GetProperty("operations").EnumerateArray()
+            .SelectMany(o => o.GetProperty("consequences").EnumerateArray()).ToArray();
+        wireEffects.Select(c => c.GetProperty("field").GetString()).ShouldBe(references);
+        wireEffects.Select(c => c.GetProperty("fieldLabel").GetString()).ShouldBe(effects.Select(c => c.FieldLabel));
+        definitions.Select(d => d.DisplayName).ShouldBe(["Priority", "Priority", "State", "State"]);
+    }
+
     // ── completeness ──────────────────────────────────────────────────────
 
     [Fact]

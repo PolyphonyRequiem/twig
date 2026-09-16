@@ -4,6 +4,25 @@ Source-accurate reference for the current twig source build. Every accepted comm
 
 The reference uses the source command names. Deprecated aliases remain documented so existing scripts can resolve their behavior; prefer the canonical command named on each alias page.
 
+Experimental source-checkout helper (not an installed Twig capability):
+
+```sh
+python3 tools/agent-efficiency-baseline/command-guide.py --executable /qualified/path/to/twig --workspace /workspace/root show
+```
+
+For a source build, replace `--executable` with `--source-dll /qualified/path/to/twig.dll`.
+The helper returns this index's single matching entry, that executable's complete
+command help, executable path/hash/version, index hash, and full documentation
+route. It never invokes a command catalog on an unknown name. Keep the workspace
+and its connection binding fixed; reuse guidance only for the same executable
+hash, index hash and helper contract version. No persistent cache is created.
+
+Installed Twig provides offline guidance without Python or a source checkout:
+start with `twig --help`, use `twig <command> --help` for targeted guidance, or
+`twig --help-all` for the full catalog. `twig --skill` exposes executable-matched
+agent guidance; see [installed skills](../features/skills.md) for package installation
+and updates.
+
 | Group | Command | Summary | Stability | Mutates |
 |---|---|---|---|---|
 | [Getting Started](getting-started/README.md) | [`twig init`](getting-started/init.md) | Initialize a new Twig workspace at the current git-worktree root. | stable | `local` |
@@ -39,7 +58,7 @@ The reference uses the source command names. Deprecated aliases remain documente
 | [Context](context/README.md) | [`twig query`](context/query.md) | Search and filter work items via an ad-hoc WIQL query built from CLI flags. | stable | `local` |
 | [Context](context/README.md) | [`twig set`](context/set.md) | Set the active work item by ID or title pattern. | stable | `local` |
 | [Context](context/README.md) | [`twig show`](context/show.md) | Display a work item without changing context; cache-only by default. | stable | `none` |
-| [Context](context/README.md) | [`twig show-batch`](context/show-batch.md) | Display multiple work items by ID from the local cache; missing IDs are silently skipped. | stable | `none` |
+| [Context](context/README.md) | [`twig show-batch`](context/show-batch.md) | Display multiple work items by ID from the local cache; missing IDs are disclosed as errors. | stable | `none` |
 | [Context](context/README.md) | [`twig tree-set`](context/tree-set.md) | Render an arbitrary working set of work items as a forest of annotated trees. | stable | `none` |
 | [Context](context/README.md) | [`twig web`](context/web.md) | Open the active or specified work item in Azure DevOps in the default browser. | stable | `none` |
 | [Navigation](navigation/README.md) | [`twig back`](navigation/back.md) | Deprecated alias for `nav back`. | stable | `local` |

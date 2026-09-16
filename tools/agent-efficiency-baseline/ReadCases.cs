@@ -244,7 +244,16 @@ internal static class ReadCases
         using var payload = JsonDocument.Parse(stdout);
         var found = payload.RootElement.ValueKind == JsonValueKind.Array
             && payload.RootElement.EnumerateArray().Any(row => row.TryGetProperty("id", out var id) && id.GetInt32() == 101);
-        var missingSurfaced = stdout.Contains("909", StringComparison.Ordinal);
+        // AB#880 preserves the successful full-output array and discloses cache misses
+        // as structured errors on stderr, with a nonzero exit. Both channels are evidence.
+        var missingSurfaced = false;
+        if (!string.IsNullOrWhiteSpace(stderr.ToString()))
+        {
+            using var errorPayload = JsonDocument.Parse(stderr.ToString());
+            missingSurfaced = errorPayload.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String
+                && error.GetString()!.Contains("#909", StringComparison.Ordinal);
+        }
         var fetchCalls = reads.AdoService.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IAdoWorkItemService.FetchAsync));
         var saves = reads.WorkItemRepo.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IWorkItemRepository.SaveAsync));
         var contextWrites = reads.ContextStore.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IContextStore.SetActiveWorkItemIdAsync));
@@ -276,7 +285,7 @@ internal static class ReadCases
             ContextInvariant: contextWrites == 0 ? "preserved" : "mutated",
             Notes: "Desired: response distinguishes present rows from requested-but-absent IDs.");
 
-        var desiredMet = found && missingSurfaced;
+        var desiredMet = exit == 1 && found && missingSurfaced;
         var classification = desiredMet ? "already fixed" : "current defect";
 
         return new Observation(
@@ -285,7 +294,7 @@ internal static class ReadCases
             DesiredSatisfied: desiredMet,
             Input: JsonData.Serialize(input),
             Output: JsonData.Serialize(output),
-            SafetyPassed: exit == 0 && found && fetchCalls == 0 && saves == 0 && contextWrites == 0);
+            SafetyPassed: exit == 1 && found && missingSurfaced && fetchCalls == 0 && saves == 0 && contextWrites == 0);
     }
 
     // ── Case 3: Show — explicit id present in cache renders successfully ─────

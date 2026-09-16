@@ -387,6 +387,55 @@ public sealed class PlanCommandTests
         text.ShouldNotContain(sensitiveError);
     }
 
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    [InlineData("json")]
+    public async Task ApplyAndStatus_PreserveAcknowledgmentEvidence_WithoutLeakingItInCompactOutput(string format)
+    {
+        const string batchEvidence = """{"rev":4,"revision":5,"receipt":"private-ack","diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":5}}""";
+        const string deleteEvidence = """{"deleted":42,"receipt":"private-ack","diagnostics":{"code":"readback-unavailable","expectedRevision":3,"observedRevision":null}}""";
+        PlanJournalOperation[] operations =
+        [
+            new() { Ordinal = 0, OpId = "batch", Kind = PlanOperationKind.Batch, State = PlanOperationState.Verified, RequestJson = "{}", ResultJson = batchEvidence },
+            new() { Ordinal = 1, OpId = "delete", Kind = PlanOperationKind.Delete, State = PlanOperationState.Indeterminate, RequestJson = "{}", ResultJson = deleteEvidence },
+        ];
+        _lifecycle.ApplyAsync("plan.json", "abc", Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult { Digest = "abc", Failed = true, Operations = operations });
+        _lifecycle.StatusAsync("plan.json", Arg.Any<CancellationToken>())
+            .Returns(new PlanStatusResult { Found = true, Digest = "abc", State = PlanOperationState.Failed, Operations = operations });
+        foreach (var apply in new[] { true, false })
+        {
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+            var command = CreateCommand(stdout, stderr);
+            var exit = apply
+                ? await command.ApplyAsync("plan.json", "abc", "Test Authorizer", null, format, default)
+                : await command.StatusAsync("plan.json", format, default);
+            exit.ShouldBe(apply ? 1 : 0);
+            var text = stdout.ToString();
+            if (format == "json")
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(text);
+                var rows = document.RootElement.GetProperty("operations");
+                rows[0].GetProperty("resultJson").GetString().ShouldBe(batchEvidence);
+                rows[1].GetProperty("resultJson").GetString().ShouldBe(deleteEvidence);
+                rows[0].GetProperty("diagnostics").GetProperty("observedRevision").GetInt32().ShouldBe(5);
+                rows[1].GetProperty("diagnostics").GetProperty("observedRevision").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+                rows[1].GetProperty("state").GetString().ShouldBe("Indeterminate");
+            }
+            else
+            {
+                text.ShouldNotContain("private-ack");
+                text.ShouldNotContain(batchEvidence);
+                text.ShouldNotContain(deleteEvidence);
+                text.ShouldContain("Verified");
+                text.ShouldContain("Indeterminate");
+                text.ShouldContain("full evidence");
+            }
+        }
+    }
+
     [Fact]
     public async Task Apply_JsonProjection_ExposesDiagnosticsBesideRawResultJson()
     {

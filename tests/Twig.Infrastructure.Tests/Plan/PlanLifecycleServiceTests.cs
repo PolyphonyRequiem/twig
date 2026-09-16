@@ -614,6 +614,98 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Apply_RecoveryFromApplied_PreservesAcknowledgmentWithTerminalDiagnostics(bool readbackFails)
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        var timestamp = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, timestamp);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, timestamp);
+        await _journal.TryRecordAppliedAsync(digest, opId,
+            """{"rev":4,"receipt":{"token":"private-ack","flags":[true,null,7]}}""", timestamp);
+        if (readbackFails)
+            _ado.FetchAsync(42, Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("offline"));
+        else
+            _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 5, state: "Active"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        var status = (await svc.StatusAsync(file))!;
+        apply.Failed.ShouldBe(readbackFails);
+        status.Operations[0].ResultJson.ShouldBe(apply.Operations[0].ResultJson);
+        var row = status.Operations[0];
+        row.State.ShouldBe(readbackFails ? PlanOperationState.Indeterminate : PlanOperationState.Verified);
+        using var document = JsonDocument.Parse(row.ResultJson!);
+        document.RootElement.GetProperty("rev").GetInt32().ShouldBe(4);
+        var receipt = document.RootElement.GetProperty("receipt");
+        receipt.GetProperty("token").GetString().ShouldBe("private-ack");
+        receipt.GetProperty("flags")[2].GetInt32().ShouldBe(7);
+        row.Diagnostics.Code.ShouldBe(readbackFails ? "readback-unavailable" : "verified");
+        row.Diagnostics.ExpectedRevision.ShouldBe(3);
+        row.Diagnostics.ObservedRevision.ShouldBe(readbackFails ? null : 5);
+        row.Diagnostics.Summary.ShouldNotContain("private-ack");
+        await _ado.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Apply_DeleteReadbackUnavailable_PreservesAcknowledgmentWithTerminalDiagnostics()
+    {
+        var file = WritePlan(DeletePlan(workItemId: 42, rev: 3));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("offline"));
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+        apply.Failed.ShouldBeTrue();
+        var status = (await svc.StatusAsync(file))!;
+        var row = status.Operations[0];
+        row.State.ShouldBe(PlanOperationState.Indeterminate);
+        row.ResultJson.ShouldBe(apply.Operations[0].ResultJson);
+        using var document = JsonDocument.Parse(row.ResultJson!);
+        document.RootElement.GetProperty("deleted").GetInt32().ShouldBe(42);
+        row.Diagnostics.Code.ShouldBe("readback-unavailable");
+        row.Diagnostics.ExpectedRevision.ShouldBe(3);
+        row.Diagnostics.ObservedRevision.ShouldBeNull();
+        await _revisionBound.Received(1).DeleteAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("\"legacy acknowledgment\"")]
+    [InlineData("opaque legacy acknowledgment")]
+    public async Task Apply_RecoveryFromApplied_PreservesOpaqueLegacyAcknowledgment(string original)
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        var timestamp = DateTimeOffset.UtcNow;
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Planned, PlanOperationState.Confirmed, timestamp);
+        await _journal.TryTransitionOperationAsync(digest, opId,
+            PlanOperationState.Confirmed, PlanOperationState.Applying, timestamp);
+        await _journal.TryRecordAppliedAsync(digest, opId, original, timestamp);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 5, state: "Active"));
+
+        var result = await svc.ApplyAsync(file, digest, Authorize(digest));
+        result.Failed.ShouldBeFalse();
+        var row = (await svc.StatusAsync(file))!.Operations[0];
+        using var document = JsonDocument.Parse(row.ResultJson!);
+        document.RootElement.GetProperty("acknowledgedResultJson").GetString().ShouldBe(original);
+        document.RootElement.TryGetProperty("rev", out _).ShouldBeFalse();
+        row.Diagnostics.Code.ShouldBe("verified");
+        row.Diagnostics.ObservedRevision.ShouldBe(5);
+        row.Diagnostics.Summary.ShouldNotContain(original);
+        await _ado.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Apply_RecoveryFromApplying_HtmlNormalization_VerifiesAndPersistsWarning()
     {

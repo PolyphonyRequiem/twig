@@ -274,6 +274,38 @@ public sealed class PlanToolsTests
     }
 
     [Fact]
+    public async Task ApplyAndStatus_PreserveAcknowledgmentEvidence_BesideReadbackDiagnostics()
+    {
+        var (sut, lifecycle, _) = BuildSut();
+        const string batchEvidence = """{"rev":4,"revision":5,"receipt":"private-ack","diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":5}}""";
+        const string deleteEvidence = """{"deleted":42,"receipt":"private-ack","diagnostics":{"code":"readback-unavailable","expectedRevision":3,"observedRevision":null}}""";
+        PlanJournalOperation[] operations =
+        [
+            SampleVerifiedOp() with { ResultJson = batchEvidence },
+            SampleVerifiedOp() with { Ordinal = 1, OpId = "delete", Kind = PlanOperationKind.Delete, State = PlanOperationState.Indeterminate, ResultJson = deleteEvidence },
+        ];
+        lifecycle.ApplyAsync("plan.json", ValidDigest, Arg.Any<ProposalAuthorization?>(), Arg.Any<CancellationToken>())
+            .Returns(new PlanApplyResult { Digest = ValidDigest, Failed = true, Operations = operations });
+        lifecycle.StatusAsync("plan.json", Arg.Any<CancellationToken>())
+            .Returns(new PlanStatusResult { Found = true, Digest = ValidDigest, State = PlanOperationState.Failed, Operations = operations });
+
+        var applied = ParseData(await sut.PlanApply("plan.json", confirmed: true, confirmedDigest: ValidDigest,
+            authorizerIdentity: "Test Authorizer", authorizationDigest: ValidDigest));
+        var status = ParseData(await sut.PlanStatus("plan.json")).GetProperty("status");
+        foreach (var result in new[] { applied, status })
+        {
+            var rows = result.GetProperty("operations");
+            rows[0].GetProperty("result").GetString().ShouldBe(batchEvidence);
+            rows[1].GetProperty("result").GetString().ShouldBe(deleteEvidence);
+            rows[0].GetProperty("diagnostics").GetProperty("observedRevision").GetInt32().ShouldBe(5);
+            rows[1].GetProperty("diagnostics").GetProperty("observedRevision").ValueKind.ShouldBe(JsonValueKind.Null);
+            rows[1].GetProperty("state").GetString().ShouldBe("Indeterminate");
+            rows[0].GetProperty("diagnostics").GetRawText().ShouldNotContain("private-ack");
+            rows[1].GetProperty("diagnostics").GetRawText().ShouldNotContain("private-ack");
+        }
+    }
+
+    [Fact]
     public async Task Apply_Diagnostics_LegacyRowWithoutPayload_KeepsStateAndOmitsCode()
     {
         // AB#881: a legacy row that predates the additive diagnostics payload — or whose

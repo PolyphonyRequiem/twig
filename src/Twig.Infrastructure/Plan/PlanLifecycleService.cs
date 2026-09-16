@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -657,7 +659,9 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         {
             // Applied recovery is verify-only: no readback→Applied claim, just readback +
             // Applied → Verified. The atomic record already stamped applied_at and result.
-            return await FinalizeAppliedAsync(digest, row.OpId, opDef, default, carry, ct).ConfigureAwait(false);
+            var acknowledged = new PlanExecutionResult(
+                PlanExecutionOutcome.Applied, row.ResultJson, null, null, null);
+            return await FinalizeAppliedAsync(digest, row.OpId, opDef, acknowledged, carry, ct).ConfigureAwait(false);
         }
 
         // Planned: prior confirmation loop should have moved this to Confirmed. Guard: treat
@@ -846,6 +850,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         CancellationToken ct)
     {
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        outcome = outcome with { ResultJson = ComposeReadbackEvidence(applyResult.ResultJson, outcome.ResultJson) };
         if (outcome.Ok)
         {
             var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
@@ -860,6 +865,63 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
+
+    /// <summary>
+    /// Enriches the acknowledgment, never reconstructing it from a later readback.
+    /// Only readback-owned properties are replaced; all other acknowledgment properties
+    /// survive, including fields unknown to this version. Non-object legacy evidence is
+    /// retained verbatim rather than discarded or treated as a successful acknowledgment.
+    /// The composed payload is persisted by the existing guarded terminal transition.
+    /// </summary>
+    private static string? ComposeReadbackEvidence(string? acknowledgedJson, string? readbackJson)
+    {
+        if (acknowledgedJson is null) return readbackJson;
+        if (readbackJson is null) return acknowledgedJson;
+
+        using var readback = JsonDocument.Parse(readbackJson);
+        JsonDocument? acknowledged = null;
+        try
+        {
+            acknowledged = JsonDocument.Parse(acknowledgedJson);
+        }
+        catch (JsonException)
+        {
+            // Old opaque result strings remain evidence even when they cannot be merged.
+        }
+
+        using (acknowledged)
+        {
+            var buffer = new ArrayBufferWriter<byte>();
+            using var writer = new Utf8JsonWriter(buffer);
+            writer.WriteStartObject();
+            var original = acknowledged?.RootElement;
+            if (original is { ValueKind: JsonValueKind.Object } obj)
+            {
+                foreach (var property in obj.EnumerateObject())
+                {
+                    if (!IsReadbackProperty(property.Name) || !readback.RootElement.TryGetProperty(property.Name, out _))
+                        property.WriteTo(writer);
+                }
+            }
+            else
+            {
+                writer.WriteString("acknowledgedResultJson", acknowledgedJson);
+            }
+            foreach (var property in readback.RootElement.EnumerateObject())
+            {
+                if (IsReadbackProperty(property.Name)
+                    || original is not { ValueKind: JsonValueKind.Object } originalObject
+                    || !originalObject.TryGetProperty(property.Name, out _))
+                    property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+            writer.Flush();
+            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        }
+    }
+
+    private static bool IsReadbackProperty(string name)
+        => name is "revision" or "diagnostics" or "fieldEvidence" or "failureDetail";
 
     private bool IsFreshApplyingLease(PlanJournalOperation row)
     {

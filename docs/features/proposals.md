@@ -156,6 +156,14 @@ The projection is safe by construction:
 - A stray `{"rev":N}` PATCH-acknowledgment shape is treated as an unknown
   payload. `rev` is not a proven post-op readback and is never surfaced as
   `ObservedRevision`.
+- Terminal diagnostics enrich the acknowledgment in the same guarded journal update,
+  including recovery from an already-`Applied` row. An acknowledged `rev:4` remains
+  distinct from a later readback `revision:5`; a delete acknowledgment `deleted:42`
+  survives even if its readback is unavailable. Unknown acknowledgment properties
+  are retained. Readback-owned `revision`, `diagnostics`, `fieldEvidence`, and
+  `failureDetail` describe the latest verification attempt. Opaque/non-object legacy
+  results are retained verbatim under `acknowledgedResultJson`, without inventing
+  an acknowledged revision. These evidence bodies remain excluded from compact output.
 
 ### HTML readback boundaries
 

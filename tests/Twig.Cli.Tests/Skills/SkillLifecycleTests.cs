@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Skills;
 using Xunit;
 
@@ -8,7 +9,7 @@ namespace Twig.Cli.Tests.Skills;
 
 public sealed class SkillLifecycleTests : IDisposable
 {
-    private readonly string sandbox = Path.Combine(Path.GetTempPath(), "twig-skills-" + Guid.NewGuid().ToString("N"));
+    private readonly string sandbox = CanonicalTempRoot.Create("twig-skills-");
     private string Target => Path.Combine(sandbox, "skills");
     private static SkillPackage Package(string version = "1.0.0+first", bool extra = false)
     {

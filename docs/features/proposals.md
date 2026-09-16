@@ -142,7 +142,7 @@ supported inline content. It does not trim inline text nodes, leading whitespace
 internal word separators, or nonbreaking spaces. Whitespace in `pre` and `textarea`
 remains significant. Changed text, tags, attributes, and links remain contradictions.
 
-Fragments carrying `style` or `class`, unsupported elements (including tables and
+Fragments carrying comments, `style` or `class`, unsupported elements (including tables and
 foreign markup), and unsupported nesting retain the existing strict text comparison;
 Twig does not infer their rendering or repair malformed HTML. For example,
 `<strong>a</strong>b` and `<strong>a </strong>b` must not compare equivalent.

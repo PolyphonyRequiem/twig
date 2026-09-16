@@ -77,6 +77,9 @@ internal static class HtmlStructuralComparer
 
         if (source.AsSpan(cursor).StartsWith("!--", StringComparison.Ordinal))
         {
+            // This scanner does not implement HTML's alternate/abrupt comment endings.
+            // A hidden preformatted ancestor must never enable the whitespace fallback.
+            supportsNormalization = false;
             var end = source.IndexOf("-->", cursor + 3, StringComparison.Ordinal);
             if (end < 0)
                 return false;

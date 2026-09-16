@@ -256,6 +256,9 @@ public sealed class PlanOperationExecutorTests
     [InlineData("<p><a href='/a' href='/b'>Body</a></p>",
         "<p><a href='/b' href='/a'>Body</a> </p>", false)]
     [InlineData("<div\u00a0>a</div\u00a0>b", "<div\u00a0>a </div\u00a0>b", false)]
+    [InlineData("<!--><pre>--><div>a</div>", "<!--><pre>--><div>a </div>", false)]
+    [InlineData("<!-- --!><pre> --><div>a</div>", "<!-- --!><pre> --><div>a </div>", false)]
+    [InlineData("<!-- ordinary --><p>a</p>", "<!-- ordinary --><p>a </p>", false)]
     public async Task ReadbackBatch_HtmlBlockEdges_PreservesRenderingBoundaries(
         string expected, string actual, bool equivalent)
     {

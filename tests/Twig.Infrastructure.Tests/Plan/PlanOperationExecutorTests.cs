@@ -228,6 +228,64 @@ public sealed class PlanOperationExecutorTests
         outcome.Error!.ShouldContain("System.Description");
     }
 
+    [Theory]
+    [InlineData("<p>Alpha</p>", "<p>Alpha \t\r\n</p>", true)]
+    [InlineData("<div><h2>Title</h2><p>A <strong>B</strong> C</p></div>",
+        "<div><h2>Title </h2><p>A <strong>B</strong> C </p> </div>", true)]
+    [InlineData("<ul><li>A</li><li>B</li></ul>", "<ul><li>A </li><li>B </li> </ul>", true)]
+    [InlineData("<div><pre>a b</pre><p>Body</p></div>",
+        "<div><pre>a b</pre><p>Body </p></div>", true)]
+    [InlineData("<p>a<strong>b</strong></p>", "<p>a <strong>b</strong></p>", false)]
+    [InlineData("<p><strong>a</strong>b</p>", "<p><strong>a </strong>b</p>", false)]
+    [InlineData("<p><strong>a</strong><em>b</em></p>",
+        "<p><strong>a</strong> <em>b</em></p>", false)]
+    [InlineData("<p>A <strong>B</strong> C</p>", "<p>A <strong>B </strong> C </p>", false)]
+    [InlineData("<pre>Body</pre>", "<pre>Body </pre>", false)]
+    [InlineData("<textarea>Body</textarea>", "<textarea>Body </textarea>", false)]
+    [InlineData("<pre><p>Body</p></pre>", "<pre><p>Body </p></pre>", false)]
+    [InlineData("<p>Body</p>", "<p>Body&nbsp;</p>", false)]
+    [InlineData("<p>ab</p>", "<p>a b </p>", false)]
+    [InlineData("<p>Body</p>", "<p>Other </p>", false)]
+    [InlineData("<p><a href='/a'>Body</a></p>", "<p><a href='/b'>Body</a> </p>", false)]
+    [InlineData("<p style='white-space:pre'>Body</p>", "<p style='white-space:pre'>Body </p>", false)]
+    [InlineData("<p class='preformatted'>Body</p>", "<p class='preformatted'>Body </p>", false)]
+    [InlineData("<custom><p>Body</p></custom>", "<custom><p>Body </p></custom>", false)]
+    [InlineData("<p>Body</div>", "<p>Body </div>", false)]
+    [InlineData("<p><div>Body</div></p>", "<p><div>Body </div></p>", false)]
+    [InlineData("<div><span/>Body</div>", "<div><span/>Body </div>", false)]
+    [InlineData("<p><a href='/a' href='/b'>Body</a></p>",
+        "<p><a href='/b' href='/a'>Body</a> </p>", false)]
+    [InlineData("<div\u00a0>a</div\u00a0>b", "<div\u00a0>a </div\u00a0>b", false)]
+    public async Task ReadbackBatch_HtmlBlockEdges_PreservesRenderingBoundaries(
+        string expected, string actual, bool equivalent)
+    {
+        StubFieldDefinition("System.Description", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["System.Description"] = expected },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("System.Description", actual);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBe(equivalent);
+        if (equivalent)
+        {
+            outcome.Warning.ShouldNotBeNull();
+            outcome.Warning.ShouldContain("System.Description");
+        }
+        else
+        {
+            outcome.Error.ShouldNotBeNull();
+            outcome.Error.ShouldContain("System.Description");
+            outcome.Warning.ShouldBeNull();
+        }
+    }
+
     // ── batch readback: ADO-normalized identities (AB#802) ─────────────────
 
     /// <summary>

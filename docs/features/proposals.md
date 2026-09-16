@@ -129,6 +129,28 @@ held by another actor — short-circuits the loop and lands on
 `PlanApplyResult.Error`
 (`src/Twig.Domain/Services/Plan/PlanApplyResult.cs:19-26`).
 
+### HTML readback boundaries
+
+For fields whose metadata declares HTML, supported serialization differences
+verify with a normalization warning, using the same comparison in normal apply
+and recovery. This includes trailing ASCII whitespace directly before a block
+closing tag: `<p>Alpha</p>` and `<p>Alpha </p>` compare equivalent.
+
+The whitespace fallback is deliberately narrower than a browser renderer. It
+supports default-flow `div`, `p`, headings, block quotes, and lists, with balanced,
+supported inline content. It does not trim inline text nodes, leading whitespace,
+internal word separators, or nonbreaking spaces. Whitespace in `pre` and `textarea`
+remains significant. Changed text, tags, attributes, and links remain contradictions.
+
+Fragments carrying `style` or `class`, unsupported elements (including tables and
+foreign markup), and unsupported nesting retain the existing strict text comparison;
+Twig does not infer their rendering or repair malformed HTML. For example,
+`<strong>a</strong>b` and `<strong>a </strong>b` must not compare equivalent.
+Even an inserted space before an inline closing tag at the end of a paragraph is
+conservatively refused. These boundaries can still produce an `Indeterminate`
+readback; they are not permission to ignore HTML fields or repeat a write blindly.
+Revision, authorization, clear, scalar, and unavailable-readback checks are unchanged.
+
 ## The digest, in detail
 
 The digest has three jobs, and picking any of them apart from the others

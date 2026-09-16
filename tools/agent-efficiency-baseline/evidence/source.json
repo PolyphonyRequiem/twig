@@ -1,0 +1,358 @@
+{
+  "schema": "twig.agent-efficiency-baseline.v1",
+  "evidenceKind": "offline source fixtures; substitutes are not live ADO",
+  "sourceVersion": "0.91.6-alpha.0.14\u002B146387b6a9cd11a6e9dbda413b9ac57b9fcb83fb",
+  "sourceAssemblySha256": "17c0aa38e330d943ad2b5e46b94ac315349d2d3fb537feff9ef02b486418cf77",
+  "runtime": ".NET 11.0.0-preview.5.26302.115",
+  "cases": [
+    {
+      "observation": {
+        "id": "read.show.uncached-refresh",
+        "classification": "current defect",
+        "desiredSatisfied": false,
+        "input": "{\n  \u0022command\u0022: \u0022show\u0022,\n  \u0022scenario\u0022: \u0022uncached-id-with-refresh\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: true,\n  \u0022workItemId\u0022: 707,\n  \u0022workItemType\u0022: null,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: null,\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: false,\n  \u0022remoteHasItem\u0022: true,\n  \u0022notes\u0022: \u0022--refresh should let ShowCommand fetch through IAdoWorkItemService when the cache is empty.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 1,\n  \u0022stdout\u0022: \u0022\u0022,\n  \u0022stderr\u0022: \u0022error: Work item #707 not found in local cache. Run \\u0027twig set 707\\u0027 to fetch it.\\n\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Desired: exit=0, FetchAsyncCalls\\u003E=1, item rendered. Observed exit encodes the fix state.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 388,
+      "inputCharacters": 388,
+      "outputBytes": 449,
+      "outputCharacters": 449,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.show.batch-mixed",
+        "classification": "current defect",
+        "desiredSatisfied": false,
+        "input": "{\n  \u0022command\u0022: \u0022show-batch\u0022,\n  \u0022scenario\u0022: \u0022batch-mixed-found-missing\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: false,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: null,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: null,\n  \u0022batchIds\u0022: \u0022101,909\u0022,\n  \u0022cacheHasItem\u0022: true,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Caller supplied two IDs; 101 present, 909 absent from local cache.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022[\\n  {\\n    \\u0022id\\u0022: 101,\\n    \\u0022title\\u0022: \\u0022Investigation ticket\\u0022,\\n    \\u0022type\\u0022: \\u0022Task\\u0022,\\n    \\u0022state\\u0022: \\u0022New\\u0022,\\n    \\u0022assignedTo\\u0022: \\u0022\\u0022,\\n    \\u0022areaPath\\u0022: null,\\n    \\u0022iterationPath\\u0022: null,\\n    \\u0022isDirty\\u0022: false,\\n    \\u0022isSeed\\u0022: false,\\n    \\u0022parentId\\u0022: null,\\n    \\u0022tags\\u0022: \\u0022\\u0022,\\n    \\u0022commentCount\\u0022: 0,\\n    \\u0022links\\u0022: [],\\n    \\u0022relations\\u0022: [],\\n    \\u0022linksVerifiedAt\\u0022: null\\n  }\\n]\\n\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: 1,\n  \u0022missingIdsSurfaced\u0022: [],\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Desired: response distinguishes present rows from requested-but-absent IDs.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 377,
+      "inputCharacters": 377,
+      "outputBytes": 899,
+      "outputCharacters": 899,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.show.explicit-cache-hit",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022show\u0022,\n  \u0022scenario\u0022: \u0022explicit-id-cache-hit\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: false,\n  \u0022workItemId\u0022: 42,\n  \u0022workItemType\u0022: null,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: null,\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: true,\n  \u0022remoteHasItem\u0022: true,\n  \u0022notes\u0022: null\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022{\\n  \\u0022id\\u0022: 42,\\n  \\u0022title\\u0022: \\u0022Design proposal review\\u0022,\\n  \\u0022type\\u0022: \\u0022Task\\u0022,\\n  \\u0022state\\u0022: \\u0022New\\u0022,\\n  \\u0022assignedTo\\u0022: \\u0022\\u0022,\\n  \\u0022areaPath\\u0022: null,\\n  \\u0022iterationPath\\u0022: null,\\n  \\u0022isDirty\\u0022: false,\\n  \\u0022isSeed\\u0022: false,\\n  \\u0022parentId\\u0022: null,\\n  \\u0022tags\\u0022: \\u0022\\u0022,\\n  \\u0022commentCount\\u0022: 0,\\n  \\u0022children\\u0022: [],\\n  \\u0022links\\u0022: [],\\n  \\u0022relations\\u0022: [],\\n  \\u0022linksVerifiedAt\\u0022: null\\n}\\n\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: 1,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: null\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 295,
+      "inputCharacters": 295,
+      "outputBytes": 818,
+      "outputCharacters": 818,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.show.selected-cache-hit",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022show\u0022,\n  \u0022scenario\u0022: \u0022active-id-cache-hit\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: false,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: null,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: null,\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: true,\n  \u0022remoteHasItem\u0022: true,\n  \u0022notes\u0022: null\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022{\\n  \\u0022id\\u0022: 42,\\n  \\u0022title\\u0022: \\u0022Design proposal review\\u0022,\\n  \\u0022type\\u0022: \\u0022Task\\u0022,\\n  \\u0022state\\u0022: \\u0022New\\u0022,\\n  \\u0022assignedTo\\u0022: \\u0022\\u0022,\\n  \\u0022areaPath\\u0022: null,\\n  \\u0022iterationPath\\u0022: null,\\n  \\u0022isDirty\\u0022: false,\\n  \\u0022isSeed\\u0022: false,\\n  \\u0022parentId\\u0022: null,\\n  \\u0022tags\\u0022: \\u0022\\u0022,\\n  \\u0022commentCount\\u0022: 0,\\n  \\u0022children\\u0022: [],\\n  \\u0022links\\u0022: [],\\n  \\u0022relations\\u0022: [],\\n  \\u0022linksVerifiedAt\\u0022: null\\n}\\n\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: 1,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: null\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 295,
+      "inputCharacters": 295,
+      "outputBytes": 818,
+      "outputCharacters": 818,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.new.empty-catalog-rejects",
+        "classification": "current defect",
+        "desiredSatisfied": false,
+        "input": "{\n  \u0022command\u0022: \u0022new\u0022,\n  \u0022scenario\u0022: \u0022empty-catalog-rejects-valid-ref\u0022,\n  \u0022outputFormat\u0022: \u0022human\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: \u0022Task\u0022,\n  \u0022requestedFields\u0022: [\n    \u0022Custom.SprintNote=carry over\u0022\n  ],\n  \u0022knownCatalogFields\u0022: [],\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: false,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Requested ref is not in the local field catalog; NewCommand must refuse before CreateAsync.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 1,\n  \u0022stdout\u0022: \u0022\u0022,\n  \u0022stderr\u0022: \u0022\\u001B[31m\\u2717 error:\\u001B[0m Unknown field reference name(s): Custom.SprintNote. Use the ADO reference name (e.g. Custom.MyField); run \\u0027twig refresh\\u0027 if the field is new.\\n\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Guard is offline: no CreateAsync/SaveAsync must occur, exit=1.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 433,
+      "inputCharacters": 433,
+      "outputBytes": 513,
+      "outputCharacters": 513,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.new.incomplete-catalog-rejects",
+        "classification": "current defect",
+        "desiredSatisfied": false,
+        "input": "{\n  \u0022command\u0022: \u0022new\u0022,\n  \u0022scenario\u0022: \u0022incomplete-catalog-rejects-uncatalogued-ref\u0022,\n  \u0022outputFormat\u0022: \u0022human\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: \u0022Task\u0022,\n  \u0022requestedFields\u0022: [\n    \u0022Custom.SprintNote=carry over\u0022\n  ],\n  \u0022knownCatalogFields\u0022: [\n    \u0022System.Title\u0022,\n    \u0022System.Description\u0022,\n    \u0022Custom.Priority\u0022\n  ],\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: false,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Requested ref is not in the local field catalog; NewCommand must refuse before CreateAsync.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 1,\n  \u0022stdout\u0022: \u0022\u0022,\n  \u0022stderr\u0022: \u0022\\u001B[31m\\u2717 error:\\u001B[0m Unknown field reference name(s): Custom.SprintNote. Use the ADO reference name (e.g. Custom.MyField); run \\u0027twig refresh\\u0027 if the field is new.\\n\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Guard is offline: no CreateAsync/SaveAsync must occur, exit=1.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 516,
+      "inputCharacters": 516,
+      "outputBytes": 513,
+      "outputCharacters": 513,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.new.warm-catalog-accepts",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022new\u0022,\n  \u0022scenario\u0022: \u0022warm-catalog-accepts-known-ref\u0022,\n  \u0022outputFormat\u0022: \u0022human\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: \u0022Task\u0022,\n  \u0022requestedFields\u0022: [\n    \u0022Custom.SprintNote=carry over\u0022\n  ],\n  \u0022knownCatalogFields\u0022: [\n    \u0022System.Title\u0022,\n    \u0022System.Description\u0022,\n    \u0022Custom.Priority\u0022,\n    \u0022Custom.SprintNote\u0022\n  ],\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: false,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Requested ref is a known cataloged field; NewCommand should create \\u002B persist.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022\\u2713 \\u2713 Created #1234 Investigation notes (Task)\\n\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 1,\n  \u0022createAsyncCalls\u0022: 1,\n  \u0022saveAsyncCalls\u0022: 1,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Positive case: exit=0 and one CreateAsync \\u002B one SaveAsync.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 519,
+      "inputCharacters": 519,
+      "outputBytes": 384,
+      "outputCharacters": 384,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.new.warm-catalog-rejects-unknown",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022new\u0022,\n  \u0022scenario\u0022: \u0022warm-catalog-rejects-genuinely-unknown-ref\u0022,\n  \u0022outputFormat\u0022: \u0022human\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: \u0022Task\u0022,\n  \u0022requestedFields\u0022: [\n    \u0022Custom.NotAField=x\u0022\n  ],\n  \u0022knownCatalogFields\u0022: [\n    \u0022System.Title\u0022,\n    \u0022Custom.Priority\u0022\n  ],\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: false,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Requested ref is not in the local field catalog; NewCommand must refuse before CreateAsync.\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 1,\n  \u0022stdout\u0022: \u0022\u0022,\n  \u0022stderr\u0022: \u0022\\u001B[31m\\u2717 error:\\u001B[0m Unknown field reference name(s): Custom.NotAField. Use the ADO reference name (e.g. Custom.MyField); run \\u0027twig refresh\\u0027 if the field is new.\\n\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: \u0022Guard is offline: no CreateAsync/SaveAsync must occur, exit=1.\u0022\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 479,
+      "inputCharacters": 479,
+      "outputBytes": 512,
+      "outputCharacters": 512,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.process.broad-list",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022process\u0022,\n  \u0022scenario\u0022: \u0022broad-list\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: null,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: null,\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: true,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Two fixture types with non-Hyperbright vocabulary (Task, Investigation).\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022{\\n  \\u0022types\\u0022: [\\n    {\\n      \\u0022typeName\\u0022: \\u0022Task\\u0022,\\n      \\u0022stateCount\\u0022: 3,\\n      \\u0022childTypeCount\\u0022: 0,\\n      \\u0022color\\u0022: null,\\n      \\u0022iconId\\u0022: null,\\n      \\u0022isHidden\\u0022: false,\\n      \\u0022categories\\u0022: [\\n        \\u0022Microsoft.RequirementCategory\\u0022\\n      ]\\n    },\\n    {\\n      \\u0022typeName\\u0022: \\u0022Investigation\\u0022,\\n      \\u0022stateCount\\u0022: 2,\\n      \\u0022childTypeCount\\u0022: 0,\\n      \\u0022color\\u0022: null,\\n      \\u0022iconId\\u0022: null,\\n      \\u0022isHidden\\u0022: false,\\n      \\u0022categories\\u0022: [\\n        \\u0022Microsoft.RequirementCategory\\u0022\\n      ]\\n    }\\n  ],\\n  \\u0022totalTypes\\u0022: 2\\n}\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: null\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 359,
+      "inputCharacters": 359,
+      "outputBytes": 994,
+      "outputCharacters": 994,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "read.process.type-detail",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\n  \u0022command\u0022: \u0022process\u0022,\n  \u0022scenario\u0022: \u0022type-detail-explicit\u0022,\n  \u0022outputFormat\u0022: \u0022json\u0022,\n  \u0022refresh\u0022: null,\n  \u0022workItemId\u0022: null,\n  \u0022workItemType\u0022: \u0022Investigation\u0022,\n  \u0022requestedFields\u0022: null,\n  \u0022knownCatalogFields\u0022: [\n    \u0022System.Title\u0022,\n    \u0022System.State\u0022\n  ],\n  \u0022batchIds\u0022: null,\n  \u0022cacheHasItem\u0022: true,\n  \u0022remoteHasItem\u0022: false,\n  \u0022notes\u0022: \u0022Explicit type detail with a three-state fixture (Open \\u2192 Analyzing \\u2192 Closed).\u0022\n}",
+        "output": "{\n  \u0022exitCode\u0022: 0,\n  \u0022stdout\u0022: \u0022{\\n  \\u0022type\\u0022: \\u0022Investigation\\u0022,\\n  \\u0022isHidden\\u0022: false,\\n  \\u0022categories\\u0022: [\\n    \\u0022Microsoft.RequirementCategory\\u0022\\n  ],\\n  \\u0022states\\u0022: [\\n    {\\n      \\u0022name\\u0022: \\u0022Open\\u0022,\\n      \\u0022category\\u0022: \\u0022Proposed\\u0022,\\n      \\u0022color\\u0022: null\\n    },\\n    {\\n      \\u0022name\\u0022: \\u0022Analyzing\\u0022,\\n      \\u0022category\\u0022: \\u0022InProgress\\u0022,\\n      \\u0022color\\u0022: \\u0022007acc\\u0022\\n    },\\n    {\\n      \\u0022name\\u0022: \\u0022Closed\\u0022,\\n      \\u0022category\\u0022: \\u0022Completed\\u0022,\\n      \\u0022color\\u0022: \\u0022339933\\u0022\\n    }\\n  ],\\n  \\u0022fields\\u0022: [\\n    {\\n      \\u0022referenceName\\u0022: \\u0022System.Title\\u0022,\\n      \\u0022displayName\\u0022: \\u0022Title\\u0022,\\n      \\u0022dataType\\u0022: \\u0022String\\u0022,\\n      \\u0022isReadOnly\\u0022: false\\n    },\\n    {\\n      \\u0022referenceName\\u0022: \\u0022System.State\\u0022,\\n      \\u0022displayName\\u0022: \\u0022State\\u0022,\\n      \\u0022dataType\\u0022: \\u0022String\\u0022,\\n      \\u0022isReadOnly\\u0022: true\\n    }\\n  ],\\n  \\u0022transitions\\u0022: [\\n    {\\n      \\u0022from\\u0022: \\u0022Open\\u0022,\\n      \\u0022to\\u0022: \\u0022Analyzing\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    },\\n    {\\n      \\u0022from\\u0022: \\u0022Open\\u0022,\\n      \\u0022to\\u0022: \\u0022Closed\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    },\\n    {\\n      \\u0022from\\u0022: \\u0022Analyzing\\u0022,\\n      \\u0022to\\u0022: \\u0022Open\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    },\\n    {\\n      \\u0022from\\u0022: \\u0022Analyzing\\u0022,\\n      \\u0022to\\u0022: \\u0022Closed\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    },\\n    {\\n      \\u0022from\\u0022: \\u0022Closed\\u0022,\\n      \\u0022to\\u0022: \\u0022Open\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    },\\n    {\\n      \\u0022from\\u0022: \\u0022Closed\\u0022,\\n      \\u0022to\\u0022: \\u0022Analyzing\\u0022,\\n      \\u0022kind\\u0022: \\u0022Forward\\u0022\\n    }\\n  ]\\n}\u0022,\n  \u0022stderr\u0022: \u0022\u0022,\n  \u0022fetchAsyncCalls\u0022: 0,\n  \u0022createAsyncCalls\u0022: 0,\n  \u0022saveAsyncCalls\u0022: 0,\n  \u0022setActiveWorkItemIdCalls\u0022: 0,\n  \u0022workItemsInOutput\u0022: null,\n  \u0022missingIdsSurfaced\u0022: null,\n  \u0022contextInvariant\u0022: \u0022preserved\u0022,\n  \u0022notes\u0022: null\n}",
+        "safetyPassed": true
+      },
+      "inputBytes": 434,
+      "inputCharacters": 434,
+      "outputBytes": 2300,
+      "outputCharacters": 2300,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.closing-tag-whitespace.defect",
+        "classification": "current defect",
+        "desiredSatisfied": false,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Cp\\\\u003EAlpha\\\\u003C/p\\\\u003E\\\\u003Cp\\\\u003EBeta\\\\u003C/p\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Cp\\u003EAlpha\\u003C/p\\u003E\\u003Cp\\u003EBeta\\u003C/p\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003Cp\\u003EAlpha \\u003C/p\\u003E\\u003Cp\\u003EBeta \\u003C/p\\u003E\u0022,\u0022fieldReference\u0022:\u0022System.Description\u0022,\u0022fieldDataType\u0022:\u0022html\u0022,\u0022intent\u0022:\u0022Reproduce inserted whitespace immediately before block closing tags.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00223b7cf4875531e1d8ab9125f804766662e46c0305dea9e56c5e9594d94253f1bb\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.Description did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Verified with a CanonicalizedHtml warning for equivalent block-edge whitespace.\u0022,\u0022observedDefect\u0022:\u0022The inserted closing-tag spaces remain significant to readback.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 900,
+      "inputCharacters": 900,
+      "outputBytes": 752,
+      "outputCharacters": 752,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.attribute-reorder.equivalent-positive",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Ca href=\\\\u0022/x\\\\u0022 class=\\\\u0022c\\\\u0022\\\\u003EL\\\\u003C/a\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Ca href=\\u0022/x\\u0022 class=\\u0022c\\u0022\\u003EL\\u003C/a\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003CA CLASS=\\u0022c\\u0022 HREF=\\u0022/x\\u0022\\u003EL\\u003C/A\\u003E\u0022,\u0022intent\u0022:\u0022Attribute order and tag case reshuffles are canonicalized; must Verify with warning.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022f69446c9b706d1770907b6e25dc34031de749619c5af4912c9f12e9efd867ba8\u0022,\u0022applyFailed\u0022:false,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Verified\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:null,\u0022warning\u0022:\u0022ADO canonicalized HTML field(s) after apply: System.Description. The markup is structurally equivalent to what the plan authored; only ADO\\u0027s serialization differs. The requested mutation is proven landed by the refreshed read.\u0022,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:true}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Verified with a CanonicalizedHtml warning naming System.Description.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 868,
+      "inputCharacters": 868,
+      "outputBytes": 824,
+      "outputCharacters": 824,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.text.material-difference-negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Cp\\\\u003EVerified\\\\u003C/p\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Cp\\u003EVerified\\u003C/p\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003Cp\\u003ERejected\\u003C/p\\u003E\u0022,\u0022intent\u0022:\u0022Textual difference is material; comparer must refuse and settle Indeterminate.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022d6789dcaa0977553a1758d4121443575b5f62035627a313bfb4e238b04b4df9e\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.Description did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: the difference is material and refusal is correct.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 759,
+      "inputCharacters": 759,
+      "outputBytes": 655,
+      "outputCharacters": 655,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.attribute-value.material-difference-negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Ca href=\\\\u0022/x\\\\u0022\\\\u003EL\\\\u003C/a\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Ca href=\\u0022/x\\u0022\\u003EL\\u003C/a\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003Ca href=\\u0022/y\\u0022\\u003EL\\u003C/a\\u003E\u0022,\u0022intent\u0022:\u0022Attribute value difference is material; comparer must refuse and settle Indeterminate.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022bcdbb24668c16ce1fc2d691a2cbde526692a6cb9cb92b126a8132d273ec26991\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.Description did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: the difference is material and refusal is correct.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 808,
+      "inputCharacters": 808,
+      "outputBytes": 655,
+      "outputCharacters": 655,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.pre.material-difference-negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Cpre\\\\u003E  keep\\\\tme\\\\u003C/pre\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Cpre\\u003E  keep\\tme\\u003C/pre\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003Cpre\\u003Ekeep me\\u003C/pre\\u003E\u0022,\u0022intent\u0022:\u0022Preformatted whitespace is significant; comparer must refuse and settle Indeterminate.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00224c7b095ce8abc0de113770231e5772bb0b2bebcd3d8a7e11838791f73c38d216\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.Description did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: the difference is material and refusal is correct.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 783,
+      "inputCharacters": 783,
+      "outputBytes": 655,
+      "outputCharacters": 655,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.html.textarea.material-difference-negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.Description\\u0022: \\u0022\\\\u003Ctextarea\\\\u003Ealpha\\\\nbeta\\\\u003C/textarea\\\\u003E\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedHtml\u0022:\u0022\\u003Ctextarea\\u003Ealpha\\nbeta\\u003C/textarea\\u003E\u0022,\u0022actualHtml\u0022:\u0022\\u003Ctextarea\\u003Ealpha beta\\u003C/textarea\\u003E\u0022,\u0022intent\u0022:\u0022Textarea inner text is significant; comparer must refuse and settle Indeterminate.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022d70903efb6910813e7fcfb105ca82a2aec3df46a818cdc1d86b2b09d695a2d2d\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.Description did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: the difference is material and refusal is correct.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 814,
+      "inputCharacters": 814,
+      "outputBytes": 655,
+      "outputCharacters": 655,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.identity.rewrite.equivalent-positive",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.AssignedTo\\u0022: \\u0022baseline@example.test\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedIdentity\u0022:\u0022baseline@example.test\u0022,\u0022actualIdentity\u0022:\u0022Baseline User (baseline example.test)\u0022,\u0022fieldReference\u0022:\u0022System.AssignedTo\u0022,\u0022fieldIsIdentity\u0022:\u0022true\u0022,\u0022intent\u0022:\u0022Identity rewrite from staged form to Display Name (unique name) must Verify with warning.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022eccc3fdb0627096acb6fa31c7a9874920e2d6c764c59347fe8bba4565ce19ae7\u0022,\u0022applyFailed\u0022:false,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Verified\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:null,\u0022warning\u0022:\u0022ADO re-rendered identity field(s) after apply: System.AssignedTo (requested \\u0027baseline@example.test\\u0027, server \\u0027Baseline User (baseline example.test)\\u0027). Each names the same account the plan authored; only ADO\\u0027s rendering of it differs. The requested mutation is proven landed by the refreshed read.\u0022,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:true}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Verified with a CanonicalizedIdentity warning naming System.AssignedTo.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 809,
+      "inputCharacters": 809,
+      "outputBytes": 916,
+      "outputCharacters": 916,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.identity.different-account.negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.AssignedTo\\u0022: \\u0022baseline@example.test\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedIdentity\u0022:\u0022baseline@example.test\u0022,\u0022actualIdentity\u0022:\u0022Other User (other example.test)\u0022,\u0022intent\u0022:\u0022Distinct accounts must never be conflated by the identity comparer.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022eccc3fdb0627096acb6fa31c7a9874920e2d6c764c59347fe8bba4565ce19ae7\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.AssignedTo did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: the identities denote different accounts.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 719,
+      "inputCharacters": 719,
+      "outputBytes": 645,
+      "outputCharacters": 645,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.scalar.true-mismatch.negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } }\\n  ]\\n}\u0022,\u0022expectedValue\u0022:\u0022Doing\u0022,\u0022actualValue\u0022:\u0022To do\u0022,\u0022intent\u0022:\u0022A plain scalar that read back differently must not be normalized away.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00227aeeda86818882ecff81922932dd051438102251402e390645e05c84e78333dc\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field System.State did not reflect the expected value.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: server value contradicts the plan.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 653,
+      "inputCharacters": 653,
+      "outputBytes": 633,
+      "outputCharacters": 633,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.clear.did-not-take.negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-clear\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022Custom.Note\\u0022: null } }\\n  ]\\n}\u0022,\u0022intent\u0022:\u0022A clear that did not take must never be reported as landed.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u0022e287d5f14bcbce0b6c0e61351d410fa6185b2e2e853985cd1f24807092c41ebd\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-clear\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:\u0022Field Custom.Note was expected to be cleared but reflects \\u0027still-here\\u0027.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate: field still reflects a non-empty value after the clear.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 586,
+      "inputCharacters": 586,
+      "outputBytes": 685,
+      "outputCharacters": 685,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.unchanged-revision.conservative-refusal",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } }\\n  ]\\n}\u0022,\u0022intent\u0022:\u0022Every field already carries the desired value; server returns the unchanged revision. Under the strict contract, unadvanced revision is unproven mutation.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00227aeeda86818882ecff81922932dd051438102251402e390645e05c84e78333dc\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:3}\u0022,\u0022error\u0022:\u0022Server revision did not advance past the expected revision.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:1},\u0022desiredBehaviour\u0022:\u0022Indeterminate is the correct refusal; observable limitation is that a genuine no-op is indistinguishable from a lost write.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 691,
+      "inputCharacters": 691,
+      "outputBytes": 712,
+      "outputCharacters": 712,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.stale-revision.412.negative",
+        "classification": "expected refusal",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-1\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } }\\n  ]\\n}\u0022,\u0022intent\u0022:\u0022412 must be deterministic Failure carrying the server revision.\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00227aeeda86818882ecff81922932dd051438102251402e390645e05c84e78333dc\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-1\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Failed\u0022,\u0022resultJson\u0022:null,\u0022error\u0022:\u0022Revision conflict: server rev=5.\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:false,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1},\u0022fetchByItem\u0022:{},\u0022totalPatch\u0022:1,\u0022totalFetch\u0022:0},\u0022desiredBehaviour\u0022:\u0022Failed with \\u0027Revision conflict: server rev=5.\\u0027\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 600,
+      "inputCharacters": 600,
+      "outputBytes": 589,
+      "outputCharacters": 589,
+      "tokens": null
+    },
+    {
+      "observation": {
+        "id": "write.lifecycle.verified-prefix.indeterminate-second.untouched-tail",
+        "classification": "already fixed",
+        "desiredSatisfied": true,
+        "input": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022planJson\u0022:\u0022{\\n  \\u0022version\\u0022: 1,\\n  \\u0022workspace\\u0022: { \\u0022organization\\u0022: \\u0022acme\\u0022, \\u0022project\\u0022: \\u0022cache\\u0022 },\\n  \\u0022operations\\u0022: [\\n    { \\u0022id\\u0022: \\u0022op-a\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 42, \\u0022expectedRevision\\u0022: 3,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } },\\n    { \\u0022id\\u0022: \\u0022op-b\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 99, \\u0022expectedRevision\\u0022: 7,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } },\\n    { \\u0022id\\u0022: \\u0022op-c\\u0022, \\u0022kind\\u0022: \\u0022batch\\u0022, \\u0022workItemId\\u0022: 55, \\u0022expectedRevision\\u0022: 2,\\n      \\u0022fields\\u0022: { \\u0022System.State\\u0022: \\u0022Doing\\u0022 } }\\n  ]\\n}\u0022,\u0022intent\u0022:\u0022Whole-lifecycle three-op plan: op-1 Verified, op-2 Indeterminate, op-3 untouched (still Confirmed).\u0022}",
+        "output": "{\u0022source\u0022:\u0022Twig.Infrastructure.Plan lifecycle over in-memory SqliteCacheStore and NSubstitute fakes; not live ADO.\u0022,\u0022digest\u0022:\u00225c59ce81ec1578f0cd55fd47af500fca2c8061156a592841bdda59617b49b225\u0022,\u0022applyFailed\u0022:true,\u0022applyError\u0022:null,\u0022operations\u0022:[{\u0022ordinal\u0022:0,\u0022opId\u0022:\u0022op-a\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Verified\u0022,\u0022resultJson\u0022:\u0022{\\u0022rev\\u0022:4}\u0022,\u0022error\u0022:null,\u0022warning\u0022:null,\u0022appliedStamped\u0022:true,\u0022verifiedStamped\u0022:true},{\u0022ordinal\u0022:1,\u0022opId\u0022:\u0022op-b\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Indeterminate\u0022,\u0022resultJson\u0022:null,\u0022error\u0022:\u0022Readback failed: readback network drop\u0022,\u0022warning\u0022:null,\u0022appliedStamped\u0022:false,\u0022verifiedStamped\u0022:false},{\u0022ordinal\u0022:2,\u0022opId\u0022:\u0022op-c\u0022,\u0022kind\u0022:\u0022Batch\u0022,\u0022state\u0022:\u0022Confirmed\u0022,\u0022resultJson\u0022:null,\u0022error\u0022:null,\u0022warning\u0022:null,\u0022appliedStamped\u0022:false,\u0022verifiedStamped\u0022:false}],\u0022fakeCalls\u0022:{\u0022patchByItem\u0022:{\u002242\u0022:1,\u002299\u0022:1},\u0022fetchByItem\u0022:{\u002242\u0022:1,\u002299\u0022:1},\u0022totalPatch\u0022:2,\u0022totalFetch\u0022:2},\u0022desiredBehaviour\u0022:\u0022op-1 Verified, op-2 Indeterminate, op-3 remains Confirmed and no ADO calls target #55.\u0022}",
+        "safetyPassed": true
+      },
+      "inputBytes": 1070,
+      "inputCharacters": 1070,
+      "outputBytes": 978,
+      "outputCharacters": 978,
+      "tokens": null
+    }
+  ],
+  "fixtureInvocations": 23,
+  "liveAdoCalls": 0,
+  "outerModelCalls": null,
+  "tokens": null
+}

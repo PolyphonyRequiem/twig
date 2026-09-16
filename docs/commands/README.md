@@ -4,7 +4,7 @@ Source-accurate reference for the current twig source build. Every accepted comm
 
 The reference uses the source command names. Deprecated aliases remain documented so existing scripts can resolve their behavior; prefer the canonical command named on each alias page.
 
-For source-checkout agent consumers, select one exact command before reading:
+Experimental source-checkout helper (not an installed Twig capability):
 
 ```sh
 python3 tools/agent-efficiency-baseline/command-guide.py --executable /qualified/path/to/twig --workspace /workspace/root show
@@ -16,6 +16,7 @@ command help, executable path/hash/version, index hash, and full documentation
 route. It never invokes a command catalog on an unknown name. Keep the workspace
 and its connection binding fixed; reuse guidance only for the same executable
 hash, index hash and helper contract version. No persistent cache is created.
+Portable installed guidance and broader help design remain pending separate approval.
 
 | Group | Command | Summary | Stability | Mutates |
 |---|---|---|---|---|

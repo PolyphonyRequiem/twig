@@ -181,17 +181,21 @@ public sealed class ShowProjectionTests : IDisposable
             .GetProperty("linksVerifiedAt").ValueKind.ShouldBe(JsonValueKind.String);
     }
 
-    [Fact]
-    public async Task Show_Projection_ParentSection_AbsentWhenNoParentId()
+    [Theory]
+    [InlineData(false, "unknown")]
+    [InlineData(true, "absent")]
+    public async Task Show_Projection_ParentAbsenceRequiresVerifiedLinks(bool verified, string expected)
     {
         var item = new WorkItemBuilder(42, "T").Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _linkRepo.GetLinksVerifiedAtAsync(42, Arg.Any<CancellationToken>())
+            .Returns(verified ? DateTimeOffset.Parse("2026-08-28T05:24:13+00:00") : (DateTimeOffset?)null);
 
         var output = await CaptureStdout(() => _cmd.ExecuteAsync(id: 42, outputFormat: "json", sections: "parent"));
 
         using var doc = JsonDocument.Parse(output);
         var section = doc.RootElement.GetProperty("requestedSections").GetProperty("parent");
-        section.GetProperty("status").GetString().ShouldBe("absent");
+        section.GetProperty("status").GetString().ShouldBe(expected);
     }
 
     [Fact]
@@ -289,6 +293,71 @@ public sealed class ShowProjectionTests : IDisposable
         using var doc = JsonDocument.Parse(output);
         doc.RootElement.GetProperty("missing").GetArrayLength().ShouldBe(0);
         result.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("minimal", false)]
+    [InlineData("json", true)]
+    public async Task Projection_RefusesIncompatibleOutputBeforeReading(string output, bool tree)
+    {
+        var (exit, stdout) = await CaptureBoth(() =>
+            _cmd.ExecuteAsync(42, output, tree: tree, fields: "System.Title"));
+        exit.ShouldBe(2);
+        stdout.ShouldBeEmpty();
+        await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Projection_RefreshFailureDoesNotReturnCachedSuccess()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Cached").Build());
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(WorkItem, IReadOnlyList<WorkItemLink>)>(
+                new HttpRequestException("permission or transport failed")));
+        var (exit, stdout) = await CaptureBoth(() =>
+            _cmd.ExecuteAsync(42, "json", refresh: true, fields: "System.Title"));
+        exit.ShouldBe(1);
+        stdout.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(_stderr.ToString());
+        error.RootElement.GetProperty("error").GetString()!.ShouldContain("permission or transport failed");
+    }
+
+    [Fact]
+    public async Task Projection_ProtectedRefreshPreservesLocalBodyAndOldCapture()
+    {
+        var captured = DateTimeOffset.Parse("2020-01-01T00:00:00Z");
+        var local = new WorkItemBuilder(42, "Local edit").LastSyncedAt(captured).Dirty().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(local);
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns([local]);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((new WorkItemBuilder(42, "Server body").Build(), (IReadOnlyList<WorkItemLink>)[]));
+        var (exit, stdout) = await CaptureBoth(() =>
+            _cmd.ExecuteAsync(42, "json", refresh: true, fields: "System.Title"));
+        exit.ShouldBe(0);
+        using var result = JsonDocument.Parse(stdout);
+        result.RootElement.GetProperty("requestedFields").GetProperty("System.Title")
+            .GetProperty("value").GetString().ShouldBe("Local edit");
+        result.RootElement.GetProperty("freshness").GetProperty("lastSyncedAt")
+            .GetDateTimeOffset().ShouldBe(captured);
+        result.RootElement.GetProperty("freshness").GetProperty("hasLocalChanges").GetBoolean().ShouldBeTrue();
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Projection_LinkReadFailureCannotClaimVerifiedEmptyEdges()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Cached").Build());
+        _linkRepo.GetLinksVerifiedAtAsync(42, Arg.Any<CancellationToken>())
+            .Returns(DateTimeOffset.Parse("2026-08-28T05:24:13Z"));
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<WorkItemLink>>(new IOException("unavailable")));
+        var stdout = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json", sections: "links"));
+        using var result = JsonDocument.Parse(stdout);
+        result.RootElement.GetProperty("requestedSections").GetProperty("links")
+            .GetProperty("status").GetString().ShouldBe("unknown");
+        result.RootElement.GetProperty("freshness").GetProperty("linksVerifiedAt").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────

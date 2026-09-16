@@ -43,7 +43,7 @@ public sealed class ProcessDescriptionCompactProjectionTests
     private const string FieldReporter = "Custom.Reporter"; // rule-supplied via setDefault
     private const string FieldNotes = "Custom.Notes";       // never required, no default
 
-    private static ProcessDescription BuildFixture(bool includeBetaUnfetched = true)
+    private static ProcessDescription BuildFixture(bool includeBetaUnfetched = true, bool unknownConstraint = true)
     {
         var titleField = new ProcessDescriptionField(
             FieldTitle,
@@ -94,7 +94,7 @@ public sealed class ProcessDescriptionCompactProjectionTests
             "string",
             DefaultValue: null,
             FieldRequiredness.Always,
-            new FieldValueConstraint(FieldValueConstraintKind.Unknown, "SlugList", []),
+            new FieldValueConstraint(unknownConstraint ? FieldValueConstraintKind.Unknown : FieldValueConstraintKind.Unconstrained, "SlugList", []),
             "custom",
             IsLocked: false,
             Description: "A slug.");
@@ -651,16 +651,18 @@ public sealed class ProcessDescriptionCompactProjectionTests
         seen.ShouldBeTrue();
     }
 
-    [Fact]
-    public void Serialize_FullyReadTrue_WhenNoTypeHasUnfetched()
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Serialize_FullyReadRequiresKnownConstraints(bool unknown, bool fullyRead)
     {
         var json = ProcessDescriptionCompactProjection.Serialize(
-            BuildFixture(includeBetaUnfetched: false),
+            BuildFixture(includeBetaUnfetched: false, unknownConstraint: unknown),
             Request("fields"));
 
         using var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("completeness").GetProperty("fullyRead").GetBoolean()
-            .ShouldBeTrue();
+            .ShouldBe(fullyRead);
     }
 
     [Fact]
@@ -679,7 +681,7 @@ public sealed class ProcessDescriptionCompactProjectionTests
     public void Serialize_SectionCoverageComplete_WhenNoFilterAndNoUnfetched()
     {
         var json = ProcessDescriptionCompactProjection.Serialize(
-            BuildFixture(includeBetaUnfetched: false),
+            BuildFixture(includeBetaUnfetched: false, unknownConstraint: false),
             Request("fields,requirements"));
 
         using var doc = JsonDocument.Parse(json);
@@ -687,6 +689,35 @@ public sealed class ProcessDescriptionCompactProjectionTests
             .GetString().ShouldBe("complete");
     }
 
+
+    [Fact]
+    public void Serialize_KnownGapsCannotBecomeCompleteAfterFiltering()
+    {
+        var description = BuildFixture(includeBetaUnfetched: false, unknownConstraint: false);
+        description = description with
+        {
+            Header = description.Header with
+            {
+                KnownGaps = [new ProcessDescriptionGap("supplierRules", "Source incomplete", "fixture")],
+            },
+        };
+        using var result = JsonDocument.Parse(ProcessDescriptionCompactProjection.Serialize(
+            description, Request("fields", FieldTitle)));
+        result.RootElement.GetProperty("completeness").GetProperty("fullyRead").GetBoolean().ShouldBeFalse();
+        result.RootElement.GetProperty("warnings").EnumerateArray()
+            .ShouldContain(w => w.GetProperty("code").GetString() == "knownGap"
+                && w.GetProperty("subject").GetString() == "supplierRules");
+    }
+
+    [Fact]
+    public void Serialize_OptionalFieldIsNotMisreportedAsUnknownInRequirements()
+    {
+        using var result = JsonDocument.Parse(ProcessDescriptionCompactProjection.Serialize(
+            BuildFixture(), Request("requirements", FieldNotes)));
+        result.RootElement.GetProperty("warnings").EnumerateArray()
+            .ShouldNotContain(w => w.GetProperty("code").GetString() == "unknownFieldRef"
+                && w.GetProperty("subject").GetString() == FieldNotes);
+    }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────
 

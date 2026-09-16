@@ -11,11 +11,13 @@ exit behavior.
 
 For compact reads, first bind the qualified executable (absolute path + SHA-256,
 not version alone), workspace and its `twig.json` organization/project. Keep that
-binding for every call. From a source checkout, select one command's guidance with
+binding for every call. From a source checkout, experimentally select one command's guidance with
 `python3 tools/agent-efficiency-baseline/command-guide.py --executable <path> --workspace <root> show`
 (or `--source-dll <path>` for a qualified source build). It combines the existing
 command index with that executable's help before returning a tool response.
 Reuse only while executable hash, index hash and contract version match.
+This checkout-side helper is not installed-product capability; portable bundled
+guidance and the broader help design remain pending separate approval.
 
 Use `show <id> -o json --fields System.Title,System.State` for selected item facts;
 add `--sections links` when edges matter. Use

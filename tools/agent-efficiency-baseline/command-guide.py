@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Select existing command-index metadata and executable help before tool delivery.
+Experimental checkout-side helper, not an installed Twig capability or settled
+portable guidance design.
 
 No persistent cache: consumers may reuse the result only while executableSha256,
 indexSha256 and contractVersion match. The executable supplies syntax; the index

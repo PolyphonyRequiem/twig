@@ -154,11 +154,15 @@ internal static class ProcessDescriptionCompactProjection
         var warnings = new List<CompactWarning>();
         var scope = new ScopeAccumulator();
         var matchedRefs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var fullyRead = true;
+        var fullyRead = description.Header.KnownGaps.Count == 0;
+        foreach (var gap in description.Header.KnownGaps)
+            warnings.Add(new CompactWarning("knownGap", gap.Subject, $"{gap.Detail} ({gap.TrackedIn})"));
 
-        // Truth-honesty signals collected up-front so the field filter cannot mask them.
+        // Warnings survive field selection, including unknown value constraints.
         foreach (var type in description.Types)
         {
+            if (type.Fields.Any(static field => field.ValueConstraint.Kind == FieldValueConstraintKind.Unknown))
+                fullyRead = false;
             if (type.Unfetched.Count > 0)
             {
                 fullyRead = false;
@@ -197,7 +201,7 @@ internal static class ProcessDescriptionCompactProjection
                 warnings.Add(new CompactWarning(
                     "unknownFieldRef",
                     requested,
-                    "No described type carries this reference name; filter matched nothing."));
+                    "Reference was not found in the captured metadata; it may be unknown or unfetched."));
             }
         }
 
@@ -207,7 +211,7 @@ internal static class ProcessDescriptionCompactProjection
         writer.WriteNumber("typeCount", description.Types.Count);
         writer.WriteNumber("projectedFieldCount", scope.FieldRowsEmitted);
         writer.WriteNumber("projectedRequirementRowCount", scope.RequirementRowsEmitted);
-        writer.WriteString("sectionCoverage", scope.AnyPartial ? "partial" : "complete");
+        writer.WriteString("sectionCoverage", scope.AnyPartial || !fullyRead ? "partial" : "complete");
         writer.WriteEndObject();
 
         writer.WritePropertyName("sections");
@@ -363,6 +367,8 @@ internal static class ProcessDescriptionCompactProjection
         writer.WriteStartArray();
         foreach (var field in type.Fields)
         {
+            if (!filtered || filter.Contains(field.ReferenceName))
+                matchedRefs.Add(field.ReferenceName);
             if (field.Requiredness.Kind == FieldRequirednessKind.Never)
                 continue;
             if (filtered && !filter.Contains(field.ReferenceName))
@@ -450,11 +456,8 @@ internal static class ProcessDescriptionCompactProjection
         else
             writer.WriteNull("requiredWhen");
 
-        // Supplier is a three-state answer: "server" when a server default is known;
-        // otherwise "unknown". "caller" is never claimed — rule actions (AB#803) or
-        // item-level defaults can supply the value, and this process-scoped route cannot
-        // evaluate them. The consumer decides after evaluating supplierActions against a
-        // specific item.
+        // A missing server default cannot prove caller ownership: an unevaluated rule
+        // or item-level default may still supply it.
         if (field.DefaultValue is null)
         {
             writer.WriteString("supplier", "unknown");

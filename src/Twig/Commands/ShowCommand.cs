@@ -877,6 +877,7 @@ public sealed class ShowCommand(
         }
 
         var graph = needLinks ? WorkItemGraph.Build(items, links) : null;
+        var protectedIds = await ReadProjectionProtectedIdsAsync(ct);
         var itemDocs = new List<RenderNode.Document>(items.Count);
         foreach (var item in items)
         {
@@ -896,7 +897,8 @@ public sealed class ShowCommand(
             itemDocs.Add(ShowProjection.BuildItem(
                 item, itemLinks, verifiedAt, parent, children, request,
                 connection: ShowProjection.FormatConnection(ctx.Config),
-                route: ShowProjection.ReadRoute.Cache));
+                route: ShowProjection.ReadRoute.Cache,
+                hasLocalChanges: protectedIds?.Contains(item.Id)));
         }
 
         var envelope = ShowProjection.BuildBatch(
@@ -981,12 +983,28 @@ public sealed class ShowCommand(
         var doc = ShowProjection.BuildItem(
             item, links, linksVerifiedAt, parent, children, request,
             ShowProjection.FormatConnection(ctx.Config),
-            refresh ? ShowProjection.ReadRoute.Refresh : ShowProjection.ReadRoute.Cache);
+            refresh ? ShowProjection.ReadRoute.Refresh : ShowProjection.ReadRoute.Cache,
+            (await ReadProjectionProtectedIdsAsync(ct))?.Contains(item.Id));
 
         var tree = new Twig.RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
         Console.WriteLine();
         return 0;
+    }
+
+    private async Task<IReadOnlySet<int>?> ReadProjectionProtectedIdsAsync(CancellationToken ct)
+    {
+        if (_pendingChangeStore is null) return null;
+        try
+        {
+            // Reuse sync protection's dirty-or-pending truth; one plural lookup per batch.
+            return await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, _pendingChangeStore, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Missing local evidence must not be reported as a clean server snapshot.
+            return null;
+        }
     }
 
     /// <summary>

@@ -360,6 +360,53 @@ public sealed class ShowProjectionTests : IDisposable
         result.RootElement.GetProperty("freshness").GetProperty("linksVerifiedAt").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Projection_PendingOnlyItemReportsLocalChanges(bool refresh)
+    {
+        var local = new WorkItemBuilder(42, "Protected local").LastSyncedAt(DateTimeOffset.Parse("2020-01-01T00:00:00Z")).Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(local);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 42 });
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((new WorkItemBuilder(42, "Server body").Build(), (IReadOnlyList<WorkItemLink>)[]));
+        var (exit, output) = await CaptureBoth(() => _cmd.ExecuteAsync(42, "json", refresh: refresh, fields: "System.Title"));
+        exit.ShouldBe(0);
+        using var doc = JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("freshness").GetProperty("hasLocalChanges").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("requestedFields").GetProperty("System.Title").GetProperty("value").GetString().ShouldBe("Protected local");
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Projection_BatchPendingOnlyUsesOnePluralLookup()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(42, "Pending").Build());
+        _workItemRepo.GetByIdAsync(43, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(43, "Clean").Build());
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 42 });
+        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("42,43", "json", fields: "System.Title"));
+        using var doc = JsonDocument.Parse(output);
+        var items = doc.RootElement.GetProperty("items").EnumerateArray().ToDictionary(x => x.GetProperty("id").GetInt32());
+        items[42].GetProperty("freshness").GetProperty("hasLocalChanges").GetBoolean().ShouldBeTrue();
+        items[43].GetProperty("freshness").GetProperty("hasLocalChanges").GetBoolean().ShouldBeFalse();
+        await _pendingChangeStore.Received(1).GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Projection_UnreadablePendingIsUnknownNotClean(bool batch)
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(42, "Cached").Build());
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Task.FromException<IReadOnlyList<int>>(new IOException("store unavailable")));
+        var output = await CaptureStdout(() => batch
+            ? _cmd.ExecuteBatchAsync("42", "json", fields: "System.Title")
+            : _cmd.ExecuteAsync(42, "json", fields: "System.Title"));
+        using var doc = JsonDocument.Parse(output);
+        var item = batch ? doc.RootElement.GetProperty("items")[0] : doc.RootElement;
+        item.GetProperty("freshness").GetProperty("hasLocalChanges").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private static async Task<string> CaptureStdout(Func<Task<int>> action)

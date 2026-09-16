@@ -87,7 +87,8 @@ internal static class ShowProjection
         IReadOnlyList<WorkItem> children,
         Request request,
         string? connection,
-        ReadRoute route)
+        ReadRoute route,
+        bool? hasLocalChanges = null)
     {
         var fields = new List<DocumentField>
         {
@@ -104,7 +105,7 @@ internal static class ShowProjection
         if (request.Sections.Count > 0)
             fields.Add(new DocumentField("requestedSections", BuildRequestedSections(item, request.Sections, links, parent, children, linksVerifiedAt)));
 
-        fields.Add(new DocumentField("freshness", BuildFreshness(item, linksVerifiedAt)));
+        fields.Add(new DocumentField("freshness", BuildFreshness(item, linksVerifiedAt, hasLocalChanges)));
         fields.Add(new DocumentField("completeness", BuildCompleteness(route)));
 
         return new RenderNode.Document(null, fields);
@@ -317,12 +318,13 @@ internal static class ShowProjection
 
     // ── Freshness / completeness ───────────────────────────────────────
 
-    private static RenderNode.Document BuildFreshness(WorkItem item, DateTimeOffset? linksVerifiedAt)
+    private static RenderNode.Document BuildFreshness(WorkItem item, DateTimeOffset? linksVerifiedAt, bool? hasLocalChanges)
     {
         return new RenderNode.Document(null, new List<DocumentField>
         {
             new("linksVerifiedAt", KeyValue("linksVerifiedAt", InstantCell(linksVerifiedAt))),
-            new("hasLocalChanges", KeyValue("hasLocalChanges", RenderCell.Boolean(item.IsDirty))),
+            new("hasLocalChanges", KeyValue("hasLocalChanges", item.IsDirty ? RenderCell.Boolean(true) :
+                hasLocalChanges is bool known ? RenderCell.Boolean(known) : new RenderCell(string.Empty, new RenderValue.Null()))),
             new("lastSyncedAt", KeyValue("lastSyncedAt", InstantCell(item.LastSyncedAt))),
         });
     }

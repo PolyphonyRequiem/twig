@@ -86,7 +86,10 @@ from the cached dictionary alone is never proof of absence on ADO.
 `--sections links` includes cached edges and their verification timestamp;
 unverified edges are `unknown`, not an authoritative empty set. Cached children
 are a `partial` view. Freshness includes `hasLocalChanges` so a protected local
-body is not mistaken for a clean server snapshot. Omit both flags for the
+body is not mistaken for a clean server snapshot. This uses the same union of
+dirty items and pending-change IDs as sync protection (one plural lookup for a
+batch). It is `null` if that local evidence is unavailable, unless the item is
+already known dirty; unavailable does not mean clean. Omit both flags for the
 unchanged full-detail path; `--refresh` retains the protected pull-only behavior.
 
 ## Examples

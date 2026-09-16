@@ -129,6 +129,42 @@ held by another actor — short-circuits the loop and lands on
 `PlanApplyResult.Error`
 (`src/Twig.Domain/Services/Plan/PlanApplyResult.cs:19-26`).
 
+### Per-operation diagnostics
+
+Every journal row exposes a shared, bounded diagnostics projection through
+`PlanJournalOperation.Diagnostics`
+(`src/Twig.Domain/Services/Plan/PlanOperationDiagnostics.cs`). It is derived
+per access from `State`, `ResultJson`, and (as a fallback for
+`expectedRevision`) `RequestJson` — never cached, so a record-with-mutation
+copy reprojects against the new payload. Both CLI and MCP surfaces render
+this projection, so a row reads identically after apply and on a later status
+call.
+
+The projection is safe by construction:
+
+- `disposition` is derived from journal `State` alone. Partial lifecycle
+  states (`in-flight`, `awaiting-verification`, `not-started`) stay distinct
+  from terminals — a row is never collapsed to a success it did not reach.
+- `code`, `fields[].classification`, and `disposition` come from fixed
+  vocabularies. A legacy row that predates the additive payload keeps its
+  known disposition and leaves `code` null rather than fabricating detail.
+- Field expected/actual bodies are deliberately never carried out of
+  `ResultJson`. `ResultJson`, `Warning`, and `Error` remain the full-evidence
+  route — human and minimal output print the bounded summary and a
+  `full evidence: rerun with '-o json' …` hint, and JSON preserves the raw
+  keys unchanged (AB#881).
+- A stray `{"rev":N}` PATCH-acknowledgment shape is treated as an unknown
+  payload. `rev` is not a proven post-op readback and is never surfaced as
+  `ObservedRevision`.
+- Terminal diagnostics enrich the acknowledgment in the same guarded journal update,
+  including recovery from an already-`Applied` row. An acknowledged `rev:4` remains
+  distinct from a later readback `revision:5`; a delete acknowledgment `deleted:42`
+  survives even if its readback is unavailable. Unknown acknowledgment properties
+  are retained. Readback-owned `revision`, `diagnostics`, `fieldEvidence`, and
+  `failureDetail` describe the latest verification attempt. Opaque/non-object legacy
+  results are retained verbatim under `acknowledgedResultJson`, without inventing
+  an acknowledged revision. These evidence bodies remain excluded from compact output.
+
 ### HTML readback boundaries
 
 For fields whose metadata declares HTML, supported serialization differences

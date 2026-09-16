@@ -31,7 +31,7 @@ public sealed record PlanJournalOperation
     /// <summary>When the operation reached <see cref="PlanOperationState.Verified"/>.</summary>
     public DateTimeOffset? VerifiedAt { get; init; }
 
-    /// <summary>Success payload captured on Applied/Verified (e.g. new revision).</summary>
+    /// <summary>Operation evidence: acknowledged result and terminal readback or refusal diagnostics.</summary>
     public string? ResultJson { get; init; }
 
     /// <summary>Failure message captured on Failed/Indeterminate.</summary>
@@ -49,4 +49,15 @@ public sealed record PlanJournalOperation
     /// </para>
     /// </summary>
     public string? Warning { get; init; }
+
+    /// <summary>
+    /// Concise, trustworthy per-operation diagnostics projected from the journal row
+    /// (AB#881). Computed on every access — never cached — so a record-with-mutation
+    /// copy (<c>op with { ResultJson = … }</c>) reprojects against the new payload
+    /// rather than serving a stale snapshot. The raw
+    /// <see cref="ResultJson"/>/<see cref="Warning"/>/<see cref="Error"/> remain the
+    /// full-evidence backing; this property is the surface every CLI/MCP renderer
+    /// consumes so both agree byte-for-byte on the derived shape.
+    /// </summary>
+    public PlanOperationDiagnostics Diagnostics => PlanOperationDiagnostics.From(this);
 }

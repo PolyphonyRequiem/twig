@@ -62,8 +62,8 @@ Human status for a previewed but not-yet-applied proposal:
 ```console
 $ twig proposal status --file .twig/proposals/close-1234.json
 digest: 3f9c…a1b7
-state:  Previewed
-ops:    3 (all Pending)
+state:  Planned
+  [0] close Batch → Planned  (not-started)
 ```
 
 Machine snapshot for an agent:
@@ -73,11 +73,47 @@ $ twig proposal status --file .twig/proposals/close-1234.json -o json
 {
   "digest": "3f9c…a1b7",
   "found": true,
-  "state": "Applied",
-  "operations": [ /* ordinal + state + error */ ],
+  "state": "Planned",
+  "operations": [ /* ordinal + state + diagnostics + full evidence */ ],
   "error": null
 }
 ```
+
+### Per-operation `diagnostics`
+
+Every row in the JSON payload carries value-free `diagnostics` beside the
+existing `resultJson`, `warning`, and `error` keys (`result` in MCP):
+
+```json
+"diagnostics": {
+  "disposition": "verified",
+  "code": "verified",
+  "expectedRevision": 2,
+  "observedRevision": 3,
+  "fields": [{ "field": "System.Title", "classification": "exact" }],
+  "missingFields": [],
+  "summary": "verified: 1 checked field(s): System.Title (exact)"
+}
+```
+
+The projection is derived by
+`Twig.Domain.Services.Plan.PlanJournalOperation.Diagnostics` from journal `State`
+plus a defensive parse of `ResultJson` and (as a fallback for `expectedRevision`)
+`RequestJson` — a row that predates the additive payload keeps its known
+`disposition` and leaves `code` null rather than fabricating detail. Vocabularies:
+
+| Key | Values |
+|---|---|
+| `disposition` | `verified`, `failed`, `outcome-unknown`, `in-flight`, `awaiting-verification`, `not-started` |
+| `code` | `verified`, `field-mismatch`, `missing-required-fields`, `revision-not-advanced`, `revision-conflict`, `readback-unavailable`, or `null` |
+| `fields[].classification` | `exact`, `cleared`, `canonicalized-html`, `canonicalized-identity`, `server-generated`, `mismatch`, `clear-failed` |
+
+Human and minimal output render disposition, revisions, and a bounded summary
+of at most eight field entries; JSON retains the complete field lists.
+The `full evidence: rerun with '-o json' …` hint points to the original
+per-operation `warning` and `error` bodies, which can carry ADO response fragments with
+user-authored values. The JSON `resultJson`/`warning`/`error` keys remain the
+full-evidence route (AB#881).
 
 ## Exit codes and failure modes
 

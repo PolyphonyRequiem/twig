@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Text;
+using System.Text.Json;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
@@ -102,7 +105,9 @@ internal sealed class PlanOperationExecutor
             // 412 is DETERMINATE: the server refused because the revision moved. No readback
             // will change that answer, and no retry is permitted — the whole point of the plan
             // shape is that a stale revision fails loudly.
-            return PlanExecutionResult.Failure($"Revision conflict: server rev={ex.ServerRevision}.");
+            return PlanExecutionResult.Failure(
+                $"Revision conflict: expected rev={ExpectedRevision(operation)}, server rev={ex.ServerRevision}. Review a new proposal; no automatic retry.",
+                SerializeDiagnostics("revision-conflict", ExpectedRevision(operation), ex.ServerRevision));
         }
         catch (AdoRelationNotFoundException ex)
         {
@@ -223,7 +228,7 @@ internal sealed class PlanOperationExecutor
         {
             return operation switch
             {
-                BatchOperation batch => await ReadbackBatchAsync(batch, ct).ConfigureAwait(false),
+                BatchOperation batch => await ReadbackBatchAsync(batch, applyResult.NewRevision, ct).ConfigureAwait(false),
                 AddLinkOperation add => await ReadbackAddLinkAsync(add, ct).ConfigureAwait(false),
                 RemoveLinkOperation remove => await ReadbackRemoveLinkAsync(remove, ct).ConfigureAwait(false),
                 DeleteOperation delete => await ReadbackDeleteAsync(delete, ct).ConfigureAwait(false),
@@ -241,101 +246,147 @@ internal sealed class PlanOperationExecutor
         }
         catch (Exception ex)
         {
-            return PlanReadbackOutcome.Indeterminate($"Readback failed: {ex.Message}");
+            return PlanReadbackOutcome.Indeterminate(
+                "Authoritative readback unavailable; the operation's effect is unknown. Inspect full evidence before reconciling.",
+                SerializeDiagnostics("readback-unavailable", ExpectedRevision(operation), null,
+                    acknowledgedRevision: applyResult.NewRevision, failureDetail: ex.Message));
         }
     }
 
-    private async Task<PlanReadbackOutcome> ReadbackBatchAsync(BatchOperation batch, CancellationToken ct)
+    private async Task<PlanReadbackOutcome> ReadbackBatchAsync(
+        BatchOperation batch, int? acknowledgedRevision, CancellationToken ct)
     {
         var item = await _adoService.FetchAsync(batch.WorkItemId, ct).ConfigureAwait(false);
-        // Missing / stale / non-advanced readback stays Indeterminate and NEVER reaches the
-        // server-generated warning policy — an unproven mutation cannot be warning-verified.
-        if (item.Revision <= batch.ExpectedRevision)
-            return PlanReadbackOutcome.Indeterminate("Server revision did not advance past the expected revision.");
-
+        var advanced = item.Revision > batch.ExpectedRevision;
         var normalizations = new List<PlanReadbackNormalization>();
+        var fields = new List<FieldEvidence>(batch.Fields.Count);
+        var mismatches = new List<string>();
         foreach (var kv in batch.Fields)
         {
             var actual = ResolveBatchField(item, kv.Key);
+            string classification;
             if (kv.Value is null)
             {
-                // Plan asked to clear the field; a genuine clear means absent OR empty in
-                // both the canonical property (if any) and the arbitrary Fields dictionary.
-                //
-                // 🔴 A requested CLEAR is never warning-verified, not even on a
-                // server-generated field. Spec #753 downgrades a difference only when the
-                // refreshed read PROVES the intended mutation landed — and a clear that did
-                // not take is precisely an unproven mutation, not ADO bookkeeping. Treating
-                // it as normalization would report "cleared" for a field that still holds a
-                // value, which is the false-green class this whole spec exists to abolish.
-                if (string.IsNullOrEmpty(actual))
-                    continue;
-                return PlanReadbackOutcome.Indeterminate(
-                    $"Field {kv.Key} was expected to be cleared but reflects '{actual}'.");
+                // A failed clear is never a normalization, including server-owned fields.
+                classification = string.IsNullOrEmpty(actual) ? "cleared" : "clear-failed";
             }
-            var match = await ClassifyReadbackFieldAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
-            if (match == FieldMatch.Exact)
-                continue;
-            if (match == FieldMatch.NormalizedHtml)
+            else
             {
-                // AB#755: the field's own metadata says ADO owns this markup's serialization,
-                // and the structural comparison proved the CONTENT landed. That is the same
-                // class of fact as a server-generated stamp — a landed write plus a rewrite
-                // Twig does not control — so it takes the identical warning-verified path
-                // rather than a parallel one. Materially different HTML never reaches here:
-                // HtmlStructuralComparer returns false and the ordinary strict branch below
-                // fires.
-                normalizations.Add(new PlanReadbackNormalization(
-                    kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedHtml));
-                continue;
+                var match = await ClassifyReadbackFieldAsync(actual, kv.Key, kv.Value, ct).ConfigureAwait(false);
+                classification = match switch
+                {
+                    FieldMatch.Exact => "exact",
+                    FieldMatch.NormalizedHtml => "canonicalized-html",
+                    FieldMatch.NormalizedIdentity => "canonicalized-identity",
+                    _ => "mismatch",
+                };
+                if (match == FieldMatch.NormalizedHtml)
+                    normalizations.Add(new(kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedHtml));
+                else if (match == FieldMatch.NormalizedIdentity)
+                    normalizations.Add(new(kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedIdentity));
+                else if (match == FieldMatch.None && advanced
+                    && await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
+                {
+                    classification = "server-generated";
+                    normalizations.Add(new(kv.Key, kv.Value, actual, NormalizationKind.ServerGenerated));
+                }
             }
-            if (match == FieldMatch.NormalizedIdentity)
-            {
-                // AB#802: the field's own metadata says this is an identity, and the stable
-                // key comparison proved the SAME account landed — ADO merely re-rendered it
-                // from the staged form into `Display Name (unique name)`. Same class of fact
-                // as the html case: a landed write plus a rewrite Twig does not control, so
-                // it takes the identical warning-verified path. A genuinely different
-                // identity never reaches here: IdentityValueComparer returns false and the
-                // strict branch below fires.
-                normalizations.Add(new PlanReadbackNormalization(
-                    kv.Key, kv.Value, actual, NormalizationKind.CanonicalizedIdentity));
-                continue;
-            }
-
-            // AB#754: a difference on a field ADO's own revision machinery owns is a
-            // normalization, not a contradiction — but ONLY as warning detail riding
-            // alongside a Verified outcome, and only once every user-authored field in this
-            // same batch has already compared equal (a genuine scalar mismatch below returns
-            // Indeterminate before we ever finish the loop).
-            if (await IsServerGeneratedFieldAsync(kv.Key, ct).ConfigureAwait(false))
-            {
-                normalizations.Add(new PlanReadbackNormalization(
-                    kv.Key, kv.Value, actual, NormalizationKind.ServerGenerated));
-                continue;
-            }
-
-            return PlanReadbackOutcome.Indeterminate($"Field {kv.Key} did not reflect the expected value.");
+            fields.Add(new(kv.Key, classification, kv.Value, actual));
+            if (classification is "mismatch" or "clear-failed")
+                mismatches.Add(kv.Key);
         }
 
-        var resultJson = SerializeReadbackRevision(item.Revision);
+        var code = !advanced ? "revision-not-advanced" : mismatches.Count > 0 ? "field-mismatch" : "verified";
+        var resultJson = SerializeDiagnostics(code, batch.ExpectedRevision, item.Revision,
+            fields, acknowledgedRevision: acknowledgedRevision);
+        if (!advanced)
+            return PlanReadbackOutcome.Indeterminate(
+                $"Server revision did not advance past the expected revision (expected {batch.ExpectedRevision}, observed {item.Revision}). "
+                + "Matching field values alone cannot prove this write occurred; already-satisfied success is not established. "
+                + "Reconcile the authoritative evidence before reviewing any replacement proposal; do not replay automatically.",
+                resultJson);
+        if (mismatches.Count > 0)
+            return PlanReadbackOutcome.Indeterminate(
+                $"Readback did not match {mismatches.Count} requested field(s), including any expected to be cleared: "
+                + string.Join(", ", mismatches.Take(8))
+                + (mismatches.Count > 8 ? "; additional fields are in diagnostics." : "."),
+                resultJson);
         if (normalizations.Count == 0)
             return PlanReadbackOutcome.VerifiedWith(resultJson);
-
-        // Terminal-outcome coupling. System.State and Custom.TerminalOutcome are NOT in the
-        // server-generated set, so a batch whose lifecycle transition did not land already
-        // returned Indeterminate inside the loop above — that is where the strictness lives,
-        // and a second runtime re-check here would be unreachable code masquerading as a
-        // guard. What actually protects the coupling is that the generated set can never
-        // acquire a lifecycle field; ServerGeneratedFieldPolicy asserts exactly that as a
-        // static invariant (see TerminalContractFieldsAreNeverServerGenerated), so a future
-        // addition breaks a test rather than silently downgrading a close.
         if (!ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, normalizations))
             return PlanReadbackOutcome.Indeterminate(
-                "Readback observed differences the normalization policy cannot explain.");
-
+                "Readback observed differences the normalization policy cannot explain.",
+                SerializeDiagnostics("field-mismatch", batch.ExpectedRevision, item.Revision, fields,
+                    acknowledgedRevision: acknowledgedRevision));
         return PlanReadbackOutcome.VerifiedWithWarning(
             resultJson, ServerGeneratedFieldPolicy.FormatWarning(normalizations));
+    }
+
+    private readonly record struct FieldEvidence(
+        string Field, string Classification, string? Expected, string? Actual);
+
+    internal static int? ExpectedRevision(PlanOperationDefinition operation) => operation switch
+    {
+        BatchOperation batch => batch.ExpectedRevision,
+        AddLinkOperation add => add.ExpectedRevision,
+        RemoveLinkOperation remove => remove.ExpectedRevision,
+        DeleteOperation delete => delete.ExpectedRevision,
+        _ => null,
+    };
+
+    internal static string SerializeMissingFields(
+        PlanOperationDefinition operation, IReadOnlyList<string>? missingFields, int? observedRevision)
+        => SerializeDiagnostics("missing-required-fields", ExpectedRevision(operation), observedRevision,
+            missingFields: missingFields);
+
+    private static string SerializeDiagnostics(
+        string code, int? expectedRevision, int? observedRevision,
+        IReadOnlyList<FieldEvidence>? fields = null, IReadOnlyList<string>? missingFields = null,
+        int? acknowledgedRevision = null, string? failureDetail = null)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using var writer = new Utf8JsonWriter(buffer);
+        writer.WriteStartObject();
+        if (acknowledgedRevision is int acknowledged)
+            writer.WriteNumber("rev", acknowledged);
+        if (observedRevision is int observed)
+            writer.WriteNumber("revision", observed);
+        writer.WriteStartObject("diagnostics");
+        writer.WriteString("code", code);
+        if (expectedRevision is int expected) writer.WriteNumber("expectedRevision", expected);
+        else writer.WriteNull("expectedRevision");
+        if (observedRevision is int revision) writer.WriteNumber("observedRevision", revision);
+        else writer.WriteNull("observedRevision");
+        writer.WriteStartArray("fields");
+        if (fields is not null)
+            foreach (var field in fields)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("field", field.Field);
+                writer.WriteString("classification", field.Classification);
+                writer.WriteEndObject();
+            }
+        writer.WriteEndArray();
+        writer.WriteStartArray("missingFields");
+        if (missingFields is not null)
+            foreach (var field in missingFields) writer.WriteStringValue(field);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.WriteStartArray("fieldEvidence");
+        if (fields is not null)
+            foreach (var field in fields)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("field", field.Field);
+                writer.WriteString("expected", field.Expected);
+                writer.WriteString("actual", field.Actual);
+                writer.WriteEndObject();
+            }
+        writer.WriteEndArray();
+        if (failureDetail is not null) writer.WriteString("failureDetail", failureDetail);
+        writer.WriteEndObject();
+        writer.Flush();
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     /// <summary>
@@ -575,8 +626,8 @@ internal readonly record struct PlanExecutionResult(
     public static PlanExecutionResult Success(string resultJson, int? newRevision = null)
         => new(PlanExecutionOutcome.Applied, resultJson, null, null, newRevision);
 
-    public static PlanExecutionResult Failure(string error)
-        => new(PlanExecutionOutcome.Failed, null, error, null, null);
+    public static PlanExecutionResult Failure(string error, string? resultJson = null)
+        => new(PlanExecutionOutcome.Failed, resultJson, error, null, null);
 
     public static PlanExecutionResult Indeterminate(string error)
         => new(PlanExecutionOutcome.Indeterminate, null, error, null, null);
@@ -626,5 +677,6 @@ internal readonly record struct PlanReadbackOutcome(
     public static PlanReadbackOutcome VerifiedWithWarning(string resultJson, string warning) =>
         new(true, true, null, resultJson, warning);
     public static PlanReadbackOutcome Failed(string error) => new(false, true, error, null, null);
-    public static PlanReadbackOutcome Indeterminate(string error) => new(false, false, error, null, null);
+    public static PlanReadbackOutcome Indeterminate(string error, string? resultJson = null)
+        => new(false, false, error, resultJson, null);
 }

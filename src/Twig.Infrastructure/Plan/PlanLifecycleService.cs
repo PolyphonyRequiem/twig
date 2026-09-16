@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -572,7 +574,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             if (gate.Outcome.IsRefused)
             {
                 return StepResult.Terminal(await MarkTerminalAsync(
-                    digest, row.OpId, gate.Outcome.Message!, PlanOperationState.Failed, ct)
+                    digest, row.OpId, gate.Outcome.Message!, PlanOperationState.Failed, ct,
+                    gate.Outcome.Fields is { } missingFields
+                        ? PlanOperationExecutor.SerializeMissingFields(opDef, missingFields, gate.Snapshot?.Revision)
+                        : null)
                     .ConfigureAwait(false));
             }
             if (gate.Outcome.IsRefreshRequired)
@@ -607,7 +612,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                         .ConfigureAwait(false),
                 PlanExecutionOutcome.Failed
                     => StepResult.Terminal(await MarkTerminalAsync(
-                        digest, row.OpId, applyResult.Error!, PlanOperationState.Failed, ct)
+                        digest, row.OpId, applyResult.Error!, PlanOperationState.Failed, ct, applyResult.ResultJson)
                         .ConfigureAwait(false)),
                 _ => await ResolveIndeterminateExecuteAsync(digest, row.OpId, opDef, applyResult, carry, ct)
                         .ConfigureAwait(false),
@@ -654,7 +659,9 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         {
             // Applied recovery is verify-only: no readback→Applied claim, just readback +
             // Applied → Verified. The atomic record already stamped applied_at and result.
-            return await FinalizeAppliedAsync(digest, row.OpId, opDef, default, carry, ct).ConfigureAwait(false);
+            var acknowledged = new PlanExecutionResult(
+                PlanExecutionOutcome.Applied, row.ResultJson, null, null, null);
+            return await FinalizeAppliedAsync(digest, row.OpId, opDef, acknowledged, carry, ct).ConfigureAwait(false);
         }
 
         // Planned: prior confirmation loop should have moved this to Confirmed. Guard: treat
@@ -728,7 +735,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
             }
 
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
@@ -739,7 +746,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         return StepResult.Terminal(await MarkTerminalAsync(
             digest, opId, outcome.Error ?? (outcome.Deterministic ? "failed" : "indeterminate"),
-            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
+            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
 
@@ -755,12 +762,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private Task<bool> PromoteAppliedToVerifiedAsync(
         string digest,
         string opId,
+        PlanOperationDefinition operation,
         PlanReadbackOutcome outcome,
         CancellationToken ct)
         => _journal.TryTransitionOperationAsync(
             digest, opId,
             PlanOperationState.Applied, PlanOperationState.Verified,
-            _clock.GetUtcNow(), ct, outcome.Warning);
+            _clock.GetUtcNow(), ct, outcome.Warning,
+            operation is BatchOperation ? outcome.ResultJson : null);
 
     /// <summary>
     /// Winning-execute path: atomic Applying → Applied (with executor's result JSON), then
@@ -808,11 +817,11 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             // The executor could not classify, so its ResultJson is null; the readback that
             // proved the effect carries the canonical shape and stamps result_json here.
             var recorded = await _journal.TryRecordAppliedAsync(
-                digest, opId, applyResult.ResultJson ?? outcome.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
+                digest, opId, outcome.ResultJson ?? applyResult.ResultJson, _clock.GetUtcNow(), ct).ConfigureAwait(false);
             if (!recorded)
                 return await ResumeFromObservedRowAsync(digest, opId, opDef, carry, ct).ConfigureAwait(false);
 
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
             return StepResult.Terminal(await ObserveActualStateAsync(digest, opId, ct).ConfigureAwait(false));
@@ -823,7 +832,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         // error message wins when readback declined to name a determinate one.
         var error = outcome.Error ?? applyResult.Error ?? "indeterminate";
         var finalState = outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate;
-        return StepResult.Terminal(await MarkTerminalAsync(digest, opId, error, finalState, ct)
+        return StepResult.Terminal(await MarkTerminalAsync(digest, opId, error, finalState, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
 
@@ -841,9 +850,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         CancellationToken ct)
     {
         var outcome = await _executor.ReadbackAsync(opDef, applyResult, ct).ConfigureAwait(false);
+        outcome = outcome with { ResultJson = ComposeReadbackEvidence(applyResult.ResultJson, outcome.ResultJson) };
         if (outcome.Ok)
         {
-            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, outcome, ct)
+            var verified = await PromoteAppliedToVerifiedAsync(digest, opId, opDef, outcome, ct)
                 .ConfigureAwait(false);
             if (verified) return StepResult.Terminal(PlanOperationState.Verified);
 
@@ -852,9 +862,66 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
 
         return StepResult.Terminal(await MarkTerminalAsync(
             digest, opId, outcome.Error ?? (outcome.Deterministic ? "failed" : "indeterminate"),
-            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct)
+            outcome.Deterministic ? PlanOperationState.Failed : PlanOperationState.Indeterminate, ct, outcome.ResultJson)
             .ConfigureAwait(false));
     }
+
+    /// <summary>
+    /// Enriches the acknowledgment, never reconstructing it from a later readback.
+    /// Only readback-owned properties are replaced; all other acknowledgment properties
+    /// survive, including fields unknown to this version. Non-object legacy evidence is
+    /// retained verbatim rather than discarded or treated as a successful acknowledgment.
+    /// The composed payload is persisted by the existing guarded terminal transition.
+    /// </summary>
+    private static string? ComposeReadbackEvidence(string? acknowledgedJson, string? readbackJson)
+    {
+        if (acknowledgedJson is null) return readbackJson;
+        if (readbackJson is null) return acknowledgedJson;
+
+        using var readback = JsonDocument.Parse(readbackJson);
+        JsonDocument? acknowledged = null;
+        try
+        {
+            acknowledged = JsonDocument.Parse(acknowledgedJson);
+        }
+        catch (JsonException)
+        {
+            // Old opaque result strings remain evidence even when they cannot be merged.
+        }
+
+        using (acknowledged)
+        {
+            var buffer = new ArrayBufferWriter<byte>();
+            using var writer = new Utf8JsonWriter(buffer);
+            writer.WriteStartObject();
+            var original = acknowledged?.RootElement;
+            if (original is { ValueKind: JsonValueKind.Object } obj)
+            {
+                foreach (var property in obj.EnumerateObject())
+                {
+                    if (!IsReadbackProperty(property.Name) || !readback.RootElement.TryGetProperty(property.Name, out _))
+                        property.WriteTo(writer);
+                }
+            }
+            else
+            {
+                writer.WriteString("acknowledgedResultJson", acknowledgedJson);
+            }
+            foreach (var property in readback.RootElement.EnumerateObject())
+            {
+                if (IsReadbackProperty(property.Name)
+                    || original is not { ValueKind: JsonValueKind.Object } originalObject
+                    || !originalObject.TryGetProperty(property.Name, out _))
+                    property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+            writer.Flush();
+            return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        }
+    }
+
+    private static bool IsReadbackProperty(string name)
+        => name is "revision" or "diagnostics" or "fieldEvidence" or "failureDetail";
 
     private bool IsFreshApplyingLease(PlanJournalOperation row)
     {
@@ -884,9 +951,10 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         string opId,
         string error,
         PlanOperationState finalState,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? resultJson = null)
     {
-        await _journal.SaveOperationErrorAsync(digest, opId, error, finalState, _clock.GetUtcNow(), ct)
+        await _journal.SaveOperationErrorAsync(digest, opId, error, finalState, _clock.GetUtcNow(), ct, resultJson)
             .ConfigureAwait(false);
         return finalState;
     }

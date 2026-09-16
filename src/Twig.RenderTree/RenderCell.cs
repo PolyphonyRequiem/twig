@@ -24,6 +24,9 @@ public sealed record RenderCell(
     RenderValue Value,
     Severity Severity = Severity.None)
 {
+    /// <summary>Optional literal semantic spans whose concatenation equals DisplayText. Providers may ignore styling.</summary>
+    public IReadOnlyList<RenderTextSpan>? Spans { get; init; }
+
     /// <summary>Convenience: a display-only cell with no machine value.</summary>
     public static RenderCell DisplayOnly(string displayText, Severity severity = Severity.None)
         => new(displayText, new RenderValue.Absent(), severity);

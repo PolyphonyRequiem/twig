@@ -475,8 +475,11 @@ internal static class ExceptionHandler
 /// not during startup DI resolution. This allows <c>twig init</c> (which
 /// creates <c>.twig/</c>) to run before the database exists.
 /// </summary>
-public sealed class TwigCommands(IServiceProvider services)
+public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
+    protected override Task<int> PreviewLegacyAsync(string? file, string output, CancellationToken ct)
+        => PlanPreview(file, output, false, false, ct);
+
     /// <summary>
     /// Splits <c>seed chain</c>'s comma-separated titles into the array the command takes.
     ///
@@ -1364,9 +1367,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Preview a proposal: import journal, snapshot pending changes, report digest and canApply. No ADO mutation. Canonical verb is <c>proposal preview</c>; <c>plan preview</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="full">Show exact full description bodies instead of brief effects.</param>
+    /// <param name="interactive">Opt into a terminal-only Details/Back/Cancel review loop. Never applies.</param>
     [Command("proposal preview|plan preview")]
-    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, ct);
+    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false, bool interactive = false, CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, full, interactive, ct);
 
     /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly, and --authorize &lt;identity&gt; recording who signed it off. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>

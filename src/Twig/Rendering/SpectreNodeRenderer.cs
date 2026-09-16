@@ -33,7 +33,7 @@ namespace Twig.Rendering;
 /// final slice; this type is then renamed.
 /// </para>
 /// </remarks>
-internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
+internal sealed class SpectreNodeRenderer(IAnsiConsole console, SpectreTheme? theme = null) : IRenderer
 {
     public void Render(RenderTree.RenderTree tree)
     {
@@ -68,6 +68,9 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
                 break;
             case RenderNode.Table table:
                 this.WriteTable(table);
+                break;
+            case RenderNode.FieldBlock block:
+                console.Write(new FieldBlockContent(block, console.Profile.Capabilities.Unicode));
                 break;
             case RenderNode.TreeView treeView:
                 this.WriteTreeView(treeView);
@@ -181,6 +184,11 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
 
     private void WriteTreeView(RenderNode.TreeView treeView)
     {
+        if (HasBody(treeView.Root))
+        {
+            WriteCompositeBranch(treeView.Root, "", true, true);
+            return;
+        }
         var rootLabel = FormatRowMarkup(treeView.Root.Row);
         var spectreTree = new Tree(rootLabel);
         foreach (var child in treeView.Root.Children)
@@ -189,6 +197,56 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         }
 
         console.Write(spectreTree);
+    }
+
+    private static bool HasBody(RenderTreeBranch branch) => branch.Body.Count > 0 || branch.Row.Kind == "review-item" || branch.Children.Any(HasBody);
+
+    private void WriteCompositeBranch(RenderTreeBranch branch, string ancestor, bool last, bool root)
+    {
+        var unicode = console.Profile.Capabilities.Unicode;
+        var bar = unicode ? "│  " : "|  ";
+        var tee = unicode ? "├─ " : "+- ";
+        var elbow = unicode ? "└─ " : "\\- ";
+        var continuation = root ? "" : ancestor + (last ? "   " : bar);
+        var first = root ? "" : ancestor + (last ? elbow : tee);
+        console.Write(new GuidedContent(new Markup(IdentityMarkup(branch.Row)), first, continuation));
+        var bodyGuide = continuation + (branch.Children.Count > 0 ? bar : "   ");
+        foreach (var node in branch.Body)
+        {
+            IRenderable content = node switch
+            {
+                RenderNode.FieldBlock block => new FieldBlockContent(block, unicode),
+                RenderNode.Text text => new Text(text.Content),
+                RenderNode.Hint hint => new Text(hint.Content),
+                _ => throw new NotSupportedException($"Unsupported composite body node {node.GetType().Name}"),
+            };
+            console.Write(new GuidedContent(content, bodyGuide, bodyGuide));
+        }
+        // Spacing is part of the node, so parent/sibling guides never disappear into a gap.
+        console.Write(new GuidedContent(new Text(" "), bodyGuide, bodyGuide));
+        for (var i = 0; i < branch.Children.Count; i++)
+            WriteCompositeBranch(branch.Children[i], continuation, i == branch.Children.Count - 1, false);
+    }
+
+    private string IdentityMarkup(RenderRow row)
+    {
+        if (row.Kind != "review-item") return FormatRowMarkup(row);
+        var parts = new List<string>();
+        foreach (var (key, cell) in row.Cells)
+        {
+            if (cell.DisplayText.Length == 0 || key is "url" or "parent") continue;
+            var safe = Markup.Escape(cell.DisplayText);
+            parts.Add(key switch
+            {
+                "type" when theme is not null && cell.DisplayText != "(uncached)" => theme.FormatTypeBadge(Twig.Domain.ValueObjects.WorkItemType.Parse(cell.DisplayText).Value) + " " + safe,
+                "state" when theme is not null => theme.FormatReviewState(cell.DisplayText),
+                "identity" when row.Cells.TryGetValue("url", out var url) && Uri.TryCreate(url.DisplayText, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http"
+                    => $"[link={Markup.Escape(uri.AbsoluteUri)}][bold]{safe}[/][/]",
+                "identity" => $"[bold]{safe}[/]",
+                _ => safe,
+            });
+        }
+        return string.Join("  ", parts);
     }
 
     private static void AppendBranch(IHasTreeNodes parent, RenderTreeBranch branch)

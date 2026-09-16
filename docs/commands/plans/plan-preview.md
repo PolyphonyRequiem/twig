@@ -21,7 +21,7 @@ valid indefinitely, but grouped help and documentation lead with
 ## Synopsis
 
 ```
-twig plan preview --file <path> [-o human|json|minimal]
+twig plan preview --file <path> [--full] [--interactive] [-o human|json|minimal]
 ```
 
 ## Arguments
@@ -38,6 +38,8 @@ twig plan preview --file <path> [-o human|json|minimal]
 | `--version` | flag | — | Print the twig version and exit. |
 |`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+|`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
+|`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|
 
 ## Behavior
 
@@ -68,6 +70,7 @@ $ twig plan preview --file .twig/proposals/close-1234.json -o json
 |Preview succeeded (even when `canApply=false` because of pending rows).|`0`|
 |Proposal invalid — validation issues raised.|`1`|
 |`--file` omitted, or file path could not be resolved.|`2`|
+|`--interactive` with non-human output or redirected input/output.|`2` (before preview or journal import)|
 
 ## See also
 

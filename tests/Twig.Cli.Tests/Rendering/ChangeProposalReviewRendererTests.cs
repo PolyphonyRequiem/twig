@@ -77,13 +77,10 @@ public sealed class ChangeProposalReviewRendererTests
         ChangeProposalReviewModel model,
         SessionSteeringMode steering = SessionSteeringMode.HumanSteered)
     {
-        var lines = ChangeProposalReviewRenderer.Render(model, steering);
-        return string.Join("\n", lines.Select(n => n switch
-        {
-            RenderNode.Text t => t.Content,
-            RenderNode.Hint h => h.Content,
-            _ => n.ToString(),
-        }));
+        var lines = ChangeProposalReviewRenderer.Render(model, steering, true);
+        var output = new StringWriter();
+        new RendererFactory().GetRenderer("human", output).Render(new RenderTree.RenderTree(lines));
+        return output.ToString();
     }
 
     // 🔴 The core compliance rule: no material entry may be elided. Defends against a renderer
@@ -116,7 +113,8 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("expectedFingerprint = fp-1");
 
         // Every consequence, with its values — not just its kind.
-        text.ShouldContain("field-set System.State = Done");
+        text.ShouldContain("field-set System.State");
+        text.ShouldContain("\"Done\"");
         text.ShouldContain("field-clear System.Reason");
         text.ShouldContain("link-add predecessor");
         text.ShouldContain("seed-publish");

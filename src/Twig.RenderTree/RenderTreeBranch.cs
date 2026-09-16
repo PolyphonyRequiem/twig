@@ -8,4 +8,8 @@ namespace Twig.RenderTree;
 /// </summary>
 public sealed record RenderTreeBranch(
     RenderRow Row,
-    IReadOnlyList<RenderTreeBranch> Children);
+    IReadOnlyList<RenderTreeBranch> Children)
+{
+    /// <summary>Content owned by this identity, not child relationships. Guides continue through it.</summary>
+    public IReadOnlyList<RenderNode> Body { get; init; } = [];
+}

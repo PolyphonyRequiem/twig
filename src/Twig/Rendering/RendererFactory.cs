@@ -27,6 +27,10 @@ namespace Twig.Rendering;
 /// </remarks>
 public sealed class RendererFactory
 {
+    private readonly SpectreTheme? _theme;
+    /// <summary>Creates a default renderer factory.</summary>
+    public RendererFactory() { }
+    internal RendererFactory(SpectreTheme theme) => _theme = theme;
     /// <summary>The default format used when none is specified.</summary>
     public const string DefaultFormat = Twig.Formatters.OutputFormats.Default;
 
@@ -52,7 +56,7 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(Console.Out, indented: true),
             "minimal"      => new MinimalRenderer(Console.Out),
             "ids"          => new IdsRenderer(Console.Out),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out)),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out), _theme),
         };
     }
 
@@ -75,12 +79,22 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(writer, indented: true),
             "minimal"      => new MinimalRenderer(writer),
             "ids"          => new IdsRenderer(writer),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer)),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer), _theme),
         };
     }
 
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
+        // Only a real, live stdout can emit colour. Capture writers and pipes keep the
+        // existing deterministic plain behavior; TERM alone is never sufficient.
+        if (ReferenceEquals(writer, Console.Out) && !Console.IsOutputRedirected)
+        {
+            return AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(writer), Ansi = AnsiSupport.Detect,
+                ColorSystem = ColorSystemSupport.Detect, Interactive = InteractionSupport.No,
+            });
+        }
         // Render plain text unconditionally. Spectre's auto-detection of
         // ANSI support keys off the TERM env var when the upstream writer
         // is not a terminal — on Linux CI runners TERM=xterm-256color is

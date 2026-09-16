@@ -20,7 +20,9 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <see cref="ModelVersion"/>, MUST fail closed on an unknown version rather than partially
 /// render, and MUST render every entry of <see cref="Operations"/>,
 /// <see cref="ReviewOperation.Preconditions"/>, <see cref="ReviewOperation.Consequences"/>
-/// and <see cref="AuthorizationChoices"/>. Eliding a material entry is a compliance failure,
+/// and <see cref="AuthorizationChoices"/>. Brief views may elide description bodies only
+/// while naming the operation, field, effect, available metric and full-detail access.
+/// Exact values remain in the model and full/JSON views. Eliding a material entry is a compliance failure,
 /// not a presentation choice. Enrichment is additive only: an adapter may never add or
 /// remove an authorization choice, and never alter the digest.
 /// </para>
@@ -65,6 +67,9 @@ public sealed record ChangeProposalReviewModel
     /// </summary>
     public required IReadOnlyList<ReviewAffectedItem> AffectedItems { get; init; }
 
+    /// <summary>Immediate parent context only; never counted as affected mutation targets.</summary>
+    public IReadOnlyList<ReviewAffectedItem> ContextItems { get; init; } = [];
+
     /// <summary>One entry per proposal operation, in declared order.</summary>
     public required IReadOnlyList<ReviewOperation> Operations { get; init; }
 
@@ -99,6 +104,13 @@ public sealed record ReviewAffectedItem
     /// only the far end of a link being added or removed.
     /// </summary>
     public required string Role { get; init; }
+
+    /// <summary>Board URL; null when no published identity exists.</summary>
+    public string? Url { get; init; }
+    /// <summary>Observed immediate parent, not a proposed link.</summary>
+    public int? ParentId { get; init; }
+    /// <summary>Observed cache revision; not an apply precondition.</summary>
+    public int? Revision { get; init; }
 }
 
 /// <summary>One operation, described semantically rather than as raw payload.</summary>
@@ -138,6 +150,9 @@ public sealed record ReviewTarget
 
     /// <summary>The staged seed identity; <c>null</c> for every kind except <c>publish-seed</c>.</summary>
     public string? StagedIdentity { get; init; }
+
+    /// <summary>Unverified local staged display context; never a published identity.</summary>
+    public ReviewSeedDisplay? Seed { get; init; }
 }
 
 /// <summary>A condition checked at apply time; a mismatch refuses the operation.</summary>
@@ -164,6 +179,19 @@ public sealed record ReviewConsequence
 
     /// <summary>The value the field is being set to; <c>null</c> when the field is being cleared.</summary>
     public string? To { get; init; }
+
+    /// <summary>
+    /// Effective display label derived from cached metadata, falling back to the exact reference name.
+    /// When distinct requested field references share a label anywhere in this review, the exact
+    /// reference is appended in parentheses. Unique labels stay compact; cached definitions are unchanged.
+    /// </summary>
+    public string? FieldLabel { get; init; }
+    /// <summary>Cached ADO data type, if available.</summary>
+    public string? FieldType { get; init; }
+    /// <summary>Before observation; null on legacy models and non-field effects means unknown.</summary>
+    public ReviewBeforeValue? Before { get; init; }
+    /// <summary>Core-derived description metric; null when no trustworthy baseline exists.</summary>
+    public ReviewTextChange? TextChange { get; init; }
 
     /// <summary>Relation name, for link consequences.</summary>
     public string? Relation { get; init; }

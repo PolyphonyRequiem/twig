@@ -64,18 +64,8 @@ public static class ChangeProposalReviewModelJson
             writer.WriteNull("recipe");
         }
 
-        writer.WriteStartArray("affectedItems");
-        foreach (var item in model.AffectedItems)
-        {
-            writer.WriteStartObject();
-            writer.WriteNumber("id", item.Id);
-            WriteNullableString(writer, "type", item.Type);
-            WriteNullableString(writer, "title", item.Title);
-            WriteNullableString(writer, "state", item.State);
-            writer.WriteString("role", item.Role);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+        WriteItems(writer, "affectedItems", model.AffectedItems);
+        WriteItems(writer, "contextItems", model.ContextItems);
 
         writer.WriteStartArray("operations");
         foreach (var op in model.Operations)
@@ -91,6 +81,17 @@ public static class ChangeProposalReviewModelJson
             else
                 writer.WriteNull("workItemId");
             WriteNullableString(writer, "stagedIdentity", op.Target.StagedIdentity);
+            if (op.Target.Seed is { } seed)
+            {
+                writer.WriteStartObject("seed");
+                writer.WriteNumber("displayAlias", seed.DisplayAlias);
+                WriteNullableString(writer, "title", seed.Title);
+                WriteNullableString(writer, "type", seed.Type);
+                WriteNullableString(writer, "state", seed.State);
+                WriteNullableInt(writer, "parentId", seed.ParentId);
+                writer.WriteEndObject();
+            }
+            else writer.WriteNull("seed");
             writer.WriteEndObject();
 
             writer.WriteString("summary", op.Summary);
@@ -112,6 +113,29 @@ public static class ChangeProposalReviewModelJson
                 writer.WriteString("kind", con.Kind);
                 WriteNullableString(writer, "field", con.Field);
                 WriteNullableString(writer, "to", con.To);
+                WriteNullableString(writer, "fieldLabel", con.FieldLabel);
+                WriteNullableString(writer, "fieldType", con.FieldType);
+                if (con.Before is { } before)
+                {
+                    writer.WriteStartObject("before");
+                    writer.WriteString("state", before.State);
+                    WriteNullableString(writer, "value", before.Value);
+                    writer.WriteString("source", before.Source);
+                    WriteNullableInt(writer, "revision", before.Revision);
+                    WriteNullableString(writer, "reason", before.Reason);
+                    writer.WriteEndObject();
+                }
+                else writer.WriteNull("before");
+                if (con.TextChange is { } metric)
+                {
+                    writer.WriteStartObject("textChange");
+                    writer.WriteString("metric", metric.Metric);
+                    writer.WriteString("unit", metric.Unit);
+                    writer.WriteNumber("removed", metric.Removed);
+                    writer.WriteNumber("inserted", metric.Inserted);
+                    writer.WriteEndObject();
+                }
+                else writer.WriteNull("textChange");
                 WriteNullableString(writer, "relation", con.Relation);
                 if (con.OtherId is { } otherId)
                     writer.WriteNumber("otherId", otherId);
@@ -162,6 +186,31 @@ public static class ChangeProposalReviewModelJson
         }
 
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static void WriteItems(Utf8JsonWriter writer, string name, IReadOnlyList<ReviewAffectedItem> items)
+    {
+        writer.WriteStartArray(name);
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", item.Id);
+            WriteNullableString(writer, "type", item.Type);
+            WriteNullableString(writer, "title", item.Title);
+            WriteNullableString(writer, "state", item.State);
+            writer.WriteString("role", item.Role);
+            WriteNullableString(writer, "url", item.Url);
+            WriteNullableInt(writer, "parentId", item.ParentId);
+            WriteNullableInt(writer, "revision", item.Revision);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteNullableInt(Utf8JsonWriter writer, string name, int? value)
+    {
+        if (value is { } number) writer.WriteNumber(name, number);
+        else writer.WriteNull(name);
     }
 
     private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)

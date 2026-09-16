@@ -903,4 +903,75 @@ Twig.Domain.Interfaces.IIterationService.GetProcessConfigurationStrictAsync(Syst
 static Twig.Domain.Services.Field.FieldDefinitionSyncService.SyncAsync(Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.IFieldDefinitionStore! fieldDefinitionStore, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), bool strict = false) -> System.Threading.Tasks.Task<int>!
 *REMOVED*static Twig.Domain.Services.Process.ProcessTypeSyncService.SyncAsync(Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.IProcessTypeStore! processTypeStore, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 static Twig.Domain.Services.Process.ProcessTypeSyncService.SyncAsync(Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.IProcessTypeStore! processTypeStore, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), bool strict = false) -> System.Threading.Tasks.Task<int>!
-
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ContextItems.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewAffectedItem!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ContextItems.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.ParentId.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.ParentId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Revision.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Revision.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Url.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewAffectedItem.Url.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewBeforeValue!
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Equals(Twig.Domain.Services.ChangeProposals.ReviewBeforeValue? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Reason.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Reason.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.ReviewBeforeValue() -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Revision.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Revision.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Source.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Source.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.State.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.State.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Value.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Value.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Before.get -> Twig.Domain.Services.ChangeProposals.ReviewBeforeValue?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.Before.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.FieldLabel.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.FieldLabel.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.FieldType.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.FieldType.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.TextChange.get -> Twig.Domain.Services.ChangeProposals.ReviewTextChange?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.TextChange.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay!
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.DisplayAlias.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.DisplayAlias.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Equals(Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.ParentId.get -> int?
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.ParentId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.ReviewSeedDisplay() -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.State.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.State.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Title.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Title.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Type.get -> string?
+Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Type.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTarget.Seed.get -> Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay?
+Twig.Domain.Services.ChangeProposals.ReviewTarget.Seed.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTextChange
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewTextChange!
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Equals(Twig.Domain.Services.ChangeProposals.ReviewTextChange? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Inserted.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Inserted.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Metric.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Removed.get -> int
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Removed.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.ReviewTextChange() -> void
+Twig.Domain.Services.ChangeProposals.ReviewTextChange.Unit.get -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.ToString() -> string!
+override Twig.Domain.Services.ChangeProposals.ReviewTextChange.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewTextChange.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewTextChange.ToString() -> string!
+static Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.operator !=(Twig.Domain.Services.ChangeProposals.ReviewBeforeValue? left, Twig.Domain.Services.ChangeProposals.ReviewBeforeValue? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.operator ==(Twig.Domain.Services.ChangeProposals.ReviewBeforeValue? left, Twig.Domain.Services.ChangeProposals.ReviewBeforeValue? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.operator !=(Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay? left, Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.operator ==(Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay? left, Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewTextChange.Measure(string! before, string! after) -> Twig.Domain.Services.ChangeProposals.ReviewTextChange!
+static Twig.Domain.Services.ChangeProposals.ReviewTextChange.operator !=(Twig.Domain.Services.ChangeProposals.ReviewTextChange? left, Twig.Domain.Services.ChangeProposals.ReviewTextChange? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewTextChange.operator ==(Twig.Domain.Services.ChangeProposals.ReviewTextChange? left, Twig.Domain.Services.ChangeProposals.ReviewTextChange? right) -> bool

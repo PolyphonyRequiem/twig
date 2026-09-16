@@ -565,6 +565,54 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         persisted.Warning.ShouldNotBeNull();
     }
 
+    [Theory]
+    [InlineData(PlanOperationState.Planned)]
+    [InlineData(PlanOperationState.Applying)]
+    [InlineData(PlanOperationState.Applied)]
+    public async Task Apply_HtmlClosingTagWhitespace_VerifiesAndPersistsWarning(PlanOperationState initialState)
+    {
+        _fieldDefinitions
+            .GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(
+                "System.Description", "Description", "html", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.Description", "<p>Alpha</p><p>Beta</p>"),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        if (initialState != PlanOperationState.Planned)
+        {
+            var stale = DateTimeOffset.UtcNow.AddMinutes(-10);
+            await _journal.TryTransitionOperationAsync(digest, opId,
+                PlanOperationState.Planned, PlanOperationState.Confirmed, stale);
+            await _journal.TryTransitionOperationAsync(digest, opId,
+                PlanOperationState.Confirmed, PlanOperationState.Applying, stale);
+            if (initialState == PlanOperationState.Applied)
+                await _journal.TryTransitionOperationAsync(digest, opId,
+                    PlanOperationState.Applying, PlanOperationState.Applied, stale);
+        }
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        var refreshed = BuildWorkItem(42, rev: 4);
+        refreshed.UpdateField("System.Description", "<p>Alpha </p><p>Beta </p>");
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Verified);
+        apply.Operations[0].Warning.ShouldNotBeNull();
+        apply.Operations[0].Warning!.ShouldContain("System.Description");
+        var persisted = (await _journal.GetAsync(digest))!.Operations[0];
+        persisted.State.ShouldBe(PlanOperationState.Verified);
+        persisted.Warning.ShouldBe(apply.Operations[0].Warning);
+        if (initialState != PlanOperationState.Planned)
+            await _ado.DidNotReceive().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+                Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Apply_RecoveryFromApplying_HtmlNormalization_VerifiesAndPersistsWarning()
     {

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "workspace": {
+    "organization": "PolyphonyRequiem",
+    "project": "Twig-Reference-Sandbox"
+  },
+  "operations": [
+    {
+      "id": "harness-dependency-862",
+      "kind": "add-link",
+      "workItemId": 862,
+      "expectedRevision": 1,
+      "relation": "predecessor",
+      "otherId": 861
+    },
+    {
+      "id": "harness-related-858",
+      "kind": "add-link",
+      "workItemId": 858,
+      "expectedRevision": 1,
+      "relation": "related",
+      "otherId": 859
+    }
+  ]
+}

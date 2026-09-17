@@ -52,6 +52,15 @@ public sealed record ProposalAuthorization
     /// The signing human's identity, or the model identity for an AFK authorization. Must be
     /// non-blank: an audit row naming nobody records that something was authorized without
     /// recording who is answerable for it.
+    /// <para>
+    /// 🔴 <b>Non-blank is the only check, and it is weaker than it reads.</b> This is a name
+    /// the constructing surface supplied, not a proven signer. Nothing here attests that the
+    /// named party ever saw <see cref="Digest"/>. Spec #729 §Authorization makes authorizer
+    /// separation an invariant and records the CLI apply path as known non-compliant with it,
+    /// because that path fills this field from a caller-supplied <c>--authorize</c> string. An
+    /// auditor reading this value learns who was <em>named</em>, which equals who
+    /// <em>authorized</em> only on a surface that demonstrates separation.
+    /// </para>
     /// </summary>
     public required string AuthorizerIdentity { get; init; }
 

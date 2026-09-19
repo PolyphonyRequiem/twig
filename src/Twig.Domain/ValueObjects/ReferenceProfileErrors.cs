@@ -16,7 +16,7 @@ public static class ReferenceProfileErrors
     /// <summary>Embedded profile's canonical structural fingerprint (T1 §7.3) does not match.</summary>
     public const string ProfileFingerprintMismatch = "profile-fingerprint-mismatch";
 
-    /// <summary>Embedded JSON did not deserialize under the source-generated context (missing required field, wrong type, unknown role).</summary>
+    /// <summary>Embedded JSON did not deserialize under the source-generated context (missing required field, wrong type, unknown role). Also used when a repository profile block is present but incomplete, so ValidatePin can fail closed instead of treating the shape as absent.</summary>
     public const string ProfileSchemaInvalid = "profile-schema-invalid";
 
     /// <summary>The declared hierarchy block does not match the locked vocabulary (T1 §3.2).</summary>

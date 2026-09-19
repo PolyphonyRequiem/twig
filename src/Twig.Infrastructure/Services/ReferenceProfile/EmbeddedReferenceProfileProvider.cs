@@ -99,6 +99,17 @@ internal sealed class EmbeddedReferenceProfileProvider : IReferenceProfileProvid
         if (pin is null)
             return Result.Fail(ReferenceProfileErrors.TwigJsonProfileBlockMissing);
 
+        // A present pin with any blank field is not absent. Keep the shape visible
+        // and fail closed through the same validation seam that checks the shipped
+        // profile, so callers never get an out-of-scope success from an incomplete
+        // declaration.
+        if (string.IsNullOrWhiteSpace(pin.Identity)
+            || string.IsNullOrWhiteSpace(pin.ProfileVersion)
+            || string.IsNullOrWhiteSpace(pin.BaseProcessVersion))
+        {
+            return Result.Fail(ReferenceProfileErrors.ProfileSchemaInvalid);
+        }
+
         var loaded = Load();
         if (!loaded.IsSuccess) return Result.Fail(loaded.Error);
 

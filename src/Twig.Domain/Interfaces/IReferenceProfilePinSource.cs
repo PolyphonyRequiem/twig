@@ -18,11 +18,11 @@ namespace Twig.Domain.Interfaces;
 /// config edit indistinguishable from a tampered release.
 /// </para>
 /// <para>
-/// 🔴 A <c>null</c> return means the <c>profile</c> block is ABSENT, which is a
-/// named failure (<c>twig-json-profile-block-missing</c>) and never a
-/// permissive default. An absent pin cannot be treated as "matches whatever is
-/// installed" — that is precisely the silent coupling the pin exists to
-/// prevent.
+/// 🔴 A <c>null</c> return means the <c>profile</c> block is truly ABSENT, which is a
+/// named failure (<c>twig-json-profile-block-missing</c>) and never a permissive
+/// default. A block that is present but incomplete stays represented as a pin so
+/// <see cref="IReferenceProfileProvider.ValidatePin"/> can fail closed on the
+/// malformed declaration instead of erasing the distinction.
 /// </para>
 /// </remarks>
 public interface IReferenceProfilePinSource

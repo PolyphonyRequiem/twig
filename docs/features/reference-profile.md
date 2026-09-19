@@ -102,21 +102,22 @@ profile schema (T1) and the base-process tailoring (T2) have independent
 release cadences, and collapsing them would force one to move whenever the
 other did.
 
-**Absence is a named failure, not a permissive default.** A `twig.json` with
-no `profile` block is reported as `twig-json-profile-block-missing`; that is
-distinct from a block that is present but wrong. Any of the three fields
-blank collapses to the same "absent" identifier — a partial pin asserts a
-coupling it has not established, and reporting it as absent routes the fix
-back through the same recovery path (`twig init`, or hand-write the pin).
-See `src/Twig.Infrastructure/Config/TwigJsonReferenceProfilePinSource.cs:22-39`.
+**Only an absent block reports absence.** A `twig.json` with no `profile`
+block is reported as `twig-json-profile-block-missing`. A present block with
+any required field omitted, null, empty, or whitespace remains a declaration
+and fails validation with `profile-schema-invalid`, before the embedded
+profile is loaded. Repair the incomplete pin with `twig init` or restore all
+three values for the intended release; do not remove the declaration to bypass
+the gate.
 
 The distinction between *absent* and *broken* is load-bearing:
 
 - **Absent** — this repository never claimed to run the reference process,
   so profile-gated rules cannot apply to it.
 - **Broken** — this repository *did* claim to, but twig cannot tell which
-  release's rules apply, so profile-gated rules fail closed with the
-  specific mismatch identifier.
+  release's rules apply, so profile-gated rules fail closed with
+  `profile-schema-invalid` for incomplete pins or the specific mismatch identifier
+  for complete but incompatible pins.
 
 `SprintEntryPolicy` demonstrates the pattern at
 `src/Twig.Domain/Services/ReferenceProfile/SprintEntryPolicy.cs:80-91`: it
@@ -236,13 +237,13 @@ ADO-specific content.
 |---|---|
 | `profile-blob-not-found` | Embedded profile resource missing from the assembly. |
 | `profile-fingerprint-mismatch` | Canonical structural fingerprint does not match `fingerprint.bytes`. |
-| `profile-schema-invalid` | JSON did not deserialize (missing field, wrong type, unknown role). |
+| `profile-schema-invalid` | Embedded JSON is invalid, or a present repository pin has an omitted, null, empty, or whitespace required field. |
 | `hierarchy-locked-vocabulary-violation` | `hierarchy` block does not match the locked T1 §3.2 layout. |
 | `role-set-not-canonical` | `types[*].role` is not exactly the five vocabulary roles. |
 | `link-kinds-not-canonical` | `linkKinds[*]` does not match the T1 §3.5 table. |
 | `primary-scope-empty-allow-set` | `primaryScope.eligibleRoles` is empty. |
 | `primary-scope-unknown-role` | `primaryScope.eligibleRoles` contains an unknown role. |
-| `twig-json-profile-block-missing` | `twig.json` has no `profile` block (or a partial one). |
+| `twig-json-profile-block-missing` | `twig.json` has no `profile` block. Incomplete blocks do not report absence. |
 | `profile-identity-unknown` | Pin `identity` does not match embedded `identity`. |
 | `profile-version-mismatch` | Pin `profileVersion` does not match embedded `profileVersion`. |
 | `base-process-version-mismatch` | Pin `baseProcessVersion` does not match embedded `baseProcess.tailoringVersion`. |

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "workspace": {
+    "organization": "PolyphonyRequiem",
+    "project": "Twig-Reference-Sandbox"
+  },
+  "operations": [
+    {
+      "id": "harness-parent-858",
+      "kind": "add-link",
+      "workItemId": 858,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 857
+    },
+    {
+      "id": "harness-parent-859",
+      "kind": "add-link",
+      "workItemId": 859,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 857
+    },
+    {
+      "id": "harness-parent-860",
+      "kind": "add-link",
+      "workItemId": 860,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 857
+    },
+    {
+      "id": "harness-parent-861",
+      "kind": "add-link",
+      "workItemId": 861,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 859
+    },
+    {
+      "id": "harness-parent-862",
+      "kind": "add-link",
+      "workItemId": 862,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 859
+    },
+    {
+      "id": "harness-parent-863",
+      "kind": "add-link",
+      "workItemId": 863,
+      "expectedRevision": 1,
+      "relation": "parent",
+      "otherId": 859
+    }
+  ]
+}

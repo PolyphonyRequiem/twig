@@ -40,6 +40,8 @@ Python, authentication or workspace is needed to read help or this guidance.
 Bind the qualified executable (absolute path and SHA-256, not version alone),
 workspace, and `twig.json` organization/project before compact reads. Keep that
 binding for each call and reload targeted installed help when the executable changes.
+Compact projections are opt-in, not a replacement for the full route. Preserve target identity, freshness, completeness, and errors, and keep the documented full-output route available whenever projection flags are absent. Parse only the command's actual machine JSON; never treat a truncated terminal render as JSON. Help reuse is version-keyed to the executable identity, so reload the installed guidance when the executable build or digest changes.
+
 
 Use `show <id> -o json --fields System.Title,System.State` for selected item facts;
 add `--sections links` when edges matter. Use

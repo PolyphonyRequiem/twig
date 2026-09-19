@@ -31,6 +31,8 @@ human click or signature.
    effects, preconditions, blockers and pending changes. Preview is a local
    journal write, not an ADO mutation; `canApply` is not proof that remote
    revisions or every process gate still hold at execution time.
+   The preview JSON and native journal are the semantic source; rendered excerpts are presentation only and must never be reparsed as JSON or treated as complete facts.
+
 3. Review the full material change under the user's authority. Retain item
    identity and links, process type and useful parent/Bench context when known.
    Distinguish unknown before-values from empty ones. A summary or companion

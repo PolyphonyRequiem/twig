@@ -103,3 +103,10 @@ Prior ownership:
 Twig owns a usable no-agent fallback and complete structured review data. User-provided presenter skills and host adapters own rich terminal/agent-CLI/Discord presentation and approval controls. These observations do not justify a core presenter framework or weaker digest, authorization, revision, journal or readback gates.
 
 Historical evidence pointers (not current synthetic responses): engineering audit `twig-agent-efficiency-20260916/audit.md`; Hermes show messages **346283/346284**, **348217/348218**, cold-create **346178/346179**, sync **346180/346181**; OMP partial-chain call **call_ezwQyx5XSRjUxcuJWWhfqEWn**, revision/repair **call_MgqbUJPEDZc2F0DMNBBDhm42**. The parent workspace retains full initial/recovery/result artifacts. Do not commit those raw records; they contain personal board content.
+## AB#880 consumer-guidance acceptance
+
+AB#880 is the source-side consumer-guidance companion to the compact-read work. Current main plus the evidence package demonstrate the intended guidance: compact projections are opt-in, the full-output route remains available, identity/freshness/completeness/errors are preserved, executable/workspace/connection binding is explicit, help reuse is version-keyed, and truncated presentation text is never parsed as JSON.
+
+The measured **49,827 → 4,477 Unicode response characters (91.01% reduction)** applies only to the paired read-only item + requirements responses in `880-parent-evidence/paired-read-checks.json`. It excludes help/agent prompts and is **not** billed-token or global workflow savings.
+
+Deployment remains under AB#882: install the staged engineering-profile patch, rerun the fresh Hermes/OMP qualification, and capture install/rollback proof on the live consumer paths. This README records source-side acceptance evidence; it does not claim deployed product status.

@@ -33,6 +33,10 @@ The identity includes the full assembly version/build and a content digest.
 `status` reports `stale` when that identity differs. `install` is idempotent only
 for a matching unedited installation; `update` is the explicit version-change
 path. Neither ordinary Twig use nor `--skill` modifies installed guidance.
+## Compact consumer guidance
+
+Compact projections are opt-in, not a replacement for the full route. Preserve target identity, freshness, completeness, and errors, and keep a documented full-output path available whenever the caller does not ask for projection. Bind the executable identity (absolute path plus digest), workspace, and organization/project explicitly before comparing compact and full reads. Help reuse is version-keyed to that executable identity, so re-read or reinstall when the executable changes. Never parse truncated presentation text as JSON; parse the command's actual machine output.
+
 
 ## Provider discovery
 

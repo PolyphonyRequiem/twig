@@ -1,12 +1,12 @@
 # Reference-process validation harness — profile 1.0.0
 
 Machine-checkable proof that the Twig reference process behaves as
-`docs/projects/reference-process-base-and-harness.plan.md` (AB#733, "T2") specifies, run
-against a real ADO project. This bundle is the artifact AB#727 means when it requires the
-reference process to be "exercised against a Sandbox project before it is treated as
-authoritative".
+`docs/projects/reference-process-base-and-harness.plan.md` (AB#733, "T2") specifies.
+This bundle is a dated historical capture from a real ADO project on 2026-08-31 and is
+frozen here as the artifact AB#727 means when it requires the reference process to be
+"exercised against a Sandbox project before it is treated as authoritative".
 
-**Status: PASS** — all ten required surfaces, 2026-08-31, under AB#847.
+**Status: PASS** — historical capture, all ten required surfaces, 2026-08-31, under AB#847.
 
 | Thing | Value |
 |---|---|
@@ -14,9 +14,15 @@ authoritative".
 | Organization | `PolyphonyRequiem` |
 | Project | `Twig-Reference-Sandbox` (`2c534971-1a18-4880-9cce-2ca1fb2c3cd6`) |
 | Process | `Twig-Reference` (`a0afde20-50eb-4e30-b442-c9e7f13e752a`), inherited from Basic |
+| Capture time | `2026-08-31T19:31:23.5195999+00:00` (frozen historical capture) |
 | Team | `Twig-Reference-Sandbox Team` |
 | Sprint iteration | `Twig-Reference-Sandbox\Sprint 1` (`9b7305e2-…`) |
 | twig | `0.91.6-alpha.0.8` |
+
+The committed fixtures freeze the capture timestamp, project/process IDs, fixture IDs,
+and the exact ArtifactLink project/repository/ref identity used for surface 09.
+`gate.sh` checks those fields against the committed evidence only; it proves internal
+consistency of the bundle rather than current ADO truth.
 
 ## Layout
 
@@ -40,7 +46,9 @@ authoritative".
 ```
 
 `gate.sh` reads nothing but `evidence/` and `fixtures.json`, so it runs in CI or offline.
-`capture-evidence.sh` needs `az` logged in against the org.
+It verifies the frozen bundle's internal consistency — including capture time,
+project/process IDs, fixture IDs, and the exact artifact-link identity — rather than
+current ADO truth. `capture-evidence.sh` needs `az` logged in against the org.
 
 ## The ten surfaces
 
@@ -74,11 +82,11 @@ invariant, enforced structurally by the backlog behaviors rather than by convent
 
 ### Screenshots
 
-None. T2 §4.1 lists optional `.png` companions for the backlog and sprint surfaces, and is
-explicit that "the `.json` proof is authoritative — the harness gate reads JSON, not
-images". `gate.sh` never opens a PNG, so their absence does not weaken the gate. Capturing
-them needs an authenticated browser session against the ADO UI and is left to whoever wants
-the human-consumable view.
+None were captured or committed. T2 §4.1 lists optional `.png` companions for the backlog
+and sprint surfaces, and is explicit that "the `.json` proof is authoritative — the
+harness gate reads JSON, not images". `gate.sh` never opens a PNG, so their absence does
+not weaken the gate. Capturing them needs an authenticated browser session against the ADO
+UI and is left to whoever wants the human-consumable view.
 
 ## Discrepancies found in T2 while executing
 
@@ -100,7 +108,8 @@ These were found by running the recipe and are corrected in the T2 note itself.
    - `ArtifactLink` is **not expressible** as a proposal op. `twig proposal validate`
      rejects it with `plan.invalid_relation`; the probe is kept at
      `proposals/probe-artifact-link-REJECTED.json` as evidence. Surface 09 was captured via
-     the ADO REST route instead and is logged as a tooling gap, not a silent skip.
+     direct ADO REST after that rejection, and the committed fixtures freeze the exact
+     project/repository/ref identity so the offline gate can assert it without credentials.
    - Parent links must be expressed **child-side**. The native surface allows at most one
      op per `workItemId` per proposal file, and §4.2's parent-side spelling puts three ops
      on the Initiative in a single file.
@@ -119,7 +128,9 @@ Per T2 §5 this bundle is a hard gate for **publishing a new version of the refe
 profile**, not a runtime gate and not a CI gate on every commit. A `profileVersion` bump
 requires a bundle at the new version whose `gate.sh` exits 0. Twig core never reads
 `docs/reference-process/harness/` at runtime; it validates the live process through
-`IReferenceProfileProvider`.
+`IReferenceProfileProvider`. The harness gate is intentionally offline: it checks the
+committed historical capture for internal consistency and never re-establishes current ADO
+truth.
 
 ## Prior art
 

@@ -1,7 +1,9 @@
 # Harness run log — reference profile 1.0.0
 
 Executed 2026-08-31 against `dev.azure.com/PolyphonyRequiem` / `Twig-Reference-Sandbox`
-under AB#847. Every mutation below went through the native Twig proposal surface
+under AB#847. This is a dated historical capture; the offline gate later proves the
+committed evidence bundle is internally consistent rather than re-establishing current ADO
+truth. Every mutation below went through the native Twig proposal surface
 (`twig proposal validate` → `preview` → `apply --confirm <digest> --authorize <identity>`)
 except the one step the native contract cannot express, which is called out explicitly.
 
@@ -31,7 +33,7 @@ run's functional proof (`Epic`/`Issue` creation refused with `VS403074`) stands.
 ## Step 10 — baseline
 
 `twig process description -o json` → `evidence/00-sandbox-baseline.json` (330,188 bytes;
-header pins `processId` and `project`).
+header pins `processId`, `processName`, `project`, and `capturedAt`).
 
 ## Step 12 — seed the hierarchy
 
@@ -62,8 +64,8 @@ Split across two proposal files because the native contract permits **at most on
 `proposals/2-parent-links.json`, digest
 `5911b462f8b5b1330b721e0164680882df237aeacb3159e5c88142364d9e0048` — six `add-link`
 `parent` ops, all `Verified`. Expressed **child-side** (`workItemId` = child,
-`otherId` = parent); the parent-side spelling in AB#733 §4.2 would have put three ops on
-`workItemId` 857 in one file and been refused.
+`otherId` = parent); the parent-side spelling in AB#733 §4.2 would have put three ops
+on `workItemId` 857 in one file and been refused.
 
 `proposals/3-dependency-and-related.json`, digest
 `34677e9a7f189061c298b78a223d9d32289d75c45fccdb330f7b98af62f35098` — `predecessor`
@@ -80,26 +82,30 @@ Relation 'artifact' is not one of parent | predecessor | successor | related.
 ```
 
 The surface was therefore captured out of band, so it is **recorded as passing with a
-documented tooling gap** rather than silently skipped:
+documented tooling gap** rather than silently skipped. The exact project/repository/ref
+identity is frozen in `fixtures.json`; surface 09 itself was captured from the Sandbox via
+direct ADO REST after the proposal-v1 rejection:
 
 1. The Sandbox repo `Twig-Reference-Sandbox` `417bcdda-211f-4611-a8eb-c5afac7e0a26` was
    empty (no default branch), so branch `refs/heads/harness` was created via the Git
    pushes REST route (push 736, commit `f0e0781e`).
-2. `ArtifactLink` → `vstfs:///Git/Ref/<projectId>%2F<repoId>%2FGBharness` was added to
-   #859 via a `json-patch` PATCH on the work item (rev 1 → 2).
+2. `ArtifactLink` → `vstfs:///Git/Ref/2c534971-1a18-4880-9cce-2ca1fb2c3cd6%2F417bcdda-211f-4611-a8eb-c5afac7e0a26%2FGBharness` was added to
+   #859 via a `json-patch` PATCH on the work item (rev 1 → 2). This was the direct REST
+   path taken because proposal v1 rejects `ArtifactLink`.
 
 See README "Discrepancies found" item 3.
 
 ## Step 14 — evidence capture
 
 `./capture-evidence.sh surfaces` then `./capture-evidence.sh rank after`. Twelve JSON
-artifacts under `evidence/`.
+artifacts under `evidence/`; no PNG screenshots were captured or committed.
 
 ## Step 15 — gate
 
-`./gate.sh` → **PASS**, all ten surfaces, exit 0. The gate was negative-tested by
-corrupting copies of surfaces 07 and 10 in a scratch directory; it reported both as FAIL
-and exited 1, so the pass is a real assertion rather than a rubber stamp.
+`./gate.sh` → **PASS**, all ten surfaces, exit 0. The gate is offline and only checks the
+committed evidence. It was negative-tested by corrupting copies of surfaces 07 and 10 in a
+scratch directory; it reported both as FAIL and exited 1, so the pass is a real assertion
+over the frozen bundle rather than a live ADO truth check.
 
 ## Observations recorded during the run
 

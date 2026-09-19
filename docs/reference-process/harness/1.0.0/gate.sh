@@ -3,8 +3,9 @@
 #
 # Reads ONLY the committed evidence bundle (JSON is authoritative; PNGs are
 # secondary and are never read here) and asserts the pass criterion for each of
-# the ten surfaces in AB#733 §4.3. Exits non-zero on the first failing surface
-# so a profile-version bump cannot land on a red harness.
+# the ten surfaces in AB#733 §4.3. This is an offline consistency check over a
+# historical capture; it does not re-establish current ADO truth. Exits non-zero
+# on the first failing surface so a profile-version bump cannot land on a red harness.
 #
 # Usage: ./gate.sh
 set -uo pipefail
@@ -16,6 +17,12 @@ FX="$HERE/fixtures.json"
 INIT=$(jq -r .items.INIT "$FX"); INV=$(jq -r .items.INV "$FX")
 FEAT=$(jq -r .items.FEAT "$FX"); BUG=$(jq -r .items.BUG "$FX")
 TA=$(jq -r .items.TA "$FX"); TB=$(jq -r .items.TB "$FX"); TC=$(jq -r .items.TC "$FX")
+CAPTURED_AT=$(jq -r .capturedAt "$FX")
+ART_NAME=$(jq -r .artifactLink.name "$FX")
+ART_PROJECT=$(jq -r .artifactLink.projectId "$FX")
+ART_REPO=$(jq -r .artifactLink.repositoryId "$FX")
+ART_REF=$(jq -r .artifactLink.refName "$FX")
+ART_URL="vstfs:///Git/Ref/${ART_PROJECT}%2F${ART_REPO}%2F${ART_REF}"
 
 fail=0
 pass() { printf '  PASS  %-42s %s\n' "$1" "${2:-}"; }
@@ -30,9 +37,9 @@ check() { # $1=label  $2=jq filter  $3=file  (filter must yield true/false)
 echo "Twig reference-process harness gate — $(jq -r .project "$FX")"
 echo
 
-# 00 — baseline present and bound to the right process/project.
-check "00 baseline pins process+project" \
-  '(.header.processId=="'"$(jq -r .processId "$FX")"'") and (.header.project=="'"$(jq -r .project "$FX")"'")' \
+# 00 — baseline present and bound to the right process/project/capture time.
+check "00 baseline pins process+project+capture time" \
+  '(.header.processId=="'"$(jq -r .processId "$FX")"'") and (.header.processName=="'"$(jq -r .processName "$FX")"'") and (.header.project=="'"$(jq -r .project "$FX")"'") and (.header.capturedAt=="'"$CAPTURED_AT"'")' \
   00-sandbox-baseline.json
 
 # 01 — Initiative sits on the portfolio backlog.
@@ -75,9 +82,15 @@ check "08 related is nondirectional" \
    ([.items[]|select(.id=='"$FEAT"')|[.relations[]|select(.rel=="System.LinkTypes.Related")|.url|split("/")|last|tonumber]|index('"$INV"')!=null]|all)' \
   08-related-links.json
 
-# 09 — artifact link present and shaped as a Git branch ref.
-check "09 artifact link is a Git branch ref" \
-  '([.items[]|[.relations[]|select(.rel=="ArtifactLink")|.url]|map(startswith("vstfs:///Git/Ref/"))|any]|all)' \
+# 09 — artifact link present on exactly the intended fixture item and shaped as the frozen Git branch ref.
+check "09 artifact link matches frozen project/repo/ref identity" \
+  '(.items|length==1)
+   and (.items[0].id=='"$FEAT"')
+   and ((.items[0].relations // []) | length > 0)
+   and any(.items[0].relations[];
+     .rel=="ArtifactLink"
+     and .name=="'"$ART_NAME"'"
+     and .url=="'"$ART_URL"'")' \
   09-artifact-links.json
 
 # 10 — backlog rank preserved across publish + link.
@@ -96,8 +109,8 @@ fi
 
 echo
 if [[ $fail -eq 0 ]]; then
-  echo "GATE: PASS — all ten surfaces satisfied."
+  echo "Harness gate passed."
 else
-  echo "GATE: FAIL — see the FAIL rows above."
+  echo "Harness gate failed."
 fi
 exit $fail

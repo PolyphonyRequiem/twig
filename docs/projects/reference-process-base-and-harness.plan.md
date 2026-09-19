@@ -453,10 +453,10 @@ this harness under AB#847 (see `docs/reference-process/harness/1.0.0/`):
   `expectedRevision`, `relation`, and `otherId`.
 - `relation` is a **closed set**: `parent | predecessor | successor | related`.
   **`ArtifactLink` is therefore not expressible as a plan operation** —
-  `twig proposal validate` rejects it with `plan.invalid_relation`. The artifact-link
-  surface must be applied out of band (ADO REST) and logged as a tooling gap. Closing that
-  gap means either widening the relation set or accepting artifact links as permanently
-  human/REST territory; that decision is not made here.
+  `twig proposal validate` rejects it with `plan.invalid_relation`. The surface was
+  applied directly against ADO REST, and the committed harness freezes the exact
+  project/repository/ref identity in `fixtures.json`; this is a tooling gap, not proposal
+  coverage.
 - At most **one op per `workItemId` per plan file**. Parent edges must therefore be
   expressed **child-side** (`workItemId` = child, `relation: parent`, `otherId` = parent)
   and split across sequence files; the parent-side spelling above puts three ops on
@@ -479,7 +479,7 @@ ids the seed publish returned.
 | 6 | Native parent/child rendering | `twig tree @INIT -o json` + `twig show @INIT -o json` | `06-hierarchy-links.json` | JSON shows `@INIT` → {`@INV`, `@FEAT`, `@BUG`} → {`@TA`, `@TB`, `@TC`}; every link's `rel` is `System.LinkTypes.Hierarchy-Forward` from the parent side |
 | 7 | Native predecessor/successor rendering | `twig show @TA -o json` and `twig show @TB -o json` | `07-predecessor-successor.json` | `@TA` has a `System.LinkTypes.Dependency-Forward` link to `@TB`; `@TB` has the reverse |
 | 8 | Native related rendering | `twig show @INV -o json` | `08-related-links.json` | `@INV` has a `System.LinkTypes.Related` link to `@FEAT` |
-| 9 | Artifact link | `twig show @FEAT -o json` | `09-artifact-links.json` | `@FEAT`'s relations contain an `ArtifactLink` matching the seeded branch vstfs URI |
+| 9 | Artifact link | `twig show @FEAT -o json` | `09-artifact-links.json` | `@FEAT` is the only item and its relations contain a nonempty `ArtifactLink` whose URL matches the frozen project/repository/ref identity in `fixtures.json` |
 | 10 | Rank preservation across publish/link | Server-owned backlog order for the portfolio and requirement backlogs (`GET /{project}/{team}/_apis/work/backlogs/{backlogId}/workItems`), captured after step 12's publish and again after step 13's link ops | `10-rank-before.json`, `10-rank-after.json`, `10-rank-diff.txt` | The two backlog orders are identical — rank survives publish and subsequent link mutation. `diff.txt` is empty. |
 
 Every row in the table above corresponds to a surface #727 lists as "must be

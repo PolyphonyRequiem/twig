@@ -5,6 +5,7 @@
   "team": "Twig-Reference-Sandbox Team",
   "processId": "a0afde20-50eb-4e30-b442-c9e7f13e752a",
   "processName": "Twig-Reference",
+  "capturedAt": "2026-08-31T19:31:23.5195999+00:00",
   "iteration": {
     "id": "9b7305e2-2f18-4501-aa98-d6098fa962ff",
     "path": "Twig-Reference-Sandbox\\Sprint 1"
@@ -22,5 +23,12 @@
     "TA": 861,
     "TB": 862,
     "TC": 863
+  },
+  "artifactLink": {
+    "name": "Branch",
+    "projectId": "2c534971-1a18-4880-9cce-2ca1fb2c3cd6",
+    "repositoryId": "417bcdda-211f-4611-a8eb-c5afac7e0a26",
+    "refName": "GBharness",
+    "url": "vstfs:///Git/Ref/2c534971-1a18-4880-9cce-2ca1fb2c3cd6%2F417bcdda-211f-4611-a8eb-c5afac7e0a26%2FGBharness"
   }
 }

@@ -975,3 +975,24 @@ static Twig.Domain.Services.ChangeProposals.ReviewSeedDisplay.operator ==(Twig.D
 static Twig.Domain.Services.ChangeProposals.ReviewTextChange.Measure(string! before, string! after) -> Twig.Domain.Services.ChangeProposals.ReviewTextChange!
 static Twig.Domain.Services.ChangeProposals.ReviewTextChange.operator !=(Twig.Domain.Services.ChangeProposals.ReviewTextChange? left, Twig.Domain.Services.ChangeProposals.ReviewTextChange? right) -> bool
 static Twig.Domain.Services.ChangeProposals.ReviewTextChange.operator ==(Twig.Domain.Services.ChangeProposals.ReviewTextChange? left, Twig.Domain.Services.ChangeProposals.ReviewTextChange? right) -> bool
+Twig.Domain.Interfaces.IPlanJournalRepository.GetDigestsBySourcePathAsync(string! sourcePath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<string!>!>!
+Twig.Domain.Services.Plan.PlanSourceReplacement
+Twig.Domain.Services.Plan.PlanSourceReplacement.<Clone>$() -> Twig.Domain.Services.Plan.PlanSourceReplacement!
+Twig.Domain.Services.Plan.PlanSourceReplacement.CurrentDigest.get -> string?
+Twig.Domain.Services.Plan.PlanSourceReplacement.CurrentDigest.init -> void
+Twig.Domain.Services.Plan.PlanSourceReplacement.CurrentDigestJournaled.get -> bool
+Twig.Domain.Services.Plan.PlanSourceReplacement.CurrentDigestJournaled.init -> void
+Twig.Domain.Services.Plan.PlanSourceReplacement.Equals(Twig.Domain.Services.Plan.PlanSourceReplacement? other) -> bool
+Twig.Domain.Services.Plan.PlanSourceReplacement.PlanSourceReplacement() -> void
+Twig.Domain.Services.Plan.PlanSourceReplacement.SourcePath.get -> string!
+Twig.Domain.Services.Plan.PlanSourceReplacement.SourcePath.init -> void
+Twig.Domain.Services.Plan.PlanSourceReplacement.SupersededDigests.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Plan.PlanSourceReplacement.SupersededDigests.init -> void
+Twig.Domain.Services.Plan.PlanStatusResult.Replacement.get -> Twig.Domain.Services.Plan.PlanSourceReplacement?
+Twig.Domain.Services.Plan.PlanStatusResult.Replacement.init -> void
+const Twig.Domain.Services.Plan.PlanValidationCodes.SourceReplaced = "plan.source_replaced" -> string!
+override Twig.Domain.Services.Plan.PlanSourceReplacement.Equals(object? obj) -> bool
+override Twig.Domain.Services.Plan.PlanSourceReplacement.GetHashCode() -> int
+override Twig.Domain.Services.Plan.PlanSourceReplacement.ToString() -> string!
+static Twig.Domain.Services.Plan.PlanSourceReplacement.operator !=(Twig.Domain.Services.Plan.PlanSourceReplacement? left, Twig.Domain.Services.Plan.PlanSourceReplacement? right) -> bool
+static Twig.Domain.Services.Plan.PlanSourceReplacement.operator ==(Twig.Domain.Services.Plan.PlanSourceReplacement? left, Twig.Domain.Services.Plan.PlanSourceReplacement? right) -> bool

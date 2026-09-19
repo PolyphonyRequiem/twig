@@ -312,10 +312,11 @@ public sealed class PlanTools(ConnectionResolver resolver)
             }, verbose, ct);
         }
 
-        // 🔴 The lifecycle now returns three distinct shapes for a non-null status:
+        // 🔴 The lifecycle now returns four distinct shapes for a non-null status:
         //   (a) input-error — Found=false, Issues populated;
         //   (b) valid file, no journal — service returns null (handled above);
-        //   (c) journal loaded — Found=true, Digest/State/Operations populated.
+        //   (c) journal loaded — Found=true, Digest/State/Operations populated;
+        //   (d) AB#832 replaced source — Replacement non-null, with Found either way.
         // Digest and State are both nullable on the record; the projection surfaces
         // 'found' explicitly so callers can distinguish the shapes without inferring
         // from missing fields, and preserves every field the lifecycle sets.
@@ -335,6 +336,32 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
             PlanJsonWriter.WriteIssues(writer, status.Issues);
             PlanJsonWriter.WriteJournalOperations(writer, status.Operations);
+
+            // AB#832: always emitted so a consumer can read it without probing for the key.
+            // Null means this file is still the one that produced its journal; non-null means
+            // the path has carried another transaction and this status must not be trusted as
+            // a description of these bytes.
+            if (status.Replacement is { } replacement)
+            {
+                writer.WriteStartObject("replacement");
+                writer.WriteString("sourcePath", replacement.SourcePath);
+
+                if (replacement.CurrentDigest is not null)
+                    writer.WriteString("currentDigest", replacement.CurrentDigest);
+                else
+                    writer.WriteNull("currentDigest");
+
+                writer.WriteBoolean("currentDigestJournaled", replacement.CurrentDigestJournaled);
+                writer.WriteStartArray("supersededDigests");
+                foreach (var superseded in replacement.SupersededDigests)
+                    writer.WriteStringValue(superseded);
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNull("replacement");
+            }
             writer.WriteEndObject();
         }, verbose, ct);
     }

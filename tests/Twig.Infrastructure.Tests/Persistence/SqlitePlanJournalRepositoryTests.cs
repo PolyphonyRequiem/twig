@@ -40,6 +40,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         AssertDurableTableExists("proposal_journals");
         AssertDurableTableExists("proposal_operations");
         AssertDurableIndexExists("idx_proposal_journals_state");
+        AssertDurableIndexExists("idx_proposal_journals_source_path_previewed_at_digest");
         AssertDurableIndexExists("idx_proposal_operations_ordinal");
         AssertDurableIndexExists("idx_proposal_operations_state");
     }
@@ -569,7 +570,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // IGNORE is genuinely contended — a sequential run would fail the assertion below
         // that BOTH results carry the same SourcePath (the winner's), because a non-race
         // execution would let each caller's own path stick.
-        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-race-{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-race-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
 
@@ -630,7 +631,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // wait window, then commit A and let B proceed. An implementation that still used
         // check-then-INSERT would throw a PRIMARY KEY violation on B once A commits, because
         // B's precheck saw no row.
-        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-race-det-{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-race-det-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
 
@@ -1320,7 +1321,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     {
         // 0013's durability test — the plan journal lives in the sibling pending.db, which a
         // mirror drop-and-rebuild must not be able to reach.
-        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
 
@@ -1382,7 +1383,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // Reopen: SqliteCacheStore runs migration [8] against real data. Assert the
         // rows survive under the new names with every column intact, and that GetAsync
         // still reconstructs the journal through the repository API.
-        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-mig-{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-mig-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
 
@@ -1584,7 +1585,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // pending.user_version to 8 to recreate a genuine pre-[9] database, seed a
         // realistic header via raw SQL, close, then reopen so migration [9] runs against
         // real data.
-        var dir = Path.Combine(Path.GetTempPath(), $"twig-plan-auth-mig-{Guid.NewGuid():N}");
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-auth-mig-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
 
@@ -1792,6 +1793,160 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     }
 
     private Task WalkOpToApplied(string digest, string opId) => WalkOpToState(digest, opId, PlanOperationState.Applied);
+
+    // ── AB#832: inverse lookup by source path ──────────────────────────────
+
+    /// <summary>
+    /// A plan file is single-use, so its path legitimately carries exactly one digest for its
+    /// whole life. More than one means the file was overwritten — the inverse lookup is what
+    /// lets the lifecycle name that instead of silently answering about whichever bytes
+    /// happen to be on disk.
+    /// </summary>
+    [Fact]
+    public async Task GetDigestsBySourcePath_ReturnsEveryDigestJournaledAgainstThePath_OldestFirst()
+    {
+        var original = BuildTwoOpPlan();
+        var replacement = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+
+        await _repo.ImportAsync(original, original.CanonicalJson, original.Digest, "/plans/020.json", Now());
+        await _repo.ImportAsync(
+            replacement, replacement.CanonicalJson, replacement.Digest, "/plans/020.json", Now().AddMinutes(5));
+
+        var digests = await _repo.GetDigestsBySourcePathAsync("/plans/020.json");
+
+        digests.ShouldBe([original.Digest, replacement.Digest]);
+    }
+
+    [Fact]
+    public async Task GetDigestsBySourcePath_DoesNotBleedAcrossPaths()
+    {
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/020.json", Now());
+
+        (await _repo.GetDigestsBySourcePathAsync("/plans/021.json")).ShouldBeEmpty();
+    }
+    [Fact]
+    public async Task GetDigestsBySourcePath_CaseInsensitiveComparer_MergesCasingVariants_OldestFirst()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repo = new SqlitePlanJournalRepository(store)
+        {
+            SourcePathComparer = StringComparer.OrdinalIgnoreCase,
+        };
+
+
+        var previewedAt = Now();
+        var first = BuildTwoOpPlan();
+        var second = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+        var third = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 832, "expectedRevision": 8,
+                  "fields": { "System.State": "Active" } }
+              ]
+            }
+            """);
+
+        await repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/020.json", previewedAt);
+        await repo.ImportAsync(second, second.CanonicalJson, second.Digest, "/PLANS/020.JSON", previewedAt.AddMinutes(5));
+        await repo.ImportAsync(third, third.CanonicalJson, third.Digest, "/plans/020.json", previewedAt.AddMinutes(10));
+
+        var digests = await repo.GetDigestsBySourcePathAsync("/PlAnS/020.Json");
+
+        digests.ShouldBe([first.Digest, second.Digest, third.Digest]);
+    }
+
+    [Fact]
+    public async Task GetDigestsBySourcePath_CaseSensitiveComparer_KeepsCasingVariantsDistinct()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repo = new SqlitePlanJournalRepository(store)
+        {
+            SourcePathComparer = StringComparer.Ordinal,
+        };
+
+        var previewedAt = Now();
+        var first = BuildTwoOpPlan();
+        var second = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+
+        await repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/020.json", previewedAt);
+        await repo.ImportAsync(second, second.CanonicalJson, second.Digest, "/PLANS/020.JSON", previewedAt.AddMinutes(5));
+
+        (await repo.GetDigestsBySourcePathAsync("/plans/020.json")).ShouldBe([first.Digest]);
+        (await repo.GetDigestsBySourcePathAsync("/PLANS/020.JSON")).ShouldBe([second.Digest]);
+        (await repo.GetDigestsBySourcePathAsync("/PlAnS/020.Json")).ShouldBeEmpty();
+    }
+    [Fact]
+    public async Task GetDigestsBySourcePath_UsesCollatedIndexAndPreservesOldestPreviewOrdering()
+    {
+        var first = BuildTwoOpPlan();
+        var second = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+
+        await _repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/020.json", Now());
+        await _repo.ImportAsync(second, second.CanonicalJson, second.Digest, "/plans/020.json", Now().AddMinutes(5));
+
+        using var cmd = _store.GetConnection().CreateCommand();
+        cmd.CommandText = $"""
+            EXPLAIN QUERY PLAN
+            SELECT digest
+            FROM proposal_journals
+            WHERE source_path COLLATE {SqlitePlanJournalRepository.SourcePathCollationName} = @source
+            ORDER BY previewed_at, digest;
+            """;
+        cmd.Parameters.AddWithValue("@source", "/plans/020.json");
+
+        var planText = string.Empty;
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+                planText += reader.GetString(3) + "\n";
+        }
+
+        AssertDurableIndexExists("idx_proposal_journals_source_path_previewed_at_digest");
+        planText.ShouldNotContain("SCAN proposal_journals");
+
+        (await _repo.GetDigestsBySourcePathAsync("/plans/020.json")).ShouldBe([first.Digest, second.Digest]);
+    }
+
+
 
     private static PlanFixture BuildTwoOpPlan()
     {

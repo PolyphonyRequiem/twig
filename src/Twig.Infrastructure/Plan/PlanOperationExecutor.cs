@@ -105,9 +105,11 @@ internal sealed class PlanOperationExecutor
             // 412 is DETERMINATE: the server refused because the revision moved. No readback
             // will change that answer, and no retry is permitted — the whole point of the plan
             // shape is that a stale revision fails loudly.
+            int? observedRevision = ex.ServerRevision > 0 ? ex.ServerRevision : null;
+            var serverRevision = observedRevision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "(unknown)";
             return PlanExecutionResult.Failure(
-                $"Revision conflict: expected rev={ExpectedRevision(operation)}, server rev={ex.ServerRevision}. Review a new proposal; no automatic retry.",
-                SerializeDiagnostics("revision-conflict", ExpectedRevision(operation), ex.ServerRevision));
+                $"Revision conflict: expected rev={ExpectedRevision(operation)}, server rev={serverRevision}. Review a new proposal; no automatic retry.",
+                SerializeDiagnostics("revision-conflict", ExpectedRevision(operation), observedRevision));
         }
         catch (AdoRelationNotFoundException ex)
         {

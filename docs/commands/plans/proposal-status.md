@@ -108,6 +108,11 @@ plus a defensive parse of `ResultJson` and (as a fallback for `expectedRevision`
 | `code` | `verified`, `field-mismatch`, `missing-required-fields`, `revision-not-advanced`, `revision-conflict`, `readback-unavailable`, or `null` |
 | `fields[].classification` | `exact`, `cleared`, `canonicalized-html`, `canonicalized-identity`, `server-generated`, `mismatch`, `clear-failed` |
 
+When ADO refuses a stale revision without disclosing its current revision,
+`observedRevision` is `null` and the summary labels it unknown. The adapter's
+zero sentinel is not a server revision. The operation remains `failed`; this
+does not trigger another read or retry the refused write.
+
 Human and minimal output render disposition, revisions, and a bounded summary
 of at most eight field entries; JSON retains the complete field lists.
 The `full evidence: rerun with '-o json' …` hint points to the original

@@ -22,6 +22,10 @@ python3 tools/agent-efficiency-baseline/run.py --output artifacts/agent-baseline
 
 The installed and source CLIs each get a **different temporary workspace and empty credential home**. Only `version`, `show --help`, cache-only `show 42`, and cold `process Frobnicator` run there. The executable is hashed before and after and never installed or upgraded. Cache versions are read through read-only SQLite connections. No SQL writes or copied production caches are used. Temporary fixture workspaces are deleted; complete output remains in the requested evidence directory.
 
+The read-only SQLite schema probe explicitly closes its connection before removing
+the disposable workspace. A transaction context alone does not close Python's
+SQLite connection and can leave the database locked during cleanup on Windows.
+
 Never alternate old/new executables against an operational cache. The September 16 capture found installed mirror schema **14** versus source **16**; `SqliteCacheStore.EnsureSchema` rebuilds the disposable mirror on version inequality. Durable proposal/pending data is independently versioned. This explains why unlike binaries cannot provide a valid same-cache payload comparison; AB#688 retains ownership of context retention, not this tool.
 
 ## Interpret the verdict
@@ -110,3 +114,43 @@ AB#880 is the source-side consumer-guidance companion to the compact-read work. 
 The measured **49,827 → 4,477 Unicode response characters (91.01% reduction)** applies only to the paired read-only item + requirements responses in `880-parent-evidence/paired-read-checks.json`. It excludes help/agent prompts and is **not** billed-token or global workflow savings.
 
 Deployment remains under AB#882: install the staged engineering-profile patch, rerun the fresh Hermes/OMP qualification, and capture install/rollback proof on the live consumer paths. This README records source-side acceptance evidence; it does not claim deployed product status.
+
+## AB#882 qualification findings
+
+The September 20 qualification replay recovered the exact frozen pre-fix assembly
+(`17c0aa38e330d943ad2b5e46b94ac315349d2d3fb537feff9ef02b486418cf77`).
+Its 23 cases still reported five unmet desired outcomes and zero safety failures.
+The `8402da5e` source candidate reported 25 cases, no unmet desired outcomes and
+zero safety failures. These are offline native-lifecycle fixtures, not live ADO.
+
+Separately authorized, newly created Sandbox fixtures exercised real journal writes:
+supported block-edge HTML verified after ADO expanded 196 bytes to 201 bytes;
+a partial chain retained a Verified prefix, refused a stale-revision operation,
+and left its Confirmed tail untouched. Authoritative refreshed reads confirmed
+the outcomes. No failed transaction was retried. This exposed an unknown revision
+being reported as zero; the corrected executor preserves the refusal and reports
+`observedRevision: null`. The lifecycle regression failed before the correction,
+then passed with 2,476 Infrastructure tests; a fresh live refusal confirmed the
+corrected unknown-revision diagnostic.
+
+Response reduction is workload-specific. Replaying the frozen Feature request
+shapes on current snapshots measured **51,239 → 4,476 characters (91.26%)**.
+A separate Sandbox Task workload measured **39,837 → 23,472 (41.08%)** because its
+requirements include many more rules. Neither comparison removes verification
+calls or claims billed-token savings; tokenizer counts were not measured.
+
+The recovered adapter passed 11 offline forwarding assertions and five live
+read-probe assertions. Applying and reversing its patch on a disposable copy
+restored every source hash. A fresh engineering Hermes session still reported
+the installed native projection schema missing. These results do **not** establish
+deployment, fresh-session compact acceptance, or executable rollback. Keep the
+AB#882 rollout gate open until those remaining checks and independent review pass.
+
+The recovered adapter also truncated failures after twelve lines and preferred
+stderr over stdout, potentially hiding partial-success evidence. Apply
+`ab882-runner-error-preservation.patch` **after** the recovered AB#880 projection
+patch in a staged plugin copy. It preserves the existing error envelope while
+retaining all diagnostic lines and both failure streams. A fifteen-line failure
+and partial-success stdout probe passed after this correction, as did the eleven
+existing forwarding assertions. The original recovered package remains unchanged;
+this correction is not evidence that the live plugin was upgraded.

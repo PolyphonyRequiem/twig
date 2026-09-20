@@ -3116,18 +3116,19 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         status.Operations[2].ResultJson.ShouldBeNull();
     }
 
-    [Fact]
-    public async Task Apply_Batch_RevisionConflict_ResultJsonCarriesRevisionConflictDiagnostics()
+    [Theory]
+    [InlineData(7)]
+    [InlineData(0)]
+    public async Task Apply_Batch_RevisionConflict_ResultJsonCarriesRevisionConflictDiagnostics(int serverRevision)
     {
-        // A 412 on the PATCH is deterministic Failed, not a candidate for readback. AB#881
-        // requires the row's ResultJson to name the code AND both revisions, so an operator
-        // sees "we asked for rev 3, server was at rev 7" without parsing the Error string.
+        // A conflict is determinately refused even when ADO omits the current revision.
+        // Zero is the adapter's unknown sentinel, not an observed server revision.
         var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Active"));
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
 
         _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
-            .ThrowsAsyncForAnyArgs(new AdoConflictException(7, "412"));
+            .ThrowsAsyncForAnyArgs(new AdoConflictException(serverRevision, "412"));
 
         var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
 
@@ -3138,7 +3139,10 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         DiagnosticsCodeOf(row.ResultJson).ShouldBe("revision-conflict");
         var diag = DiagnosticsOf(row.ResultJson);
         diag.GetProperty("expectedRevision").GetInt32().ShouldBe(3);
-        diag.GetProperty("observedRevision").GetInt32().ShouldBe(7);
+        if (serverRevision > 0)
+            diag.GetProperty("observedRevision").GetInt32().ShouldBe(serverRevision);
+        else
+            diag.GetProperty("observedRevision").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Fact]

@@ -489,7 +489,7 @@ internal static class CommandExamples
         ],
         ["skills install"] =
         [
-            "twig skills install --provider omp --target /path/to/skills    Install generic Twig guidance.",
+            "twig skills install --provider omp --target /path/to/skills    Install the canonical Twig skill.",
             "twig skills install --provider hermes --target /path/to/skills -o json    Prepare an explicit profile root.",
         ],
         ["skills update"] =

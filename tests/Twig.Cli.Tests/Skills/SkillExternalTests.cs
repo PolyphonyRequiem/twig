@@ -20,8 +20,8 @@ public sealed class SkillExternalTests : IDisposable
     {
         var files = new Dictionary<string, byte[]>
         {
-            ["twig-cli/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-cli\ndescription: Twig\n---\n# Twig\n"),
-            ["twig-changes/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-changes\ndescription: Changes\n---\n# Changes\n"),
+            ["twig/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig\ndescription: Twig\n---\n# Twig\n"),
+            ["twig/references/operations.md"] = Encoding.UTF8.GetBytes("Operations"),
         };
         return new SkillPackage(version, files);
     }
@@ -135,18 +135,27 @@ public sealed class SkillExternalTests : IDisposable
             .Message.ShouldContain("SKILL.md");
     }
 
-    [Fact]
-    public void External_add_rejects_source_with_family_name_or_unnamed_frontmatter()
+    [Theory]
+    [InlineData("twig")]
+    [InlineData("twig-cli")]
+    [InlineData("twig-changes")]
+    public void External_add_rejects_canonical_and_retired_family_names(string familyName)
     {
         var service = new SkillLifecycle(Package());
         service.Install("omp", Target);
         var familyNamed = Path.Combine(SourceRoot, "family-clash");
         Directory.CreateDirectory(familyNamed);
         File.WriteAllText(Path.Combine(familyNamed, "SKILL.md"),
-            "---\nname: twig-cli\ndescription: Would clash\n---\nBody");
+            $"---\nname: {familyName}\ndescription: Would clash\n---\nBody");
         Should.Throw<SkillLifecycleException>(() => service.AddExternal("omp", Target, familyNamed))
             .Message.ShouldContain("external skill name");
+    }
 
+    [Fact]
+    public void External_add_rejects_unnamed_frontmatter()
+    {
+        var service = new SkillLifecycle(Package());
+        service.Install("omp", Target);
         var noName = Path.Combine(SourceRoot, "no-name");
         Directory.CreateDirectory(noName);
         File.WriteAllText(Path.Combine(noName, "SKILL.md"), "---\ndescription: nameless\n---\nBody");

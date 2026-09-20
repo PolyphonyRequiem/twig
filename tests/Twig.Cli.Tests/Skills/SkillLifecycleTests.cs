@@ -15,11 +15,12 @@ public sealed class SkillLifecycleTests : IDisposable
     {
         var files = new Dictionary<string, byte[]>
         {
-            ["twig-cli/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-cli\ndescription: Twig\n---\n# Twig {{TWIG_VERSION}}\n"),
-            ["twig-changes/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-changes\ndescription: Changes\n---\n# Changes\n"),
-            ["twig-cli/references/help.md"] = Encoding.UTF8.GetBytes("Help")
+            ["twig/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig\ndescription: Twig\n---\n# Twig {{TWIG_VERSION}}\n"),
+            ["twig/references/operations.md"] = Encoding.UTF8.GetBytes("Operations"),
+            ["twig/references/changes.md"] = Encoding.UTF8.GetBytes("Changes"),
+            ["twig/references/presentation.md"] = Encoding.UTF8.GetBytes("Presentation")
         };
-        if (extra) files["twig-cli/references/new.md"] = Encoding.UTF8.GetBytes("New");
+        if (extra) files["twig/references/new.md"] = Encoding.UTF8.GetBytes("New");
         return new SkillPackage(version, files);
     }
 
@@ -34,8 +35,8 @@ public sealed class SkillLifecycleTests : IDisposable
         var before = File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.ManifestPath));
         service.Install(provider, Target).State.ShouldBe("current");
         File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.ManifestPath)).ShouldBe(before);
-        File.ReadAllText(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldContain("1.0.0+first");
-        File.Exists(Path.Combine(Target, "twig-changes/SKILL.md")).ShouldBeTrue();
+        File.ReadAllText(Path.Combine(Target, "twig/SKILL.md")).ShouldContain("1.0.0+first");
+        File.Exists(Path.Combine(Target, "twig/references/changes.md")).ShouldBeTrue();
         service.Status(provider, Target).State.ShouldBe("current");
     }
 
@@ -53,22 +54,31 @@ public sealed class SkillLifecycleTests : IDisposable
     public void Conflicting_family_name_is_not_adopted_even_when_bytes_match()
     {
         var package = Package();
-        Write("twig-cli/SKILL.md", Encoding.UTF8.GetString(package.GetFiles()["twig-cli/SKILL.md"]));
+        Write("twig/SKILL.md", Encoding.UTF8.GetString(package.GetFiles()["twig/SKILL.md"]));
         Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(package).Install("omp", Target)).Message.ShouldContain("conflict");
-        File.Exists(Path.Combine(Target, "twig-changes/SKILL.md")).ShouldBeFalse();
+        File.Exists(Path.Combine(Target, "twig/references/changes.md")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Install_refuses_canonical_name_alias_in_another_directory()
+    {
+        Write("different-directory/SKILL.md", "---\nname: twig\ndescription: Shadow\n---\nBody");
+        Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package()).Install("omp", Target))
+            .Message.ShouldContain("Name conflict");
+        File.Exists(Path.Combine(Target, SkillLifecycle.ManifestPath)).ShouldBeFalse();
     }
 
     [Fact]
     public void Update_refuses_edited_managed_files_before_writing_anything()
     {
         new SkillLifecycle(Package()).Install("hermes", Target);
-        Write("twig-changes/SKILL.md", "user edit");
-        var entry = File.ReadAllText(Path.Combine(Target, "twig-cli/SKILL.md"));
+        Write("twig/references/changes.md", "user edit");
+        var entry = File.ReadAllText(Path.Combine(Target, "twig/SKILL.md"));
         Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package("2.0.0+next", true)).Update("hermes", Target))
             .Message.ShouldContain("edited");
-        File.ReadAllText(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldBe(entry);
-        File.ReadAllText(Path.Combine(Target, "twig-changes/SKILL.md")).ShouldBe("user edit");
-        File.Exists(Path.Combine(Target, "twig-cli/references/new.md")).ShouldBeFalse();
+        File.ReadAllText(Path.Combine(Target, "twig/SKILL.md")).ShouldBe(entry);
+        File.ReadAllText(Path.Combine(Target, "twig/references/changes.md")).ShouldBe("user edit");
+        File.Exists(Path.Combine(Target, "twig/references/new.md")).ShouldBeFalse();
     }
 
     [Fact]
@@ -99,7 +109,7 @@ public sealed class SkillLifecycleTests : IDisposable
         Should.Throw<SkillLifecycleException>(() => service.Configure("copilot", Target, "terminal", "missing"))
             .Message.ShouldContain("missing");
         File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.SelectionPath)).ShouldBe(before);
-        Should.Throw<SkillLifecycleException>(() => service.Configure("copilot", Target, "terminal", "twig-cli"));
+        Should.Throw<SkillLifecycleException>(() => service.Configure("copilot", Target, "terminal", "twig"));
     }
 
     [Fact]
@@ -138,7 +148,7 @@ public sealed class SkillLifecycleTests : IDisposable
         service.Install("copilot", Target);
         var other = Path.Combine(sandbox, "other");
         Directory.CreateDirectory(Path.Combine(other, "different-folder"));
-        File.WriteAllText(Path.Combine(other, "different-folder/SKILL.md"), "---\nname: twig-cli\ndescription: Shadow\n---\nBody");
+        File.WriteAllText(Path.Combine(other, "different-folder/SKILL.md"), "---\nname: twig\ndescription: Shadow\n---\nBody");
         var status = service.Status("copilot", Target, other);
         status.Warnings.ShouldContain(w => w.Contains("shadow") && w.Contains("different-folder"));
         status.DiscoveryScope.ShouldContain("bounded");
@@ -158,9 +168,46 @@ public sealed class SkillLifecycleTests : IDisposable
         var service = new SkillLifecycle(Package());
         service.Install("hermes", Target);
         var path = Path.Combine(Target, SkillLifecycle.ManifestPath);
-        var json = File.ReadAllText(path).Replace("twig-cli/references/help.md", "../outside.txt", StringComparison.Ordinal);
+        var json = File.ReadAllText(path).Replace("twig/references/operations.md", "../outside.txt", StringComparison.Ordinal);
         File.WriteAllText(path, json);
         Should.Throw<SkillLifecycleException>(() => service.Update("hermes", Target));
+    }
+
+    [Fact]
+    public void Update_migrates_legacy_family_and_preserves_selections_externals_and_user_files()
+    {
+        WriteLegacyInstall("omp");
+        var selection = File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.LegacySelectionPath));
+        var companion = File.ReadAllText(Path.Combine(Target, "my-presenter/SKILL.md"));
+
+        new SkillLifecycle(Package("2.0.0+foundation")).Update("omp", Target).State.ShouldBe("updated");
+
+        File.Exists(Path.Combine(Target, "twig/SKILL.md")).ShouldBeTrue();
+        File.ReadAllBytes(Path.Combine(Target, SkillLifecycle.SelectionPath)).ShouldBe(selection);
+        File.Exists(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldBeFalse();
+        File.Exists(Path.Combine(Target, "twig-changes/SKILL.md")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(Target, "twig-cli")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(Target, "twig-changes")).ShouldBeFalse();
+        File.ReadAllText(Path.Combine(Target, "my-presenter/SKILL.md")).ShouldBe(companion);
+        File.ReadAllText(Path.Combine(Target, "unrelated-settings.json")).ShouldBe("user settings");
+    }
+
+    [Fact]
+    public void Legacy_migration_refuses_edited_managed_file_and_existing_canonical_name()
+    {
+        WriteLegacyInstall("hermes");
+        Write("twig-changes/SKILL.md", "user edit");
+        Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package("2.0.0+foundation")).Update("hermes", Target))
+            .Message.ShouldContain("edited");
+        File.Exists(Path.Combine(Target, "twig/SKILL.md")).ShouldBeFalse();
+
+        Directory.Delete(Target, true);
+        WriteLegacyInstall("hermes");
+        Write("twig/SKILL.md", "unmanaged canonical conflict");
+        Should.Throw<SkillLifecycleException>(() => new SkillLifecycle(Package("2.0.0+foundation")).Update("hermes", Target))
+            .Message.ShouldContain("conflict");
+        File.ReadAllText(Path.Combine(Target, "twig/SKILL.md")).ShouldBe("unmanaged canonical conflict");
+        File.Exists(Path.Combine(Target, "twig-cli/SKILL.md")).ShouldBeTrue();
     }
 
     [Fact]
@@ -186,10 +233,48 @@ public sealed class SkillLifecycleTests : IDisposable
         service.Install("hermes", Target);
         var outside = Path.Combine(sandbox, "outside");
         File.WriteAllText(outside, "outside");
-        File.Delete(Path.Combine(Target, "twig-cli/SKILL.md"));
-        File.CreateSymbolicLink(Path.Combine(Target, "twig-cli/SKILL.md"), outside);
+        File.Delete(Path.Combine(Target, "twig/SKILL.md"));
+        File.CreateSymbolicLink(Path.Combine(Target, "twig/SKILL.md"), outside);
         Should.Throw<SkillLifecycleException>(() => service.Update("hermes", Target)).Message.ShouldContain("symlink");
         File.ReadAllText(outside).ShouldBe("outside");
+    }
+
+    private void WriteLegacyInstall(string provider)
+    {
+        var legacyFiles = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["twig-cli/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-cli\ndescription: Legacy CLI\n---\nLegacy"),
+            ["twig-changes/SKILL.md"] = Encoding.UTF8.GetBytes("---\nname: twig-changes\ndescription: Legacy changes\n---\nLegacy"),
+            [SkillLifecycle.LegacySelectionPath] = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"selections\":{\"" + provider + "\":{\"terminal\":\"my-presenter\"}}}")
+        };
+        foreach (var (path, bytes) in legacyFiles)
+        {
+            var full = Path.Combine(Target, path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllBytes(full, bytes);
+        }
+        Write("my-presenter/SKILL.md", "---\nname: my-presenter\ndescription: Mine\n---\nPrivate text");
+        Write("unrelated-settings.json", "user settings");
+        var manifest = new SkillManifest
+        {
+            Provider = provider,
+            PackageIdentity = "0.92.2+legacy:sha256:legacy",
+            Files = legacyFiles.ToDictionary(p => p.Key, p => SkillPackage.Hash(p.Value), StringComparer.Ordinal),
+            Externals = new Dictionary<string, SkillExternal>(StringComparer.Ordinal)
+            {
+                ["my-presenter"] = new()
+                {
+                    SourceIdentity = "sha256:" + new string('a', 64),
+                    Files = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["SKILL.md"] = SkillPackage.Hash(Encoding.UTF8.GetBytes("---\nname: my-presenter\ndescription: Mine\n---\nPrivate text"))
+                    }
+                }
+            }
+        };
+        var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, SkillJsonContext.Default.SkillManifest);
+        Directory.CreateDirectory(Target);
+        File.WriteAllBytes(Path.Combine(Target, SkillLifecycle.ManifestPath), manifestBytes);
     }
 
     private void Write(string relative, string content)

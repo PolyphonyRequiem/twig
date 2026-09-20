@@ -73,7 +73,7 @@ task row. The mapping is stored in `tools/plan-ado-map.json`.
 - After seeding, the plan Epic is transitioned to "Doing"
 
 ### Creating work items via twig CLI
-- Use the `twig-cli` skill for full command reference
+- Use the `twig` skill for shared work-item guidance and exact command references
 - **Always assign to the user** after creating and publishing a seed:
   `twig set <id>` → `twig update System.AssignedTo "Daniel Green"`
 - **Always add a rich description** after creating and publishing a seed:

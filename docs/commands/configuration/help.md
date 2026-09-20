@@ -21,7 +21,7 @@ twig <group> --help
 twig <command> --help
 twig help <command>
 twig --help-all
-twig --skill
+twig --skill [operations|changes|presentation]
 ```
 
 ## Behavior
@@ -35,9 +35,9 @@ twig --skill
   Hidden compatibility aliases remain reachable through targeted help.
 - `--help-all` is the explicit complete generated catalog, including registered
   aliases. Unknown commands fail with a short discovery hint rather than dumping it.
-- `--skill` prints the executable-matched generic `twig-cli` entry and package
-  identity. See [skill delivery](../../features/skills.md) for installation of
-  the generic family and separately supplied companions.
+- `--skill` prints the executable-matched canonical `twig` foundation and package
+  identity. An optional `operations`, `changes`, or `presentation` topic prints
+  that bundled conditional reference. See [skill delivery](../../features/skills.md).
 - Help exits before workspace services, native database initialization, self-update
   cleanup and companion downloads. Supplying work-item arguments with `--help`
   does not execute that operation. A help token following `--` remains argument data.
@@ -49,7 +49,7 @@ twig proposal --help                 # choose a proposal operation
 twig proposal apply --help           # exact syntax, gates, effects and errors
 twig help workspace area add         # equivalent targeted-help spelling
 twig --help-all                      # complete discovery escape hatch
-twig --skill                         # offline entry guidance from this build
+twig --skill operations              # offline operating reference from this build
 ```
 
 ## Exit codes and failure modes

@@ -12,7 +12,7 @@ internal static class ProgressiveHelp
         output.WriteLine($"twig {VersionHelper.GetVersion()}");
         output.WriteLine("""
 
-Usage: twig [command] [-h|--help] [--help-all] [--skill] [--version]
+Usage: twig [command] [-h|--help] [--help-all] [--skill [operations|changes|presentation]] [--version]
 
 Choose a task:
   Get started       init, auth --help, sync

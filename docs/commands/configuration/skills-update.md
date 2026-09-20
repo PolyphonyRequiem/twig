@@ -30,7 +30,7 @@ twig skills update --provider hermes|omp|copilot --target PATH [--scan-root PATH
 
 ## Behavior
 
-Requires an existing installation pinned to the same provider. Verifies all manifest-owned bytes before changing them; edited or missing managed content refuses the update. Preserves user selections, separately named companions and unrelated settings. A matching identity is a no-op.
+Requires an existing installation pinned to the same provider. Verifies all manifest-owned bytes before changing them; edited or missing managed content refuses the update. The supported `twig-cli`/`twig-changes` package migrates to the single `twig` skill, moving its selection file while preserving selections, separately named companions and unrelated settings. A conflicting unmanaged `twig` destination is refused. A matching identity is a no-op.
 
 Discovery is bounded to direct child skill files, not all host profiles, project
 ancestors, plugins or custom roots. Warnings do not prove a host loaded the

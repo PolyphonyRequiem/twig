@@ -1,0 +1,31 @@
+--- a/plugins/twig/runner.py
++++ b/plugins/twig/runner.py
+@@ -130,7 +130,8 @@
+     # twig reports several user errors on stdout with exit code 0, so a
+     # non-zero exit is not the only failure signal.
+     if proc.returncode != 0:
+-        raise TwigError(_clean(err or out or f"twig exited {proc.returncode}"))
++        diagnostic = "\n".join(part for part in (err, out) if part)
++        raise TwigError(_clean(diagnostic or f"twig exited {proc.returncode}"))
+     if out.lower().startswith("error:"):
+         raise TwigError(_clean(out))
+     return out, err
+@@ -140,16 +141,13 @@
+ 
+ 
+ def _clean(text):
+-    """Trim a twig diagnostic to something a model can act on.
++    """Remove ANSI decoration without discarding diagnostic content.
+ 
+     twig colourizes its errors, so the raw stderr carries SGR escapes that would
+     otherwise be JSON-encoded into the tool result as \\u001b[31m noise.
+     """
+     text = _ANSI.sub("", text or "")
+-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+-    if not lines:
+-        return "twig failed with no diagnostic output"
+-    return "\n".join(lines[:12])
++    return text if text.strip() else "twig failed with no diagnostic output"
+ 
+ 
+ def run_json(argv, timeout=DEFAULT_TIMEOUT):

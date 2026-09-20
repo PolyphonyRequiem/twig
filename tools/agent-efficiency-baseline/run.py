@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capture offline source fixtures; optionally inspect an installed CLI in its own cold cache."""
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -53,7 +54,7 @@ def cold_cli(prefix, output, label):
             calls.append(capture([*prefix, *args], fixture, output, label + '-' + name, environment=environment))
         schemas = []
         for db in (fixture / '.twig').rglob('twig.db'):
-            with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True) as connection:
+            with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as connection:
                 row = connection.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
             schemas.append({'relative_path': str(db.relative_to(fixture)), 'mirror_schema': row[0] if row else None})
         return {'adapter': 'Python subprocess; not a fresh Hermes/OMP agent session',

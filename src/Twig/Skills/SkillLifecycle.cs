@@ -60,13 +60,15 @@ internal sealed record SkillLifecycleResult(string State, string Provider, strin
 }
 
 /// <summary>
-/// Owns only the two Twig skill directories' manifest-listed files and its own manifest.
+/// Owns only the canonical Twig skill directory's manifest-listed files and its own manifest.
+/// Safely migrates the former twig-cli/twig-changes package when its tracked bytes are intact.
 /// Refuses conflicts rather than adopting or forcing over user files. No provider config reads/writes.
 /// </summary>
 internal sealed class SkillLifecycle(SkillPackage package)
 {
     internal const string ManifestPath = ".twig-skills-manifest.json";
-    internal const string SelectionPath = "twig-cli/references/user-selections.json";
+    internal const string SelectionPath = "twig/references/user-selections.json";
+    internal const string LegacySelectionPath = "twig-cli/references/user-selections.json";
     private const string LockPath = ".twig-skills.lock";
     private const UnixFileMode ExecuteBits = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
     private const UnixFileMode PrivilegedBits = UnixFileMode.SetUser | UnixFileMode.SetGroup | UnixFileMode.StickyBit;
@@ -87,12 +89,23 @@ internal sealed class SkillLifecycle(SkillPackage package)
         ValidateScanRoot(scanRoot);
         // Validate existing state and every destination before creating even the lock file.
         var manifest = ReadManifest(target, provider);
-        // Discovery failures (permissions, symlinks) must not first appear after a write.
-        Discover(target, scanRoot);
+        // Discovery failures (permissions, symlinks) and name aliases must not first appear after a write.
+        var discovered = Discover(target, scanRoot);
+        if (manifest is null || IsLegacyManifest(manifest))
+        {
+            foreach (var (name, path) in discovered.Where(s => SkillPaths.ReservedNames.Contains(s.Name, StringComparer.Ordinal)))
+            {
+                var ownedPath = manifest is not null && manifest.Files.ContainsKey(name + "/SKILL.md")
+                    ? SkillPaths.Under(target, name + "/SKILL.md")
+                    : null;
+                if (ownedPath is null || !path.Equals(ownedPath, SkillPaths.PathComparison))
+                    throw new SkillLifecycleException($"Name conflict for '{name}': {path}. Preserve/rename it before installing or migrating; Twig will not adopt or overwrite it.");
+            }
+        }
         if (manifest is null)
         {
             if (update) throw new SkillLifecycleException("Twig skills are not installed at this target. Run twig skills install with the same --provider and --target.");
-            foreach (var name in SkillPaths.Family)
+            foreach (var name in SkillPaths.ReservedNames)
             {
                 var directory = SkillPaths.Under(target, name);
                 if (Directory.Exists(directory) || File.Exists(directory))
@@ -102,17 +115,23 @@ internal sealed class SkillLifecycle(SkillPackage package)
         else
         {
             VerifyManaged(target, manifest);
-            ReadSelections(target);
+            ReadSelections(target, manifest);
             if (manifest.PackageIdentity != package.Identity && !update)
                 throw new SkillLifecycleException("Installed Twig guidance belongs to a different version/build. Run twig skills update with the same --provider and --target; install never silently upgrades.");
             if (manifest.PackageIdentity == package.Identity)
                 return Result("current", provider, target, manifest, scanRoot);
         }
+        if (manifest is not null && IsLegacyManifest(manifest))
+        {
+            var canonicalRoot = SkillPaths.Under(target, "twig");
+            if (Directory.Exists(canonicalRoot) || File.Exists(canonicalRoot))
+                throw new SkillLifecycleException($"Unmanaged canonical name conflict: {canonicalRoot}. Preserve/rename it before migrating; no force overwrite is available.");
+        }
 
         var desired = package.GetFiles().ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         desired[SelectionPath] = manifest is null
             ? JsonSerializer.SerializeToUtf8Bytes(new SkillSelections(), SkillJsonContext.Default.SkillSelections)
-            : File.ReadAllBytes(SkillPaths.Under(target, SelectionPath));
+            : File.ReadAllBytes(SkillPaths.Under(target, SelectionPathFor(manifest)));
         foreach (var path in desired.Keys)
         {
             var destination = SkillPaths.Under(target, path);
@@ -138,8 +157,11 @@ internal sealed class SkillLifecycle(SkillPackage package)
             next.Files.Add(path, SkillPackage.Hash(bytes));
         }
         if (manifest is not null)
+        {
             foreach (var obsolete in manifest.Files.Keys.Except(desired.Keys, StringComparer.Ordinal))
                 File.Delete(SkillPaths.Under(target, obsolete));
+            DeleteEmptyLegacyDirectories(target);
+        }
         // Manifest last: interruptions leave an honestly inconsistent install, never a false current verdict.
         AtomicWrite(target, ManifestPath, JsonSerializer.SerializeToUtf8Bytes(next, SkillJsonContext.Default.SkillManifest), overwrite: manifest is not null);
         return Result(manifest is null ? "installed" : "updated", provider, target, next, scanRoot);
@@ -157,8 +179,8 @@ internal sealed class SkillLifecycle(SkillPackage package)
         if (companion is not null)
         {
             ValidateName(companion, "companion");
-            if (SkillPaths.Family.Contains(companion, StringComparer.Ordinal))
-                throw new SkillLifecycleException("A companion must have its own name, not twig-cli or twig-changes.");
+            if (SkillPaths.ReservedNames.Contains(companion, StringComparer.Ordinal))
+                throw new SkillLifecycleException("A companion must have its own name, distinct from twig and its retired package names.");
         }
         var manifest = ReadManifest(target, provider)
             ?? throw new SkillLifecycleException("Twig skills are not installed at this target. Run twig skills install first.");
@@ -178,7 +200,7 @@ internal sealed class SkillLifecycle(SkillPackage package)
         var current = ReadManifest(target, provider);
         if (!SameManifest(manifest, current)) throw new SkillLifecycleException("Installation changed concurrently; retry after inspecting status.");
         VerifyManaged(target, manifest);
-        var selections = ReadSelections(target);
+        var selections = ReadSelections(target, manifest);
         if (!selections.Selections.TryGetValue(provider, out var scenarios))
             selections.Selections[provider] = scenarios = new(StringComparer.Ordinal);
         if (clear) scenarios.Remove(scenario);
@@ -316,7 +338,7 @@ internal sealed class SkillLifecycle(SkillPackage package)
         {
             foreach (var (name, external) in manifest.Externals)
                 warnings.AddRange(ExternalModeWarnings(target, name, external));
-            var selections = ReadSelections(target);
+            var selections = ReadSelections(target, manifest);
             if (selections.Selections.TryGetValue(provider, out var scenarios))
             {
                 selected = scenarios;
@@ -328,12 +350,12 @@ internal sealed class SkillLifecycle(SkillPackage package)
                 }
             }
         }
-        foreach (var name in names)
+        foreach (var name in names.Concat(SkillPaths.LegacyFamily).Distinct(StringComparer.Ordinal))
         {
             var matches = discovered.Where(s => s.Name == name).ToList();
             if (matches.Count > 1)
                 warnings.Add($"Potential shadowing for '{name}': {string.Join(", ", matches.Select(s => s.Path))}. Provider precedence is not inferred; verify the actual loaded skill.");
-            if (manifest is null && SkillPaths.Family.Contains(name) && matches.Count > 0)
+            if (manifest is null && SkillPaths.ReservedNames.Contains(name, StringComparer.Ordinal) && matches.Count > 0)
                 warnings.Add($"Unmanaged Twig name conflict for '{name}': {string.Join(", ", matches.Select(s => s.Path))}.");
         }
         return new SkillLifecycleResult(state, provider, target, package.Identity, manifest?.PackageIdentity, warnings) { Selections = selected, Externals = externals };
@@ -361,8 +383,14 @@ internal sealed class SkillLifecycle(SkillPackage package)
             if (hash is null || hash.Length != 64 || !hash.All(char.IsAsciiHexDigit))
                 throw new SkillLifecycleException($"Invalid managed hash for '{relative}'.");
         }
-        foreach (var required in new[] { "twig-cli/SKILL.md", "twig-changes/SKILL.md", SelectionPath })
-            if (!manifest.Files.ContainsKey(required)) throw new SkillLifecycleException($"Twig manifest is incomplete: missing '{required}'.");
+        var currentLayout = manifest.Files.ContainsKey("twig/SKILL.md") && manifest.Files.ContainsKey(SelectionPath)
+            && !manifest.Files.Keys.Any(IsLegacyPath);
+        var legacyLayout = manifest.Files.ContainsKey("twig-cli/SKILL.md")
+            && manifest.Files.ContainsKey("twig-changes/SKILL.md")
+            && manifest.Files.ContainsKey(LegacySelectionPath)
+            && !manifest.Files.Keys.Any(path => path.StartsWith("twig/", StringComparison.Ordinal));
+        if (currentLayout == legacyLayout)
+            throw new SkillLifecycleException("Twig manifest has an incomplete or mixed skill-family layout; preserve it and restore from a trusted backup.");
         manifest.Externals ??= new(StringComparer.Ordinal);
         foreach (var (name, external) in manifest.Externals)
         {
@@ -439,11 +467,11 @@ internal sealed class SkillLifecycle(SkillPackage package)
         }
     }
 
-    private static SkillSelections ReadSelections(string target)
+    private static SkillSelections ReadSelections(string target, SkillManifest manifest)
     {
         try
         {
-            var value = JsonSerializer.Deserialize(File.ReadAllBytes(SkillPaths.Under(target, SelectionPath)), SkillJsonContext.Default.SkillSelections);
+            var value = JsonSerializer.Deserialize(File.ReadAllBytes(SkillPaths.Under(target, SelectionPathFor(manifest))), SkillJsonContext.Default.SkillSelections);
             if (value is null || value.SchemaVersion != 1 || value.Selections is null)
                 throw new SkillLifecycleException("Invalid Twig selection reference; restore a trusted backup.");
             foreach (var (provider, scenarios) in value.Selections)
@@ -459,6 +487,28 @@ internal sealed class SkillLifecycle(SkillPackage package)
             return value;
         }
         catch (JsonException e) { throw new SkillLifecycleException($"Invalid Twig selection reference: {e.Message}"); }
+    }
+
+    private static string SelectionPathFor(SkillManifest manifest) =>
+        manifest.Files.ContainsKey(SelectionPath) ? SelectionPath : LegacySelectionPath;
+
+    private static bool IsLegacyManifest(SkillManifest manifest) =>
+        manifest.Files.ContainsKey(LegacySelectionPath);
+
+    private static bool IsLegacyPath(string path) => SkillPaths.LegacyFamily.Any(
+        name => path.StartsWith(name + "/", StringComparison.Ordinal));
+
+    private static void DeleteEmptyLegacyDirectories(string target)
+    {
+        foreach (var name in SkillPaths.LegacyFamily)
+        {
+            var root = SkillPaths.Under(target, name);
+            var references = SkillPaths.Under(root, "references");
+            if (Directory.Exists(references) && !Directory.EnumerateFileSystemEntries(references).Any())
+                Directory.Delete(references);
+            if (Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any())
+                Directory.Delete(root);
+        }
     }
 
     private static List<(string Name, string Path)> Discover(string target, string? scanRoot)

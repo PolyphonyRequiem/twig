@@ -24,7 +24,7 @@ catalog escape hatch and executable-matched `--skill` entry guidance.
 |[`config status-fields`](./config-status-fields.md)|Configure which fields appear in the status view.|
 |[`migrate-config`](./migrate-config.md)|Split a legacy `.twig/config` into `twig.json` + per-user prefs (AB#3296).|
 |[`help`](./help.md)|Progressive offline help and `--skill` guidance.|
-|[`skills install`](skills-install.md)|Install the generic Twig skill family into an explicit root.|
+|[`skills install`](skills-install.md)|Install the canonical Twig skill into an explicit root.|
 |[`skills update`](skills-update.md)|Update Twig-owned guidance while preserving companions.|
 |[`skills configure`](skills-configure.md)|Select or clear a companion without rewriting it.|
 |[`skills status`](skills-status.md)|Inspect identity, integrity and bounded discovery.|

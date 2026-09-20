@@ -19,7 +19,7 @@ internal sealed class SkillPackage
         var portablePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, bytes) in source.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            SkillPaths.ValidateManagedPath(path);
+            SkillPaths.ValidatePackagePath(path);
             if (!portablePaths.Add(path))
                 throw new SkillLifecycleException($"Package path has a case-insensitive alias: {path}.");
             if (path == SkillLifecycle.SelectionPath)
@@ -67,7 +67,15 @@ internal sealed class SkillPackage
     }
 
     internal IReadOnlyDictionary<string, byte[]> GetFiles() => files;
-    internal string ShowEntry() => $"Twig guidance package: {Identity}\n\n" + Encoding.UTF8.GetString(files["twig-cli/SKILL.md"]);
+    internal string ShowEntry() => Show("twig/SKILL.md");
+    internal string ShowReference(string name) => name switch
+    {
+        "operations" => Show("twig/references/operations.md"),
+        "changes" => Show("twig/references/changes.md"),
+        "presentation" => Show("twig/references/presentation.md"),
+        _ => throw new SkillLifecycleException("Unknown Twig skill reference. Choose operations, changes, or presentation.")
+    };
+    private string Show(string path) => $"Twig guidance package: {Identity}\n\n" + Encoding.UTF8.GetString(files[path]);
     internal static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 }
 
@@ -76,20 +84,29 @@ internal sealed class SkillLifecycleException(string message) : Exception(messag
 /// <summary>Portable lexical containment plus rejection of symlink/reparse-point ancestors.</summary>
 internal static class SkillPaths
 {
-    internal static readonly string[] Family = ["twig-cli", "twig-changes"];
+    internal static readonly string[] Family = ["twig"];
+    internal static readonly string[] LegacyFamily = ["twig-cli", "twig-changes"];
+    internal static readonly string[] ReservedNames = [.. Family, .. LegacyFamily];
     internal static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    internal static void ValidatePackagePath(string relative)
+    {
+        ValidateManagedPath(relative);
+        if (!relative.StartsWith("twig/", StringComparison.Ordinal))
+            throw new SkillLifecycleException($"Bundled package path must belong to the canonical twig skill: {relative}.");
+    }
 
     internal static void ValidateManagedPath(string relative)
     {
         var parts = relative.Split('/');
-        if (parts.Length < 2 || !Family.Contains(parts[0], StringComparer.Ordinal)
+        if (parts.Length < 2 || !ReservedNames.Contains(parts[0], StringComparer.Ordinal)
             || parts.Any(p => p.Length == 0 || p is "." or ".." || p.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_' and not '.'))
             || parts.Any(p => p.EndsWith('.') || IsDeviceName(p)))
             throw new SkillLifecycleException($"Unsafe managed package path '{relative}'. Only flat Twig family paths are allowed.");
     }
 
     internal static bool IsExternalName(string? name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 64
-        && name![0] != '-' && name[^1] != '-' && !Family.Contains(name, StringComparer.Ordinal) && !IsDeviceName(name)
+        && name![0] != '-' && name[^1] != '-' && !ReservedNames.Contains(name, StringComparer.Ordinal) && !IsDeviceName(name)
         && name.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
 
     internal static void ValidateExternalName(string? name)

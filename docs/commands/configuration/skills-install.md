@@ -1,14 +1,14 @@
 ---
 command: skills install
 group: configuration
-summary: Install the generic Twig skill family into an explicit root.
+summary: Install the canonical Twig skill into an explicit root.
 stability: stable
 mutates: local
 ---
 
 # `twig skills install`
 
-Install the generic Twig skill family into an explicit root. See [skill delivery](../../features/skills.md) for provider setup,
+Install the canonical Twig skill into an explicit root. See [skill delivery](../../features/skills.md) for provider setup,
 ownership and recovery. No workspace, authentication, provider executable or
 network is required; no provider settings or live profile are inferred.
 
@@ -30,7 +30,7 @@ twig skills install --provider hermes|omp|copilot --target PATH [--scan-root PAT
 
 ## Behavior
 
-Writes only the generic twig-cli/twig-changes package, configure-managed selections and ownership manifest. Repeating installation of the same unedited package is a no-op. A different installed package requires explicit update. Existing family directories without a manifest are conflicts, not files Twig adopts.
+Writes only the canonical `twig` package, configure-managed selections and ownership manifest. Repeating installation of the same unedited package is a no-op. A different installed package requires explicit update. Existing `twig` or retired `twig-cli`/`twig-changes` directories without a manifest are conflicts, not files Twig adopts.
 
 Discovery is bounded to direct child skill files, not all host profiles, project
 ancestors, plugins or custom roots. Warnings do not prove a host loaded the

@@ -5,7 +5,7 @@ description: Present Twig proposal reviews in a host such as Discord while prese
 
 # Twig review presenter
 
-Use alongside `twig-cli`, not instead of it. This skill owns presentation, not mutation,
+Use alongside `twig`, not instead of it. This skill owns presentation, not mutation,
 work-item discovery, credential handling, or approval policy. It is portable guidance:
 no host plugin or Discord credentials are bundled or required.
 

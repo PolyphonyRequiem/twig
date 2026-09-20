@@ -41,8 +41,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="../../.github/skills/twig-cli/SKILL.md" LogicalName="Twig.Skills.Package.twig-cli/SKILL.md" />
-    <EmbeddedResource Include="../../.github/skills/twig-changes/SKILL.md" LogicalName="Twig.Skills.Package.twig-changes/SKILL.md" />
+    <EmbeddedResource Include="../../.github/skills/twig/SKILL.md" LogicalName="Twig.Skills.Package.twig/SKILL.md" />
+    <EmbeddedResource Include="../../.github/skills/twig/references/*.md">
+      <LogicalName>Twig.Skills.Package.twig/references/%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="../../docs/commands/**/*.md">
       <LogicalName>Twig.CommandReference/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

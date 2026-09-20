@@ -5,7 +5,7 @@ using Twig.Skills;
 namespace Twig.Commands;
 
 /// <summary>
-/// Explicit, offline lifecycle for the executable-matched Twig skill family and separately named
+/// Explicit, offline lifecycle for the executable-matched canonical Twig skill and separately named
 /// integration/variant externals. Zero DI, zero SQLite, zero network, zero workspace/auth: this
 /// command class instantiates with a parameterless constructor and is safe to route before every
 /// Program.cs startup side effect. Verbs: install, update, configure, status, add. There is no
@@ -14,7 +14,7 @@ namespace Twig.Commands;
 /// </summary>
 internal sealed class SkillCommands
 {
-    /// <summary>Install the Twig skill family into an explicit skills root; refuse conflicts and never edit provider settings.</summary>
+    /// <summary>Install the canonical Twig skill into an explicit skills root; refuse conflicts and never edit provider settings.</summary>
     /// <param name="provider">-p, Agent provider: hermes, omp, or copilot.</param>
     /// <param name="target">-t, Explicit skills-root path; no ambient home/profile installation.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -22,7 +22,7 @@ internal sealed class SkillCommands
     public int Install(string provider, string target, string output = OutputFormats.Default, string? scanRoot = null) =>
         Run(output, service => service.Install(provider, target, scanRoot));
 
-    /// <summary>Update only unedited manifest-owned Twig family files; preserve companions, externals and settings.</summary>
+    /// <summary>Update only unedited manifest-owned Twig guidance; preserve companions, externals and settings.</summary>
     /// <param name="provider">-p, Agent provider: hermes, omp, or copilot; must match the target manifest.</param>
     /// <param name="target">-t, Explicit skills-root path containing a Twig installation.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

@@ -23,7 +23,7 @@ twig skills add --provider hermes|omp|copilot --target PATH --source SKILL_DIREC
 |Flag|Type|Default|Description|
 |---|---|---|---|
 |`--provider`|string|required|Explicit provider matching the target's manifest.|
-|`--target`|string|required|Root containing an installed generic Twig family.|
+|`--target`|string|required|Root containing an installed canonical Twig skill.|
 |`--source`|string|required|One local skill directory containing SKILL.md and support files.|
 |`--scan-root`|string|null|Additional bounded discovery root; not registered automatically.|
 |`-o`, `--output`|string|human|Human, JSON or minimal output.|
@@ -31,9 +31,9 @@ twig skills add --provider hermes|omp|copilot --target PATH --source SKILL_DIREC
 
 ## Behavior
 
-The skill must have its own portable name, distinct from `twig-cli` and
-`twig-changes`. Review the package before installation: this command copies
-content, not its authority, and never executes supporting scripts. Existing
+The skill must have its own portable name, distinct from canonical `twig` and the
+retired reserved names `twig-cli` and `twig-changes`. Review the package before
+installation: this command copies content, not its authority, and never executes supporting scripts. Existing
 conflicting destinations and unsafe paths are refused rather than overwritten.
 An identical reinstall is idempotent; different bytes or Unix executable modes
 are a conflict, not an implicit third-party upgrade. Preserve the existing
@@ -54,7 +54,7 @@ YAML values such as `"on"` when using them as names.
 Unix installs preserve ordinary file permissions, including executable bits,
 but strip setuid/setgid/sticky bits. Re-add checks executable modes as well as
 byte hashes; status reports mode drift as an external warning, while its
-top-level state describes the generic family. Base updates preserve external
+top-level state describes the canonical package. Base updates preserve external
 edits. Legacy/Windows manifests without a Unix mode baseline require a fresh
 target to establish tracking from trusted source. Windows copies bytes and
 reports that Unix execution modes are not verified; no Windows ACL or

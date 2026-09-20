@@ -132,9 +132,23 @@ if (args.Length == 1 && args[0] == "--version")
     Console.WriteLine(VersionHelper.GetVersion());
     return;
 }
-if (args.Length == 1 && args[0] == "--skill")
+if (args.Length >= 1 && args[0] == "--skill")
 {
-    Console.WriteLine(Twig.Skills.SkillPackage.Load().ShowEntry());
+    try
+    {
+        var package = Twig.Skills.SkillPackage.Load();
+        Console.WriteLine(args.Length switch
+        {
+            1 => package.ShowEntry(),
+            2 => package.ShowReference(args[1]),
+            _ => throw new Twig.Skills.SkillLifecycleException("Usage: twig --skill [operations|changes|presentation]")
+        });
+    }
+    catch (Twig.Skills.SkillLifecycleException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Environment.ExitCode = 2;
+    }
     return;
 }
 if (args.Length == 1 && args[0] is "-h" or "--help" or "help")

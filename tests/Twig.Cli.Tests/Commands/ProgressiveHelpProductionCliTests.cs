@@ -206,14 +206,38 @@ public sealed class ProgressiveHelpProductionCliTests : IDisposable
     }
 
     [Fact]
-    public async Task SkillEntry_IsAvailableWithoutWorkspaceInitialization()
+    public async Task SkillEntryAndReferences_AreAvailableWithoutWorkspaceInitialization()
     {
-        var result = await RunTwig("--skill");
-        result.ExitCode.ShouldBe(0);
-        result.Stderr.ShouldBeEmpty();
-        result.Stdout.ShouldContain("name: twig-cli");
-        result.Stdout.ShouldContain("twig-changes");
-        result.Stdout.ShouldContain(Twig.Skills.SkillPackage.Load().Identity);
+        var entry = await RunTwig("--skill");
+        entry.ExitCode.ShouldBe(0);
+        entry.Stderr.ShouldBeEmpty();
+        entry.Stdout.ShouldContain("name: twig");
+        entry.Stdout.ShouldContain("twig --skill operations");
+        entry.Stdout.ShouldContain(Twig.Skills.SkillPackage.Load().Identity);
+        foreach (var (topic, heading) in new[]
+        {
+            ("operations", "# Operating Twig"),
+            ("changes", "# Changing tracker work"),
+            ("presentation", "# Presenting Twig information")
+        })
+        {
+            var reference = await RunTwig("--skill", topic);
+            reference.ExitCode.ShouldBe(0);
+            reference.Stderr.ShouldBeEmpty();
+            reference.Stdout.ShouldContain(heading);
+            reference.Stdout.ShouldContain(Twig.Skills.SkillPackage.Load().Identity);
+        }
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
+    }
+
+    [Fact]
+    public async Task UnknownSkillReference_IsUsageFailureWithoutStartupWrites()
+    {
+        var result = await RunTwig("--skill", "unknown");
+        result.ExitCode.ShouldBe(2);
+        result.Stdout.ShouldBeEmpty();
+        result.Stderr.ShouldContain("operations, changes, or presentation");
         Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
             .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
     }

@@ -9,11 +9,11 @@ from the embedded canonical command reference, not a second command catalog.
 
 ## Generic guidance, explicit installation
 
-`twig --skill` prints the generic entry guidance and executable-matched package
-identity. The initial family contains **twig-cli** (shared operating rules and
-routing) and **twig-changes** (proposal procedure). Their canonical sources are
-`.github/skills/<name>/SKILL.md`; the executable embeds those exact sources and
-stamps the installed guidance with its version/build. Provider integrations,
+`twig --skill` prints the executable-matched canonical **twig** foundation and
+package identity. Its single maintained source is `.github/skills/twig/SKILL.md`;
+the executable embeds that file and its conditional `operations`, `changes`, and
+`presentation` references. Read those offline from an executable-only environment
+with `twig --skill operations|changes|presentation`. Provider integrations,
 process-specific workflows and presentation variants are not bundled defaults.
 
 Every lifecycle command requires an explicit provider and skills-root target.
@@ -89,7 +89,7 @@ The skill must have one string name; quote names that YAML implicitly types
 On Unix, ordinary file permissions are preserved, including executable bits;
 setuid, setgid and sticky bits are stripped. Re-add refuses executable-mode
 drift even when bytes match, and status warns without blocking base updates.
-The top-level `current` state describes the generic family, so also inspect
+The top-level `current` state describes the canonical package, so also inspect
 external warnings. Legacy or Windows-created manifests have no Unix mode
 baseline: use a fresh target and trusted source to establish one. Windows
 installs copy bytes but do not preserve or verify Unix modes; executable
@@ -104,8 +104,8 @@ twig skills configure --provider omp --target /path/to/skills \
   --scenario terminal --clear
 ```
 
-Selections live in the Twig-managed `twig-cli/references/user-selections.json`.
-The generic entry tells the agent to read this reference and load the selected
+Selections live in the Twig-managed `twig/references/user-selections.json`.
+The foundation tells the agent to read this reference and load the selected
 companion with its native reader. This is instruction-driven composition, not
 cross-host inheritance or permission enforcement. Updates preserve selections,
 companion content and unrelated provider settings.

@@ -3,8 +3,8 @@
 **Work Item:** #740 (Task, parent Spec #729 — "Change Recipe and Change Proposal")
 **Type:** Design / findings record (closes the migration-obligation question in #729)
 **Status:** ⬛ Settled
-**Plan Revision:** 0
-**Revision Notes:** Initial draft.
+**Plan Revision:** 1
+**Revision Notes:** Rev 1 (2026-09-21, AB#825) — §4.3 amended. Rev 0 named MCP tool names as the only out-of-tree contract on the premise that "every other consumer is in-tree". T3 (AB#742) implementation measured that premise false: the `twig plan …` CLI has 154 out-of-tree references across `ado-publish`, `ado-session`, `do-work`, `next`, and `closeout` — roughly 15× the 10 `twig_plan_*` MCP references across 2 files. The human ruled during T3 to extend the dual-name window to the CLI. Rev 0 text is preserved below with the amended §4.3 following it, so the original reasoning chain stays auditable.
 
 ---
 
@@ -204,6 +204,8 @@ Offered as input to AB#742 (T3), which owns execution.
 3. **Accept a dual-name window on MCP tool names only.** They are the one contract
    with consumers outside this repository. Everything else can cut over cleanly
    because every consumer is in-tree.
+
+   **Rev 1 amendment (2026-09-21, AB#825).** The parenthetical "every consumer is in-tree" premise is factually wrong and was load-bearing. Measured while implementing T3 (AB#742): the `twig plan …` CLI has **154** out-of-tree references across `ado-publish`, `ado-session`, `do-work`, `next`, and `closeout`, versus **10** `twig_plan_*` MCP references across **2** files. The CLI is a *harder* external contract than MCP by roughly 15×, because the out-of-tree consumers are the agent skill toolchain that drives every ADO mutation in this workflow — including `ado-publish` itself, the path required to close the very work items this migration is tracked under. A clean CLI cutover would have broken the toolchain mid-migration. The human ruled during T3 to extend the dual-name window to the CLI as well. **Shipped state:** canonical `twig proposal <validate|preview|apply|status|seed>` and `twig_proposal_*` MCP tools, with `twig plan <verb>` and `twig_plan_*` retained as working deprecated aliases. Both CLI and MCP are the out-of-tree contracts; both are aliased. This honours §4.3's original *intent* — alias exactly where out-of-tree consumers exist — while correcting its factual scope.
 4. **Migrate journal tables by data migration**, preserving historical rows. Never
    by drop-and-recreate — the durable store is deliberately never dropped.
 5. **Keep the Plan v1 document's `version: 1` meaning exactly what it means today.**

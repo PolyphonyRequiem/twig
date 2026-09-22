@@ -21,7 +21,7 @@ internal sealed class SpectreTheme
 
     public SpectreTheme(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null)
     {
-        _iconMode = displayConfig.Icons;
+        _iconMode = displayConfig.ResolveIconMode();
         _typeIconIds = typeAppearances?
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);

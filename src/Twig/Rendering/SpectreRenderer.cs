@@ -46,11 +46,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// <summary>Render the workspace as a hierarchy instead of a flat table.</summary>
     internal bool UseTreeRendering { get; set; }
 
-    /// <summary>
-    /// When true, the current-Bench tree uses a width-aware table with dedicated
-    /// identity, State, and Age columns. Legacy tree rendering remains unchanged.
-    /// </summary>
-    internal bool UseAlignedTreeColumns { get; set; }
 
     /// <summary>Max ancestor levels above working level to display. Nodes beyond this depth are pruned and their children promoted.</summary>
     internal int TreeDepthUp { get; set; } = 2;
@@ -71,12 +66,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     {
         if (UseTreeRendering)
         {
-            if (UseAlignedTreeColumns)
-            {
-                await RenderWorkspaceAlignedTreeAsync(data, staleDays, ct, cacheStaleMinutes);
-                return;
-            }
-
             await RenderWorkspaceTreeAsync(data, staleDays, ct, cacheStaleMinutes);
             return;
         }
@@ -447,311 +436,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
     }
 
-    // ── Workspace tree rendering ────────────────────────────────────────
-
-    /// <summary>
-    /// Renders the explicit current-Bench tree as a width-aware workspace table.
-    /// The hierarchy is flattened only for table layout: indentation and connectors
-    /// remain in the identity column, while State and Age retain dedicated columns.
-    /// </summary>
-    private async Task RenderWorkspaceAlignedTreeAsync(
-        IAsyncEnumerable<WorkspaceDataChunk> data,
-        int staleDays,
-        CancellationToken ct,
-        int cacheStaleMinutes)
-    {
-        var budget = new WidthBudget(_console.Profile.Width);
-        var table = SpectreTheme.CreateWorkspaceTable(
-            titleColumnWidth: Math.Max(1, budget.TableTitleBudget - 12)).Border(TableBorder.None);
-        var emptyRow = new[] { "", "", "", "", "" };
-
-        await _console.Live(table)
-            .StartAsync(async ctx =>
-            {
-                table.AddRow(new[] { "", "", "[dim]Loading workspace...[/]", "", "" });
-                ctx.Refresh();
-
-                int? activeContextId = null;
-                WorkspaceSections? currentSections = null;
-                IReadOnlyList<WorkItem> currentItems = Array.Empty<WorkItem>();
-                bool loadingCleared = false;
-
-                await foreach (var chunk in data.WithCancellation(ct))
-                {
-                    switch (chunk)
-                    {
-                        case ContextLoaded(var contextItem):
-                            activeContextId = contextItem?.Id;
-                            break;
-
-                        case SprintItemsLoaded loaded:
-                            currentItems = loaded.Items;
-                            currentSections = loaded.Sections;
-                            table.Rows.Clear();
-                            loadingCleared = true;
-                            RenderAlignedTreeSections(
-                                table, currentItems, currentSections, activeContextId,
-                                cacheStaleMinutes, budget);
-                            RenderAlignedTreeProgressFooter(table, currentItems);
-                            break;
-
-                        case SeedsLoaded(var seeds):
-                            if (!loadingCleared)
-                            {
-                                table.Rows.Clear();
-                                loadingCleared = true;
-                            }
-
-                            AddAlignedSeedRows(table, seeds, activeContextId, staleDays, cacheStaleMinutes, budget);
-                            if (currentSections is { ExcludedItemIds.Count: > 0 })
-                            {
-                                var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
-                                var exclusion = emptyRow.ToArray();
-                                exclusion[2] = $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]";
-                                table.AddRow(exclusion);
-                            }
-
-                            if (table.Rows.Count == 0)
-                            {
-                                var empty = emptyRow.ToArray();
-                                empty[2] = "[dim]No sprint items[/]";
-                                table.AddRow(empty);
-                            }
-
-                            ctx.Refresh();
-                            break;
-
-                        case RefreshStarted:
-                            table.Rows.Clear();
-                            table.AddRow(new[] { "", "", "[yellow]⟳ refreshing...[/]", "", "" });
-                            ctx.Refresh();
-                            break;
-
-                        case RefreshCompleted:
-                            break;
-                    }
-                }
-            });
-
-        _console.WriteLine();
-    }
-
-    private void RenderAlignedTreeSections(
-        Table table,
-        IReadOnlyList<WorkItem> items,
-        WorkspaceSections? sections,
-        int? activeContextId,
-        int cacheStaleMinutes,
-        WidthBudget budget)
-    {
-        if (sections is null || sections.Sections.Count == 0)
-        {
-            foreach (var item in items)
-                AddAlignedFlatRow(table, item, activeContextId, cacheStaleMinutes, budget);
-            return;
-        }
-
-        var showHeaders = sections.Sections.Count > 1;
-        for (var sectionIndex = 0; sectionIndex < sections.Sections.Count; sectionIndex++)
-        {
-            var section = sections.Sections[sectionIndex];
-            if (sectionIndex > 0)
-                table.AddRow(new[] { "", "", "", "", "" });
-
-            if (showHeaders)
-            {
-                var header = new[] { "", "", $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]", "", "" };
-                table.AddRow(header);
-            }
-
-            if (section.TreeRoots is { Count: > 0 })
-            {
-                foreach (var root in PruneAncestorsAboveDepthUp(section.TreeRoots))
-                    AddAlignedTreeNodeRows(table, root, activeContextId, cacheStaleMinutes, budget, 0, "", "");
-            }
-            else
-            {
-                foreach (var item in section.Items)
-                    AddAlignedFlatRow(table, item, activeContextId, cacheStaleMinutes, budget);
-            }
-        }
-    }
-
-    private void AddAlignedTreeNodeRows(
-        Table table,
-        SprintHierarchyNode node,
-        int? activeContextId,
-        int cacheStaleMinutes,
-        WidthBudget budget,
-        int depth,
-        string indent,
-        string connector,
-        string? childrenIndent = null)
-    {
-        if (node.IsVirtualGroup)
-        {
-            var groupRow = new[] { "", "", $"[dim]{Markup.Escape(indent + connector + (node.GroupLabel ?? "Unparented"))}[/]", "", "" };
-            table.AddRow(groupRow);
-            var groupIndent = indent + new string(' ', (node.BacklogLevel + 1) * WidthBudget.TreeIndentPerLevel);
-            AddAlignedTreeChildren(table, node, activeContextId, cacheStaleMinutes, budget, depth, groupIndent);
-            return;
-        }
-
-        var item = node.Item;
-        var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
-        AddWorkspaceRow(
-            table,
-            BuildAlignedTreeRow(item, node.IsSprintItem, isActive, indent, connector, depth, cacheStaleMinutes, budget),
-            isActive);
-
-        var nextChildrenIndent = childrenIndent ?? indent + new string(' ', WidthBudget.TreeIndentPerLevel);
-        AddAlignedTreeChildren(table, node, activeContextId, cacheStaleMinutes, budget, depth, nextChildrenIndent);
-    }
-
-    private void AddAlignedTreeChildren(
-        Table table,
-        SprintHierarchyNode node,
-        int? activeContextId,
-        int cacheStaleMinutes,
-        WidthBudget budget,
-        int depth,
-        string parentIndent)
-    {
-        if (node.Children.Count == 0)
-            return;
-
-        if (depth >= TreeDepthDown)
-        {
-            if (TreeDepthSideways > 0)
-            {
-                var more = new[] { "", "", $"{parentIndent}[dim]... {node.Children.Count} more[/]", "", "" };
-                table.AddRow(more);
-            }
-            return;
-        }
-
-        for (var i = 0; i < node.Children.Count; i++)
-        {
-            var child = node.Children[i];
-            var isLast = i == node.Children.Count - 1;
-            var childIndent = parentIndent;
-            var continuationIndent = childIndent + (isLast ? "    " : "│   ");
-            var childConnector = isLast ? "└── " : "├── ";
-            AddAlignedTreeNodeRows(
-                table, child, activeContextId, cacheStaleMinutes, budget, depth + 1,
-                childIndent, childConnector, continuationIndent);
-        }
-    }
-
-    private void AddAlignedFlatRow(
-        Table table,
-        WorkItem item,
-        int? activeContextId,
-        int cacheStaleMinutes,
-        WidthBudget budget)
-    {
-        var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
-        AddWorkspaceRow(
-            table,
-            BuildAlignedTreeRow(item, true, isActive, "", "", 0, cacheStaleMinutes, budget),
-            isActive);
-    }
-
-    private List<string> BuildAlignedTreeRow(
-        WorkItem item,
-        bool isSprintItem,
-        bool isActive,
-        string indent,
-        string connector,
-        int depth,
-        int cacheStaleMinutes,
-        WidthBudget budget)
-    {
-        var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
-        var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
-        var cacheAge = CacheAgeFormatter.FormatAge(item.LastSyncedAt, cacheStaleMinutes);
-        var cacheAgeMarkup = cacheAge is not null ? $"[dim]{Markup.Escape(cacheAge)}[/]" : "";
-        var identity = $"{indent}{connector}";
-        var title = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTableTitleBudget(identity.Length)));
-        var titleCell = isSprintItem
-            ? $"{identity}[bold]{title}[/]"
-            : $"{identity}[dim]{title}[/]";
-        var row = new List<string>
-        {
-            $"{marker}{item.Id}",
-            $"{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.Value)}",
-            titleCell,
-            _theme.FormatState(item.State),
-            cacheAgeMarkup,
-        };
-
-        if (IsParentAboveWorkingLevel(item))
-        {
-            for (var i = 0; i < row.Count; i++)
-                row[i] = $"[dim]{row[i]}[/]";
-        }
-
-        return row;
-    }
-
-    private void AddAlignedSeedRows(
-        Table table,
-        IReadOnlyList<WorkItem> seeds,
-        int? activeContextId,
-        int staleDays,
-        int cacheStaleMinutes,
-        WidthBudget budget)
-    {
-        if (seeds.Count == 0)
-            return;
-
-        table.AddRow(new[] { "", "", "[dim]───── Seeds ─────[/]", "", "" });
-        var seedIndicator = _theme.FormatSeedIndicator();
-        foreach (var seed in seeds)
-        {
-            var staleMarker = seed.SeedCreatedAt.HasValue
-                && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
-                ? " [yellow]⚠ stale[/]" : "";
-            var row = BuildAlignedTreeRow(seed, true, activeContextId == seed.Id, "", "", 0, cacheStaleMinutes, budget);
-            row[1] = $"{seedIndicator} {row[1]}";
-            row[4] = "";
-            row[2] += staleMarker;
-            AddWorkspaceRow(table, row, activeContextId == seed.Id);
-        }
-    }
-
-    private void RenderAlignedTreeProgressFooter(Table table, IReadOnlyList<WorkItem> items)
-    {
-        if (items.Count == 0)
-            return;
-
-        var proposed = 0;
-        var inProgress = 0;
-        var resolved = 0;
-        var completed = 0;
-        var removed = 0;
-        foreach (var item in items)
-        {
-            switch (_theme.ResolveCategory(item.State))
-            {
-                case StateCategory.Proposed: proposed++; break;
-                case StateCategory.InProgress: inProgress++; break;
-                case StateCategory.Resolved: resolved++; break;
-                case StateCategory.Completed: completed++; break;
-                case StateCategory.Removed: removed++; break;
-            }
-        }
-
-        var segments = new List<string>
-        {
-            $"{resolved + completed}/{items.Count - removed} done",
-        };
-        if (inProgress > 0) segments.Add($"{inProgress} in progress");
-        if (proposed > 0) segments.Add($"{proposed} proposed");
-        if (removed > 0) segments.Add($"{removed} removed");
-        table.AddRow(new[] { "", "", $"[dim]Sprint: {string.Join(" · ", segments)}[/]", "", "" });
-    }
-
     /// <summary>
     /// Renders workspace data as a hierarchical tree using a borderless single-column table
     /// as the Live container. Each section's <see cref="WorkspaceSection.TreeRoots"/> is
@@ -788,101 +472,101 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                         case SprintItemsLoaded { Sections: not null } loaded
                             when loaded.Sections.Sections.Count > 0:
-                        {
-                            currentSections = loaded.Sections;
-                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
-                            else { container.Rows.Clear(); }
-
-                            var showHeaders = loaded.Sections.Sections.Count > 1;
-                            var sectionIndex = 0;
-
-                            foreach (var section in loaded.Sections.Sections)
                             {
-                                if (sectionIndex > 0)
-                                    container.AddRow(new Markup(""));
+                                currentSections = loaded.Sections;
+                                if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+                                else { container.Rows.Clear(); }
 
-                                if (showHeaders)
-                                    container.AddRow(new Markup(
-                                        $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]"));
+                                var showHeaders = loaded.Sections.Sections.Count > 1;
+                                var sectionIndex = 0;
 
-                                if (section.TreeRoots is { Count: > 0 })
+                                foreach (var section in loaded.Sections.Sections)
                                 {
-                                    RenderTreeRootsIntoContainer(container, section.TreeRoots,
-                                        activeContextId, cacheStaleMinutes, budget);
-                                }
-                                else
-                                {
-                                    RenderFlatItemsIntoContainer(container, section.Items,
-                                        activeContextId, cacheStaleMinutes, budget);
+                                    if (sectionIndex > 0)
+                                        container.AddRow(new Markup(""));
+
+                                    if (showHeaders)
+                                        container.AddRow(new Markup(
+                                            $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]"));
+
+                                    if (section.TreeRoots is { Count: > 0 })
+                                    {
+                                        RenderTreeRootsIntoContainer(container, section.TreeRoots,
+                                            activeContextId, cacheStaleMinutes, budget);
+                                    }
+                                    else
+                                    {
+                                        RenderFlatItemsIntoContainer(container, section.Items,
+                                            activeContextId, cacheStaleMinutes, budget);
+                                    }
+
+                                    sectionIndex++;
                                 }
 
-                                sectionIndex++;
+                                RenderTreeProgressFooter(container, loaded.Items);
+
+                                // Do not refresh here. SeedsLoaded follows immediately and Live paints
+                                // the complete final container once when the stream ends. Refreshing
+                                // this intermediate state duplicates every workspace row in terminals
+                                // that preserve carriage-return redraws.
+                                break;
                             }
-
-                            RenderTreeProgressFooter(container, loaded.Items);
-
-                            // Do not refresh here. SeedsLoaded follows immediately and Live paints
-                            // the complete final container once when the stream ends. Refreshing
-                            // this intermediate state duplicates every workspace row in terminals
-                            // that preserve carriage-return redraws.
-                            break;
-                        }
 
                         case SprintItemsLoaded loaded:
-                        {
-                            // No sections or empty sections — flat fallback in tree container
-                            currentSections = loaded.Sections;
-                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
-                            else { container.Rows.Clear(); }
+                            {
+                                // No sections or empty sections — flat fallback in tree container
+                                currentSections = loaded.Sections;
+                                if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+                                else { container.Rows.Clear(); }
 
-                            RenderFlatItemsIntoContainer(container, loaded.Items,
-                                activeContextId, cacheStaleMinutes, budget);
-                            RenderTreeProgressFooter(container, loaded.Items);
+                                RenderFlatItemsIntoContainer(container, loaded.Items,
+                                    activeContextId, cacheStaleMinutes, budget);
+                                RenderTreeProgressFooter(container, loaded.Items);
 
-                            // Defer painting until SeedsLoaded/finalization for the same reason as
-                            // the sectioned path above: this stream stage is never the final state.
-                            break;
-                        }
+                                // Defer painting until SeedsLoaded/finalization for the same reason as
+                                // the sectioned path above: this stream stage is never the final state.
+                                break;
+                            }
 
                         case SeedsLoaded(var seeds):
-                        {
-                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
-
-                            if (seeds.Count > 0)
                             {
-                                container.AddRow(new Markup("[dim]───── Seeds ─────[/]"));
-                                var seedIndicator = _theme.FormatSeedIndicator();
-                                foreach (var seed in seeds)
+                                if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+
+                                if (seeds.Count > 0)
                                 {
-                                    var staleMarker = seed.SeedCreatedAt.HasValue
-                                        && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
-                                        ? " [yellow]⚠ stale[/]" : "";
-                                    container.AddRow(new Markup(
-                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TreeTitleBudget(0)))}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                    container.AddRow(new Markup("[dim]───── Seeds ─────[/]"));
+                                    var seedIndicator = _theme.FormatSeedIndicator();
+                                    foreach (var seed in seeds)
+                                    {
+                                        var staleMarker = seed.SeedCreatedAt.HasValue
+                                            && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
+                                            ? " [yellow]⚠ stale[/]" : "";
+                                        container.AddRow(new Markup(
+                                            $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TreeTitleBudget(0)))}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                    }
                                 }
-                            }
 
-                            if (currentSections is { ExcludedItemIds.Count: > 0 })
-                            {
-                                var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
-                                container.AddRow(new Markup(
-                                    $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]"));
-                            }
+                                if (currentSections is { ExcludedItemIds.Count: > 0 })
+                                {
+                                    var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
+                                    container.AddRow(new Markup(
+                                        $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]"));
+                                }
 
-                            if (container.Rows.Count == 0)
-                            {
-                                // The Bench is valid and empty. Add one stable final-state row
-                                // before the only refresh; Spectre cannot lay out zero live lines.
-                                container.AddRow(new Markup("[dim]No sprint items[/]"));
-                            }
+                                if (container.Rows.Count == 0)
+                                {
+                                    // The Bench is valid and empty. Add one stable final-state row
+                                    // before the only refresh; Spectre cannot lay out zero live lines.
+                                    container.AddRow(new Markup("[dim]No sprint items[/]"));
+                                }
 
-                            // Do not refresh here. SeedsLoaded is the final data chunk; Spectre
-                            // renders the final container once when Live exits. Refreshing now and
-                            // then letting Live finalize emits the same row twice in the terminal
-                            // stream. If a stale-while-revalidate pass follows, RefreshStarted is
-                            // the next chunk and paints its own changed status.
-                            break;
-                        }
+                                // Do not refresh here. SeedsLoaded is the final data chunk; Spectre
+                                // renders the final container once when Live exits. Refreshing now and
+                                // then letting Live finalize emits the same row twice in the terminal
+                                // stream. If a stale-while-revalidate pass follows, RefreshStarted is
+                                // the next chunk and paints its own changed status.
+                                break;
+                            }
 
                         case RefreshStarted:
                             container.Rows.Clear();
@@ -948,10 +632,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         foreach (var child in children)
         {
             var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes, budget, depth);
-            var stateColor = child.IsVirtualGroup
-                ? "dim"
-                : _theme.GetStateCategoryMarkupColor(child.Item.State);
-            var node = parent.AddNode($"[{stateColor}]│[/] {label}");
+            var node = parent.AddNode(label);
             AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes, budget);
         }
     }
@@ -984,20 +665,32 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
         var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
         var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
+        var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
 
         var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
         var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
-        var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(depth)));
+        var titleBudget = budget.TreeTitleBudget(depth);
+        titleBudget -= Math.Max(item.Type.Value.Length - 4, 0);
+        if (cacheAge is not null)
+            titleBudget -= cacheAge.Length + 1;
+        if (item.IsDirty)
+            titleBudget -= 2;
+        if (marker.Length > 0)
+            titleBudget -= 2;
 
+        var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, Math.Max(titleBudget, 10)));
+        var identity = $"{marker}{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.Value)} #{item.Id}";
+
+        string content;
         if (isAboveWorking)
-            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {truncatedTitle} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
+            content = $"[dim]{identity} {truncatedTitle}{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
+        else if (node.IsSprintItem)
+            content = $"{identity} [bold]{truncatedTitle}[/]{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+        else
+            content = $"{identity} [dim]{truncatedTitle}[/]{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}";
 
-        if (node.IsSprintItem)
-            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
-
-        // Context ancestor at or below working level — type badge visible, title dimmed
-        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+        return isActive ? $"[on #16324f]{content}[/]" : content;
     }
 
     /// <summary>

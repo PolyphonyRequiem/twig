@@ -5,6 +5,7 @@ Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.ExpectedRevision
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.RelationType.get -> string!
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.SourceId.get -> int
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.TargetId.get -> int
+Twig.Infrastructure.Config.DisplayConfig.ResolveIconMode() -> string!
 Twig.Infrastructure.Config.PolicyConfig
 Twig.Infrastructure.Config.PolicyConfig.PolicyConfig() -> void
 Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.get -> System.Collections.Generic.List<string!>?

@@ -76,7 +76,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
 
         var typeName = workItem.Type.Value;
 
-        var iconMode = _config.Display.Icons;
+        var iconMode = _config.Display.ResolveIconMode();
         var typeIconIds = _config.TypeAppearances?
             .Where(a => !string.IsNullOrEmpty(a.IconId))
             .ToDictionary(a => a.Name, a => a.IconId!);

@@ -107,7 +107,7 @@ public sealed class AdminToolsConfigTests : ReadToolsTestBase
     [InlineData("auth.method", "azcli")]
     [InlineData("defaults.mode", "sprint")]
     [InlineData("seed.staledays", "14")]
-    [InlineData("display.icons", "unicode")]
+    [InlineData("display.icons", "auto")]
     [InlineData("tracking.cleanuppolicy", "none")]
     [InlineData("areas.mode", "under")]
     public async Task Config_WithKey_ReturnsExpectedValues(string key, string expectedValue)

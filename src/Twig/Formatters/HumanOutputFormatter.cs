@@ -68,7 +68,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         _appearanceColors = typeAppearances?
             .Where(a => !string.IsNullOrEmpty(a.Color))
             .ToDictionary(a => a.Name, a => a.Color, StringComparer.OrdinalIgnoreCase);
-        _iconMode = displayConfig.Icons;
+        _iconMode = displayConfig.ResolveIconMode();
         _typeIconIds = typeAppearances?
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);

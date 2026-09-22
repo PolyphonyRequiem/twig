@@ -70,10 +70,10 @@ internal sealed class WorkingSetTreeCommand(
         if (!string.IsNullOrWhiteSpace(icons))
         {
             var requested = icons.Trim().ToLowerInvariant();
-            if (requested is not ("unicode" or "nerd"))
+            if (requested is not ("auto" or "unicode" or "nerd"))
             {
                 Console.Error.WriteLine(fmt.FormatError(
-                    $"Unknown icon mode '{icons}'. Expected: unicode, nerd."));
+                    $"Unknown icon mode '{icons}'. Expected: auto, unicode, nerd."));
                 return 1;
             }
             iconMode = requested;
@@ -123,9 +123,10 @@ internal sealed class WorkingSetTreeCommand(
             Icons = iconMode,
             TypeColors = config.Display.TypeColors,
         };
+        displayForRender.Icons = displayForRender.ResolveIconMode();
 
         var theme = new SpectreTheme(displayForRender, config.TypeAppearances);
-        var projector = new WorkingSetTreeProjector(theme, iconMode);
+        var projector = new WorkingSetTreeProjector(theme, displayForRender.Icons);
         var renderTree = projector.Project(forest);
 
         rendererFactory.GetRenderer(outputFormat).Render(renderTree);

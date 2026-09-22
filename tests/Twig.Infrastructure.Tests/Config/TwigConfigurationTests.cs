@@ -39,7 +39,7 @@ public class TwigConfigurationTests : IDisposable
         config.Seed.StaleDays.ShouldBe(14);
         config.Display.Hints.ShouldBeTrue();
         config.Display.TreeDepth.ShouldBe(5);
-        config.Display.Icons.ShouldBe("unicode");
+        config.Display.Icons.ShouldBe("auto");
     }
 
     [Fact]
@@ -80,11 +80,43 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void SetValue_KnownPath_DisplayIcons_Invalid_ReturnsFalse()
+    public async Task AutomaticIconPreference_RemainsAutomaticAfterRenderingAndSaving()
     {
         var config = new TwigConfiguration();
+        config.SetValue("display.icons", "auto").ShouldBeTrue();
+        config.Display.ResolveIconMode();
+        var path = Path.Combine(_tempDir, "icon-preference.json");
+
+        await config.SaveAsync(path);
+
+        var loaded = await TwigConfiguration.LoadAsync(path);
+        loaded.Display.Icons.ShouldBe("auto");
+    }
+
+    [Theory]
+    [InlineData("auto", false, "xterm-256color", "WezTerm", "nerd")]
+    [InlineData("auto", false, "xterm-kitty", null, "nerd")]
+    [InlineData("auto", false, "xterm-ghostty", null, "nerd")]
+    [InlineData("auto", false, "xterm-256color", "Windows_Terminal", "unicode")]
+    [InlineData("auto", true, "xterm-kitty", null, "unicode")]
+    [InlineData("auto", false, "dumb", "WezTerm", "unicode")]
+    [InlineData("unicode", false, "xterm-kitty", "kitty", "unicode")]
+    [InlineData("nerd", true, "dumb", null, "nerd")]
+    public void IconMode_UsesEvidenceAndHonorsExplicitOverrides(
+        string preference, bool redirected, string term, string? terminalProgram, string expected)
+    {
+        var display = new DisplayConfig { Icons = preference };
+
+        display.ResolveIconMode(redirected, term, terminalProgram).ShouldBe(expected);
+        display.Icons.ShouldBe(preference);
+    }
+
+    [Fact]
+    public void SetValue_KnownPath_DisplayIcons_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration { Display = new DisplayConfig { Icons = "nerd" } };
         config.SetValue("display.icons", "emoji").ShouldBeFalse();
-        config.Display.Icons.ShouldBe("unicode");
+        config.Display.Icons.ShouldBe("nerd");
     }
 
     [Fact]

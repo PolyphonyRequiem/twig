@@ -13,6 +13,20 @@ Ready when the destination, selected guidance and usable capabilities are establ
 
 Offer to add an integration only when its absence materially limits the exchange; do not repeat the offer routinely. Integration authoring is separate work.
 
+## OMP proposal presentation
+
+For OMP, load the explicitly selected `twig-omp-presenter` companion through the existing provider/scenario machinery. Before applicable human authorization, call `twig_proposal_render({file,workspace?,full?})` once when the tool is available. The tool call owns one native observation; do not run the child preview separately before or after it. Its native child-process implementation reference is:
+
+```sh
+twig proposal preview --file <absolute-file> -o json --include-rendering --width 100 --color always
+```
+
+The rendering opt-in requires JSON. Validate feature support from the response rather than assuming a minimum native version: retain the exact workspace, digest, `canApply`, issues, pending changes, complete `reviewModel`, and presentation version 1 (`brief` and `full`) from that single observation. The host/model receipt carries the resolved file and workspace path, native `digest`, `canApply`, `issues`, `pendingChanges` and `reviewModel`, plus `displayed`, `approved: false` and `applied: false`; set `displayed` only after the frame is actually shown. The tool must not parse ANSI or rerun preview. Resize preserves access to the retained content.
+
+OMP requests `--color always` for the visible native frame; when `NO_COLOR` is set, request `--color never` instead. Native color defaults to `never`, and the host must not infer a mode from TERM, COLORTERM or TTY state. Absent width keeps the native defaults: human output is unbounded, while an included JSON frame uses width 120; explicit widths are 20..400.
+
+Details and Back switch between retained brief/full frames. Close, details and other view controls are read-only: they are not approval, authorization or application. Existing proposal apply and AFK delegation rules remain unchanged. If the selected companion or tool is unavailable before a call, disclose the gap and use the deliberate plain/structured fallback; a direct CLI preview is allowed only for that pre-call fallback. If a tool call begins but response validation fails or the response is failed, truncated, unsupported, noninteractive or digest-mismatched, stop the affected authorization and report the failure; do not install or rewrite settings silently, parse a rendered string, rerun preview, or substitute a mutation path.
+
 ## Encode the chosen intent
 
 - **CLI:** reuse Twig's built-in human renderer for direct terminal output. Preserve supported type badges, status styling and hierarchy guides; respect plain/noninteractive modes. Do not require the full-screen TUI.

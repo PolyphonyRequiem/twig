@@ -16,6 +16,14 @@ Twig connects your working environment to Azure DevOps (ADO) work tracking throu
 - **Local versus published:** reads may use cached information; seeds are local drafts. Local changes, publication and refreshed verification are distinct outcomes.
 - **Change proposal:** intended tracker mutations. Review, authorization, application and verification are separate; presenting a change does not authorize it.
 
+## Change-proposal presentation
+
+Before an applicable human authorization step, prefer the interactive OMP `twig_proposal_render` presenter when it is available and the selected companion is loaded. Call the tool once; its native capture is the sole observation. Follow [the change procedure](references/changes.md) and [presentation guidance](references/presentation.md) to retain its exact digest, workspace, supported review model and presentation version-1 brief/full frames. Details, Back and close are view controls over that observation; they never approve or apply.
+
+When no human review is due, including delegated AFK execution, use the ordinary structured `twig proposal preview -o json` path without opening an interactive viewer.
+
+For a human-review route, if the presenter or selected companion is unavailable before a call, disclose the gap and use the deliberate plain/structured review path. If the tool returns an incompatible, failed or truncated response, stop the affected authorization and report the failure without a second preview or mutation fallback. Do not install a companion or rewrite preferences silently. Existing authorization and apply rules remain unchanged.
+
 ## Discuss, Present, Review
 
 **Discuss** in contextual prose. Lead with type and ID. Link that identity when links are supported and the target URL is verified:

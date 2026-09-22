@@ -83,6 +83,37 @@ public sealed class RendererFactory
         };
     }
 
+    internal IRenderer GetHumanRenderer(TextWriter writer, int? width, string color)
+        => new SpectreNodeRenderer(CreateExplicitConsole(writer, width, color == "always"), _theme);
+
+    internal (string Text, bool Ansi) CaptureHuman(RenderTree.RenderTree tree, int width, string color)
+    {
+        using var writer = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        var console = CreateExplicitConsole(writer, width, color == "always");
+        new SpectreNodeRenderer(console, _theme).Render(tree);
+        return (writer.ToString(), console.Profile.Capabilities.Ansi);
+    }
+
+    private static IAnsiConsole CreateExplicitConsole(TextWriter writer, int? width, bool ansi)
+    {
+
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(writer),
+            Ansi = ansi ? AnsiSupport.Yes : AnsiSupport.No,
+            ColorSystem = ansi ? ColorSystemSupport.TrueColor : ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
+        });
+        // Explicit opt-in works over a pipe without inferring terminal capabilities.
+        console.Profile.Capabilities.Ansi = ansi;
+        console.Profile.Capabilities.Links = ansi;
+        console.Profile.Capabilities.Interactive = false;
+        console.Profile.Capabilities.Unicode = true;
+        console.Profile.Capabilities.ColorSystem = ansi ? ColorSystem.TrueColor : ColorSystem.NoColors;
+        console.Profile.Width = width ?? int.MaxValue;
+        return console;
+    }
+
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
         // Only a real, live stdout can emit colour. Capture writers and pipes keep the

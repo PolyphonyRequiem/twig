@@ -62,7 +62,7 @@ on the row's `Error` field
 |Command|Summary|Mutates|
 |---|---|---|
 |[`proposal validate`](proposal-validate.md)|Validate a proposal v1 file; no ADO calls.|none|
-|[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`.|local|
+|[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`, with optional native presentation.|local|
 |[`proposal apply`](proposal-apply.md)|Apply a proposal after digest confirmation and authorization.|ado|
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|

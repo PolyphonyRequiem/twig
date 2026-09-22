@@ -60,6 +60,9 @@ def check_terminal(command, workspace, env, root):
     output = captured.decode('utf-8', errors='replace')
     assert proc.returncode == 0 and sent == 3, output
     assert 'full' in output and 'Not applied' in output, output
+    assert 'Change Proposal review' not in output, output
+    assert 'digest:' not in output and 'workspace:' not in output, output
+    assert '(ad hoc)' not in output and '[0]' not in output and 'op-101' not in output, output
     assert '\x1b[?1049h' not in output and '\x1b[?47h' not in output, 'Unexpected full-screen UI'
     assert '\x1b[' in output, 'Real terminal did not emit styled output'
     assert any(0xe000 <= ord(c) <= 0xf8ff or 0xf0000 <= ord(c) <= 0xffffd for c in output), 'Configured Nerd Font icons did not reach the real presenter'
@@ -141,8 +144,16 @@ def main():
     assert desc['textChange']['metric'] == 'common-affix-replacement-v1'
     brief = run('preview-brief', preview).stdout
     full = run('preview-full', preview + ['--full']).stdout
+    for human in (brief, full):
+        assert 'Change Proposal review' not in human
+        assert 'digest:' not in human and 'workspace:' not in human
+        assert 'recipe:' not in human and 'rationale:' not in human
+        assert '(ad hoc)' not in human
+        assert '[0]' not in human and 'op-101' not in human and 'expectedRevision' not in human
+        assert 'change:' not in human and 'apply available:' not in human
+        assert 'blockers (0)' not in human and 'pending local changes (0)' not in human
+    assert model['digest'] not in brief and model['digest'] not in full
     assert 'FINALBODYMARKER' not in brief and 'FINALBODYMARKER' in full
-    assert model['digest'] in brief and model['digest'] in full
     minimal = run('preview-minimal', preview + ['-o', 'minimal', '--full']).stdout
     minimal_model = next(line.partition('=')[2] for line in minimal.splitlines() if line.startswith('reviewModel='))
     assert json.loads(minimal_model) == model, 'Minimal preview lost semantic model coverage'

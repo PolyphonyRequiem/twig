@@ -39,9 +39,11 @@ twig proposal preview --file <path> [--full] [--interactive] [-o human|json|mini
 
 ## Behavior
 
-Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact,
-grouped review by default; every operation, precondition, effect, blocker and
-authorization choice remains represented:
+Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact, grouped review;
+every material effect, warning, blocker and authorization choice remains represented in plain
+language. The human projection omits the generic title, digest, workspace, operation identities,
+preconditions and provenance; structured `json`/`minimal` output retains those exact fields for
+hosts and apply authorization.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
@@ -65,7 +67,8 @@ authorization choice remains represented:
   `common-affix-replacement-v1` metric removes the identical prefix and suffix
   and counts the remaining **Unicode scalars** as removed/inserted spans. It is
   linear-time, constant-space, not minimal edit distance, and includes literal HTML.
-  Unknown baselines have no numeric metric. The legend explains this once per review.
+  Unknown baselines have no numeric metric. Human output explains the units once per relevant review;
+  JSON retains the exact metric identifier.
 - Before observations come only from clean local cache data at the expected
   revision. Missing items/fields, revision mismatches and local edits are explicitly
   unknown; preview does not refresh ADO. Immediate cached parents are labeled

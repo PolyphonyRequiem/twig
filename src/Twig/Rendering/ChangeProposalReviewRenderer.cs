@@ -6,9 +6,9 @@ using Twig.RenderTree;
 namespace Twig.Rendering;
 
 /// <summary>
-/// Projects the canonical review model into grouped terminal layout. Every operation,
-/// precondition, consequence, blocker and choice survives brief and full modes. Only
-/// description bodies may be elided in brief; metrics are consumed, never recomputed.
+/// Projects the canonical review model into a human-focused grouped terminal layout. Material
+/// consequences, warnings, blockers and choices survive both densities; machine bookkeeping stays
+/// in the canonical model and JSON. Only description bodies may be elided in brief.
 /// </summary>
 public static class ChangeProposalReviewRenderer
 {
@@ -27,15 +27,12 @@ public static class ChangeProposalReviewRenderer
         if (!IsSupported(model.ModelVersion))
             return [new RenderNode.Text($"Cannot review model version {model.ModelVersion}. Refusing partial review; upgrade twig.", Severity.Error)];
 
-        var lines = new List<RenderNode>
-        {
-            Text("Change Proposal review" + (full ? " — full" : " — brief")),
-            Text($"digest: {model.Digest}"),
-            Text($"workspace: {model.Workspace.Organization}/{model.Workspace.Project}"),
-            Text($"recipe: {(model.Recipe is { } r ? $"{r.RecipeId} v{r.Version}" : "(ad hoc)")}"),
-            Text($"rationale: {model.Rationale ?? "(none)"}"),
-            Text($"affected items ({model.AffectedItems.Count}); operations ({model.Operations.Count}); parent context ({model.ContextItems.Count}, one hop, local cache)"),
-        };
+        var lines = new List<RenderNode>();
+        if (model.Recipe is { } recipe)
+            lines.Add(Text($"recipe: {recipe.RecipeId} v{recipe.Version}"));
+        if (!string.IsNullOrWhiteSpace(model.Rationale))
+            lines.Add(Text($"rationale: {model.Rationale}"));
+
         var items = model.ContextItems.Concat(model.AffectedItems).GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.Last());
         // One derived width across all siblings. The render provider additionally bounds it by terminal width.
         var labelWidth = model.Operations.SelectMany(o => o.Consequences)
@@ -46,12 +43,6 @@ public static class ChangeProposalReviewRenderer
             // Only adjacent same-target operations coalesce. A,B,A stays A,B,A, never A,A,B.
             if (groups.Count == 0 || !SameTarget(groups[^1].Target, op.Target)) groups.Add((op.Target, []));
             var body = groups[^1].Body;
-            var conditions = op.Preconditions.Count == 0 ? "no preconditions" : string.Join("; ", op.Preconditions.Select(p => $"{p.Kind} = {p.Value}"));
-            var observations = op.Consequences.Where(c => c.Before is not null).Select(c => c.Before!)
-                .Select(b => $"{b.Source} rev {b.Revision?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}{(b.Reason is null ? "" : $"; {b.Reason}")}").Distinct();
-            body.Add(Text($"[{op.Ordinal}] {op.OpId} · {op.Kind} · {conditions}{(observations.Any() ? " · " + string.Join("; ", observations) : "")}"));
-            if (full) body.Add(Text(op.Summary));
-            if (op.Consequences.Count == 0) body.Add(Text("no effects"));
             foreach (var con in op.Consequences)
             {
                 if (con.Field is not null && con.Kind is "field-set" or "field-clear")
@@ -59,6 +50,8 @@ public static class ChangeProposalReviewRenderer
                         DescribeField(con, full))], labelWidth));
                 else body.Add(Text(DescribeConsequence(con)));
             }
+            foreach (var warning in ObservationWarnings(op))
+                body.Add(new RenderNode.Text(warning, Severity.Warning));
         }
         // Only real item relationships produce tree edges. The bounded context can repeat
         // when needed to preserve declared execution order; no graph traversal can lose an op.
@@ -91,16 +84,55 @@ public static class ChangeProposalReviewRenderer
             roots.Add(new RenderTreeBranch(Identity(new ReviewTarget { WorkItemId = context.Id }, context), []));
         foreach (var root in roots) lines.Add(new RenderNode.TreeView(root));
 
-        lines.Add(Text($"blockers ({model.Blockers.Count}):"));
-        foreach (var blocker in model.Blockers)
-            lines.Add(new RenderNode.Text(Safe($"{blocker.Kind}: {(blocker.WorkItemId is { } id ? $"#{id} " : "")}{blocker.Detail}"), Severity.Warning));
+        if (model.Blockers.Count > 0)
+        {
+            lines.Add(Text($"blockers ({model.Blockers.Count}):"));
+            foreach (var blocker in model.Blockers)
+                lines.Add(new RenderNode.Text(DescribeBlocker(blocker), Severity.Warning));
+        }
+
         lines.Add(Text($"authorization choices ({model.AuthorizationChoices.Count}): {string.Join(", ", model.AuthorizationChoices)}"));
-        lines.Add(Text("Legend: → = field-set (write); (clear) = field-clear (remove); absent = known null; unknown = unavailable baseline; \"\" = empty string. Context/peer are not mutation targets. Ordinals give execution order."));
-        lines.Add(Text("Description metric: common-affix-replacement-v1; removed/inserted Unicode scalars, not minimal edits. Full bodies: --full or Details with --interactive; JSON always exact."));
+        lines.Add(Text("Legend: → = field change; (clear) = remove field; absent = known null; unknown = unavailable baseline; \"\" = empty string. Context and peers are not mutation targets."));
+        if (!full && model.Operations.SelectMany(o => o.Consequences)
+            .Any(c => string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase)))
+            lines.Add(Text("Description summaries count removed and inserted Unicode characters. Use --full or Details to show complete bodies."));
         lines.Add(steering == SessionSteeringMode.Afk
-            ? new RenderNode.Hint("This session is AFK-steered: apply requires a model authorization record bound to the digest above.")
-            : new RenderNode.Hint("Not applied. This session is human-steered: apply requires your sign-off bound to the digest above."));
+            ? new RenderNode.Hint("This session is AFK-steered: apply requires a model authorization record bound to this proposal's exact digest.")
+            : new RenderNode.Hint("Not applied. This session is human-steered: apply requires your sign-off bound to this proposal's exact digest."));
         return lines;
+    }
+
+    private static IEnumerable<string> ObservationWarnings(ReviewOperation operation)
+    {
+        foreach (var reason in operation.Consequences
+                     .Select(c => c.Before)
+                     .Where(before => before?.State == "unknown")
+                     .Select(before => before!.Reason)
+                     .Distinct(StringComparer.Ordinal))
+        {
+            yield return reason switch
+            {
+                "item-not-cached" => "warning: previous value unavailable because the item has not been loaded",
+                "revision-mismatch" => "warning: previous value unavailable because the item changed since this proposal was prepared",
+                "local-edits" => "warning: previous value unavailable because local changes are staged for this item",
+                "field-not-cached" => "warning: previous value unavailable because the field has not been loaded",
+                _ => "warning: previous value unavailable",
+            };
+        }
+    }
+
+    private static string DescribeBlocker(ReviewBlocker blocker)
+    {
+        var target = blocker.WorkItemId is { } id ? $" for #{id}" : string.Empty;
+        var prefix = blocker.Kind switch
+        {
+            "pending" => "Pending local change",
+            "issue" => "Review issue",
+            _ => "Review blocker",
+        };
+        return string.IsNullOrWhiteSpace(blocker.Detail)
+            ? $"{prefix}{target}"
+            : $"{prefix}{target}: {Safe(blocker.Detail)}";
     }
 
     // Only the last-descendant chain can accept another child without moving an earlier op.
@@ -123,7 +155,7 @@ public static class ChangeProposalReviewRenderer
             ["type"] = RenderCell.String(Safe(item?.Type ?? seed?.Type ?? "(uncached)")),
             ["title"] = RenderCell.String(Safe(item?.Title ?? seed?.Title ?? "(uncached)")),
             ["state"] = RenderCell.String(Safe(item?.State ?? seed?.State ?? "(uncached)")),
-            ["role"] = RenderCell.String(item?.Role ?? "staged cache context (fingerprint not attested)"),
+            ["role"] = RenderCell.String(item?.Role ?? "staged draft"),
         };
         if (target.WorkItemId is { } id) cells["id"] = new RenderCell("", new RenderValue.Integer(id));
         if (item?.Url is { } url) cells["url"] = RenderCell.String(Safe(url));
@@ -135,7 +167,6 @@ public static class ChangeProposalReviewRenderer
     private static RenderCell DescribeField(ReviewConsequence con, bool full)
     {
         var spans = new List<RenderTextSpan>();
-        if (full) spans.Add(new(Safe($"{con.Kind} {con.Field}\n")));
         if (!full && string.Equals(con.Field, "System.Description", StringComparison.OrdinalIgnoreCase))
         {
             spans.Add(new(con.Kind == "field-clear" ? "(clear) " : con.To == "" ? "→ \"\" " : "→ replace body "));
@@ -162,10 +193,11 @@ public static class ChangeProposalReviewRenderer
     private static string Quote(string value) => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     private static string DescribeConsequence(ReviewConsequence c) => c.Kind switch
     {
-        "link-add" or "link-remove" => $"{c.Kind} {c.Relation} → #{c.OtherId}",
-        "seed-publish" => "seed-publish (new published identity assigned only at apply)",
-        "work-item-delete" => $"work-item-delete #{c.OtherId}",
-        _ => $"{c.Kind} {c.Field} {c.To} {c.Relation} {c.OtherId}".Trim(),
+        "link-add" => $"add {c.Relation} link to #{c.OtherId}",
+        "link-remove" => $"remove {c.Relation} link to #{c.OtherId}",
+        "seed-publish" => "publish staged draft (new published identity assigned only when applied)",
+        "work-item-delete" => $"delete work item #{c.OtherId}",
+        _ => $"change {c.Field ?? "item"} {c.To ?? string.Empty} {c.Relation} {c.OtherId}".Trim(),
     };
     private static RenderNode.Text Text(string text) => new(Safe(text));
     // Preserve printable exact values and line breaks; neutralize terminal controls and bidi spoofing.

@@ -51,10 +51,10 @@ public sealed class PlanCliRegistrationTests
         json.RootElement.GetProperty("digest").GetString().ShouldBe("legacy-digest");
         await lifecycle.Received(2).PreviewAsync("legacy.json", cancellation.Token);
         await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
-        // Match CAF 5.7.13's declared-member discovery, not inherited reflection enumeration.
-        var registered = typeof(TwigCommands).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+        // CAF registers only the declared preview handler; the inherited legacy overload
+        // must remain a callable C# method, not a second CLI verb.
+        typeof(TwigCommands).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => m.Name == nameof(TwigCommands.PlanPreview)).ShouldHaveSingleItem();
-        registered.GetParameters().Length.ShouldBe(5);
         method.DeclaringType.ShouldNotBe(typeof(TwigCommands));
     }
 

@@ -211,6 +211,88 @@ public sealed class SharedProposalReviewTests
     }
 
     [Theory]
+    [InlineData("always", "ansi", true)]
+    [InlineData("never", "text", false)]
+    public async Task IncludedPresentationRetainsExactModelAndBothDensitiesFromOnePreview(
+        string color, string format, bool colored)
+    {
+        var lifecycle = Substitute.For<IPlanLifecycleService>();
+        var model = Model();
+        lifecycle.PreviewAsync("p.json", Arg.Any<CancellationToken>()).Returns(Preview(model));
+        var output = new StringWriter();
+
+        (await Command(lifecycle, output).PreviewAsync(
+            "p.json", "json", full: false, interactive: false, ct: default,
+            includeRendering: true, width: 80, color: color)).ShouldBe(0);
+
+        using var actual = JsonDocument.Parse(output.ToString());
+        using var expected = JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var root = actual.RootElement;
+        JsonElement.DeepEquals(root.GetProperty("reviewModel"), expected.RootElement).ShouldBeTrue();
+        root.GetProperty("digest").GetString().ShouldBe(model.Digest);
+        var presentation = root.GetProperty("presentation");
+        presentation.GetProperty("version").GetInt32().ShouldBe(1);
+        presentation.GetProperty("format").GetString().ShouldBe(format);
+        presentation.GetProperty("width").GetInt32().ShouldBe(80);
+        var brief = presentation.GetProperty("brief").GetString()!;
+        var full = presentation.GetProperty("full").GetString()!;
+        brief.ShouldContain("Description");
+        brief.ShouldContain("expectedRevision = 4");
+        brief.ShouldNotContain("EXACT description");
+        full.ShouldContain("EXACT description");
+        full.ShouldContain("\\u001b[2J");
+        full.ShouldNotContain("\u001b[2J");
+        if (colored) brief.ShouldContain("\u001b[");
+        else brief.ShouldNotContain("\u001b[");
+        await lifecycle.Received(1).PreviewAsync("p.json", Arg.Any<CancellationToken>());
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task InvalidProposalHasNoReviewFrameToAuthorize()
+    {
+        var lifecycle = Substitute.For<IPlanLifecycleService>();
+        lifecycle.PreviewAsync("broken.json", Arg.Any<CancellationToken>()).Returns(new PlanPreviewResult
+        {
+            Digest = null, CanApply = false, Operations = [], PendingChanges = [],
+            Issues = [new PlanValidationIssue { Code = PlanValidationCodes.JsonInvalid, Path = "", Message = "Invalid JSON" }],
+        });
+        var output = new StringWriter();
+
+        (await Command(lifecycle, output).PreviewAsync(
+            "broken.json", "json", full: false, interactive: false, ct: default,
+            includeRendering: true, width: 100, color: "always")).ShouldBe(1);
+
+        using var json = JsonDocument.Parse(output.ToString());
+        json.RootElement.GetProperty("presentation").ValueKind.ShouldBe(JsonValueKind.Null);
+        json.RootElement.GetProperty("reviewModel").ValueKind.ShouldBe(JsonValueKind.Null);
+        json.RootElement.GetProperty("issues")[0].GetProperty("code").GetString().ShouldBe(PlanValidationCodes.JsonInvalid);
+        await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
+    }
+
+    [Theory]
+    [InlineData("human", true, 80, "auto")]
+    [InlineData("minimal", true, 80, "auto")]
+    [InlineData("json", true, 19, "always")]
+    [InlineData("json", true, 401, "always")]
+    [InlineData("json", true, 80, "auto")]
+    [InlineData("json", true, 80, "unsupported")]
+    public async Task InvalidPresentationOptionsFailBeforePreview(
+        string outputFormat, bool includeRendering, int width, string color)
+    {
+        var lifecycle = Substitute.For<IPlanLifecycleService>();
+        var stderr = new StringWriter();
+        var command = new PlanCommand(lifecycle, new(new HumanOutputFormatter()),
+            new UnresolvedSessionSteeringModeProvider(), TimeProvider.System,
+            stdout: new StringWriter(), stderr: stderr);
+
+        (await command.PreviewAsync("p.json", outputFormat, full: false, interactive: false,
+            ct: default, includeRendering: includeRendering, width: width, color: color)).ShouldBe(2);
+        stderr.ToString().ShouldNotBeNullOrWhiteSpace();
+        await lifecycle.DidNotReceiveWithAnyArgs().PreviewAsync(default!, default);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task MinimalRetainsCanonicalModel_IncludingDeleteChoicesAndFields(bool full)

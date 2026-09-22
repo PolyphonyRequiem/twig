@@ -467,6 +467,8 @@ internal static class CommandExamples
         [
             "twig proposal preview --file proposal.json     Preview: import journal, snapshot pending changes, report digest and canApply.",
             "twig proposal preview --file proposal.json --output json    Emit machine preview for scripts.",
+            "twig proposal preview --file proposal.json -o json --include-rendering --width 100 --color always    Capture structured review and native brief/full frames together.",
+            "twig proposal preview --file proposal.json --full --width 80 --color never    Render expanded plain review at an explicit width.",
         ],
         ["proposal apply"] =
         [

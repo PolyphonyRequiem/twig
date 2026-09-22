@@ -169,6 +169,25 @@ internal sealed class PlanSeedPublisher
         if (mapped.HasValue)
             return await VerifyRemoteAsync(op.StagedIdentity, mapped.Value, ct).ConfigureAwait(false);
 
+        if (intent is { PublishedId: null }
+            && IsLegacyDeterministicCreateRejection(applyResult.Error))
+        {
+            // Older Twig builds journaled ADO's field-list rejection as Indeterminate.
+            // Check the durable intent tag before refining that unknown outcome. A later
+            // replacement can share title/type/tag, so a candidate already mapped to another
+            // staged identity is not evidence that this create landed.
+            var landed = await _ado.FindPublishedIntentAsync(intent, ct).ConfigureAwait(false);
+            if (landed.HasValue)
+            {
+                var mappings = await _publishIdMap.GetAllMappingsAsync(ct).ConfigureAwait(false);
+                var belongsToAnotherIdentity = mappings.Any(mapping =>
+                    mapping.NewId == landed.Value && !mapping.Identity.Equals(op.StagedIdentity));
+                if (!belongsToAnotherIdentity)
+                    return await VerifyRemoteAsync(op.StagedIdentity, landed.Value, ct).ConfigureAwait(false);
+            }
+            return PlanReadbackOutcome.Failed(applyResult.Error!);
+        }
+
         if (intent is not null)
             return await RecoverIntentOnlyAsync(op, intent, ct).ConfigureAwait(false);
 
@@ -211,6 +230,14 @@ internal sealed class PlanSeedPublisher
         catch (OperationCanceledException)
         {
             throw;
+        }
+        catch (AdoBadRequestException ex) when (intent.PublishedId is null)
+        {
+            // The intent is durable but no ADO id was ever recorded, and HTTP 400 proves
+            // the create request was rejected rather than accepted with a lost response.
+            // A bad request after creation keeps PublishedId populated and deliberately
+            // falls through to the indeterminate recovery arm below.
+            return PlanReadbackOutcome.Failed(ex.Message);
         }
         catch (Exception ex)
         {
@@ -324,6 +351,9 @@ internal sealed class PlanSeedPublisher
         }
         return false;
     }
+
+    private static bool IsLegacyDeterministicCreateRejection(string? error)
+        => error?.Contains("not in the list of supported values", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// Maps a <see cref="SeedPublishResult"/> onto the corresponding

@@ -126,8 +126,8 @@ public interface IPlanJournalRepository
     /// The update is state-gated to <see cref="PlanOperationState.Applied"/>: a result is a fact
     /// about an apply that already succeeded, and there is no meaningful outcome to record for
     /// a row still in Planned / Confirmed / Applying (apply has not committed) or already
-    /// terminal (Verified / Failed / Indeterminate — the outcome is settled and immutable). All
-    /// such rows are left strictly untouched.
+    /// terminal. All such rows are left strictly untouched by this method; an Indeterminate
+    /// row may be refined only by <see cref="TryResolveIndeterminateFailureAsync"/>.
     /// </para>
     /// <para>
     /// Ordering contract: the caller MUST invoke <c>SaveOperationResultAsync</c> BEFORE the
@@ -177,10 +177,11 @@ public interface IPlanJournalRepository
     /// AB#881: <paramref name="resultJson"/> carries the trustworthy-proposal diagnostics
     /// payload the parent constructs at the terminal boundary. When non-null it is written by
     /// the SAME conditional UPDATE that performs the terminal transition, using the existing
-    /// <c>result_json</c> column, so the state, error, and diagnostics land in one atomic row
-    /// update. Passing <c>null</c> preserves any existing <c>result_json</c>; it never erases
-    /// one. Rows already terminal are left strictly untouched — the terminal-immutability
-    /// contract applies to diagnostics exactly as it does to error and state.
+    /// <c>result_json</c> column, so state, error, and diagnostics land in one atomic row
+    /// update. Passing <c>null</c> preserves any existing result. Rows already terminal are
+    /// left strictly untouched by this method. The sole exception is the explicit,
+    /// evidence-gated Indeterminate → Failed refinement owned by
+    /// <see cref="TryResolveIndeterminateFailureAsync"/>.
     /// </para>
     /// </summary>
     Task SaveOperationErrorAsync(
@@ -191,6 +192,19 @@ public interface IPlanJournalRepository
         DateTimeOffset timestamp,
         CancellationToken ct = default,
         string? resultJson = null);
+
+    /// <summary>
+    /// Atomically refines an <see cref="PlanOperationState.Indeterminate"/> row to
+    /// <see cref="PlanOperationState.Failed"/> after a later authoritative readback proves
+    /// the operation was rejected. Returns true iff the row was still Indeterminate and moved.
+    /// Verified and Failed rows remain immutable.
+    /// </summary>
+    Task<bool> TryResolveIndeterminateFailureAsync(
+        string digest,
+        string opId,
+        string error,
+        string? resultJson,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Moves the top-level plan to a terminal state and stamps <paramref name="completedAt"/>.

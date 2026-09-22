@@ -762,9 +762,9 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Transaction = _store.ActiveTransaction;
         // AB#881: diagnostics payload rides through the same conditional UPDATE that writes
         // state + error, using the existing result_json column. The WHERE clause is the
-        // state-gated terminal transition — a row already terminal is left strictly untouched,
-        // so a losing writer cannot overwrite an earlier winner's diagnostics. COALESCE
-        // preserves any existing result_json when the caller passes null: this is additive.
+        // state-gated terminal transition — a row already terminal is left strictly untouched
+        // by this method. Indeterminate → Failed refinement has its own narrower CAS below.
+        // COALESCE preserves any existing result_json when the caller passes null: this is additive.
         cmd.CommandText = """
             UPDATE proposal_operations
             SET state = @finalState,
@@ -789,6 +789,39 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         cmd.Parameters.AddWithValue("@verifiedState", PlanOperationState.Verified.ToString());
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;
+    }
+
+    public Task<bool> TryResolveIndeterminateFailureAsync(
+        string digest,
+        string opId,
+        string error,
+        string? resultJson,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(digest);
+        ArgumentException.ThrowIfNullOrEmpty(opId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(error);
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = """
+            UPDATE proposal_operations
+            SET state = @failed,
+                error = @error,
+                result_json = COALESCE(@resultJson, result_json)
+            WHERE digest = @digest
+              AND op_id = @opId
+              AND state = @indeterminate;
+            """;
+        cmd.Parameters.AddWithValue("@digest", digest);
+        cmd.Parameters.AddWithValue("@opId", opId);
+        cmd.Parameters.AddWithValue("@error", error);
+        cmd.Parameters.AddWithValue("@resultJson", (object?)resultJson ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@failed", PlanOperationState.Failed.ToString());
+        cmd.Parameters.AddWithValue("@indeterminate", PlanOperationState.Indeterminate.ToString());
+
+        return Task.FromResult(cmd.ExecuteNonQuery() == 1);
     }
 
     public Task CompleteAsync(

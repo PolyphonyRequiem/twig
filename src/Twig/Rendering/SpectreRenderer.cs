@@ -362,9 +362,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TableTitleBudget));
                 var row = new List<string>
                 {
-                    $"{marker}{boldOpen}{item.Id}{boldClose}",
+                    _theme.FormatWorkItemLink(item, $"{marker}{boldOpen}{item.Id}{boldClose}"),
                     $"{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.Value)}",
-                    $"{boldOpen}{truncatedTitle}{boldClose}",
+                    _theme.FormatWorkItemLink(item, $"{boldOpen}{truncatedTitle}{boldClose}"),
                     _theme.FormatState(item.State),
                     cacheAgeMarkup,
                 };
@@ -690,7 +690,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         else
             content = $"{identity} [dim]{truncatedTitle}[/]{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}";
 
-        return isActive ? $"[on #16324f]{content}[/]" : content;
+        return _theme.FormatWorkItemLink(item, isActive ? $"[on #16324f]{content}[/]" : content);
     }
 
     /// <summary>
@@ -716,8 +716,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
             var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(0)));
 
-            container.AddRow(new Markup(
-                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {truncatedTitle}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
+            container.AddRow(new Markup(_theme.FormatWorkItemLink(item,
+                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {truncatedTitle}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}")));
         }
     }
 

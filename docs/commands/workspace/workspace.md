@@ -33,6 +33,11 @@ has an arrow, bold text, and a contrasting blue cell background; selection does
 not rely on color alone. Its metadata colors are adjusted for readability on
 that background. Non-active rows keep the terminal's normal background.
 
+In terminals that support OSC 8 hyperlinks, published work-item rows in Tree
+and IDs/titles in Table link to the corresponding Azure DevOps page. In Herdr,
+Ctrl+click activates the link on the client desktop, including over SSH.
+Local seeds have no published URL and are not linked.
+
 ## Synopsis
 
 ```

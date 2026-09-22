@@ -19,7 +19,9 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig workspace [show]</c>, <c>twig show</c>, <c>twig ws</c>:
 /// displays the current workspace including active context, sprint items, and seeds
-/// with stale seed warnings.
+/// with stale seed warnings. <c>--view table</c> and <c>--view tree</c> select the
+/// presentation of the same current Bench; the legacy <c>--tree</c> path remains
+/// the full-backlog hierarchy view.
 /// When <c>--all</c> is specified (or via <c>twig sprint</c>), shows all team items
 /// grouped by assignee instead of filtering to the current user.
 /// </summary>
@@ -49,20 +51,69 @@ public sealed class WorkspaceCommand(
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
+    private enum WorkspaceViewMode
     {
+        Auto,
+        Table,
+        Tree,
+    }
+
+    private static bool TryResolveWorkspaceViewMode(
+        string? view,
+        bool all,
+        bool sprintLayout,
+        bool tree,
+        bool flat,
+        out WorkspaceViewMode mode,
+        out string? error)
+    {
+        mode = WorkspaceViewMode.Auto;
+        error = null;
+
         if (tree && flat)
         {
-            Console.Error.WriteLine("error: --tree and --flat are mutually exclusive.");
+            error = "error: --tree and --flat are mutually exclusive.";
+            return false;
+        }
+
+        if (view is null)
+            return true;
+
+        if (all || sprintLayout || tree || flat)
+        {
+            error = "error: --view cannot be combined with --tree, --flat, --all, or sprint layout.";
+            return false;
+        }
+
+        switch (view.Trim().ToLowerInvariant())
+        {
+            case "table":
+                mode = WorkspaceViewMode.Table;
+                return true;
+            case "tree":
+                mode = WorkspaceViewMode.Tree;
+                return true;
+            default:
+                error = "error: --view must be 'table' or 'tree'.";
+                return false;
+        }
+    }
+
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null)
+    {
+        if (!TryResolveWorkspaceViewMode(view, all, sprintLayout, tree, flat, out var viewMode, out var viewError))
+        {
+            Console.Error.WriteLine(viewError);
             return 1;
         }
 
         if (tree)
-        {
             return await ExecuteTreeModeAsync(outputFormat, all, noLive, refresh, ct);
-        }
 
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
+        ProcessConfigurationData? processConfig = renderer is SpectreRenderer || viewMode == WorkspaceViewMode.Tree
+            ? await processTypeStore.GetProcessConfigurationDataAsync()
+            : null;
 
         if (renderer is not null && !all && !sprintLayout)
         {
@@ -82,19 +133,26 @@ public sealed class WorkspaceCommand(
             // Wire working level and tree rendering into SpectreRenderer
             if (renderer is SpectreRenderer spectreRenderer)
             {
-                var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+                spectreRenderer.UseTreeRendering = viewMode switch
+                {
+                    WorkspaceViewMode.Table => false,
+                    WorkspaceViewMode.Tree => true,
+                    _ => processConfig is not null && !flat,
+                };
+                spectreRenderer.UseAlignedTreeColumns = viewMode == WorkspaceViewMode.Tree;
+                spectreRenderer.TreeDepthUp = ctx.Config.Display.TreeDepthUp;
+                spectreRenderer.TreeDepthDown = ctx.Config.Display.TreeDepthDown;
+                spectreRenderer.TreeDepthSideways = ctx.Config.Display.TreeDepthSideways;
                 if (processConfig is not null)
                 {
                     spectreRenderer.TypeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                     spectreRenderer.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
-
-                    // Enable tree rendering when process configuration is available and --flat is not specified
-                    spectreRenderer.UseTreeRendering = !flat;
-                    spectreRenderer.TreeDepthUp = ctx.Config.Display.TreeDepthUp;
-                    spectreRenderer.TreeDepthDown = ctx.Config.Display.TreeDepthDown;
-                    spectreRenderer.TreeDepthSideways = ctx.Config.Display.TreeDepthSideways;
                 }
-
+                else
+                {
+                    spectreRenderer.TypeLevelMap = null;
+                    spectreRenderer.WorkingLevelTypeName = null;
+                }
                 // Expose tracked item IDs so the renderer can show pinned markers
                 spectreRenderer.TrackedItemIds = new HashSet<int>(trackedItems.Select(t => t.WorkItemId));
             }
@@ -134,11 +192,11 @@ public sealed class WorkspaceCommand(
                     benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray(), ct);
 
                 var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(
-                    sprintItems,
-                    manualItems: manualItems,
-                    excludedIds: excludedIds,
-                    treeRoots: treeRoots));
+                var sections = WorkspaceSections.Build(
+                    sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
+                if (viewMode == WorkspaceViewMode.Tree)
+                    sections = await AddSectionHierarchiesAsync(sections, ct);
+                yield return new SprintItemsLoaded(sprintItems, sections);
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -198,11 +256,11 @@ public sealed class WorkspaceCommand(
 
                         // Yield data rows (refreshed on success, original on failure)
                         var refreshTreeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                        yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(
-                            sprintItems,
-                            manualItems: manualItems,
-                            excludedIds: excludedIds,
-                            treeRoots: refreshTreeRoots));
+                        var refreshedSections = WorkspaceSections.Build(
+                            sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots);
+                        if (viewMode == WorkspaceViewMode.Tree)
+                            refreshedSections = await AddSectionHierarchiesAsync(refreshedSections, ct);
+                        yield return new SprintItemsLoaded(sprintItems, refreshedSections);
                         yield return new SeedsLoaded(seeds);
                         yield return new RefreshCompleted();
                     }
@@ -229,7 +287,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, outputFormat, all, refresh, sprintLayout, flat);
+        return await ExecuteSyncAsync(fmt, outputFormat, all, refresh, sprintLayout, flat, viewMode);
     }
 
     /// <summary>
@@ -284,7 +342,7 @@ public sealed class WorkspaceCommand(
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool refresh = false, bool sprintLayout = false, bool flat = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool refresh = false, bool sprintLayout = false, bool flat = false, WorkspaceViewMode viewMode = WorkspaceViewMode.Auto)
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
@@ -365,10 +423,16 @@ public sealed class WorkspaceCommand(
         // Update freshness timestamp (sync path also tracks cache freshness)
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
 
-        // Build hierarchy when sprint items exist
+        // Build hierarchy when sprint items exist. Process metadata enriches the
+        // projection with working-level and virtual-group semantics, but parent IDs
+        // alone still provide a real tree for explicit --view tree.
         SprintHierarchy? hierarchy = null;
         IReadOnlyList<SprintHierarchyNode>? treeRoots = null;
         IReadOnlyDictionary<string, int>? typeLevelMap = null;
+        ProcessConfigurationData? processConfig = null;
+        if (viewMode == WorkspaceViewMode.Tree || sprintItems.Count > 0)
+            processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+
         if (sprintItems.Count > 0)
         {
             var uniqueParentIds = new HashSet<int>();
@@ -386,18 +450,23 @@ public sealed class WorkspaceCommand(
                     parentLookup.TryAdd(chainItem.Id, chainItem);
             }
 
-            // Read cached process configuration (no network call)
-            var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+            IReadOnlyList<string>? ceilingTypeNames = viewMode == WorkspaceViewMode.Tree
+                ? ComputeFallbackCeilingTypes(parentLookup)
+                : null;
             if (processConfig is not null)
             {
                 var typeNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var item in sprintItems)
                     typeNameSet.Add(item.Type.Value);
 
-                var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
+                ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
                 typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
-                hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+            }
 
+            if (processConfig is not null || viewMode == WorkspaceViewMode.Tree)
+                hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+            if (hierarchy is not null)
+            {
                 // Extract tree roots from hierarchy for tree-based rendering
                 var roots = new List<SprintHierarchyNode>();
                 foreach (var group in hierarchy.AssigneeGroups.Values)
@@ -408,24 +477,36 @@ public sealed class WorkspaceCommand(
         }
 
         // Wire tree rendering config into HumanOutputFormatter (mirrors SpectreRenderer wiring)
-        if (fmt is HumanOutputFormatter humanFmt && typeLevelMap is not null)
+        if (fmt is HumanOutputFormatter humanFmt)
         {
-            humanFmt.TypeLevelMap = typeLevelMap;
-            humanFmt.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
-            humanFmt.UseTreeRendering = !flat;
+            if (typeLevelMap is not null)
+            {
+                humanFmt.TypeLevelMap = typeLevelMap;
+                humanFmt.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
+            }
+            else
+            {
+                humanFmt.TypeLevelMap = null;
+                humanFmt.WorkingLevelTypeName = null;
+            }
+
+            humanFmt.UseTreeRendering = viewMode switch
+            {
+                WorkspaceViewMode.Table => false,
+                WorkspaceViewMode.Tree => true,
+                _ => typeLevelMap is not null && !flat,
+            };
             humanFmt.TreeDepthUp = ctx.Config.Display.TreeDepthUp;
             humanFmt.TreeDepthDown = ctx.Config.Display.TreeDepthDown;
             humanFmt.TreeDepthSideways = ctx.Config.Display.TreeDepthSideways;
         }
 
+        var sections = WorkspaceSections.Build(
+            sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
+        if (viewMode == WorkspaceViewMode.Tree)
+            sections = await AddSectionHierarchiesAsync(sections);
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: WorkspaceSections.Build(
-                sprintItems,
-                manualItems: manualItems,
-                excludedIds: excludedIds,
-                treeRoots: treeRoots),
-            trackedItems: trackedItems,
-            excludedIds: excludedIds);
+            sections: sections, trackedItems: trackedItems, excludedIds: excludedIds);
 
         if (fmt is HumanOutputFormatter human)
         {
@@ -625,6 +706,59 @@ public sealed class WorkspaceCommand(
     }
 
     /// <summary>
+    /// Derives root type ceilings when process metadata is unavailable. Parent
+    /// chains still carry enough information to preserve hierarchy; the missing
+    /// type map only disables virtual groups and working-level enrichment.
+    /// </summary>
+    private static IReadOnlyList<string>? ComputeFallbackCeilingTypes(
+        IReadOnlyDictionary<int, Domain.Aggregates.WorkItem> parentLookup)
+    {
+        if (parentLookup.Count == 0)
+            return null;
+
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in parentLookup.Values)
+        {
+            if (!item.ParentId.HasValue || !parentLookup.ContainsKey(item.ParentId.Value))
+                roots.Add(item.Type.Value);
+        }
+
+        return roots.Count == 0 ? null : roots.ToArray();
+    }
+
+    private async Task<WorkspaceSections> AddSectionHierarchiesAsync(
+        WorkspaceSections sections, CancellationToken ct = default)
+    {
+        var enriched = new List<WorkspaceSection>(sections.Sections.Count);
+        foreach (var section in sections.Sections)
+        {
+            var roots = section.TreeRoots ?? await BuildTreeRootsAsync(section.Items, ct);
+            enriched.Add(section with { TreeRoots = roots is null ? null : MergeBenchRoots(roots) });
+        }
+        return WorkspaceSections.BuildWithTreeRoots(enriched, sections.ExcludedItemIds);
+    }
+
+    // The sprint builder groups by assignee. A bench tree has one identity per
+    // item, so shared ancestors must be merged when those groups are flattened.
+    private static IReadOnlyList<SprintHierarchyNode> MergeBenchRoots(IEnumerable<SprintHierarchyNode> roots)
+    {
+        var result = new List<SprintHierarchyNode>();
+        foreach (var group in roots.GroupBy(node =>
+            (node.IsVirtualGroup, Id: node.IsVirtualGroup ? 0 : node.Item.Id, node.GroupLabel, node.BacklogLevel)))
+        {
+            var node = group.First();
+            if (group.Skip(1).Any())
+            {
+                var children = MergeBenchRoots(group.SelectMany(part => part.Children));
+                node.Children.Clear();
+                node.Children.AddRange(children);
+            }
+            result.Add(node);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Builds flattened tree roots from sprint items by walking parent chains and
     /// assembling a <see cref="SprintHierarchy"/>. Used by the live async streaming
     /// path to provide hierarchy data for tree-based workspace rendering.
@@ -651,15 +785,18 @@ public sealed class WorkspaceCommand(
         }
 
         var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
-        if (processConfig is null)
-            return null;
+        IReadOnlyList<string>? ceilingTypeNames = ComputeFallbackCeilingTypes(parentLookup);
+        IReadOnlyDictionary<string, int>? typeLevelMap = null;
+        if (processConfig is not null)
+        {
+            var typeNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in sprintItems)
+                typeNameSet.Add(item.Type.Value);
 
-        var typeNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in sprintItems)
-            typeNameSet.Add(item.Type.Value);
+            ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
+            typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+        }
 
-        var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-        var typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
         var hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
 
         // Flatten all assignee groups for personal workspace display

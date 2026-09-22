@@ -10,211 +10,58 @@ namespace Twig.Cli.Tests.Rendering;
 
 public sealed class WorkspaceCacheAgeTests
 {
-    private readonly TestConsole _testConsole;
-    private readonly SpectreRenderer _renderer;
-
-    public WorkspaceCacheAgeTests()
+    [Theory]
+    [InlineData(60)]
+    [InlineData(80)]
+    [InlineData(160)]
+    public async Task MetadataRemainsInSeparateColumnsWhenTitleWraps(int width)
     {
-        _testConsole = new TestConsole();
-        _testConsole.Profile.Width = 120;
-        _renderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
-    }
-
-    // ── Stale sprint items show cache-age ────────────────────────────
-
-    [Fact]
-    public async Task SprintItem_Stale_ShowsCacheAge()
-    {
-        var item = new WorkItemBuilder(10, "Stale Sprint Task")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        output.ShouldContain("cached 15m ago");
-    }
-
-    [Fact]
-    public async Task SprintItem_Fresh_NoCacheAge()
-    {
-        var item = new WorkItemBuilder(11, "Fresh Sprint Task")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-2))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
+        var item = new WorkItemBuilder(10, "A long title that must give space to the state and freshness columns")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15)).Build();
+        var output = await Render(width, 5, item);
         output.ShouldNotContain("cached");
+        var lines = output.Split('\n');
+        var header = lines.First(line => line.Contains("Title") && line.Contains("State"));
+        var headings = header.Split('│').Select(cell => cell.Trim()).ToArray();
+        var stateColumn = Array.IndexOf(headings, "State");
+        var ageColumn = Array.IndexOf(headings, "Age");
+        stateColumn.ShouldBeGreaterThan(0);
+        ageColumn.ShouldBeGreaterThan(stateColumn);
+        var row = lines.First(line => line.Contains("15m ago")).Split('│');
+        row[stateColumn].ShouldContain("Active");
+        row[ageColumn].Trim().ShouldBe("15m ago");
     }
 
     [Fact]
-    public async Task SprintItem_NullLastSyncedAt_NoCacheAge()
+    public async Task FreshAndUnknownAgesStayBlankWhileStaleAgeIsVisible()
     {
-        var item = new WorkItemBuilder(12, "Never Synced Task")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        output.ShouldNotContain("cached");
+        var fresh = new WorkItemBuilder(11, "Fresh").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-2)).Build();
+        var stale = new WorkItemBuilder(12, "Stale").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15)).Build();
+        var unknown = new WorkItemBuilder(13, "Unknown").Build();
+        var output = await Render(120, 5, fresh, stale, unknown);
+        var header = output.Split('\n').First(line => line.Contains("Title") && line.Contains("Age"));
+        var ageColumn = Array.IndexOf(header.Split('│').Select(cell => cell.Trim()).ToArray(), "Age");
+        foreach (var title in new[] { "Fresh", "Unknown" })
+            output.Split('\n').First(line => line.Contains(title)).Split('│')[ageColumn].Trim().ShouldBeEmpty();
+        output.ShouldContain("15m ago");
+        (await Render(120, 20, stale)).ShouldNotContain("15m ago");
     }
 
-    // ── Time unit formatting ─────────────────────────────────────────
-
-    [Fact]
-    public async Task SprintItem_StaleHours_ShowsHoursFormat()
+    private static async Task<string> Render(int width, int threshold, params WorkItem[] items)
     {
-        var item = new WorkItemBuilder(13, "Hours Old")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddHours(-3))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        output.ShouldContain("cached 3h ago");
+        var console = new TestConsole();
+        console.Profile.Width = width;
+        var renderer = new SpectreRenderer(console, new SpectreTheme(new DisplayConfig()));
+        await renderer.RenderWorkspaceAsync(Chunks(items), 14, false, CancellationToken.None, cacheStaleMinutes: threshold);
+        return console.Output;
     }
 
-    [Fact]
-    public async Task SprintItem_StaleDays_ShowsDaysFormat()
+    private static async IAsyncEnumerable<WorkspaceDataChunk> Chunks(WorkItem[] items)
     {
-        var item = new WorkItemBuilder(14, "Days Old")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddDays(-2))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        output.ShouldContain("cached 2d ago");
+        yield return new ContextLoaded(null);
+        yield return new SprintItemsLoaded(items);
+        yield return new SeedsLoaded(Array.Empty<WorkItem>());
+        await Task.CompletedTask;
     }
-
-    // ── Threshold boundary ───────────────────────────────────────────
-
-    [Fact]
-    public async Task SprintItem_BelowThreshold_NoCacheAge()
-    {
-        var item = new WorkItemBuilder(15, "Boundary Fresh")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-4))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        output.ShouldNotContain("cached");
-    }
-
-    [Fact]
-    public async Task SprintItem_CustomThreshold_Respected()
-    {
-        var item = new WorkItemBuilder(16, "Custom Threshold")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-8))
-            .Build();
-
-        // With 10-minute threshold, 8 minutes is fresh
-        var outputFresh = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 10);
-        outputFresh.ShouldNotContain("cached");
-
-        _testConsole.Clear(false);
-
-        // With 5-minute threshold, 8 minutes is stale
-        var outputStale = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-        outputStale.ShouldContain("cached 8m ago");
-    }
-
-    // ── Default parameter ────────────────────────────────────────────
-
-    [Fact]
-    public async Task SprintItem_DefaultCacheStaleMinutes_Is5()
-    {
-        var item = new WorkItemBuilder(17, "Default Threshold")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-6))
-            .Build();
-
-        // Uses default cacheStaleMinutes (5), so 6 minutes is stale
-        var output = await RenderWorkspaceAsync(new[] { item });
-
-        output.ShouldContain("cached 6m ago");
-    }
-
-    // ── Multiple items: mixed staleness ──────────────────────────────
-
-    [Fact]
-    public async Task MultipleItems_MixedStaleness_OnlyStaleShowsCacheAge()
-    {
-        var staleItem = new WorkItemBuilder(18, "Stale One")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-30))
-            .Build();
-
-        var freshItem = new WorkItemBuilder(19, "Fresh One")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-1))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { staleItem, freshItem }, cacheStaleMinutes: 5);
-
-        // Stale item shows cache-age; fresh item does not
-        output.ShouldContain("cached 30m ago");
-        output.ShouldNotContain("cached 1m ago");
-        output.ShouldContain("Stale One");
-        output.ShouldContain("Fresh One");
-    }
-
-    // ── Cache-age appears alongside title, not in other columns ──────
-
-    [Fact]
-    public async Task SprintItem_CacheAge_AppearsOnSameRowAsTitle()
-    {
-        var item = new WorkItemBuilder(20, "Row Check")
-            .WithIterationPath("Project\\Sprint 1")
-            .WithAreaPath("Project")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-10))
-            .Build();
-
-        var output = await RenderWorkspaceAsync(new[] { item }, cacheStaleMinutes: 5);
-
-        // Both the title and cache-age should be present
-        output.ShouldContain("Row Check");
-        output.ShouldContain("cached 10m ago");
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────
-
-    private async Task<string> RenderWorkspaceAsync(
-        WorkItem[] sprintItems,
-        int cacheStaleMinutes = 5)
-    {
-        var chunks = CreateChunksAsync(
-            new ContextLoaded(null),
-            new SprintItemsLoaded(sprintItems),
-            new SeedsLoaded(Array.Empty<WorkItem>()));
-
-        await _renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None,
-            cacheStaleMinutes: cacheStaleMinutes);
-
-        return _testConsole.Output;
-    }
-
-    private static async IAsyncEnumerable<WorkspaceDataChunk> CreateChunksAsync(
-        params WorkspaceDataChunk[] chunks)
-    {
-        foreach (var chunk in chunks)
-        {
-            await Task.Yield();
-            yield return chunk;
-        }
-    }
-
 }

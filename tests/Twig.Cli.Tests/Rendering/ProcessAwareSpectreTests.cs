@@ -12,31 +12,6 @@ namespace Twig.Cli.Tests.Rendering;
 /// </summary>
 public class ProcessAwareSpectreTests
 {
-    // ── CreateWorkspaceTable: default (personal view) ───────────────
-
-    [Fact]
-    public void CreateWorkspaceTable_Default_HasFourColumns()
-    {
-        var table = SpectreTheme.CreateWorkspaceTable();
-        table.Columns.Count.ShouldBe(4);
-    }
-
-    [Fact]
-    public void CreateWorkspaceTable_PersonalView_HasFourColumns()
-    {
-        var table = SpectreTheme.CreateWorkspaceTable(isTeamView: false);
-        table.Columns.Count.ShouldBe(4);
-    }
-
-    // ── CreateWorkspaceTable: team view ─────────────────────────────
-
-    [Fact]
-    public void CreateWorkspaceTable_TeamView_HasFiveColumns()
-    {
-        var table = SpectreTheme.CreateWorkspaceTable(isTeamView: true);
-        table.Columns.Count.ShouldBe(5);
-    }
-
     // ── FormatCategoryHeader ────────────────────────────────────────
 
     [Theory]

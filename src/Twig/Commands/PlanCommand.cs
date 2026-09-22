@@ -322,15 +322,13 @@ public sealed class PlanCommand(
     }
 
     /// <summary>
-    /// Human preview output. When a review model is present this IS the guaranteed
-    /// terminal/text fallback of Spec #729: no agent-specific review adapter exists on the CLI,
-    /// so the canonical semantic review model is rendered here in full rather than summarised.
+    /// Human preview output. When a review model is present this is the terminal/text
+    /// projection of the canonical model. It keeps material effects, warnings, blockers and
+    /// authorization choices while leaving digest, workspace, operation identity, preconditions
+    /// and provenance to structured output and the unchanged apply safeguards.
     /// <para>
-    /// The earlier thin summary — digest, canApply, an operation id per line — is deliberately
-    /// gone rather than kept alongside. It showed the reviewer an operation's id and kind but
-    /// never its preconditions or consequences, which is exactly the "authorized something they
-    /// were not shown" failure the model exists to prevent. Keeping both would have left two
-    /// presentations of one proposal, and the shorter one is the one a hurried reviewer reads.
+    /// Details and Back reuse the same captured review observation; neither authorizes nor
+    /// applies changes.
     /// </para>
     /// </summary>
     private IReadOnlyList<RenderNode> BuildPreviewHumanLines(PlanPreviewResult result, bool full)
@@ -346,22 +344,8 @@ public sealed class PlanCommand(
         }
 
         if (result.ReviewModel is { } model)
-        {
             lines.AddRange(ChangeProposalReviewRenderer.Render(model, steering.Resolve(), full));
-            lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
-        }
-        else
-        {
-            // No model means the document never parsed into a proposal at all, so there is
-            // nothing semantic to render; Issues above carries the reason.
-            lines.Add(new RenderNode.Text($"digest:   {result.Digest}", Severity.Warning));
-            lines.Add(new RenderNode.Text($"canApply: {(result.CanApply ? "yes" : "no")}"));
-        }
-
-        lines.Add(new RenderNode.Text($"pending changes ({result.PendingChanges.Count}):"));
-        foreach (var pc in result.PendingChanges)
-            lines.Add(new RenderNode.Text($"  #{pc.WorkItemId} {pc.Kind} {pc.Field ?? "(no field)"}"));
-        if (!result.CanApply && result.PendingChanges.Count > 0)
+        if (result.PendingChanges.Count > 0)
             lines.Add(new RenderNode.Hint("Flush pending changes with 'twig sync' before applying."));
         return lines;
     }

@@ -49,7 +49,14 @@ public sealed class SharedProposalReviewTests
         brief.ShouldContain("Assigned to");
         brief.ShouldContain("(clear)");
         brief.ShouldContain("−3 / +");
-        brief.ShouldContain("expectedRevision = 4");
+        brief.ShouldNotContain("expectedRevision");
+        brief.ShouldNotContain("Change Proposal review");
+        brief.ShouldNotContain("digest:");
+        brief.ShouldNotContain("workspace:");
+        brief.ShouldNotContain("(ad hoc)");
+        brief.ShouldNotContain("[0]");
+        brief.ShouldNotContain("op-");
+        brief.ShouldNotContain("local-cache");
         brief.ShouldContain("--full");
         var full = Render(Model(), true, 200);
         full.ShouldContain("[red]EXACT description[/]");
@@ -112,11 +119,10 @@ public sealed class SharedProposalReviewTests
     {
         var text = Render(Model(), true, width);
         var valueLines = text.Split('\n').Where(l => l.Contains(" │ ")).ToArray();
-        valueLines.Length.ShouldBeGreaterThanOrEqualTo(5);
+        valueLines.Length.ShouldBeGreaterThanOrEqualTo(3); // Two fields plus at least one wrapped continuation.
         valueLines.Select(l => l.IndexOf(" │ ", StringComparison.Ordinal)).Distinct().Count().ShouldBe(1);
         text.Split('\n').ShouldAllBe(l => l.Length <= width + 2); // UTF-16 surrogate pair vs terminal cell count.
         text.ShouldContain("└─");
-        text.ShouldContain("│");
     }
 
     [Theory]
@@ -127,7 +133,8 @@ public sealed class SharedProposalReviewTests
     {
         var text = Render(Model(), false, 160, unicode, icons);
         text.ShouldContain("#2"); text.ShouldContain("Doing"); text.ShouldContain("Task");
-        text.ShouldContain("field-clear");
+        text.ShouldContain("Assigned to");
+        text.ShouldContain("(clear)");
         text.ShouldContain(unicode ? "│" : "|");
     }
 
@@ -136,11 +143,24 @@ public sealed class SharedProposalReviewTests
     {
         var model = Model();
         var op = model.Operations[0];
-        model = model with { AffectedItems = [.. model.AffectedItems, new() { Id = 1, Title = "Parent", Type = "Feature", Role = "target", ParentId = 2 }],
-            Operations = [op, op with { OpId = "edit-parent", Ordinal = 1, Target = new() { WorkItemId = 1 } }, op with { OpId = "edit-child-again", Ordinal = 2 }] };
+        static ReviewConsequence Effect(int id) => new() { Kind = "link-add", Relation = "related", OtherId = id };
+        model = model with
+        {
+            AffectedItems = [.. model.AffectedItems, new() { Id = 1, Title = "Parent", Type = "Feature", Role = "target", ParentId = 2 }],
+            Operations =
+            [
+                op with { Consequences = [Effect(901)] },
+                op with { OpId = "edit-parent", Ordinal = 1, Target = new() { WorkItemId = 1 }, Consequences = [Effect(902)] },
+                op with { OpId = "edit-child-again", Ordinal = 2, Consequences = [Effect(903)] },
+            ],
+        };
         var text = Render(model, width: 200);
-        text.IndexOf("[0] edit-child", StringComparison.Ordinal).ShouldBeLessThan(text.IndexOf("[1] edit-parent", StringComparison.Ordinal));
-        text.IndexOf("[1] edit-parent", StringComparison.Ordinal).ShouldBeLessThan(text.IndexOf("[2] edit-child-again", StringComparison.Ordinal));
+        var first = text.IndexOf("add related link to #901", StringComparison.Ordinal);
+        var second = text.IndexOf("add related link to #902", StringComparison.Ordinal);
+        var third = text.IndexOf("add related link to #903", StringComparison.Ordinal);
+        first.ShouldBeGreaterThanOrEqualTo(0);
+        first.ShouldBeLessThan(second);
+        second.ShouldBeLessThan(third);
     }
 
     [Fact]
@@ -161,7 +181,6 @@ public sealed class SharedProposalReviewTests
         var text = Render(model, width: 200);
         foreach (var item in items)
             System.Text.RegularExpressions.Regex.Matches(text, $@"#{item.Id}\b").Count.ShouldBe(1);
-        text.Split("common-affix-replacement-v1").Length.ShouldBe(2);
         text.Split("--full").Length.ShouldBe(2);
     }
 

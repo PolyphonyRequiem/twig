@@ -11,9 +11,8 @@ namespace Twig.Cli.Tests.Rendering;
 /// <summary>
 /// The guaranteed terminal/text fallback (Spec #729 §Terminal/text fallback, AB#743).
 /// <para>
-/// The contract these tests defend is narrow and total: every material entry of the canonical
-/// review model reaches the reviewer, no authorization choice is invented or dropped, the digest
-/// is echoed rather than recomputed, and an unknown model version refuses outright.
+/// These tests defend the presentation boundary: material effects, warnings and authorization
+/// choices remain readable, while proposal identity and machine bookkeeping stay structured.
 /// </para>
 /// </summary>
 public sealed class ChangeProposalReviewRendererTests
@@ -83,18 +82,19 @@ public sealed class ChangeProposalReviewRendererTests
         return output.ToString();
     }
 
-    // 🔴 The core compliance rule: no material entry may be elided. Defends against a renderer
-    // that summarises — showing operation ids but not the field values they will write, which
-    // is precisely "authorized a mutation they were never shown".
+    // The human projection keeps material effects, warnings, authorization choices and blockers.
+    // Digest, workspace and wire-level operation bookkeeping remain machine data.
     [Fact]
-    public void Render_EmitsEveryMaterialEntryOfTheModel()
+    public void Render_EmitsMaterialEffectsWithoutMachineReviewBoilerplate()
     {
         var text = RenderText(Model());
 
-        // Digest, verbatim.
-        text.ShouldContain(Digest);
-        text.ShouldContain("acme/cache");
-        text.ShouldContain("Close out the sprint.");
+        text.ShouldNotContain("Change Proposal review");
+        text.ShouldNotContain(Digest);
+        text.ShouldNotContain("workspace:");
+        text.ShouldNotContain("acme/cache");
+        text.ShouldNotContain("(ad hoc)");
+        text.ShouldContain("rationale: Close out the sprint.");
 
         // Every affected item, including one the local cache does not know.
         text.ShouldContain("#729");
@@ -102,27 +102,63 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("#742");
         text.ShouldContain("(uncached)");
 
-        // Every operation, by ordinal and id, including the seed with no work item id.
-        text.ShouldContain("op-batch");
-        text.ShouldContain("op-link");
-        text.ShouldContain("op-seed");
+        // Every operation's useful effect remains visible while wire metadata stays hidden.
         text.ShouldContain("seed seed-abc");
+        text.ShouldNotContain("change:");
+        text.ShouldNotContain("op-batch");
+        text.ShouldNotContain("op-link");
+        text.ShouldNotContain("op-seed");
+        text.ShouldNotContain("[0]");
+        text.ShouldNotContain("expectedRevision");
+        text.ShouldNotContain("expectedFingerprint");
+        text.ShouldNotContain("local-cache");
 
-        // Every precondition.
-        text.ShouldContain("expectedRevision = 7");
-        text.ShouldContain("expectedFingerprint = fp-1");
-
-        // Every consequence, with its values — not just its kind.
-        text.ShouldContain("field-set System.State");
+        text.ShouldContain("System.State");
         text.ShouldContain("\"Done\"");
-        text.ShouldContain("field-clear System.Reason");
-        text.ShouldContain("link-add predecessor");
-        text.ShouldContain("seed-publish");
+        text.ShouldContain("System.Reason");
+        text.ShouldContain("add predecessor link to #742");
+        text.ShouldContain("publish staged draft");
 
         // Every authorization choice.
         text.ShouldContain("apply");
         text.ShouldContain("revise");
         text.ShouldContain("decline");
+    }
+
+    [Fact]
+    public void Render_OnlyShowsRecipeAndNonblankRationaleWhenPresent()
+    {
+        var absent = RenderText(Model() with { Rationale = " \t" });
+        absent.ShouldNotContain("recipe:");
+        absent.ShouldNotContain("rationale:");
+
+        var present = RenderText(Model() with
+        {
+            Recipe = new ChangeRecipeReference { RecipeId = "close-sprint", Version = 3 },
+            Rationale = "Close the sprint after verification.",
+        });
+        present.ShouldContain("recipe: close-sprint v3");
+        present.ShouldContain("rationale: Close the sprint after verification.");
+    }
+
+    [Fact]
+    public void Render_TranslatesObservationFailureIntoMaterialWarning()
+    {
+        var model = Model();
+        var operation = model.Operations[0];
+        var consequence = operation.Consequences[0] with
+        {
+            Before = new ReviewBeforeValue { State = "unknown", Reason = "revision-mismatch" },
+        };
+
+        var text = RenderText(model with
+        {
+            Operations = [operation with { Consequences = [consequence] }],
+        });
+
+        text.ShouldContain("warning: previous value unavailable because the item changed since this proposal was prepared");
+        text.ShouldNotContain("revision-mismatch");
+        text.ShouldNotContain("cached item version");
     }
 
     // Defends against: a fallback that offers `apply` on a proposal the model says cannot
@@ -135,11 +171,10 @@ public sealed class ChangeProposalReviewRendererTests
             blockers: [new ReviewBlocker { Kind = "pending", WorkItemId = 740, Detail = "1 pending change staged" }]);
 
         var text = RenderText(blocked);
-
         text.ShouldContain("authorization choices (2)");
         text.ShouldContain("revise, decline");
         text.ShouldNotContain("apply,");
-        text.ShouldContain("#740 1 pending change staged");
+        text.ShouldContain("Pending local change for #740: 1 pending change staged");
     }
 
     // T2 §4.3 rule 2. Defends against a build silently rendering the members it recognises out

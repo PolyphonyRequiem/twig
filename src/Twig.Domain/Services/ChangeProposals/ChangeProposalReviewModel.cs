@@ -18,13 +18,14 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <para>
 /// <b>Adapter rules.</b> A renderer MUST ignore unknown members within a known
 /// <see cref="ModelVersion"/>, MUST fail closed on an unknown version rather than partially
-/// render, and MUST render every entry of <see cref="Operations"/>,
+/// render, and MUST preserve every entry of <see cref="Operations"/>,
 /// <see cref="ReviewOperation.Preconditions"/>, <see cref="ReviewOperation.Consequences"/>
-/// and <see cref="AuthorizationChoices"/>. Brief views may elide description bodies only
-/// while naming the operation, field, effect, available metric and full-detail access.
-/// Exact values remain in the model and full/JSON views. Eliding a material entry is a compliance failure,
-/// not a presentation choice. Enrichment is additive only: an adapter may never add or
-/// remove an authorization choice, and never alter the digest.
+/// and <see cref="AuthorizationChoices"/> in the canonical structured model. Human presenters
+/// keep every material operation, consequence, warning, blocker and choice, but may omit raw
+/// operation identity, precondition values and observation provenance from display. Apply still
+/// enforces those exact values. Brief views may elide description bodies only while naming the
+/// field, effect, available metric and full-detail access. Enrichment is additive only: an adapter
+/// may never add or remove an authorization choice, and never alter the digest.
 /// </para>
 /// </summary>
 public sealed record ChangeProposalReviewModel

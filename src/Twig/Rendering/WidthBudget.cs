@@ -34,6 +34,13 @@ internal readonly record struct WidthBudget
     /// <summary>Available width for title text in table rows.</summary>
     public int TableTitleBudget => Math.Max(ConsoleWidth - TableFixedOverhead, 1);
 
+    /// <summary>
+    /// Available title-cell width for an aligned tree table after the table's
+    /// fixed columns and the visible tree prefix have been reserved.
+    /// </summary>
+    public int TreeTableTitleBudget(int prefixWidth) =>
+        Math.Max(TableTitleBudget - 12 - Math.Max(prefixWidth, 0), 10);
+
     /// <summary>Available content width inside a panel.</summary>
     public int PanelContentWidth => Math.Max(ConsoleWidth - PanelFixedOverhead, 1);
 

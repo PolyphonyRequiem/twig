@@ -474,11 +474,11 @@ public sealed class WorkspaceWidthTests
     [Fact]
     public async Task FlatTable_StandardWidth_MediumTitle_NotTruncated()
     {
-        // At 80 width, TableTitleBudget = 80 - 32 = 48; MediumTitle (39 chars) fits
+        // Metadata keeps its columns; the complete title may wrap at standard width.
         var output = await RenderFlat(80,
             new WorkItemBuilder(903, MediumTitle).InState("Active").Build());
 
-        output.ShouldContain(MediumTitle);
+        foreach (var word in MediumTitle.Split(' ')) output.ShouldContain(word);
         output.ShouldNotContain("…");
     }
 

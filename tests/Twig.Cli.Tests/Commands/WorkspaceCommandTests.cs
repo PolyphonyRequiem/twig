@@ -92,6 +92,68 @@ public class WorkspaceCommandTests
     private WorkspaceCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory) =>
         CreateCommand(pipelineFactory, new HintEngine(new DisplayConfig { Hints = true }));
 
+    [Theory]
+    [InlineData("sideways")]
+    [InlineData("")]
+    public async Task Workspace_InvalidView_IsRejectedBeforeLoading(string view)
+    {
+        var (result, stderr) = await StderrCapture.RunAsync(
+            () => _cmd.ExecuteAsync(view: view));
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Workspace_ViewCannotChangeMembershipLayout()
+    {
+        var (result, stderr) = await StderrCapture.RunAsync(
+            () => _cmd.ExecuteAsync(all: true, view: "tree"));
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Workspace_ExplicitTree_UsesParentIdsWithoutProcessMetadata()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        var child = CreateWorkItem(20, "Current Bench Task").WithParentId(100);
+        var parent = new WorkItem
+        {
+            Id = 100,
+            Type = WorkItemType.UserStory,
+            Title = "Cached Parent",
+            State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var otherChild = new WorkItem
+        {
+            Id = 21,
+            Type = WorkItemType.Task,
+            Title = "Other assignee task",
+            State = "New",
+            AssignedTo = "Other reviewer",
+            IterationPath = parent.IterationPath,
+            AreaPath = parent.AreaPath,
+        }.WithParentId(100);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { child, otherChild });
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
+            .Returns((ProcessConfigurationData?)null);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(view: "tree"));
+
+        result.ShouldBe(0);
+        stdout.Split("Cached Parent", StringSplitOptions.None).Length.ShouldBe(2);
+        stdout.ShouldContain("Current Bench Task");
+        stdout.ShouldContain("Other assignee task");
+    }
+
     [Fact]
     public async Task Workspace_ShowsContextAndSprint()
     {
@@ -880,6 +942,28 @@ public class WorkspaceCommandTests
         output.ShouldNotContain("►");
     }
 
+    [Fact]
+    public async Task Workspace_ViewTable_DisablesHierarchyOnTty()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        var item = CreateWorkItem(10, "Current Bench Item");
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
+            .Returns(CreateAgileProcessConfig());
+
+        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human", view: "table");
+
+        result.ShouldBe(0);
+        _spectreRenderer.UseTreeRendering.ShouldBeFalse();
+        _spectreRenderer.UseAlignedTreeColumns.ShouldBeFalse();
+        _testConsole.Output.ShouldContain("Current Bench Item");
+    }
+
+     // ── --flat flag tests (T-1977) ─────────────────────────────────
     // ── --flat flag tests (T-1977) ─────────────────────────────────
 
     [Fact]
@@ -982,64 +1066,6 @@ public class WorkspaceCommandTests
         result.ShouldBe(0);
     }
 
-    [Fact]
-    public async Task Workspace_DepthConfig_WiredToSpectreRenderer()
-    {
-        // Verify depth config values are wired from TwigConfiguration into SpectreRenderer
-        _config.Display.TreeDepthUp = 3;
-        _config.Display.TreeDepthDown = 5;
-        _config.Display.TreeDepthSideways = 2;
-
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { CreateWorkItem(1, "Item") });
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
-            .Returns(DateTimeOffset.UtcNow.ToString("O"));
-
-        _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
-            .Returns(CreateAgileProcessConfig());
-
-        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        // Depth config wired correctly — SpectreRenderer consumed the values
-        _spectreRenderer.TreeDepthUp.ShouldBe(3);
-        _spectreRenderer.TreeDepthDown.ShouldBe(5);
-        _spectreRenderer.TreeDepthSideways.ShouldBe(2);
-    }
-
-    [Fact]
-    public async Task Workspace_FlatFlag_DepthStillWired_ButTreeDisabled()
-    {
-        _config.Display.TreeDepthUp = 4;
-        _config.Display.TreeDepthDown = 8;
-        _config.Display.TreeDepthSideways = 3;
-
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { CreateWorkItem(1, "Item") });
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
-            .Returns(DateTimeOffset.UtcNow.ToString("O"));
-
-        _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
-            .Returns(CreateAgileProcessConfig());
-
-        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", flat: true);
-
-        result.ShouldBe(0);
-        // --flat disables tree rendering even when depth is configured
-        _spectreRenderer.UseTreeRendering.ShouldBeFalse();
-        // Depth values still wired (available for future non-flat use)
-        _spectreRenderer.TreeDepthUp.ShouldBe(4);
-        _spectreRenderer.TreeDepthDown.ShouldBe(8);
-        _spectreRenderer.TreeDepthSideways.ShouldBe(3);
-    }
 
     // ── Helpers ──────────────────────────────────────────────────────
 

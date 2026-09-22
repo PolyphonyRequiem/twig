@@ -9,8 +9,7 @@ public static class CacheAgeFormatter
 {
     /// <summary>
     /// Formats the elapsed time since <paramref name="lastSyncedAt"/> as a compact
-    /// age string such as <c>"(cached 3m ago)"</c>, <c>"(cached 2h ago)"</c>, or
-    /// <c>"(cached 1d ago)"</c>.
+    /// age string such as <c>"(cached 3m ago)"</c>.
     /// </summary>
     /// <param name="lastSyncedAt">The timestamp of the last successful sync, or <c>null</c>.</param>
     /// <param name="staleMinutes">Number of minutes before data is considered stale.</param>
@@ -22,10 +21,20 @@ public static class CacheAgeFormatter
         return Format(lastSyncedAt, staleMinutes, DateTimeOffset.UtcNow);
     }
 
+    /// <summary>Returns the elapsed age without an inline label, for a dedicated age column.</summary>
+    public static string? FormatAge(DateTimeOffset? lastSyncedAt, int staleMinutes) =>
+        GetAge(lastSyncedAt, staleMinutes, DateTimeOffset.UtcNow);
+
     /// <summary>
     /// Testable overload that accepts an explicit <paramref name="now"/> timestamp.
     /// </summary>
     internal static string? Format(DateTimeOffset? lastSyncedAt, int staleMinutes, DateTimeOffset now)
+    {
+        var age = GetAge(lastSyncedAt, staleMinutes, now);
+        return age is null ? null : $"(cached {age})";
+    }
+
+    private static string? GetAge(DateTimeOffset? lastSyncedAt, int staleMinutes, DateTimeOffset now)
     {
         if (lastSyncedAt is null)
             return null;
@@ -39,6 +48,6 @@ public static class CacheAgeFormatter
                  : elapsed.TotalHours >= 1 ? $"{(int)elapsed.TotalHours}h"
                  : $"{(int)elapsed.TotalMinutes}m";
 
-        return $"(cached {unit} ago)";
+        return $"{unit} ago";
     }
 }

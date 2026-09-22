@@ -184,7 +184,7 @@ internal sealed class SpectreTheme
     /// <summary>
     /// Table style for the main workspace table — simple, no borders for a CLI-native feel.
     /// When <paramref name="isTeamView"/> is true, an Assigned column is added.
-    /// <paramref name="dynamicColumns"/> adds extra data-driven columns after the core 4.
+    /// <paramref name="dynamicColumns"/> adds extra data-driven columns after the core 5.
     /// When <paramref name="titleColumnWidth"/> is provided, the Title column is constrained
     /// to that width so Spectre's layout algorithm allocates space predictably.
     /// </summary>
@@ -199,7 +199,8 @@ internal sealed class SpectreTheme
             .AddColumn(new TableColumn("[bold]ID[/]").RightAligned())
             .AddColumn(new TableColumn("[bold]Type[/]").Centered())
             .AddColumn(titleColumn)
-            .AddColumn(new TableColumn("[bold]State[/]").RightAligned());
+            .AddColumn(new TableColumn("[bold]State[/]").RightAligned().NoWrap())
+            .AddColumn(new TableColumn("[bold]Age[/]").RightAligned().NoWrap());
 
         if (isTeamView)
             table.AddColumn("[bold]Assigned[/]");

@@ -1114,8 +1114,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree);
+    /// <param name="view">Explicit current-Bench presentation: table or tree. Cannot be combined with --all, --flat, or --tree.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1124,8 +1125,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree);
+    /// <param name="view">Explicit current-Bench presentation: table or tree. Cannot be combined with --all, --flat, or --tree.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>

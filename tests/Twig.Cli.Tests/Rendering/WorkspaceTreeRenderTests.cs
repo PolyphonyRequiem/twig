@@ -641,13 +641,41 @@ public sealed class WorkspaceTreeRenderTests
         label.ShouldContain("…");
     }
 
+    [Fact]
+    public async Task ExplicitTree_UsesAlignedStateAndAgeColumns()
+    {
+        var (console, renderer) = CreateTreeRenderer(aligned: true);
+        console.Profile.Width = 80;
+
+        var parent = new WorkItemBuilder(10, "Context Feature").AsFeature().InState("Active").Build();
+        var active = new WorkItemBuilder(20, "Active Task")
+            .AsTask().InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
+            .Build();
+        var roots = new[] { BuildNode(parent, isSprintItem: false, children: new[] { BuildNode(active, isSprintItem: true) }) };
+        var sections = BuildSectionsWithTree(new[] { active }, roots);
+
+        var output = await RenderTreeWorkspaceWithContext(
+            console, renderer, active, new[] { active }, sections);
+
+        output.ShouldContain("State");
+        output.ShouldContain("Age");
+        output.ShouldContain("└──");
+        output.ShouldContain("Context Feature");
+        output.ShouldContain("Active Task");
+        output.ShouldContain("15m ago");
+        output.ShouldContain("►");
+        output.ShouldNotContain("cached");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static (TestConsole Console, SpectreRenderer Renderer) CreateTreeRenderer(
         string? workingLevel = null,
         int depthUp = 2,
         int depthDown = 10,
-        int depthSideways = 1)
+        int depthSideways = 1,
+        bool aligned = false)
     {
         var console = new TestConsole();
         console.Profile.Width = 120;
@@ -655,6 +683,7 @@ public sealed class WorkspaceTreeRenderTests
         var renderer = new SpectreRenderer(console, theme)
         {
             UseTreeRendering = true,
+            UseAlignedTreeColumns = aligned,
             TreeDepthUp = depthUp,
             TreeDepthDown = depthDown,
             TreeDepthSideways = depthSideways,

@@ -293,9 +293,10 @@ internal static class CommandExamples
         ],
         ["workspace"] =
         [
-            "twig workspace             Show the current workspace (cached items)",
-            "twig workspace --output json  Output workspace info as JSON",
-            "twig workspace --tree      Show workspace items as a tree hierarchy",
+            "twig workspace                 Show the current workspace (cached items)",
+            "twig workspace --view table   Show the current Bench as a table",
+            "twig workspace --view tree    Show the current Bench as a hierarchy",
+            "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],
         ["workspace track"] =

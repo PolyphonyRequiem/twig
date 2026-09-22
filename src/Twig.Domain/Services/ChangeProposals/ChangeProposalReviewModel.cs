@@ -20,12 +20,12 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <see cref="ModelVersion"/>, MUST fail closed on an unknown version rather than partially
 /// render, and MUST preserve every entry of <see cref="Operations"/>,
 /// <see cref="ReviewOperation.Preconditions"/>, <see cref="ReviewOperation.Consequences"/>
-/// and <see cref="AuthorizationChoices"/> in the canonical structured model. Human presenters
-/// keep every material operation, consequence, warning, blocker and choice, but may omit raw
-/// operation identity, precondition values and observation provenance from display. Apply still
-/// enforces those exact values. Brief views may elide description bodies only while naming the
-/// field, effect, available metric and full-detail access. Enrichment is additive only: an adapter
-/// may never add or remove an authorization choice, and never alter the digest.
+/// and <see cref="AuthorizationChoices"/> in the canonical structured model. Human review
+/// shows every material operation, consequence, warning and blocker, but no approval controls;
+/// raw operation identity, preconditions and observation provenance remain structured. Apply
+/// still enforces those exact values. Brief views may elide description bodies only while naming
+/// the field, effect, available metric and full-detail access. Enrichment is additive only: an
+/// adapter may never add or remove an authorization choice, and never alter the digest.
 /// </para>
 /// </summary>
 public sealed record ChangeProposalReviewModel

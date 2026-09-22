@@ -137,6 +137,7 @@ def main():
     payload = json.loads(raw)
     model = payload['reviewModel']
     assert len(model['affectedItems']) == 6 and len(model['operations']) == 6
+    assert model['authorizationChoices'] == ['apply', 'revise', 'decline']
     effects = [c for op in model['operations'] for c in op['consequences']]
     assert len(effects) == 7
     desc = next(c for c in effects if c.get('to') == after)
@@ -151,6 +152,8 @@ def main():
         assert '(ad hoc)' not in human
         assert '[0]' not in human and 'op-101' not in human and 'expectedRevision' not in human
         assert 'change:' not in human and 'apply available:' not in human
+        assert 'authorization choices' not in human and 'sign-off' not in human
+        assert 'AFK-steered' not in human and 'human-steered' not in human
         assert 'blockers (0)' not in human and 'pending local changes (0)' not in human
     assert model['digest'] not in brief and model['digest'] not in full
     assert 'FINALBODYMARKER' not in brief and 'FINALBODYMARKER' in full

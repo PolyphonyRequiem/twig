@@ -322,10 +322,10 @@ public sealed class PlanCommand(
     }
 
     /// <summary>
-    /// Human preview output. When a review model is present this is the terminal/text
-    /// projection of the canonical model. It keeps material effects, warnings, blockers and
-    /// authorization choices while leaving digest, workspace, operation identity, preconditions
-    /// and provenance to structured output and the unchanged apply safeguards.
+    /// Human preview output projects material effects, warnings and blockers from the canonical
+    /// model. It does not present approval controls; digest, workspace, operation identity,
+    /// preconditions, provenance and authorization choices remain in structured output and the
+    /// unchanged apply safeguards.
     /// <para>
     /// Details and Back reuse the same captured review observation; neither authorizes nor
     /// applies changes.
@@ -344,9 +344,7 @@ public sealed class PlanCommand(
         }
 
         if (result.ReviewModel is { } model)
-            lines.AddRange(ChangeProposalReviewRenderer.Render(model, steering.Resolve(), full));
-        if (result.PendingChanges.Count > 0)
-            lines.Add(new RenderNode.Hint("Flush pending changes with 'twig sync' before applying."));
+            lines.AddRange(ChangeProposalReviewRenderer.Render(model, full));
         return lines;
     }
 

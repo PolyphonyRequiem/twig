@@ -35,7 +35,7 @@ public sealed class SharedProposalReviewTests
         console.Profile.Width = width;
         console.Profile.Capabilities.Unicode = unicode;
         new SpectreNodeRenderer(console, new SpectreTheme(new DisplayConfig { Icons = icons }))
-            .Render(new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, SessionSteeringMode.HumanSteered, full)));
+            .Render(new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, full)));
         return console.Output;
     }
 
@@ -174,7 +174,7 @@ public sealed class SharedProposalReviewTests
         }).ToArray();
         model = model with { AffectedItems = items, ContextItems = [], Operations = items.Select((item, ordinal) =>
             model.Operations[0] with { Ordinal = ordinal, OpId = $"edit-{item.Id}", Target = new() { WorkItemId = item.Id } }).ToArray() };
-        var roots = ChangeProposalReviewRenderer.Render(model, SessionSteeringMode.HumanSteered).OfType<RenderNode.TreeView>().ToArray();
+        var roots = ChangeProposalReviewRenderer.Render(model).OfType<RenderNode.TreeView>().ToArray();
         roots.Length.ShouldBe(1);
         var feature = roots[0].Root.Children.ShouldHaveSingleItem();
         feature.Children.Count.ShouldBe(4);

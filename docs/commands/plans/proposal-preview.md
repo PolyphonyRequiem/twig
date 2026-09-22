@@ -39,11 +39,11 @@ twig proposal preview --file <path> [--full] [--interactive] [-o human|json|mini
 
 ## Behavior
 
-Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact, grouped review;
-every material effect, warning, blocker and authorization choice remains represented in plain
-language. The human projection omits the generic title, digest, workspace, operation identities,
-preconditions and provenance; structured `json`/`minimal` output retains those exact fields for
-hosts and apply authorization.
+Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact, grouped review
+of material effects, warnings and blockers, without approval choices or sign-off instructions.
+The human projection omits the generic title, digest, workspace, operation identities,
+preconditions and provenance; structured `json`/`minimal` output retains those exact fields,
+including authorization choices, for hosts and separate apply authorization.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.

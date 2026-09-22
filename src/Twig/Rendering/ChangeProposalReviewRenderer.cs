@@ -16,12 +16,12 @@ public static class ChangeProposalReviewRenderer
     public const int SupportedModelVersion = 1;
     /// <summary>Unknown versions must not be partially presented.</summary>
     public static bool IsSupported(int modelVersion) => modelVersion == SupportedModelVersion;
-    /// <summary>Builds a brief review without changing authorization policy.</summary>
-    public static IReadOnlyList<RenderNode> Render(ChangeProposalReviewModel model, SessionSteeringMode steering)
-        => Render(model, steering, false);
+    /// <summary>Builds a brief review without presenting authorization controls.</summary>
+    public static IReadOnlyList<RenderNode> Render(ChangeProposalReviewModel model)
+        => Render(model, false);
 
     /// <summary>Builds brief or full output from the same captured review object.</summary>
-    public static IReadOnlyList<RenderNode> Render(ChangeProposalReviewModel model, SessionSteeringMode steering, bool full)
+    public static IReadOnlyList<RenderNode> Render(ChangeProposalReviewModel model, bool full)
     {
         ArgumentNullException.ThrowIfNull(model);
         if (!IsSupported(model.ModelVersion))
@@ -91,14 +91,10 @@ public static class ChangeProposalReviewRenderer
                 lines.Add(new RenderNode.Text(DescribeBlocker(blocker), Severity.Warning));
         }
 
-        lines.Add(Text($"authorization choices ({model.AuthorizationChoices.Count}): {string.Join(", ", model.AuthorizationChoices)}"));
         lines.Add(Text("Legend: → = field change; (clear) = remove field; absent = known null; unknown = unavailable baseline; \"\" = empty string. Context and peers are not mutation targets."));
         if (!full && model.Operations.SelectMany(o => o.Consequences)
             .Any(c => string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase)))
             lines.Add(Text("Description summaries count removed and inserted Unicode characters. Use --full or Details to show complete bodies."));
-        lines.Add(steering == SessionSteeringMode.Afk
-            ? new RenderNode.Hint("This session is AFK-steered: apply requires a model authorization record bound to this proposal's exact digest.")
-            : new RenderNode.Hint("Not applied. This session is human-steered: apply requires your sign-off bound to this proposal's exact digest."));
         return lines;
     }
 

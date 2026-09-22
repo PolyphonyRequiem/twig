@@ -11,8 +11,8 @@ namespace Twig.Cli.Tests.Rendering;
 /// <summary>
 /// The guaranteed terminal/text fallback (Spec #729 §Terminal/text fallback, AB#743).
 /// <para>
-/// These tests defend the presentation boundary: material effects, warnings and authorization
-/// choices remain readable, while proposal identity and machine bookkeeping stay structured.
+/// These tests defend the presentation boundary: material effects, warnings and blockers
+/// remain readable, while approval controls and machine bookkeeping stay structured.
 /// </para>
 /// </summary>
 public sealed class ChangeProposalReviewRendererTests
@@ -20,7 +20,6 @@ public sealed class ChangeProposalReviewRendererTests
     private const string Digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private static ChangeProposalReviewModel Model(
-        IReadOnlyList<string>? choices = null,
         IReadOnlyList<ReviewBlocker>? blockers = null) => new()
         {
             Digest = Digest,
@@ -68,21 +67,19 @@ public sealed class ChangeProposalReviewRendererTests
                     Consequences = [new ReviewConsequence { Kind = "seed-publish" }],
                 },
             ],
-            AuthorizationChoices = choices ?? ["apply", "revise", "decline"],
+            AuthorizationChoices = ["apply", "revise", "decline"],
             Blockers = blockers ?? [],
         };
 
-    private static string RenderText(
-        ChangeProposalReviewModel model,
-        SessionSteeringMode steering = SessionSteeringMode.HumanSteered)
+    private static string RenderText(ChangeProposalReviewModel model)
     {
-        var lines = ChangeProposalReviewRenderer.Render(model, steering, true);
+        var lines = ChangeProposalReviewRenderer.Render(model, true);
         var output = new StringWriter();
         new RendererFactory().GetRenderer("human", output).Render(new RenderTree.RenderTree(lines));
         return output.ToString();
     }
 
-    // The human projection keeps material effects, warnings, authorization choices and blockers.
+    // The human projection keeps material effects, warnings and blockers, but no approval controls.
     // Digest, workspace and wire-level operation bookkeeping remain machine data.
     [Fact]
     public void Render_EmitsMaterialEffectsWithoutMachineReviewBoilerplate()
@@ -119,10 +116,10 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("add predecessor link to #742");
         text.ShouldContain("publish staged draft");
 
-        // Every authorization choice.
-        text.ShouldContain("apply");
-        text.ShouldContain("revise");
-        text.ShouldContain("decline");
+        text.ShouldNotContain("authorization choices");
+        text.ShouldNotContain("apply");
+        text.ShouldNotContain("revise");
+        text.ShouldNotContain("decline");
     }
 
     [Fact]
@@ -161,20 +158,16 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldNotContain("cached item version");
     }
 
-    // Defends against: a fallback that offers `apply` on a proposal the model says cannot
-    // apply, which misrepresents the decision the reviewer is making.
+    // A blocked proposal still shows the material reason even though review does not offer approval.
     [Fact]
-    public void Render_NeverAddsAnAuthorizationChoiceTheModelWithheld()
+    public void Render_ShowsMaterialBlockerWithoutAuthorizationControls()
     {
-        var blocked = Model(
-            choices: ["revise", "decline"],
-            blockers: [new ReviewBlocker { Kind = "pending", WorkItemId = 740, Detail = "1 pending change staged" }]);
+        var blocked = Model(blockers:
+            [new ReviewBlocker { Kind = "pending", WorkItemId = 740, Detail = "1 pending change staged" }]);
 
         var text = RenderText(blocked);
-        text.ShouldContain("authorization choices (2)");
-        text.ShouldContain("revise, decline");
-        text.ShouldNotContain("apply,");
         text.ShouldContain("Pending local change for #740: 1 pending change staged");
+        text.ShouldNotContain("authorization choices");
     }
 
     // T2 §4.3 rule 2. Defends against a build silently rendering the members it recognises out
@@ -188,49 +181,4 @@ public sealed class ChangeProposalReviewRendererTests
         ChangeProposalReviewRenderer.IsSupported(0).ShouldBeFalse();
     }
 
-    // In a human-steered session the fallback must say the proposal is NOT applied. Defends
-    // against a reviewer reading a rendered proposal as a report of something already done.
-    [Fact]
-    public void HumanSteered_HoldsApplyPendingConfirmation()
-    {
-        var text = RenderText(Model(), SessionSteeringMode.HumanSteered);
-
-        text.ShouldContain("Not applied");
-        text.ShouldContain("sign-off");
-    }
-
-    [Fact]
-    public void Afk_NamesTheModelAuthorizationItRequires()
-    {
-        var text = RenderText(Model(), SessionSteeringMode.Afk);
-
-        text.ShouldContain("AFK-steered");
-        text.ShouldContain("model authorization record");
-    }
-
-    // Spec #729: steering mode is a session property, never a transport attachment. Defends
-    // against rendering that varies with the pane/worktree/agent-session a run is attached to,
-    // which would make the same proposal read differently depending on where it was opened.
-    [Theory]
-    [InlineData(SessionSteeringMode.HumanSteered)]
-    [InlineData(SessionSteeringMode.Afk)]
-    public void Render_IsIdenticalRegardlessOfTransportIdentity(SessionSteeringMode steering)
-    {
-        var baseline = RenderText(Model(), steering);
-
-        string[] transportVariables = ["HERDR_ENV", "HERDR_TAB_ID", "WORK_ITEM", "BATON"];
-        var saved = transportVariables.ToDictionary(v => v, Environment.GetEnvironmentVariable);
-        try
-        {
-            foreach (var variable in transportVariables)
-                Environment.SetEnvironmentVariable(variable, $"transport-{Guid.NewGuid():N}");
-
-            RenderText(Model(), steering).ShouldBe(baseline);
-        }
-        finally
-        {
-            foreach (var (variable, value) in saved)
-                Environment.SetEnvironmentVariable(variable, value);
-        }
-    }
 }

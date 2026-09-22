@@ -31,10 +31,10 @@ Optional additive fields may retain model version 1 when old consumers remain sa
 
 ## Brief versus expanded review
 
-Every mode retains coverage of every material consequence, blocker and available choice. The
-structured model and JSON additionally retain exact operation identities, preconditions and
-provenance; the human projection omits that machine bookkeeping rather than presenting it as
-review content. Apply continues to enforce it.
+Every mode retains coverage of every material consequence and blocker. The structured model
+and JSON additionally retain available authorization choices, exact operation identities,
+preconditions and provenance; the human projection omits approval controls and machine
+bookkeeping rather than presenting them as review content. Apply continues to enforce them.
 
 Human review:
 
@@ -51,8 +51,8 @@ Human review:
    with detail access. No full body dump is required by default.
 7. Shows publication of a seed especially briefly: staged identity, title/type, target relationship
    and publication effect. It does not imitate edits on a nonexistent published item.
-8. Keeps delete/link consequences, blockers and available authorization choices explicit. It does
-   not replace a deletion with a neutral generic summary.
+8. Keeps delete/link consequences and blockers explicit without showing approval choices or
+   sign-off instructions. It does not replace a deletion with a neutral generic summary.
 9. Retains a complete compact legend. Styling never substitutes for a textual effect.
 
 Expanded human review exposes the exact values available in the same review object. JSON retains
@@ -60,7 +60,7 @@ exact structured data regardless of human density. A detail request within a rev
 not silently fetch a different baseline. A fresh preview is a fresh cache observation, not a claim
 to historical immutability.
 
-Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. Existing explicit apply authorization remains separate.
+Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. Existing explicit apply authorization remains separate and is not presented by this review panel.
 
 ## Terminal visual contract
 

@@ -984,6 +984,54 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         _seedPublish.CallCount.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Apply_SeedPublish_TerminalIndeterminateValidationRejection_IgnoresReplacementAndRefinesToFailed()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000004"));
+        var file = WritePlan(PublishSeedPlan(identity, expectedFingerprint: "x"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        var opId = (await _journal.GetAsync(digest))!.Operations[0].OpId;
+        var timestamp = DateTimeOffset.UtcNow.AddMinutes(-10);
+        var rejection =
+            $"Publish intent for {identity} could not be reconciled: " +
+            "The field 'Verification Mode' contains a value that is not in the list of supported values.";
+
+        await _journal.TryTransitionOperationAsync(
+            digest, opId, PlanOperationState.Planned, PlanOperationState.Confirmed, timestamp);
+        await _journal.TryTransitionOperationAsync(
+            digest, opId, PlanOperationState.Confirmed, PlanOperationState.Applying, timestamp);
+        await _journal.SaveOperationErrorAsync(
+            digest, opId, rejection, PlanOperationState.Indeterminate, timestamp);
+
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(new PublishIntent
+            {
+                Identity = identity, Title = "T", TypeName = "Feature",
+                RecordedAt = timestamp, PublishedId = null, CompletedAt = null,
+            });
+        var replacementIdentity = StagedIdentity.FromGuid(
+            Guid.Parse("01947f00-0000-7000-8000-000000000005"));
+        _ado.FindPublishedIntentAsync(Arg.Any<PublishIntent>(), Arg.Any<CancellationToken>())
+            .Returns(1018);
+        _publishIdMap.GetAllMappingsAsync(Arg.Any<CancellationToken>())
+            .Returns((IReadOnlyList<PublishMapping>)new[]
+            {
+                new PublishMapping(replacementIdentity, MakeAlias(-99), 1018),
+            });
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        apply.Operations[0].State.ShouldBe(PlanOperationState.Failed);
+        apply.Operations[0].Error!.ShouldContain("Verification Mode");
+        await _ado.Received(1).FindPublishedIntentAsync(
+            Arg.Is<PublishIntent>(intent => intent.Identity.Equals(identity)),
+            Arg.Any<CancellationToken>());
+        _seedPublish.CallCount.ShouldBe(0);
+    }
+
     // ── status ─────────────────────────────────────────────────────────────
 
     [Fact]

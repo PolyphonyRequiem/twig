@@ -47,7 +47,9 @@ namespace Twig.Infrastructure.Plan;
 ///     Applied claim; failed / indeterminate outcomes terminalise directly without ever
 ///     stamping Applied. An executor result classified as Indeterminate triggers the same
 ///     readback → atomic Applied → Verified reconciliation while the row is still Applying,
-///     so an ambiguously-committed response settles cleanly. The first non-Verified terminal
+///     so an ambiguously-committed response settles cleanly. A later same-digest apply never
+///     replays the write: it readbacks a terminal Indeterminate row and may refine it to Failed
+///     only when new authoritative evidence proves rejection. The first non-Verified terminal
 ///     state stops the tail.</item>
 ///   <item>Reload the journal, complete the header Verified iff every operation ended
 ///     Verified, else Failed with the earliest per-op journal error propagated onto the
@@ -659,10 +661,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
-        // Fast paths: already terminal.
-        if (row.State is PlanOperationState.Verified or PlanOperationState.Failed
-            or PlanOperationState.Indeterminate)
+        // Verified and Failed are immutable. Indeterminate is a recorded unknown outcome:
+        // an explicit same-digest apply may refine it after authoritative readback.
+        if (row.State is PlanOperationState.Verified or PlanOperationState.Failed)
             return StepResult.Terminal(row.State);
+        if (row.State == PlanOperationState.Indeterminate)
+            return await ResolveIndeterminateAsync(digest, row, opDef, ct).ConfigureAwait(false);
 
         var currentState = row.State;
 
@@ -784,9 +788,40 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <summary>
-    /// Reload the row and resume from its actual persisted state. Terminal states are
-    /// returned as-is; a fresh Applying lease returns busy; otherwise the row re-enters
-    /// <see cref="StepOperationAsync"/> so the ordinary pipeline drives it to conclusion.
+    /// Refines a previously unknown outcome without replaying its write. The same immutable
+    /// digest supplies the original error as context; only a later deterministic rejection
+    /// may move Indeterminate → Failed. Successful or inconclusive readback remains
+    /// Indeterminate because positive recovery needs its own complete result contract.
+    /// </summary>
+    private async Task<StepResult> ResolveIndeterminateAsync(
+        string digest,
+        PlanJournalOperation row,
+        PlanOperationDefinition opDef,
+        CancellationToken ct)
+    {
+        var prior = PlanExecutionResult.Indeterminate(
+            row.Error ?? "Previous apply outcome was indeterminate.");
+        var outcome = await _executor.ReadbackAsync(opDef, prior, ct).ConfigureAwait(false);
+        if (outcome.Ok || !outcome.Deterministic)
+            return StepResult.Terminal(PlanOperationState.Indeterminate);
+
+        var moved = await _journal.TryResolveIndeterminateFailureAsync(
+            digest,
+            row.OpId,
+            outcome.Error ?? "Authoritative readback proved the operation failed.",
+            outcome.ResultJson,
+            ct).ConfigureAwait(false);
+        if (moved)
+            return StepResult.Terminal(PlanOperationState.Failed);
+
+        return StepResult.Terminal(
+            await ObserveActualStateAsync(digest, row.OpId, ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Reload the row and resume from its actual persisted state. Verified and Failed return
+    /// as-is; Indeterminate re-enters evidence-only readback; a fresh Applying lease returns
+    /// busy; otherwise the row re-enters <see cref="StepOperationAsync"/>.
     /// </summary>
     private async Task<StepResult> ResumeFromObservedRowAsync(
         string digest,

@@ -814,6 +814,82 @@ public sealed class PlanOperationExecutorTests
     }
 
     [Fact]
+    public async Task ReadbackPublishSeed_IntentOnly_AdoBadRequestBeforeCreate_FailsDeterministically()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000207"));
+        var alias = MakeAlias(-9);
+        var op = new PublishSeedOperation
+        {
+            Id = "S", StagedIdentity = identity, ExpectedFingerprint = "x",
+        };
+        var seed = new WorkItem
+        {
+            Id = alias.Value, Title = "T", Type = WorkItemType.Parse("Feature").Value,
+            IsSeed = true, StagedIdentity = identity,
+        };
+        seed.MarkSynced(1);
+
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(new PublishIntent
+            {
+                Identity = identity, Title = "T", TypeName = "Feature",
+                RecordedAt = DateTimeOffset.UtcNow, PublishedId = null, CompletedAt = null,
+            });
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishBehaviour = _ => throw new AdoBadRequestException(
+            "The field 'Verification Mode' contains a value that is not supported.");
+
+        var outcome = await _executor.ReadbackAsync(
+            op,
+            PlanExecutionResult.Indeterminate("create outcome required readback"),
+            CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeTrue();
+        outcome.Error!.ShouldContain("Verification Mode");
+    }
+
+    [Fact]
+    public async Task ReadbackPublishSeed_IntentWithPublishedId_AdoBadRequest_RemainsIndeterminate()
+    {
+        var identity = StagedIdentity.FromGuid(Guid.Parse("01947f00-0000-7000-8000-000000000208"));
+        var alias = MakeAlias(-10);
+        var op = new PublishSeedOperation
+        {
+            Id = "S", StagedIdentity = identity, ExpectedFingerprint = "x",
+        };
+        var seed = new WorkItem
+        {
+            Id = alias.Value, Title = "T", Type = WorkItemType.Parse("Feature").Value,
+            IsSeed = true, StagedIdentity = identity,
+        };
+        seed.MarkSynced(1);
+
+        _publishIdMap.GetNewIdAsync(identity, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _publishIntent.GetIntentAsync(identity, Arg.Any<CancellationToken>())
+            .Returns(new PublishIntent
+            {
+                Identity = identity, Title = "T", TypeName = "Feature",
+                RecordedAt = DateTimeOffset.UtcNow, PublishedId = 4242,
+                CompletedAt = DateTimeOffset.UtcNow,
+            });
+        _stagedRegistry.FindAliasAsync(identity, Arg.Any<CancellationToken>()).Returns(alias);
+        _workItems.GetByIdAsync(alias.Value, Arg.Any<CancellationToken>()).Returns(seed);
+        _publishBehaviour = _ => throw new AdoBadRequestException("post-create promotion failed");
+
+        var outcome = await _executor.ReadbackAsync(
+            op,
+            PlanExecutionResult.Indeterminate("create may have landed"),
+            CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Deterministic.ShouldBeFalse();
+        outcome.Error!.ShouldContain("post-create promotion failed");
+    }
+
+    [Fact]
     public async Task ReadbackPublishSeed_IntentOnly_RecoveryFailsWithoutMapRow_IsIndeterminate()
     {
         // Recovery ran but the orchestrator returned success without recording a map row

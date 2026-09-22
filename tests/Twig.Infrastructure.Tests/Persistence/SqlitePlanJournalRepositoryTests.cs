@@ -1108,6 +1108,28 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
             _repo.SaveOperationErrorAsync(plan.Digest, opId, "oops", PlanOperationState.Applying, Now()));
     }
 
+    [Fact]
+    public async Task TryResolveIndeterminateFailure_RecordsDeterminateEvidenceOnce()
+    {
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
+        var opId = plan.Plan.Operations[0].Id;
+        await _repo.SaveOperationErrorAsync(
+            plan.Digest, opId, "unknown", PlanOperationState.Indeterminate, Now());
+
+        var changed = await _repo.TryResolveIndeterminateFailureAsync(
+            plan.Digest, opId, "ADO rejected the create", resultJson: null);
+        var second = await _repo.TryResolveIndeterminateFailureAsync(
+            plan.Digest, opId, "later", resultJson: null);
+
+        changed.ShouldBeTrue();
+        second.ShouldBeFalse();
+        var row = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == opId);
+        row.State.ShouldBe(PlanOperationState.Failed);
+        row.Error.ShouldBe("ADO rejected the create");
+    }
+
+
     // ─── diagnostics payload persistence (AB#881) ───────────────────────────────
 
     [Fact]

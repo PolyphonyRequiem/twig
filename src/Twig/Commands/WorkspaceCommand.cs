@@ -427,7 +427,7 @@ public sealed class WorkspaceCommand(
         IReadOnlyDictionary<string, int>? typeLevelMap = null;
         ProcessConfigurationData? processConfig = null;
         var useTreeRendering = viewMode != WorkspaceViewMode.Table && !flat && !all && !sprintLayout;
-        if (viewMode == WorkspaceViewMode.Tree || sprintItems.Count > 0)
+        if (useTreeRendering || sprintItems.Count > 0)
             processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
 
         if (sprintItems.Count > 0)

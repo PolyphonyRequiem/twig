@@ -456,7 +456,8 @@ public sealed class WorkspaceCommand(
                 foreach (var item in sprintItems)
                     typeNameSet.Add(item.Type.Value);
 
-                ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
+                ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig)
+                    ?? ceilingTypeNames;
                 typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
             }
 
@@ -785,7 +786,8 @@ public sealed class WorkspaceCommand(
             foreach (var item in sprintItems)
                 typeNameSet.Add(item.Type.Value);
 
-            ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
+            ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig)
+                ?? ceilingTypeNames;
             typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
         }
 

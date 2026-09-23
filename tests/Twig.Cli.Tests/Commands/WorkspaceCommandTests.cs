@@ -745,6 +745,49 @@ public class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task Workspace_TreeView_NestsPinnedChildUnderTopLevelEpic()
+    {
+        var epic = new WorkItem
+        {
+            Id = 10, Type = WorkItemType.Epic, Title = "Selected milestone", State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var feature = new WorkItem
+        {
+            Id = 11, Type = WorkItemType.Feature, Title = "Child feature", State = "Active",
+            ParentId = epic.Id, IterationPath = epic.IterationPath, AreaPath = epic.AreaPath,
+        };
+        var benchRepository = Substitute.For<IBenchRepository>();
+        benchRepository.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(new Bench
+        {
+            Id = 7, Name = "milestone", Selectors = [BenchSelector.ForItem(epic.Id), BenchSelector.ForItem(feature.Id)],
+        });
+        var pendingStore = Substitute.For<IPendingChangeStore>();
+        pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { epic, feature });
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(epic.Id, Arg.Any<CancellationToken>())
+            .Returns(new[] { epic });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
+            .Returns(CreateAgileProcessConfig());
+        var workingSet = new WorkingSetService(_contextStore, _workItemRepo, pendingStore,
+            _iterationService, userDisplayName: null, benchRepository,
+            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), pendingStore));
+        var command = new WorkspaceCommand(CreateCtx(CreateTtyPipelineFactory()), _contextStore,
+            _workItemRepo, _iterationService, _processTypeStore, _fieldDefinitionStore,
+            _activeItemResolver, workingSet, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
+
+        (await command.ExecuteAsync("human", view: "tree")).ShouldBe(0);
+        var childLine = _testConsole.Output.Split('\n').First(line => line.Contains("Child feature"));
+        childLine.ShouldContain("└──");
+    }
+
+    [Fact]
     public async Task AsyncPath_VerifiesDataFetchSequence()
     {
         var active = CreateWorkItem(1, "Active");

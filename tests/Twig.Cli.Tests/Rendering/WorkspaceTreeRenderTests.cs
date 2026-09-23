@@ -642,30 +642,84 @@ public sealed class WorkspaceTreeRenderTests
     }
 
     [Fact]
-    public async Task ExplicitTree_UsesAlignedStateAndAgeColumns()
+    public async Task TreeMode_ConnectorsPrecedeWholeIdentity_AndRetainAnnotations()
     {
-        var (console, renderer) = CreateTreeRenderer(aligned: true);
-        console.Profile.Width = 80;
+        var (console, renderer) = CreateTreeRenderer();
+        renderer.TrackedItemIds = new HashSet<int> { 10 };
 
         var parent = new WorkItemBuilder(10, "Context Feature").AsFeature().InState("Active").Build();
-        var active = new WorkItemBuilder(20, "Active Task")
-            .AsTask().InState("Active")
+        var active = new WorkItemBuilder(20, "Working child")
+            .AsTask().InState("Active").Dirty()
             .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
             .Build();
-        var roots = new[] { BuildNode(parent, isSprintItem: false, children: new[] { BuildNode(active, isSprintItem: true) }) };
+        var roots = new[]
+        {
+            BuildNode(parent, isSprintItem: false, children: new[]
+            {
+                BuildNode(active, isSprintItem: true),
+            }),
+        };
         var sections = BuildSectionsWithTree(new[] { active }, roots);
 
         var output = await RenderTreeWorkspaceWithContext(
             console, renderer, active, new[] { active }, sections);
+        var childLine = output.Split('\n').First(line => line.Contains("Working child"));
 
-        output.ShouldContain("State");
-        output.ShouldContain("Age");
-        output.ShouldContain("└──");
-        output.ShouldContain("Context Feature");
-        output.ShouldContain("Active Task");
-        output.ShouldContain("15m ago");
+        childLine.ShouldContain("└──");
+        childLine.IndexOf("└──", StringComparison.Ordinal).ShouldBeLessThan(
+            childLine.IndexOf("Task", StringComparison.Ordinal));
+        childLine.IndexOf("Task", StringComparison.Ordinal).ShouldBeLessThan(
+            childLine.IndexOf("#20", StringComparison.Ordinal));
+        output.ShouldContain("Feature");
+        output.ShouldContain("#10");
+        output.ShouldContain("#20");
+        output.ShouldContain("Active");
+        output.ShouldContain("cached 15m ago");
+        output.ShouldContain("📌");
+        output.ShouldContain("✎");
         output.ShouldContain("►");
-        output.ShouldNotContain("cached");
+        output.ShouldNotContain("State");
+        output.ShouldNotContain("Age");
+
+        var budget = new WidthBudget(console.Profile.Width);
+        var activeLabel = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(active, isSprintItem: true), active.Id, 5, budget, 1);
+        activeLabel.ShouldContain("[on #16324f]");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BenchLinks_UseNormalizedOrigin_AndNeverLinkLocalSeeds(bool tree)
+    {
+        var console = new TestConsole().EmitAnsiSequences();
+        console.Profile.Width = 120;
+        console.Profile.Capabilities.Links = true;
+        var config = new TwigConfiguration
+        {
+            Organization = "https://dev.azure.com/example-org",
+            Project = "Project with spaces",
+        };
+        var theme = new SpectreTheme(config.Display, connection: config);
+        var renderer = new SpectreRenderer(console, theme) { UseTreeRendering = tree };
+        var item = new WorkItemBuilder(42, "Clickable published item").AsTask().Build();
+        var seed = new WorkItemBuilder(-1, "Local draft").AsSeed().Build();
+        var roots = new[] { BuildNode(item, isSprintItem: true) };
+        var sections = BuildSectionsWithTree(new[] { item }, roots);
+        var chunks = CreateChunksAsync(
+            new ContextLoaded(item),
+            new SprintItemsLoaded(new[] { item }, sections),
+            new SeedsLoaded(new[] { seed }));
+
+        await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
+
+        var output = console.Output;
+        output.ShouldContain("\u001b]8;");
+        output.ShouldContain("https://dev.azure.com/example-org/Project%20with%20spaces/_workitems/edit/42");
+        output.ShouldContain("Clickable published item");
+        output.ShouldContain("Local draft");
+        output.ShouldNotContain("/_workitems/edit/-1");
+        output.ShouldNotContain("https%3A");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -674,8 +728,7 @@ public sealed class WorkspaceTreeRenderTests
         string? workingLevel = null,
         int depthUp = 2,
         int depthDown = 10,
-        int depthSideways = 1,
-        bool aligned = false)
+        int depthSideways = 1)
     {
         var console = new TestConsole();
         console.Profile.Width = 120;
@@ -683,7 +736,6 @@ public sealed class WorkspaceTreeRenderTests
         var renderer = new SpectreRenderer(console, theme)
         {
             UseTreeRendering = true,
-            UseAlignedTreeColumns = aligned,
             TreeDepthUp = depthUp,
             TreeDepthDown = depthDown,
             TreeDepthSideways = depthSideways,

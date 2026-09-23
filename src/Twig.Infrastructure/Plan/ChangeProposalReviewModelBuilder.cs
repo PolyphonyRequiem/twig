@@ -3,6 +3,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Infrastructure.Plan;
 
@@ -83,18 +84,32 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             if (definition.Operations[i] is BatchOperation batch)
             {
                 var item = byId.GetValueOrDefault(batch.WorkItemId);
-                operations[i] = op with { Consequences = op.Consequences.Select(c =>
+                operations[i] = op with
+                {
+                    Consequences = op.Consequences.Select(c =>
                 {
                     var before = Before(item, batch.ExpectedRevision, c.Field!, pendingChanges.Any(p => p.WorkItemId == batch.WorkItemId));
                     labels.TryGetValue(c.Field!, out var metadata);
-                    return c with { FieldLabel = metadata?.DisplayName ?? c.Field, FieldType = metadata?.DataType,
-                        Before = before, TextChange = string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase) && before.State != "unknown"
-                            ? ReviewTextChange.Measure(before.Value ?? "", c.To ?? "") : null };
-                }).ToArray() };
+                    return c with
+                    {
+                        FieldLabel = metadata?.DisplayName ?? c.Field,
+                        FieldType = metadata?.DataType,
+                        Before = before,
+                        TextChange = string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase) && before.State != "unknown"
+                            ? ReviewTextChange.Measure(before.Value ?? "", c.To ?? "") : null
+                    };
+                }).ToArray()
+                };
             }
             else if (op.Target.StagedIdentity is { } identity && staged.TryGetValue(identity, out var seed))
-                operations[i] = op with { Target = op.Target with { Seed = new ReviewSeedDisplay
-                { DisplayAlias = seed.Id, Title = seed.Title, Type = seed.Type.Value, State = seed.State, ParentId = seed.ParentId } } };
+                operations[i] = op with
+                {
+                    Target = op.Target with
+                    {
+                        Seed = new ReviewSeedDisplay
+                        { DisplayAlias = seed.Id, Title = seed.Title, Type = seed.Type.Value, State = seed.State, ParentId = seed.ParentId }
+                    }
+                };
         }
         // Resolve display ambiguity once for every presenter, across requested effects only.
         // Repeated uses of one reference are not a collision; unrelated cached fields do not expand labels.
@@ -104,9 +119,12 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         if (ambiguousLabels.Count > 0)
             for (var i = 0; i < operations.Count; i++)
-                operations[i] = operations[i] with { Consequences = operations[i].Consequences.Select(c =>
+                operations[i] = operations[i] with
+                {
+                    Consequences = operations[i].Consequences.Select(c =>
                     c.Field is not null && ambiguousLabels.Contains(c.FieldLabel ?? c.Field)
-                        ? c with { FieldLabel = $"{c.FieldLabel ?? c.Field} ({c.Field})" } : c).ToArray() };
+                        ? c with { FieldLabel = $"{c.FieldLabel ?? c.Field} ({c.Field})" } : c).ToArray()
+                };
 
         // One hop only. Missing parents remain named context; never recurse through a corrupt cycle.
         var parentIds = affected.Select(i => i.ParentId).Concat(operations.Select(o => o.Target.Seed?.ParentId))
@@ -137,33 +155,33 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         switch (op)
         {
             case BatchOperation batch:
-            {
-                MarkTarget(roles, batch.WorkItemId);
-                var consequences = new List<ReviewConsequence>(batch.Fields.Count);
-                foreach (var (field, value) in batch.Fields)
                 {
-                    consequences.Add(new ReviewConsequence
+                    MarkTarget(roles, batch.WorkItemId);
+                    var consequences = new List<ReviewConsequence>(batch.Fields.Count);
+                    foreach (var (field, value) in batch.Fields)
                     {
-                        // A null value clears the field. That is a materially different act
-                        // from setting it, so it gets its own kind rather than a set with a
-                        // null payload a renderer might print as the word "null".
-                        Kind = value is null ? "field-clear" : "field-set",
-                        Field = field,
-                        To = value,
-                    });
-                }
+                        consequences.Add(new ReviewConsequence
+                        {
+                            // A null value clears the field. That is a materially different act
+                            // from setting it, so it gets its own kind rather than a set with a
+                            // null payload a renderer might print as the word "null".
+                            Kind = value is null ? "field-clear" : "field-set",
+                            Field = field,
+                            To = value,
+                        });
+                    }
 
-                return new ReviewOperation
-                {
-                    Ordinal = ordinal,
-                    OpId = batch.Id,
-                    Kind = PlanDocumentWriter.WireKind(batch.Kind),
-                    Target = new ReviewTarget { WorkItemId = batch.WorkItemId },
-                    Summary = $"Set {Plural(batch.Fields.Count, "field")} on #{batch.WorkItemId}",
-                    Preconditions = [Revision(batch.ExpectedRevision)],
-                    Consequences = consequences,
-                };
-            }
+                    return new ReviewOperation
+                    {
+                        Ordinal = ordinal,
+                        OpId = batch.Id,
+                        Kind = PlanDocumentWriter.WireKind(batch.Kind),
+                        Target = new ReviewTarget { WorkItemId = batch.WorkItemId },
+                        Summary = $"Set {Plural(batch.Fields.Count, "field")} on #{batch.WorkItemId}",
+                        Preconditions = [Revision(batch.ExpectedRevision)],
+                        Consequences = consequences,
+                    };
+                }
 
             case AddLinkOperation add:
                 MarkTarget(roles, add.WorkItemId);
@@ -210,32 +228,32 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                 };
 
             case PublishSeedOperation seed:
-            {
-                // A staged seed has no work item id until it is published, so it contributes
-                // no affected item. Synthesising the negative alias here would put a number
-                // in front of a reviewer that means nothing on the board.
-                var identity = seed.StagedIdentity.Value.ToString();
-                return new ReviewOperation
                 {
-                    Ordinal = ordinal,
-                    OpId = seed.Id,
-                    Kind = PlanDocumentWriter.WireKind(seed.Kind),
-                    Target = new ReviewTarget { StagedIdentity = identity },
-                    Summary = $"Publish staged seed {identity}",
-                    Preconditions =
-                    [
-                        new ReviewPrecondition
+                    // A staged seed has no work item id until it is published, so it contributes
+                    // no affected item. Synthesising the negative alias here would put a number
+                    // in front of a reviewer that means nothing on the board.
+                    var identity = seed.StagedIdentity.Value.ToString();
+                    return new ReviewOperation
+                    {
+                        Ordinal = ordinal,
+                        OpId = seed.Id,
+                        Kind = PlanDocumentWriter.WireKind(seed.Kind),
+                        Target = new ReviewTarget { StagedIdentity = identity },
+                        Summary = $"Publish staged seed {identity}",
+                        Preconditions =
+                        [
+                            new ReviewPrecondition
                         {
                             Kind = "expectedFingerprint",
                             Value = seed.ExpectedFingerprint,
                         },
                     ],
-                    Consequences =
-                    [
-                        new ReviewConsequence { Kind = "seed-publish" },
+                        Consequences =
+                        [
+                            new ReviewConsequence { Kind = "seed-publish" },
                     ],
-                };
-            }
+                    };
+                }
 
             case DeleteOperation delete:
                 MarkTarget(roles, delete.WorkItemId);
@@ -278,9 +296,14 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
 
     private static ReviewAffectedItem Item(int id, string role, WorkItem? item, PlanWorkspace workspace) => new()
     {
-        Id = id, Role = role, Title = item?.Title, Type = item?.Type.Value, State = item?.State,
-        ParentId = item?.ParentId, Revision = item?.Revision,
-        Url = id > 0 ? $"https://dev.azure.com/{Uri.EscapeDataString(workspace.Organization)}/{Uri.EscapeDataString(workspace.Project)}/_workitems/edit/{id}" : null,
+        Id = id,
+        Role = role,
+        Title = item?.Title,
+        Type = item?.Type.Value,
+        State = item?.State,
+        ParentId = item?.ParentId,
+        Revision = item?.Revision,
+        Url = id > 0 ? AdoWorkItemUrlValidator.BuildWorkItemUrl(workspace.Organization, workspace.Project, id) : null,
     };
 
     private static ReviewBeforeValue Before(WorkItem? item, int expectedRevision, string field, bool pending)
@@ -304,8 +327,13 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                     break;
             }
         }
-        return new ReviewBeforeValue { State = reason is not null ? "unknown" : value is null ? "absent" : "value",
-            Value = reason is null ? value : null, Revision = item?.Revision, Reason = reason };
+        return new ReviewBeforeValue
+        {
+            State = reason is not null ? "unknown" : value is null ? "absent" : "value",
+            Value = reason is null ? value : null,
+            Revision = item?.Revision,
+            Reason = reason
+        };
     }
 
     private static IReadOnlyList<ReviewBlocker> ProjectBlockers(

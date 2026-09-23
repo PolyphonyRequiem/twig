@@ -80,7 +80,8 @@ async function displayReceipt(receipt, initialMode, ctx, signal) {
         viewer = new ProposalViewer({
           receipt,
           initialMode,
-          heading: fg("accent", "Twig proposal · native rendering · preview only"),
+          heading: fg("accent", "Twig proposal"),
+          border: (text) => fg("border", text),
           dim: (text) => fg("dim", text),
           requestRender: () => tui.requestRender(),
           done,
@@ -184,7 +185,7 @@ export default function twigProposalPresenter(pi) {
   });
 
   pi.registerCommand("twig-review", {
-    description: "Show native colored proposal review: /twig-review [--full] <proposal.json>. Preview only.",
+    description: "Show native proposal review in a rounded read-only window: /twig-review [--full] <proposal.json>.",
     async handler(args, ctx) {
       if (!ctx.hasUI) {
         throw new Error("Twig proposal preview needs an interactive OMP UI; no preview was displayed.");
@@ -194,7 +195,7 @@ export default function twigProposalPresenter(pi) {
         const receipt = await captureProposal({
           ...request,
           cwd: ctx.cwd,
-          columns: Math.max(previewConstants.minWidth, terminalColumns() - 2),
+          columns: Math.max(previewConstants.minWidth, terminalColumns() - 4),
         });
         const displayedReceipt = await displayReceipt(receipt, request.full ? "full" : "brief", ctx);
         ctx.ui.notify(

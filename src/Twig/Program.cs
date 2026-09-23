@@ -729,7 +729,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="depth">Levels of children to expand below each set member. 0 (default) renders the induced subtree only.</param>
     /// <param name="rootsOnly">Render only the items given, without connecting ancestors.</param>
-    /// <param name="icons">Override the configured glyph mode for this invocation: unicode or nerd.</param>
+    /// <param name="icons">Override the configured glyph mode for this invocation: auto, unicode, or nerd.</param>
     [Command("tree-set")]
     public async Task<int> TreeSet(
         string? items = null,
@@ -1113,8 +1113,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    /// <param name="view">Explicit current-Bench presentation: table or tree. Cannot be combined with --all, --flat, or --tree.</param>
+    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
+    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
     public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
 
@@ -1124,8 +1124,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
-    /// <param name="view">Explicit current-Bench presentation: table or tree. Cannot be combined with --all, --flat, or --tree.</param>
+    /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
+    /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
     public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
 

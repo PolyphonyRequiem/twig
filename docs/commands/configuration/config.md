@@ -52,6 +52,25 @@ twig config <key> [<value>] [-o|--output human|json|minimal]
   keyed by `key`, `value`, and (write only) `message` — see
   `src/Twig/Commands/ConfigCommand.cs:83-107`.
 
+### Icon display
+
+`display.icons` defaults to `auto`. Explicit `nerd` and `unicode` preferences
+always win and existing saved preferences are preserved.
+
+Automatic mode uses Nerd Font glyphs for terminals with documented bundled
+support: [Kitty](https://sw.kovidgoyal.net/kitty/faq/#kitty-is-not-able-to-use-my-favorite-font),
+[WezTerm](https://wezterm.org/config/fonts.html), and
+[Ghostty](https://ghostty.org/docs/config). Detection uses `TERM` and `TERM_PROGRAM`.
+Redirected output, `TERM=dumb`, and unrecognized terminals use Unicode.
+Generic xterm, Windows Terminal, Konsole, and an SSH connection alone do not
+establish Nerd Font support. Fonts installed on the server are not evidence
+of the client's selected font. No font installation, terminal query, input
+reading, or configuration rewrite is performed.
+
+Use `twig config display.icons auto` to enable automatic selection for an
+existing connection, or `twig config display.icons nerd` if your terminal has
+a Nerd Font but does not advertise one of the supported capabilities.
+
 ## Examples
 
 Read the configured organization:

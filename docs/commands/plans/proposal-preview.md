@@ -42,9 +42,11 @@ twig proposal preview --file <path> [--full] [--interactive] [--include-renderin
 
 ## Behavior
 
-Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact,
-grouped review by default; every operation, precondition, effect, blocker and
-authorization choice remains represented:
+Delegates to `IPlanLifecycleService.PreviewAsync`. Human output is a compact, grouped review
+of material effects, warnings and blockers, without approval choices or sign-off instructions.
+The human projection omits the generic title, digest, workspace, operation identities,
+preconditions and provenance; structured `json`/`minimal` output retains those exact fields,
+including authorization choices, for hosts and separate apply authorization.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
@@ -70,6 +72,8 @@ twig proposal preview --file <absolute-file> -o json --include-rendering --width
 
 The envelope keeps the existing digest, `canApply`, issues, operations, pending changes and `reviewModel`; the additive presentation is version 1 and contains brief/full frames from the same single observation. Hosts must retain the structured result and exact workspace/digest, not parse ANSI. The interactive `twig_proposal_render({file,workspace?,full?})` tool switches retained frames without another preview. Closing or viewing details is never approval or apply. Feature support is proven by response validation; no minimum native version is pinned here.
 
+OMP shows the retained native frames inside a rounded, scrollable, theme-colored **read-only** window. Its header and controls stay visible in narrow terminals; the native preview is sized for the window's inner width instead of wrapping a second time. The window adds no new approval action or rendering authority.
+
 If the OMP companion or tool is unavailable before a call, use the ordinary complete structured/plain review and disclose the fallback; a direct CLI preview is allowed only for that pre-call fallback. If a call begins but its response is incompatible, failed or truncated, stop the affected authorization and report the failure; do not recover by ANSI parsing, another preview, tree-set, sync or apply.
 
 ### Review density and observations
@@ -80,7 +84,8 @@ If the OMP companion or tool is unavailable before a call, use the ordinary comp
   `common-affix-replacement-v1` metric removes the identical prefix and suffix
   and counts the remaining **Unicode scalars** as removed/inserted spans. It is
   linear-time, constant-space, not minimal edit distance, and includes literal HTML.
-  Unknown baselines have no numeric metric. The legend explains this once per review.
+  Unknown baselines have no numeric metric. Human output explains the units once per relevant review;
+  JSON retains the exact metric identifier.
 - Before observations come only from clean local cache data at the expected
   revision. Missing items/fields, revision mismatches and local edits are explicitly
   unknown; preview does not refresh ADO. Immediate cached parents are labeled

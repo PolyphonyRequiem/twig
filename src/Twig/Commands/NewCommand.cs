@@ -11,6 +11,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Persistence;
 using Twig.RenderTree;
 using Twig.Rendering;
 using Twig.Domain.Services.ReferenceProfile;
@@ -345,7 +346,7 @@ public sealed class NewCommand(
         if (set)
             await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
-        var url = $"https://dev.azure.com/{Uri.EscapeDataString(config.Organization)}/{Uri.EscapeDataString(config.Project)}/_workitems/edit/{newId}";
+        var url = AdoWorkItemUrlValidator.BuildWorkItemUrl(config.Organization, config.Project, newId);
         RenderCreated(fetched, url, outputFormat);
 
         var hints = hintEngine.GetHints("new",

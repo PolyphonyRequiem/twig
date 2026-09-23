@@ -293,9 +293,9 @@ internal static class CommandExamples
         ],
         ["workspace"] =
         [
-            "twig workspace                 Show the current workspace (cached items)",
+            "twig workspace                 Show the current Bench as a tree",
             "twig workspace --view table   Show the current Bench as a table",
-            "twig workspace --view tree    Show the current Bench as a hierarchy",
+            "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],

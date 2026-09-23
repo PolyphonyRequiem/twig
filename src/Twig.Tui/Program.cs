@@ -64,7 +64,7 @@ var pendingChangeStore = provider.GetRequiredService<IPendingChangeStore>();
 var processConfigProvider = provider.GetRequiredService<IProcessConfigurationProvider>();
 
 // Build icon configuration for badge rendering (same pattern as HumanOutputFormatter)
-var iconMode = config.Display.Icons;
+var iconMode = config.Display.ResolveIconMode();
 var typeIconIds = config.TypeAppearances?
     .Where(a => a.IconId is not null)
     .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);

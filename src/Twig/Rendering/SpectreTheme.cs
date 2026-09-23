@@ -1,9 +1,11 @@
 using Spectre.Console;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Rendering;
 
@@ -18,10 +20,11 @@ internal sealed class SpectreTheme
     private readonly Dictionary<string, string>? _typeColors;
     private readonly Dictionary<string, string>? _appearanceColors;
     private readonly IReadOnlyList<StateEntry>? _stateEntries;
+    private readonly TwigConfiguration? _connection;
 
-    public SpectreTheme(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null)
+    public SpectreTheme(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null, TwigConfiguration? connection = null)
     {
-        _iconMode = displayConfig.Icons;
+        _iconMode = displayConfig.ResolveIconMode();
         _typeIconIds = typeAppearances?
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
@@ -32,6 +35,19 @@ internal sealed class SpectreTheme
             .Where(a => !string.IsNullOrEmpty(a.Color))
             .ToDictionary(a => a.Name, a => a.Color, StringComparer.OrdinalIgnoreCase);
         _stateEntries = stateEntries;
+        _connection = connection;
+    }
+
+    internal string FormatWorkItemLink(WorkItem item, string markup)
+    {
+        if (item.IsSeed || item.Id <= 0 || _connection is null
+            || string.IsNullOrWhiteSpace(_connection.Organization)
+            || string.IsNullOrWhiteSpace(_connection.Project))
+            return markup;
+
+        var url = AdoWorkItemUrlValidator.BuildWorkItemUrl(
+            _connection.Organization, _connection.Project, item.Id);
+        return $"[link={Markup.Escape(url)}]{markup}[/]";
     }
 
     /// <summary>Neutral state label on unknown terminal backgrounds; color remains a redundant badge.</summary>

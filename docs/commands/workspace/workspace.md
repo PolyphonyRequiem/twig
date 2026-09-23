@@ -13,16 +13,18 @@ items in the subscribed iterations, manually-tracked pins, seeds, and any
 outstanding dirty rows. Reach for it when you want to see everything the
 workspace considers "yours" without navigating into a specific work item.
 
-By default the command reads from the local cache and renders a live Spectre
-region. `--refresh` re-syncs from ADO before rendering. `--view table` and
-`--view tree` explicitly select the presentation of the same current Bench,
-including manual pins, seeds, and the active item. `--tree` remains the legacy
-full-backlog hierarchy mode, while `--all` remains the team/sprint layout.
+By default the command reads from the local cache and renders the current Bench
+as a live hierarchical tree. `--refresh` re-syncs from ADO before rendering.
+`--view table` explicitly selects a table for the same current Bench, while
+`--view tree` makes the hierarchy choice explicit. Both presentations include
+manual pins, seeds, and the active item. `--tree` remains the legacy full-backlog
+hierarchy mode, while `--all` remains the team/sprint layout.
 
-The rich table keeps State and Age in separate columns, reserving their width
-before allocating the remaining space to Title. Age displays elapsed time such
-as `15m ago`, without an inline "cached" label. Fresh or unknown ages remain
-blank. Titles wrap or truncate as the terminal narrows; metadata stays aligned.
+The Tree view keeps parent/child connectors and indentation with the complete
+work-item identity, including type and ID. The explicit table keeps State and
+Age in separate columns, reserving their width before allocating the remaining
+space to Title. Age displays elapsed time such as `15m ago`; fresh or unknown
+ages remain blank. Titles wrap or truncate as the terminal narrows.
 Use `--flat` to explicitly select the legacy non-tree table when no `--view`
 flag is supplied.
 
@@ -30,6 +32,11 @@ Type cells include both the configured icon and the type name. The active item
 has an arrow, bold text, and a contrasting blue cell background; selection does
 not rely on color alone. Its metadata colors are adjusted for readability on
 that background. Non-active rows keep the terminal's normal background.
+
+In terminals that support OSC 8 hyperlinks, published work-item rows in Tree
+and IDs/titles in Table link to the corresponding Azure DevOps page. In Herdr,
+Ctrl+click activates the link on the client desktop, including over SSH.
+Local seeds have no published URL and are not linked.
 
 ## Synopsis
 
@@ -50,12 +57,12 @@ twig workspace [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-|`--view`|`string`|unset|Explicit current-Bench presentation: `table` or `tree`. Cannot be combined with `--all`, `--flat`, or `--tree`.|
+|`--view`|`string`|unset (tree)|Explicit current-Bench presentation: `table` or `tree`; unset defaults to `tree`. Cannot be combined with `--all`, `--flat`, or `--tree`.|
 |`--all`|`bool`|`false`|Show all team members' items, not just yours.|
 |`--no-live`|`bool`|`false`|Disable live-refresh and render a static snapshot.|
 |`--refresh`|`bool`|`false`|Sync from ADO before displaying, instead of reading cache only.|
 |`--flat`|`bool`|`false`|Use flat (non-tree) output instead of hierarchical rendering.|
-|`--tree`|`bool`|`false`|Render full backlog hierarchy tree instead of workspace table.|
+|`--tree`|`bool`|`false`|Render the full backlog hierarchy tree instead of the current-Bench view.|
 
 ## Behavior
 
@@ -66,9 +73,10 @@ The command delegates to `WorkspaceCommand.ExecuteAsync`
   `error: --tree and --flat are mutually exclusive.` and exits `1`
   (`src/Twig/Commands/WorkspaceCommand.cs:71-75`).
 - `--view table` and `--view tree` keep the current Bench membership unchanged:
-  pins, seeds, and the active item remain in scope. `--view tree` uses available
-  parent IDs even when process metadata is absent; metadata only controls
-  working-level enrichment and virtual-group labels.
+  pins, seeds, and the active item remain in scope. The default presentation is
+  the same hierarchy as `--view tree`; parent IDs are used even when process
+  metadata is absent, while metadata only controls working-level enrichment and
+  virtual-group labels.
 - `--view` is presentation-only and cannot be combined with `--tree`, `--flat`,
   `--all`, or sprint layout; those combinations exit `1` rather than changing
   the working set.
@@ -114,7 +122,7 @@ $ twig workspace --view table
 $ twig workspace --view tree
 ```
 The explicit tree keeps the current Bench (including pins and seeds) while
-rendering hierarchy connectors with aligned State and Age columns.
+placing connectors and indentation before each work item's full identity.
 
 ```
 $ twig workspace --tree --refresh -o json

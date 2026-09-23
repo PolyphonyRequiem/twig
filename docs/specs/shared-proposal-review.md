@@ -31,20 +31,36 @@ Optional additive fields may retain model version 1 when old consumers remain sa
 
 ## Brief versus expanded review
 
-Every mode retains coverage of **every operation, precondition, material consequence, blocker and available choice**. Brief is not permission to drop operations or destructive effects.
+Every mode retains coverage of every material consequence and blocker. The structured model
+and JSON additionally retain available authorization choices, exact operation identities,
+preconditions and provenance; the human projection omits approval controls and machine
+bookkeeping rather than presenting them as review content. Apply continues to enforce them.
 
-Brief human review:
+Human review:
 
-1. Shows the review's scope and affected identities with owned changes together.
-2. Shows scalar before-to-after effects; unavailable prior values are named as such.
-3. Shows long description changes as an explicit field effect plus bounded character-change summary, with detail access. No full body dump by default.
-4. Shows publication of a seed especially briefly: identity, title/type, target relationship and applicable preconditions/effects. It does not imitate edits on a nonexistent published item.
-5. Keeps delete/link consequences and blockers explicit. It does not replace a deletion with a neutral generic summary.
-6. Retains a complete compact legend. Styling never substitutes for a textual effect.
+1. Omits the generic Details title, digest and workspace lines. Those remain in structured output
+   for hosts and apply authorization.
+2. Shows a recipe only when one exists and a rationale only when it is nonblank. Ad hoc and empty
+   values are omitted rather than replaced with placeholders.
+3. Shows actual field/link/seed/delete effects and any material observation warning. Ordinals,
+   operation IDs, wire kinds, raw revisions, precondition values and cache provenance are not
+   human content.
+4. Shows affected identities with their owned changes together.
+5. Shows scalar before-to-after effects; unavailable prior values are named as such.
+6. Shows long description changes as an explicit field effect plus bounded character-change summary,
+   with detail access. No full body dump is required by default.
+7. Shows publication of a seed especially briefly: staged identity, title/type, target relationship
+   and publication effect. It does not imitate edits on a nonexistent published item.
+8. Keeps delete/link consequences and blockers explicit without showing approval choices or
+   sign-off instructions. It does not replace a deletion with a neutral generic summary.
+9. Retains a complete compact legend. Styling never substitutes for a textual effect.
 
-Expanded human review exposes the exact values available in the same review object. JSON retains exact structured data regardless of human density. A detail request within a review session must not silently fetch a different baseline. A fresh preview is a fresh cache observation, not a claim to historical immutability.
+Expanded human review exposes the exact values available in the same review object. JSON retains
+exact structured data regardless of human density. A detail request within a review session must
+not silently fetch a different baseline. A fresh preview is a fresh cache observation, not a claim
+to historical immutability.
 
-Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. Existing explicit apply authorization remains separate.
+Support explicit expanded invocation and a review-only interactive detail loop. Interactive review must be opt-in and guarded for TTY input/output; redirected output must not unexpectedly wait for input. Details/Back/Cancel do not apply changes. Existing explicit apply authorization remains separate and is not presented by this review panel.
 
 ## Terminal visual contract
 

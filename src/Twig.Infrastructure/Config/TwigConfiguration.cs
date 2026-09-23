@@ -623,7 +623,7 @@ public sealed class TwigConfiguration
                 return false;
             case "display.icons":
                 var lower = value.ToLowerInvariant();
-                if (lower is "unicode" or "nerd")
+                if (lower is "auto" or "unicode" or "nerd")
                 {
                     Display.Icons = lower;
                     return true;
@@ -996,13 +996,48 @@ public sealed class DisplayConfig
     public int TreeDepthUp { get; set; } = 2;
     public int TreeDepthDown { get; set; } = 10;
     public int TreeDepthSideways { get; set; } = 1;
-    public string Icons { get; set; } = "unicode";
+    public string Icons { get; set; } = "auto";
     public int CacheStaleMinutes { get; set; } = 5;
     public int CacheStaleMinutesReadOnly { get; set; } = 15;
     public Dictionary<string, string>? TypeColors { get; set; }
     public DisplayColumnsConfig? Columns { get; set; }
     public double FillRateThreshold { get; set; } = 0.4;
     public int MaxExtraColumns { get; set; } = 3;
+
+    /// <summary>
+    /// Resolves the saved preference without changing it. Automatic mode uses
+    /// documented built-in Nerd Font support, not fonts installed on this host.
+    /// Redirected output and unknown terminals use portable Unicode glyphs.
+    /// </summary>
+    public string ResolveIconMode()
+    {
+        if (!string.Equals(Icons, "auto", StringComparison.OrdinalIgnoreCase))
+            return ResolveIconMode(false, null, null);
+
+        return ResolveIconMode(Console.IsOutputRedirected,
+            Environment.GetEnvironmentVariable("TERM"),
+            Environment.GetEnvironmentVariable("TERM_PROGRAM"));
+    }
+
+    internal string ResolveIconMode(bool outputRedirected, string? term, string? terminalProgram)
+    {
+        if (string.Equals(Icons, "nerd", StringComparison.OrdinalIgnoreCase))
+            return "nerd";
+        if (!string.Equals(Icons, "auto", StringComparison.OrdinalIgnoreCase)
+            || outputRedirected || string.Equals(term, "dumb", StringComparison.OrdinalIgnoreCase))
+            return "unicode";
+
+        // These terminals ship Nerd Font symbol fallbacks. Generic xterm,
+        // Windows Terminal, Konsole and SSH alone provide no font evidence.
+        var supportsNerdFonts =
+            string.Equals(term, "xterm-kitty", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(term, "xterm-ghostty", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(term, "wezterm", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(terminalProgram, "kitty", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(terminalProgram, "WezTerm", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(terminalProgram, "ghostty", StringComparison.OrdinalIgnoreCase);
+        return supportsNerdFonts ? "nerd" : "unicode";
+    }
 }
 
 public sealed class TypeAppearanceConfig

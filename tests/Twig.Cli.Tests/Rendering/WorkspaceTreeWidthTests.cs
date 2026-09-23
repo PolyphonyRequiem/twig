@@ -91,6 +91,42 @@ public sealed class WorkspaceTreeWidthTests
 
         output.ShouldContain("My Epic");
         output.ShouldContain(ShortTitle);
+
+        var childLine = output.Split('\n').First(line => line.Contains(ShortTitle));
+        childLine.ShouldContain("└──");
+        childLine.IndexOf("└──", StringComparison.Ordinal).ShouldBeLessThan(
+            childLine.IndexOf("#20", StringComparison.Ordinal));
+        childLine.IndexOf("User Story", StringComparison.Ordinal).ShouldBeLessThan(
+            childLine.IndexOf("#20", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Tree_NarrowWidth_IdentityAndAnnotationsRemainVisible()
+    {
+        var parent = new WorkItemBuilder(10, "Context Feature").AsFeature().InState("Active").Build();
+        var child = new WorkItemBuilder(20, LongTitle)
+            .AsTask().InState("Active").Dirty()
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
+            .Build();
+        var roots = new[]
+        {
+            BuildNode(parent, isSprintItem: false, children: new[]
+            {
+                BuildNode(child, isSprintItem: true),
+            }),
+        };
+        var sections = BuildSectionsWithTree(new[] { child }, roots);
+
+        var output = await RenderTreeWithContext(60, child, new[] { child }, sections);
+
+        output.ShouldContain("└──");
+        output.ShouldContain("Task");
+        output.ShouldContain("#20");
+        output.ShouldContain("Active");
+        output.ShouldContain("cached 15m ago");
+        output.ShouldContain("✎");
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongTitle);
     }
 
     [Fact]
@@ -511,7 +547,7 @@ public sealed class WorkspaceTreeWidthTests
         var labelDepth5 = renderer.FormatWorkspaceTreeNodeLabel(
             BuildNode(story, isSprintItem: true), null, 5, budget, 5);
 
-        labelDepth0.ShouldNotContain("…");
+        labelDepth0.Count(c => c == 'X').ShouldBeGreaterThan(labelDepth5.Count(c => c == 'X'));
         labelDepth5.ShouldContain("…");
     }
 

@@ -112,8 +112,10 @@ public class WorkspaceCommandTests
         result.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task Workspace_ExplicitTree_UsesParentIdsWithoutProcessMetadata()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("tree")]
+    public async Task Workspace_DefaultAndExplicitTree_UseParentIdsWithoutProcessMetadata(string? view)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         var child = CreateWorkItem(20, "Current Bench Task").WithParentId(100);
@@ -146,7 +148,7 @@ public class WorkspaceCommandTests
             .Returns((ProcessConfigurationData?)null);
 
         var (result, stdout) = await StdoutCapture.RunAsync(
-            () => _cmd.ExecuteAsync(view: "tree"));
+            () => _cmd.ExecuteAsync(view: view));
 
         result.ShouldBe(0);
         stdout.Split("Cached Parent", StringSplitOptions.None).Length.ShouldBe(2);
@@ -247,22 +249,34 @@ public class WorkspaceCommandTests
 
         var item1 = new WorkItem
         {
-            Id = 10, Type = WorkItemType.Task, Title = "Task 1", State = "Active",
-            ParentId = 100, AssignedTo = "Alice",
+            Id = 10,
+            Type = WorkItemType.Task,
+            Title = "Task 1",
+            State = "Active",
+            ParentId = 100,
+            AssignedTo = "Alice",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
         var item2 = new WorkItem
         {
-            Id = 20, Type = WorkItemType.Task, Title = "Task 2", State = "Active",
-            ParentId = 200, AssignedTo = "Bob",
+            Id = 20,
+            Type = WorkItemType.Task,
+            Title = "Task 2",
+            State = "Active",
+            ParentId = 200,
+            AssignedTo = "Bob",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
         var item3 = new WorkItem
         {
-            Id = 30, Type = WorkItemType.Task, Title = "Task 3", State = "Active",
-            ParentId = 100, AssignedTo = "Alice", // same parent as item1
+            Id = 30,
+            Type = WorkItemType.Task,
+            Title = "Task 3",
+            State = "Active",
+            ParentId = 100,
+            AssignedTo = "Alice", // same parent as item1
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -274,13 +288,19 @@ public class WorkspaceCommandTests
 
         var parent100 = new WorkItem
         {
-            Id = 100, Type = WorkItemType.UserStory, Title = "Story A", State = "Active",
+            Id = 100,
+            Type = WorkItemType.UserStory,
+            Title = "Story A",
+            State = "Active",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
         var parent200 = new WorkItem
         {
-            Id = 200, Type = WorkItemType.UserStory, Title = "Story B", State = "Active",
+            Id = 200,
+            Type = WorkItemType.UserStory,
+            Title = "Story B",
+            State = "Active",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -312,8 +332,12 @@ public class WorkspaceCommandTests
 
         var item = new WorkItem
         {
-            Id = 10, Type = WorkItemType.Task, Title = "Task 1", State = "Active",
-            ParentId = 100, AssignedTo = "Alice",
+            Id = 10,
+            Type = WorkItemType.Task,
+            Title = "Task 1",
+            State = "Active",
+            ParentId = 100,
+            AssignedTo = "Alice",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -558,7 +582,6 @@ public class WorkspaceCommandTests
         var output = _testConsole.Output;
         output.ShouldContain("Active Item");
         output.ShouldContain("Other Item");
-        output.ShouldContain("Active: #1");
     }
 
     [Fact]
@@ -599,8 +622,12 @@ public class WorkspaceCommandTests
 
         var seed = new WorkItem
         {
-            Id = -1, Type = WorkItemType.Task, Title = "Async Seed", State = "New",
-            IsSeed = true, SeedCreatedAt = DateTimeOffset.UtcNow,
+            Id = -1,
+            Type = WorkItemType.Task,
+            Title = "Async Seed",
+            State = "New",
+            IsSeed = true,
+            SeedCreatedAt = DateTimeOffset.UtcNow,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -712,6 +739,7 @@ public class WorkspaceCommandTests
         var result = await command.ExecuteAsync("human");
 
         result.ShouldBe(0);
+        _spectreRenderer.UseTreeRendering.ShouldBeTrue();
         _testConsole.Output.ShouldContain("Pinned by current Bench");
         _testConsole.Output.ShouldNotContain("Unselected sprint item");
     }
@@ -952,18 +980,17 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
-            .Returns(CreateAgileProcessConfig());
+            .Returns((ProcessConfigurationData?)null);
 
         var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human", view: "table");
 
         result.ShouldBe(0);
         _spectreRenderer.UseTreeRendering.ShouldBeFalse();
-        _spectreRenderer.UseAlignedTreeColumns.ShouldBeFalse();
         _testConsole.Output.ShouldContain("Current Bench Item");
     }
 
-     // ── --flat flag tests (T-1977) ─────────────────────────────────
+    // ── --flat flag tests (T-1977) ─────────────────────────────────
     // ── --flat flag tests (T-1977) ─────────────────────────────────
 
     [Fact]
@@ -973,7 +1000,10 @@ public class WorkspaceCommandTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         var item = new WorkItem
         {
-            Id = 10, Type = WorkItemType.Task, Title = "Task 1", State = "Active",
+            Id = 10,
+            Type = WorkItemType.Task,
+            Title = "Task 1",
+            State = "Active",
             ParentId = 100,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
@@ -1004,7 +1034,10 @@ public class WorkspaceCommandTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         var item = new WorkItem
         {
-            Id = 10, Type = WorkItemType.Task, Title = "Task 1", State = "Active",
+            Id = 10,
+            Type = WorkItemType.Task,
+            Title = "Task 1",
+            State = "Active",
             ParentId = 100,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
@@ -1021,12 +1054,15 @@ public class WorkspaceCommandTests
                 AreaPath = AreaPath.Parse("Project").Value,
             }});
         _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
-            .Returns(CreateAgileProcessConfig());
+            .Returns((ProcessConfigurationData?)null);
 
-        // Act: default (no --flat) should use tree rendering
-        var result = await _cmd.ExecuteAsync(flat: false);
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync());
 
         result.ShouldBe(0);
+        stdout.ShouldContain("Task 1");
+        stdout.ShouldContain("Story");
+        stdout.Split("Story", StringSplitOptions.None).Length.ShouldBe(2);
     }
 
     [Fact]
@@ -1132,7 +1168,7 @@ public class WorkspaceCommandTests
     // ── Dynamic column tests (EPIC-007 E2-T2) ──────────────────────
 
     [Fact]
-    public async Task AsyncPath_WithPopulatedFields_ShowsDynamicColumns()
+    public async Task AsyncPath_ExplicitTable_WithPopulatedFields_ShowsDynamicColumns()
     {
         var fields = new Dictionary<string, string?>
         {
@@ -1167,7 +1203,7 @@ public class WorkspaceCommandTests
         };
 
         var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync("human", view: "table");
 
         result.ShouldBe(0);
 

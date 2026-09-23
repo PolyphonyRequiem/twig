@@ -17,7 +17,7 @@ does not prompt, mutate, or hit ADO — the caller owns the review loop.
 
 ```
 twig tree-set --items <ids> [--annotate <json>] [--depth <n>]
-              [--roots-only] [--icons unicode|nerd] [--output <format>]
+              [--roots-only] [--icons auto|unicode|nerd] [--output <format>]
 ```
 
 ## Arguments
@@ -39,7 +39,7 @@ twig tree-set --items <ids> [--annotate <json>] [--depth <n>]
 | `-o`, `--output` | `human` \| `json` \| `minimal` | `human` | Output format. |
 | `--depth` | int | `0` | Levels of children to expand below each set member. `0` renders the induced subtree only. |
 | `--roots-only` | bool | `false` | Skip connecting ancestors; render only the given items as roots. |
-| `--icons` | `unicode` \| `nerd` | configured | Override the glyph mode for this invocation. |
+| `--icons` | `auto` \| `unicode` \| `nerd` | configured (`auto` by default) | Override the glyph mode for this invocation. |
 
 ## Behavior
 

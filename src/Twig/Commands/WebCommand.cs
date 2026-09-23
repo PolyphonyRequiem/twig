@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 using Twig.RenderTree;
 using Twig.Rendering;
 
@@ -60,7 +61,7 @@ public sealed class WebCommand(
             return 1;
         }
 
-        var url = $"https://dev.azure.com/{Uri.EscapeDataString(config.Organization)}/{Uri.EscapeDataString(config.Project)}/_workitems/edit/{targetId}";
+        var url = AdoWorkItemUrlValidator.BuildWorkItemUrl(config.Organization, config.Project, targetId);
 
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         var item = await workItemRepo.GetByIdAsync(targetId, ct);

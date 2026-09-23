@@ -33,12 +33,12 @@ twig ws [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
-|`--view`|`string`|unset|Explicit current-Bench presentation: `table` or `tree`. Cannot be combined with `--all`, `--flat`, or `--tree`.|
+|`--view`|`string`|unset (tree)|Explicit current-Bench presentation: `table` or `tree`; unset defaults to `tree`. Cannot be combined with `--all`, `--flat`, or `--tree`.|
 |`--all`|`bool`|`false`|Show all team members' items, not just yours.|
 |`--no-live`|`bool`|`false`|Disable live-refresh and render a static snapshot.|
 |`--refresh`|`bool`|`false`|Sync from ADO before displaying, instead of reading cache only.|
 |`--flat`|`bool`|`false`|Use flat (non-tree) output instead of hierarchical rendering.|
-|`--tree`|`bool`|`false`|Render full backlog hierarchy tree instead of workspace table.|
+|`--tree`|`bool`|`false`|Render full backlog hierarchy tree instead of the current-Bench view.|
 
 ## Behavior
 

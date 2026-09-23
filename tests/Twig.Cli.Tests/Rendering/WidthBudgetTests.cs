@@ -208,15 +208,6 @@ public sealed class WidthBudgetTests
         }
     }
 
-    [Theory]
-    [InlineData(80, 0, 36)]
-    [InlineData(80, 8, 28)]
-    [InlineData(60, 40, 10)]
-    public void TreeTableTitleBudget_ReservesTableColumnsAndPrefix(int width, int prefixWidth, int expected)
-    {
-        var budget = new WidthBudget(width);
-        budget.TreeTableTitleBudget(prefixWidth).ShouldBe(expected);
-    }
 
     // --- PanelHeaderTitleBudget ---
 

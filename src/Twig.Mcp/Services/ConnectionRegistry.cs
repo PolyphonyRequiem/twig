@@ -153,7 +153,7 @@ public sealed class ConnectionRegistry : IConnectionRegistry
         TwigConfiguration config;
         try
         {
-            config = TwigConfiguration.Load(configPath);
+            config = TwigConfiguration.LoadSplit(new TwigPaths(directory, configPath, Path.Combine(directory, "twig.db")));
         }
         catch (TwigConfigurationException)
         {

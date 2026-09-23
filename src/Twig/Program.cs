@@ -1320,9 +1320,18 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
     /// <param name="value">Value to set; omit to read the current value.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="global">Read or set the home-wide display.icons preference.</param>
+    /// <param name="unset">Clear the selected display.icons override so it inherits the next layer.</param>
     [Command("config")]
-    public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output, ct);
+    public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, bool global = false, bool unset = false, CancellationToken ct = default)
+    {
+        // The normal command resolves a workspace-bound prompt writer. A global setting
+        // must remain usable even when no Twig workspace has been initialized.
+        var command = global
+            ? new ConfigCommand(services.GetRequiredService<TwigConfiguration>(), services.GetRequiredService<TwigPaths>(), services.GetRequiredService<OutputFormatterFactory>())
+            : services.GetRequiredService<ConfigCommand>();
+        return await command.ExecuteAsync(key, value, output, ct, global, unset);
+    }
 
     /// <summary>Split a legacy .twig/config into a committed twig.json (repo coords) and gitignored .twig/config (user prefs). AB#3296.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

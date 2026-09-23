@@ -23,7 +23,7 @@ public sealed class ConfigCommand(
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, bool global = false, bool unset = false)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -31,6 +31,55 @@ public sealed class ConfigCommand(
         {
             Console.Error.WriteLine(fmt.FormatError("Usage: twig config <key> [<value>]"));
             return 2;
+        }
+
+        if (unset && value is not null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("--unset cannot be combined with a value."));
+            return 2;
+        }
+
+        if (global)
+        {
+            if (!key.Equals("display.icons", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine(fmt.FormatError("--global currently supports only display.icons."));
+                return 1;
+            }
+
+            var preferences = GlobalDisplayPreferences.Load(paths.GlobalDisplayPath);
+            if (value is null && !unset)
+            {
+                RenderValueRead(key, preferences.Icons ?? "auto", outputFormat);
+                return 0;
+            }
+
+            var normalized = unset ? null : DisplayConfig.NormalizeIcons(value!);
+            if (!unset && normalized is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Invalid display.icons value: '{value}'."));
+                return 1;
+            }
+            preferences.Icons = normalized;
+            await preferences.SaveAsync(paths.GlobalDisplayPath, ct);
+            config.Display.UseGlobalIcons(normalized);
+            RenderValueSet(key, normalized ?? "inherit", outputFormat);
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+            return 0;
+        }
+
+        if (unset)
+        {
+            if (!key.Equals("display.icons", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine(fmt.FormatError("--unset currently supports only display.icons."));
+                return 1;
+            }
+            config.Display.ClearIconsOverride();
+            await config.SaveSplitAsync(paths, ct);
+            RenderValueSet(key, "inherit", outputFormat);
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+            return 0;
         }
 
         if (value is null)

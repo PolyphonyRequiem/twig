@@ -271,6 +271,49 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         result.PendingChanges.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Preview_ExpectedDigestMismatchRefusesBeforeJournalImportOrPendingSnapshot()
+    {
+        var file = WritePlan(ValidPlanSource());
+        var svc = BuildService();
+        var actualDigest = (await svc.ValidateAsync(file)).Digest!;
+        var expectedDigest = actualDigest[..^1] + (actualDigest[^1] == '0' ? '1' : '0');
+
+        var result = await svc.PreviewExpectedAsync(file, expectedDigest);
+
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.DigestMismatch);
+        result.ReviewModel.ShouldBeNull();
+        (await _journal.GetAsync(actualDigest)).ShouldBeNull();
+        await _pending.DidNotReceive().GetAllChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Latest_RefusesChangedOrMissingSelectedFileWithoutFallingBack()
+    {
+        var firstFile = WritePlan(ValidPlanSource(), "older.json");
+        var latestFile = WritePlan(BatchOnlyPlan(workItemId: 815, expectedRev: 1, state: "Active"), "latest.json");
+        var firstTime = DateTimeOffset.Parse("2026-09-01T10:00:00Z");
+        var latestTime = firstTime.AddMinutes(1);
+        var first = await BuildService(firstTime).PreviewAsync(firstFile);
+        var latest = await BuildService(latestTime).PreviewAsync(latestFile);
+
+        var selected = await BuildService().LatestAsync();
+        selected.Found.ShouldBeTrue();
+        selected.File.ShouldBe(latestFile);
+        selected.Digest.ShouldBe(latest.Digest);
+
+        await File.WriteAllTextAsync(latestFile, BatchOnlyPlan(workItemId: 816, expectedRev: 2, state: "Closed"));
+        var changed = await BuildService().LatestAsync();
+        changed.Error!.ShouldContain("changed after preview");
+        changed.Digest.ShouldBe(latest.Digest);
+        changed.Digest.ShouldNotBe(first.Digest);
+
+        File.Delete(latestFile);
+        var missing = await BuildService().LatestAsync();
+        missing.Error!.ShouldContain("Failed to read plan file");
+        missing.Digest.ShouldBe(latest.Digest);
+    }
+
     // ── apply: hard preconditions ──────────────────────────────────────────
 
     [Fact]

@@ -16,8 +16,8 @@ journal row is a write into the workspace's per-proposal store.
 
 ## Synopsis
 
-```
-twig proposal preview --file <path> [--full] [--interactive] [--include-rendering --width <columns> --color <always|never>] [-o human|json|minimal]
+```sh
+twig proposal preview --file <path> [--full] [--expect-digest <digest>] [--interactive] [--include-rendering --width <columns> --color <always|never>] [-o human|json|minimal]
 ```
 
 ## Arguments
@@ -39,6 +39,7 @@ twig proposal preview --file <path> [--full] [--interactive] [--include-renderin
 |`--include-rendering`|flag|`false`|With JSON, include presentation version 1 (`brief` and `full`) rendered by native Twig from the same observation.|
 |`--width`|integer|`unbounded / 120`|Presentation width; omitted human output is unbounded, while an included JSON frame defaults to 120. Explicit values are inclusive 20..400.|
 |`--color`|string|`never`|Presentation color mode: `always` or `never`; OMP requests `always` unless `NO_COLOR` requires `never`.|
+|`--expect-digest`|string|_none_|Require an exact canonical SHA-256 digest match before import or review rendering.|
 
 ## Behavior
 
@@ -51,8 +52,12 @@ including authorization choices, for hosts and separate apply authorization.
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
 - **Journal import.** The journal row keyed on the digest is loaded into the
-  workspace store; a fresh proposal creates a row in its initial state, and
-  a previously-imported proposal has its row refreshed.
+  workspace store; a fresh proposal creates a row in its initial state, and a re-preview
+  updates only the separate last-preview ordering timestamp. Original `previewed_at` and
+  lifecycle state remain unchanged.
+- **Digest guard.** When `--expect-digest` is supplied, the current canonical digest must
+  match exactly. A mismatch returns a clear issue before journal import or review-model
+  construction, so neither an invalid proposal nor stale bytes can move latest selection.
 - **Pending snapshot.** Every staged pending change is captured in exact
   staging order (`PlanPreviewResult.PendingChanges`). Any pending row makes
   `canApply` false — proposal v1 is declarative-only and will not
@@ -113,6 +118,7 @@ Review before authorization (commands only; the digest and effects depend on the
 twig proposal preview --file .twig/proposals/close-1234.json
 twig proposal preview --file .twig/proposals/close-1234.json --full
 twig proposal preview --file .twig/proposals/close-1234.json --interactive
+twig proposal preview --file .twig/proposals/close-1234.json --expect-digest 3f9c...a1b7 --interactive
 ```
 
 Machine preview for a host presenter:

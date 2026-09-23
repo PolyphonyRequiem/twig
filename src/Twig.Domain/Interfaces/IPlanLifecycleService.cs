@@ -26,6 +26,9 @@ namespace Twig.Domain.Interfaces;
 ///   <item><see cref="StatusAsync"/> reparses the file to recover the digest and returns the
 ///   journal snapshot, or <c>null</c> when no journal has ever been imported for that
 ///   digest.</item>
+///   <item><see cref="LatestAsync"/> reads only the current workspace journal's most-recent
+///   non-Verified header, validates that selected file against its recorded digest, and never
+///   scans proposal files or falls back to an older row.</item>
 ///   <item><see cref="DescribeSeedAsync"/> takes the negative display alias of a currently
 ///   staged seed, resolves it through <c>IStagedIdentityRegistry</c>, and returns its
 ///   durable <c>StagedIdentity</c>, canonical fingerprint (recomputed from current fields
@@ -37,15 +40,28 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 public interface IPlanLifecycleService
 {
+    /// <summary>
+    /// Returns the latest unresolved proposal from this workspace's journal store. Read-only;
+    /// does not scan proposal files or call ADO.
+    /// </summary>
+    Task<PlanLatestResult> LatestAsync(CancellationToken ct = default);
+
     /// <summary>Reads and validates a plan file, returning the parser's result.</summary>
     Task<PlanValidationResult> ValidateAsync(string file, CancellationToken ct = default);
 
     /// <summary>
-    /// Validates the file, imports the journal (idempotent for a matching digest), and
-    /// snapshots the current pending-change journal so the caller can render both. NEVER
-    /// mutates ADO.
+    /// Validates the file, imports the journal (idempotent for a matching digest), refreshes
+    /// that digest's last-preview ordering timestamp, and snapshots current pending changes.
+    /// NEVER mutates ADO.
     /// </summary>
     Task<PlanPreviewResult> PreviewAsync(string file, CancellationToken ct = default);
+
+    /// <summary>
+    /// Validates the proposal and requires its canonical digest to match
+    /// <paramref name="expectedDigest"/> before importing it, refreshing latest-selection
+    /// ordering, or building a review model.
+    /// </summary>
+    Task<PlanPreviewResult> PreviewExpectedAsync(string file, string expectedDigest, CancellationToken ct = default);
 
     /// <summary>
     /// Applies the plan at <paramref name="file"/>. The implementation recomputes the

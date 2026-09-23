@@ -77,4 +77,7 @@ public static class PlanValidationCodes
     /// ones its journal describes.
     /// </summary>
     public const string SourceReplaced = "plan.source_replaced";
+
+    /// <summary>The file's canonical digest did not match the digest requested for review.</summary>
+    public const string DigestMismatch = "plan.digest_mismatch";
 }

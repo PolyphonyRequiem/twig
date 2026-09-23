@@ -118,6 +118,7 @@ and updates.
 | [Plans and Proposals](plans/README.md) | [`twig plan validate`](plans/plan-validate.md) | Deprecated alias for `proposal validate`. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal apply`](plans/proposal-apply.md) | Apply a proposal after digest confirmation and identity authorization. | stable | `ado` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal preview`](plans/proposal-preview.md) | Preview a proposal — digest, canApply gate, and optional native presentation. | stable | `local` |
+| [Plans and Proposals](plans/README.md) | [`twig proposal latest`](plans/README.md#latest-unresolved-proposal) | Show the latest previewed unresolved proposal in this workspace. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal seed`](plans/proposal-seed.md) | Describe a staged seed's identity and fingerprint for proposal authoring. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal status`](plans/proposal-status.md) | Show journal state for a proposal file, keyed on its digest. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal validate`](plans/proposal-validate.md) | Validate a proposal v1 file without touching ADO. | stable | `none` |

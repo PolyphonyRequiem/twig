@@ -152,6 +152,37 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <inheritdoc />
+    public async Task<PlanLatestResult> LatestAsync(CancellationToken ct = default)
+    {
+        var latest = await _journal.GetLatestUnresolvedAsync(ct).ConfigureAwait(false);
+        if (latest is null)
+            return new PlanLatestResult { Found = false };
+
+        var containment = TryResolveInsideWorkspace(latest.File!);
+        if (containment.Error is { } containmentError)
+            return latest with { Error = containmentError };
+
+        var text = await ReadFileAsync(containment.AbsolutePath!, ct).ConfigureAwait(false);
+        if (text.Error is { } readError)
+            return latest with { Error = readError };
+
+        var parsed = AttachWorkspaceMismatchIfAny(_parser.Parse(text.Contents));
+        if (!parsed.IsValid || parsed.Digest is null)
+        {
+            var issue = parsed.Issues.FirstOrDefault();
+            return latest with { Error = issue?.Message ?? "The latest proposal file is invalid." };
+        }
+        if (!string.Equals(parsed.Digest, latest.Digest, StringComparison.Ordinal))
+            return latest with
+            {
+                Error = $"Latest proposal file '{containment.AbsolutePath}' changed after preview: "
+                    + $"journal digest {latest.Digest} does not match current digest {parsed.Digest}.",
+            };
+
+        return latest with { File = containment.AbsolutePath };
+    }
+
+    /// <inheritdoc />
     public async Task<PlanValidationResult> ValidateAsync(string file, CancellationToken ct = default)
     {
         var containment = TryResolveInsideWorkspace(file);
@@ -167,7 +198,14 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <inheritdoc />
-    public async Task<PlanPreviewResult> PreviewAsync(string file, CancellationToken ct = default)
+    public Task<PlanPreviewResult> PreviewAsync(string file, CancellationToken ct = default)
+        => PreviewCoreAsync(file, expectedDigest: null, ct);
+
+    /// <inheritdoc />
+    public Task<PlanPreviewResult> PreviewExpectedAsync(string file, string expectedDigest, CancellationToken ct = default)
+        => PreviewCoreAsync(file, expectedDigest, ct);
+
+    private async Task<PlanPreviewResult> PreviewCoreAsync(string file, string? expectedDigest, CancellationToken ct)
     {
         var containment = TryResolveInsideWorkspace(file);
         if (containment.Error is { } containmentError)
@@ -178,18 +216,41 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             return InvalidPreview(WholeDocumentError(PlanValidationCodes.JsonInvalid, readError));
 
         var parsed = AttachWorkspaceMismatchIfAny(_parser.Parse(text.Contents));
-        var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
 
         if (!parsed.IsValid || parsed.Plan is null || parsed.CanonicalJson is null || parsed.Digest is null)
+        {
+            var pendingOnInvalid = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
             return new PlanPreviewResult
             {
                 Digest = parsed.Digest,
                 Operations = parsed.Plan?.Operations ?? [],
                 Issues = parsed.Issues,
                 Workspace = parsed.Plan?.Workspace,
-                PendingChanges = pending,
+                PendingChanges = pendingOnInvalid,
                 CanApply = false,
             };
+        }
+        if (expectedDigest is not null
+            && !string.Equals(parsed.Digest, expectedDigest, StringComparison.Ordinal))
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest,
+                Operations = parsed.Plan.Operations,
+                Issues =
+                [
+                    new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.DigestMismatch,
+                        Path = string.Empty,
+                        Message = $"Proposal digest {parsed.Digest} does not match expected digest {expectedDigest}. Refusing preview.",
+                    },
+                ],
+                Workspace = parsed.Plan.Workspace,
+                PendingChanges = [],
+                CanApply = false,
+            };
+
+        var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
 
         // AB#832: refuse before the journal is touched. Importing here would register a SECOND
         // transaction against a path that already carries one — the precise state that makes a

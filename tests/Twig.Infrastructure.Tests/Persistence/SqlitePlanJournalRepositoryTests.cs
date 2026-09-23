@@ -41,6 +41,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         AssertDurableTableExists("proposal_operations");
         AssertDurableIndexExists("idx_proposal_journals_state");
         AssertDurableIndexExists("idx_proposal_journals_source_path_previewed_at_digest");
+        AssertDurableIndexExists("idx_proposal_journals_latest_unresolved");
         AssertDurableIndexExists("idx_proposal_operations_ordinal");
         AssertDurableIndexExists("idx_proposal_operations_state");
     }
@@ -80,14 +81,15 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
     public async Task Import_IsIdempotentBySameDigest()
     {
         var plan = BuildTwoOpPlan();
+        var firstPreviewedAt = Now();
+        var repreviewedAt = firstPreviewedAt.AddMinutes(5);
+        var first = await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", firstPreviewedAt);
+        var again = await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", repreviewedAt);
 
-        var first = await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now());
-        var again = await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/p.json", Now().AddMinutes(5));
-
-        // Same digest -> same row returned, PreviewedAt unchanged. A second import that MOVED
-        // PreviewedAt would erase the moment the caller first saw the plan.
+        // A repeat preview moves selection ordering without erasing the original audit time.
         again.Digest.ShouldBe(first.Digest);
-        again.PreviewedAt.ShouldBe(first.PreviewedAt);
+        again.PreviewedAt.ShouldBe(firstPreviewedAt);
+        again.LastPreviewedAt.ShouldBe(repreviewedAt);
 
         // Exactly one journal row and N op rows — the second call did not insert duplicates.
         CountDurableRows(_store, "proposal_journals", "digest", plan.Digest).ShouldBe(1);
@@ -1376,13 +1378,11 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // observed. The durable store is the only copy ADO does not hold, so a rebuilt
         // table is unrecoverable data loss.
         //
-        // Strategy: open a store (which lands at DurableSchemaVersion 8), then push the
-        // schema BACK to its pre-[8] shape — rename the tables and indexes to their
-        // old names and reset pending.user_version to 7. Seed a realistic header + two
-        // op rows via raw SQL, populating state and every timestamp column, then close.
-        // Reopen: SqliteCacheStore runs migration [8] against real data. Assert the
-        // rows survive under the new names with every column intact, and that GetAsync
-        // still reconstructs the journal through the repository API.
+        // Strategy: open a store at the current durable schema, then push it BACK to its
+        // pre-[8] shape — rename the tables and indexes, remove later audit/selection
+        // columns, and reset pending.user_version to 7. Seed a realistic header + two op
+        // rows via raw SQL, then reopen so migrations [8] through [11] run against real
+        // data. Assert the rows survive and GetAsync reconstructs the journal.
         var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-mig-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
@@ -1409,6 +1409,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals RENAME TO plan_journals;
                         ALTER TABLE pending.proposal_operations RENAME TO plan_operations;
                         DROP INDEX pending.idx_proposal_journals_state;
@@ -1424,6 +1426,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         ALTER TABLE pending.plan_journals DROP COLUMN authorized_at;
                         PRAGMA pending.user_version = 7;
                         """;
+
                     rollback.ExecuteNonQuery();
                 }
 
@@ -1577,14 +1580,14 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         // authorization that never happened, and a reader could never tell the invented
         // record from a real one. The durable store is never dropped, so rows written
         // before authorization was recorded are genuine history — they must survive the
-        // migration with every pre-existing column intact and every new column NULL,
-        // because NULL is what "predates authorization recording" looks like.
+        // migration with all pre-existing columns intact and every authorization column NULL,
+        // because NULL is what "predates authorization recording" looks like. The separate
+        // last-preview column is intentionally backfilled from previewed_at.
         //
-        // Strategy mirrors the [8] test: open a store (which lands at
-        // DurableSchemaVersion 9), drop the five audit columns and reset
-        // pending.user_version to 8 to recreate a genuine pre-[9] database, seed a
-        // realistic header via raw SQL, close, then reopen so migration [9] runs against
-        // real data.
+        // Strategy mirrors the [8] test: open a store at the current durable schema, drop
+        // the [9] audit columns plus the [11] selection timestamp/index, reset
+        // pending.user_version to 8, and seed a historical header. Reopening exercises
+        // migrations [9] through [11], including last-preview timestamp backfill.
         var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-plan-auth-mig-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         var dbPath = Path.Combine(dir, "twig.db");
@@ -1601,6 +1604,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorization_mode;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorizer_identity;
                         ALTER TABLE pending.proposal_journals DROP COLUMN rationale;
@@ -1658,7 +1663,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 using (var header = conn.CreateCommand())
                 {
                     header.CommandText = """
-                        SELECT state, previewed_at, completed_at, canonical_json,
+                        SELECT state, previewed_at, last_previewed_at, completed_at, canonical_json,
                                authorization_mode, authorizer_identity, rationale,
                                review_model_json, authorized_at
                         FROM proposal_journals
@@ -1669,15 +1674,16 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                     r.Read().ShouldBeTrue("the pre-migration header row must survive migration [9]");
                     r.GetString(0).ShouldBe("Verified");
                     DateTimeOffset.Parse(r.GetString(1)).ShouldBe(previewedAt);
-                    DateTimeOffset.Parse(r.GetString(2)).ShouldBe(completedAt);
-                    r.GetString(3).ShouldBe(plan.CanonicalJson);
+                    DateTimeOffset.Parse(r.GetString(2)).ShouldBe(previewedAt);
+                    DateTimeOffset.Parse(r.GetString(3)).ShouldBe(completedAt);
+                    r.GetString(4).ShouldBe(plan.CanonicalJson);
 
                     // Every audit column is NULL — never a backfilled default.
-                    r.IsDBNull(4).ShouldBeTrue();
                     r.IsDBNull(5).ShouldBeTrue();
                     r.IsDBNull(6).ShouldBeTrue();
                     r.IsDBNull(7).ShouldBeTrue();
                     r.IsDBNull(8).ShouldBeTrue();
+                    r.IsDBNull(9).ShouldBeTrue();
                 }
 
                 CountDurableRows(reopened, "proposal_operations", "digest", plan.Digest).ShouldBe(1);
@@ -1948,6 +1954,75 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
 
 
 
+    [Fact]
+    public async Task GetLatestUnresolved_RepreviewMovesSelection_ExcludesOnlyVerifiedAndBreaksTiesByDigest()
+    {
+        var firstTime = DateTimeOffset.Parse("2026-09-01T10:00:00Z");
+        var tiedTime = firstTime.AddMinutes(1);
+        var terminalRepreviewTime = firstTime.AddMinutes(2);
+        var refreshedTime = firstTime.AddMinutes(3);
+        var first = BuildTwoOpPlan();
+        var second = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 831, "expectedRevision": 7,
+                  "fields": { "System.State": "Closed" } }
+              ]
+            }
+            """);
+        var third = PlanFixture.FromSource("""
+            {
+              "version": 1,
+              "workspace": { "organization": "acme", "project": "cache" },
+              "operations": [
+                { "id": "op-1", "kind": "batch", "workItemId": 832, "expectedRevision": 8,
+                  "fields": { "System.State": "Active" } }
+              ]
+            }
+            """);
+
+        await _repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/first.json", firstTime);
+        await _repo.ImportAsync(second, second.CanonicalJson, second.Digest, "/plans/second.json", tiedTime);
+        await _repo.ImportAsync(third, third.CanonicalJson, third.Digest, "/plans/third.json", tiedTime);
+        await _repo.CompleteAsync(third.Digest, PlanOperationState.Failed, tiedTime.AddSeconds(1), "failed");
+
+        var tieWinner = new[] { second.Digest, third.Digest }.OrderBy(digest => digest, StringComparer.Ordinal).First();
+        (await _repo.GetLatestUnresolvedAsync())!.Digest.ShouldBe(tieWinner);
+
+        await _repo.ImportAsync(third, third.CanonicalJson, third.Digest, "/plans/third.json", terminalRepreviewTime);
+        var terminalRepreview = (await _repo.GetAsync(third.Digest)).ShouldNotBeNull();
+        terminalRepreview!.PreviewedAt.ShouldBe(tiedTime);
+        terminalRepreview.LastPreviewedAt.ShouldBe(terminalRepreviewTime);
+        terminalRepreview.State.ShouldBe(PlanOperationState.Failed);
+        (await _repo.GetLatestUnresolvedAsync())!.Digest.ShouldBe(third.Digest);
+
+        await _repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/first.json", refreshedTime);
+        var moved = (await _repo.GetLatestUnresolvedAsync()).ShouldNotBeNull();
+        moved!.Digest.ShouldBe(first.Digest);
+        moved.State.ShouldBe(PlanOperationState.Planned);
+
+        var repreviewed = (await _repo.GetAsync(first.Digest)).ShouldNotBeNull();
+        repreviewed!.PreviewedAt.ShouldBe(firstTime);
+        repreviewed.LastPreviewedAt.ShouldBe(refreshedTime);
+        repreviewed.State.ShouldBe(PlanOperationState.Planned);
+
+        // An earlier concurrent preview may finish after the newer one.
+        await _repo.ImportAsync(first, first.CanonicalJson, first.Digest, "/plans/first.json", firstTime.AddSeconds(1));
+        (await _repo.GetAsync(first.Digest))!.LastPreviewedAt.ShouldBe(refreshedTime);
+        (await _repo.GetLatestUnresolvedAsync())!.Digest.ShouldBe(first.Digest);
+
+        await _repo.CompleteAsync(first.Digest, PlanOperationState.Verified, refreshedTime.AddSeconds(1), null);
+        var unresolved = (await _repo.GetLatestUnresolvedAsync()).ShouldNotBeNull();
+        unresolved!.Digest.ShouldBe(third.Digest);
+        unresolved.State.ShouldBe(PlanOperationState.Failed);
+
+        using var emptyStore = new SqliteCacheStore("Data Source=:memory:");
+        var emptyRepo = new SqlitePlanJournalRepository(emptyStore);
+        (await emptyRepo.GetLatestUnresolvedAsync()).ShouldBeNull();
+    }
+
     private static PlanFixture BuildTwoOpPlan()
     {
         // Real plan v1 canonical vocabulary — batch, add-link, etc. — round-tripped through
@@ -2083,10 +2158,10 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         cmd.CommandText = """
             INSERT INTO proposal_journals
                 (digest, schema_version, organization, project, source_path,
-                 canonical_json, state, previewed_at, confirmed_at, completed_at, error)
+                 canonical_json, state, previewed_at, last_previewed_at, confirmed_at, completed_at, error)
             VALUES
                 (@digest, 1, 'seeded', 'seeded', '/seeded',
-                 @canonical, 'Planned', @previewedAt, NULL, NULL, NULL);
+                 @canonical, 'Planned', @previewedAt, @previewedAt, NULL, NULL, NULL);
             """;
         cmd.Parameters.AddWithValue("@digest", digest);
         cmd.Parameters.AddWithValue("@canonical", canonicalJson);

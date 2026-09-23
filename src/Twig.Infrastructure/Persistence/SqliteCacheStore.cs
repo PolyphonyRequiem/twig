@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 10;
+    internal const int DurableSchemaVersion = 11;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -624,6 +624,18 @@ public sealed class SqliteCacheStore : IDisposable
         [10] = $"""
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_journals_source_path_previewed_at_digest
                 ON proposal_journals(source_path COLLATE {SqlitePlanJournalRepository.SourcePathCollationName}, previewed_at, digest);
+            """,
+
+        // Re-preview ordering is separate from the original audit timestamp. Historical rows
+        // inherit their first-preview time; future idempotent imports refresh this column.
+        [11] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN last_previewed_at TEXT;
+            UPDATE {DurableSchema}.proposal_journals
+                SET last_previewed_at = previewed_at
+                WHERE last_previewed_at IS NULL;
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_journals_latest_unresolved
+                ON proposal_journals(last_previewed_at DESC, digest ASC)
+                WHERE state <> 'Verified';
             """,
 
     };

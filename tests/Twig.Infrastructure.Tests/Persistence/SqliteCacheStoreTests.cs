@@ -793,9 +793,9 @@ public class SqliteCacheStoreTests
                 write.CommandText = """
                     INSERT INTO pending.proposal_journals
                         (digest, schema_version, organization, project, source_path,
-                         canonical_json, state, previewed_at)
+                         canonical_json, state, previewed_at, last_previewed_at)
                         VALUES ('digest-v6', 1, 'org', 'proj', '/tmp/plan.yaml',
-                                '{}', 'Planned', '2026-01-01T00:00:00Z');
+                                '{}', 'Planned', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
                     INSERT INTO pending.proposal_operations
                         (digest, ordinal, op_id, kind, state, request_json)
                         VALUES ('digest-v6', 0, 'op-1', 'CreateWorkItem', 'Planned', '{}');

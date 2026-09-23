@@ -72,6 +72,8 @@ twig proposal preview --file <absolute-file> -o json --include-rendering --width
 
 The envelope keeps the existing digest, `canApply`, issues, operations, pending changes and `reviewModel`; the additive presentation is version 1 and contains brief/full frames from the same single observation. Hosts must retain the structured result and exact workspace/digest, not parse ANSI. The interactive `twig_proposal_render({file,workspace?,full?})` tool switches retained frames without another preview. Closing or viewing details is never approval or apply. Feature support is proven by response validation; no minimum native version is pinned here.
 
+OMP shows the retained native frames inside a rounded, scrollable, theme-colored **read-only** window. Its header and controls stay visible in narrow terminals; the native preview is sized for the window's inner width instead of wrapping a second time. The window adds no new approval action or rendering authority.
+
 If the OMP companion or tool is unavailable before a call, use the ordinary complete structured/plain review and disclose the fallback; a direct CLI preview is allowed only for that pre-call fallback. If a call begins but its response is incompatible, failed or truncated, stop the affected authorization and report the failure; do not recover by ANSI parsing, another preview, tree-set, sync or apply.
 
 ### Review density and observations

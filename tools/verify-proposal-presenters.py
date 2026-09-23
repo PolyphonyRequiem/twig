@@ -26,10 +26,8 @@ def check_terminal(command, workspace, env, root):
     import time
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 50, 100, 0, 0))
-    terminal_env = dict(env, TERM='xterm-256color', COLORTERM='truecolor')
-    terminal_env.pop('NO_COLOR', None)
-    proc = subprocess.Popen(command + ['proposal', 'preview', '--file', 'proposal.json', '--interactive'],
-                            cwd=workspace, env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    proc = subprocess.Popen(command + ['proposal', 'preview', '--file', 'proposal.json', '--interactive', '--color', 'always', '--width', '100'],
+                            cwd=workspace, env=env, stdin=slave, stdout=slave, stderr=slave)
     os.close(slave)
     captured = bytearray()
     sent = 0
@@ -160,6 +158,25 @@ def main():
     minimal = run('preview-minimal', preview + ['-o', 'minimal', '--full']).stdout
     minimal_model = next(line.partition('=')[2] for line in minimal.splitlines() if line.startswith('reviewModel='))
     assert json.loads(minimal_model) == model, 'Minimal preview lost semantic model coverage'
+    # An OMP presenter receives the semantic review and both native frames from
+    # one CLI invocation. Check the actual process output, not a test-only renderer.
+    native = json.loads(run('preview-native', preview + [
+        '-o', 'json', '--include-rendering', '--width', '100', '--color', 'always',
+    ]).stdout)
+    assert native['digest'] == model['digest'] == native['reviewModel']['digest']
+    assert native['reviewModel'] == model
+    presentation = native['presentation']
+    assert presentation['version'] == 1 and presentation['format'] == 'ansi' and presentation['width'] == 100
+    assert '\x1b[' in presentation['brief'] and '\x1b[' in presentation['full']
+    assert 'FINALBODYMARKER' not in presentation['brief'] and 'FINALBODYMARKER' in presentation['full']
+    for ident in range(101, 107):
+        assert f'#{ident}' in presentation['brief'] and f'#{ident}' in presentation['full']
+    assert '\x1b[?1049h' not in presentation['brief']
+    plain = json.loads(run('preview-native-plain', preview + [
+        '-o', 'json', '--include-rendering', '--width', '40', '--color', 'never',
+    ]).stdout)['presentation']
+    assert plain['format'] == 'text' and '\x1b' not in plain['brief']
+    assert 'FINALBODYMARKER' in plain['full']
     run('noninteractive-refusal', preview + ['--interactive'], expected=2)
     terminal_checked = check_terminal(command, workspace, env, root) if os.name == 'posix' else False
     # Same cached item, mismatched expected revision: never manufacture the before baseline.

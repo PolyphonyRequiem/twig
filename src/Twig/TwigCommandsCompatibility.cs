@@ -6,7 +6,7 @@ using Twig.Formatters;
 /// <remarks>
 /// ConsoleAppFramework 5.7.13 discovers declared public instance methods via Roslyn
 /// GetMembers(), with no method-ignore attribute. Inherited methods are not registered.
-/// Keep the legacy overload here so only TwigCommands' five-argument preview handler
+/// Keep the legacy overload here so only TwigCommands' declared preview handler
 /// becomes a command, without introducing an accidental plan-preview verb.
 /// </remarks>
 public abstract class TwigCommandsCompatibility

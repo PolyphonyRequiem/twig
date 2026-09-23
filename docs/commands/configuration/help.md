@@ -37,7 +37,10 @@ twig --skill [operations|changes|presentation]
   aliases. Unknown commands fail with a short discovery hint rather than dumping it.
 - `--skill` prints the executable-matched canonical `twig` foundation and package
   identity. An optional `operations`, `changes`, or `presentation` topic prints
-  that bundled conditional reference. See [skill delivery](../../features/skills.md).
+  that bundled conditional reference. The `presentation` topic explains retained-
+  observation OMP review and the separately supplied `twig-omp-presenter`
+  companion; select companions through `twig skills configure`, not help. See
+  [skill delivery](../../features/skills.md).
 - Help exits before workspace services, native database initialization, self-update
   cleanup and companion downloads. Supplying work-item arguments with `--help`
   does not execute that operation. A help token following `--` remains argument data.

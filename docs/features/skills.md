@@ -33,6 +33,29 @@ The identity includes the full assembly version/build and a content digest.
 `status` reports `stale` when that identity differs. `install` is idempotent only
 for a matching unedited installation; `update` is the explicit version-change
 path. Neither ordinary Twig use nor `--skill` modifies installed guidance.
+
+## OMP proposal presenter companion
+
+The first-party OMP package exposes the `twig-omp-presenter` companion from its conventional `skills/twig-omp-presenter/SKILL.md` directory (the source checkout path is `integrations/omp/skills/twig-omp-presenter/SKILL.md`). Link the real package through OMP's normal plugin manager; for a local tarball, extract it first and link the package directory. This package is not currently published; use the local link flow only.
+
+```sh
+omp plugin link /path/to/twig/integrations/omp
+# after extracting a local tarball:
+omp plugin link /path/to/unpacked/omp-proposal-presenter
+```
+
+Use the first form for a source checkout and the second for an extracted local package directory. Both are ordinary OMP plugin-manager link operations; no npm availability is implied.
+
+After OMP has loaded the package, select its package-discovered companion without copying a second skill:
+
+```sh
+twig skills configure --provider omp --target /path/to/twig-skills \
+  --scenario terminal --companion twig-omp-presenter \
+  --scan-root /path/to/twig/integrations/omp/skills
+```
+
+For an extracted tarball, point `--scan-root` at its `skills` directory. Do not use `twig skills add` for this package: duplicate names can shadow rather than compose. `--scan-root` inspects the package's conventional flat skills directory; OMP plugin discovery remains the loading mechanism. Selection is separate from installation, and Twig does not rewrite host settings. Confirm that OMP loaded the linked package and selected companion before using retained-observation review.
+
 ## Compact consumer guidance
 
 Compact projections are opt-in, not a replacement for the full route. Preserve target identity, freshness, completeness, and errors, and keep a documented full-output path available whenever the caller does not ask for projection. Bind the executable identity (absolute path plus digest), workspace, and organization/project explicitly before comparing compact and full reads. Help reuse is version-keyed to that executable identity, so re-read or reinstall when the executable changes. Never parse truncated presentation text as JSON; parse the command's actual machine output.

@@ -364,7 +364,7 @@ a forensics exercise.
 ## See also
 
 - [`proposal validate`](../commands/plans/proposal-validate.md) — parse, canonicalize, digest.
-- [`proposal preview`](../commands/plans/proposal-preview.md) — import journal, snapshot pending, evaluate `canApply`.
+- [`proposal preview`](../commands/plans/proposal-preview.md) — import journal, snapshot pending, evaluate `canApply`, and optionally capture native version-1 presentation frames for a rich host.
 - [`proposal apply`](../commands/plans/proposal-apply.md) — digest-gated, authorization-bound apply.
 - [`proposal status`](../commands/plans/proposal-status.md) — read the journal row for a proposal file.
 - [`proposal seed`](../commands/plans/proposal-seed.md) — describe a staged seed for proposal authoring.

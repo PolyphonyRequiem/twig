@@ -1,7 +1,7 @@
 ---
 command: proposal preview
 group: plans
-summary: Preview a proposal — journal import, pending snapshot, digest, and canApply gate.
+summary: Preview a proposal — digest, canApply gate, and optional native presentation.
 stability: stable
 mutates: local
 ---
@@ -17,7 +17,7 @@ journal row is a write into the workspace's per-proposal store.
 ## Synopsis
 
 ```
-twig proposal preview --file <path> [--full] [--interactive] [-o human|json|minimal]
+twig proposal preview --file <path> [--full] [--interactive] [--include-rendering --width <columns> --color <always|never>] [-o human|json|minimal]
 ```
 
 ## Arguments
@@ -33,9 +33,12 @@ twig proposal preview --file <path> [--full] [--interactive] [-o human|json|mini
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
-|`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
+|`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`. The rendering opt-in requires `json`.|
 |`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
 |`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|
+|`--include-rendering`|flag|`false`|With JSON, include presentation version 1 (`brief` and `full`) rendered by native Twig from the same observation.|
+|`--width`|integer|`unbounded / 120`|Presentation width; omitted human output is unbounded, while an included JSON frame defaults to 120. Explicit values are inclusive 20..400.|
+|`--color`|string|`never`|Presentation color mode: `always` or `never`; OMP requests `always` unless `NO_COLOR` requires `never`.|
 
 ## Behavior
 
@@ -58,6 +61,18 @@ including authorization choices, for hosts and separate apply authorization.
 - **`canApply` gate.** True iff the proposal is valid, its workspace matches
   the active config, no pending row exists, and the journal was imported
   successfully. False otherwise, and the reason is on `Issues`.
+
+### Native presentation for OMP
+
+The OMP presenter's single `twig_proposal_render` call invokes the native presentation envelope with this exact child-process request; do not run the CLI command separately before or after the tool:
+
+```sh
+twig proposal preview --file <absolute-file> -o json --include-rendering --width 100 --color always
+```
+
+The envelope keeps the existing digest, `canApply`, issues, operations, pending changes and `reviewModel`; the additive presentation is version 1 and contains brief/full frames from the same single observation. Hosts must retain the structured result and exact workspace/digest, not parse ANSI. The interactive `twig_proposal_render({file,workspace?,full?})` tool switches retained frames without another preview. Closing or viewing details is never approval or apply. Feature support is proven by response validation; no minimum native version is pinned here.
+
+If the OMP companion or tool is unavailable before a call, use the ordinary complete structured/plain review and disclose the fallback; a direct CLI preview is allowed only for that pre-call fallback. If a call begins but its response is incompatible, failed or truncated, stop the affected authorization and report the failure; do not recover by ANSI parsing, another preview, tree-set, sync or apply.
 
 ### Review density and observations
 
@@ -84,7 +99,9 @@ including authorization choices, for hosts and separate apply authorization.
   none refresh, authorize or apply. Without the flag, preview never prompts.
 - Terminal output uses Twig type badges and configured icons. State text remains
   neutral on unknown terminal backgrounds; old/new colors have measured contrast
-  against the owned field-block background. Pipes and capture writers stay plain.
+  against the owned field-block background. With the default `--color never`,
+  pipes and capture writers stay plain; `--color always` keeps ANSI inside JSON
+  presentation frame strings only.
 
 ## Examples
 
@@ -102,13 +119,13 @@ Machine preview for a host presenter:
 twig proposal preview --file .twig/proposals/close-1234.json -o json
 ```
 
-The envelope includes `digest`, `canApply`, `pendingChanges`, `operations`,
-`issues`, and `reviewModel`. Hosts consume `reviewModel` rather than parsing
-human layout. Its additive model-version-1 enrichment includes `contextItems`,
-item URLs/parents/revisions, staged seed display metadata, and consequence
-`fieldLabel`, `fieldType`, `before`, and `textChange` observations. See the
-[shared review spec](../../specs/shared-proposal-review.md). Unknown model
-versions must be refused rather than partially presented.
+For the OMP rendered route, the tool's one native child-process request is shown as an implementation reference (call `twig_proposal_render` once, not this command separately):
+
+```bash
+twig proposal preview --file /absolute/workspace/.twig/proposals/close-1234.json -o json --include-rendering --width 100 --color always
+```
+
+The envelope includes `digest`, `canApply`, `pendingChanges`, `operations`, `issues`, and `reviewModel`. With `--include-rendering`, it adds presentation version 1 (`brief` and `full`) from the same observation. Hosts consume the structured model and retained frames rather than parsing human layout or ANSI. See the [presentation reference](../../../.github/skills/twig/references/presentation.md) for the OMP handoff and fallback rules. Unknown model or presentation versions must be refused rather than partially presented.
 
 ## Exit codes and failure modes
 
@@ -118,6 +135,7 @@ versions must be refused rather than partially presented.
 |Proposal invalid — validation issues raised.|`1`|
 |`--file` omitted, or file path could not be resolved.|`2`|
 |`--interactive` with non-human output or redirected input/output.|`2` (before preview or journal import)|
+|Invalid rendering options — non-JSON output with `--include-rendering`, width outside 20..400, or unsupported color value.|`2`|
 
 ## See also
 

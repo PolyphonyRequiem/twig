@@ -70,8 +70,26 @@ public sealed class PlanCommand(
     internal TextReader ReviewInput { get; init; } = Console.In;
 
     /// <summary>Preview with explicit density and an optional review-only line loop. Never applies.</summary>
-    public async Task<int> PreviewAsync(string? file, string outputFormat, bool full, bool interactive, CancellationToken ct)
+    public async Task<int> PreviewAsync(
+        string? file, string outputFormat, bool full, bool interactive, CancellationToken ct,
+        bool includeRendering = false, int? width = null, string color = "never")
     {
+        color = color.ToLowerInvariant();
+        if (color is not ("always" or "never"))
+        {
+            WriteUsage("--color must be always or never.", outputFormat);
+            return 2;
+        }
+        if (width is < 20 or > 400)
+        {
+            WriteUsage("--width must be between 20 and 400 columns.", outputFormat);
+            return 2;
+        }
+        if (includeRendering && OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact"))
+        {
+            WriteUsage("--include-rendering requires JSON output; it returns brief and full frames from one review.", outputFormat);
+            return 2;
+        }
         if (interactive && (!string.Equals(outputFormat, "human", StringComparison.OrdinalIgnoreCase) || !IsReviewTerminal()))
         {
             WriteUsage("--interactive requires human output and terminal input/output; use --full for noninteractive details.", outputFormat);
@@ -84,7 +102,7 @@ public sealed class PlanCommand(
         }
 
         var result = await lifecycle.PreviewAsync(resolved, ct);
-        RenderPreview(result, outputFormat, full);
+        RenderPreview(result, outputFormat, full, includeRendering, width, color);
         if (interactive && result.ReviewModel is { } model && ChangeProposalReviewRenderer.IsSupported(model.ModelVersion))
         {
             while (true)
@@ -98,8 +116,8 @@ public sealed class PlanCommand(
                     break;
                 }
                 var option = answer.Trim().ToLowerInvariant();
-                if (option is "details" or "d") RenderPreview(result, outputFormat, true);
-                else if (option is "back" or "b") RenderPreview(result, outputFormat, false);
+                if (option is "details" or "d") RenderPreview(result, outputFormat, true, false, width, color);
+                else if (option is "back" or "b") RenderPreview(result, outputFormat, false, false, width, color);
                 else _stdout.WriteLine("Choose Details, Back, or Cancel. No authorization or apply occurs here.");
             }
         }
@@ -299,8 +317,16 @@ public sealed class PlanCommand(
 
     // ── preview ───────────────────────────────────────────────────────
 
-    private void RenderPreview(PlanPreviewResult result, string outputFormat, bool full)
+    private void RenderPreview(
+        PlanPreviewResult result, string outputFormat, bool full, bool includeRendering, int? width, string color)
     {
+        if (!IsJsonOutput(outputFormat) && OutputFormats.Normalize(outputFormat) != "minimal")
+        {
+            _rendererFactory.GetHumanRenderer(_stdout, width, color).Render(
+                new RenderTree.RenderTree([new RenderNode.Section(null, BuildPreviewHumanLines(result, full))]));
+            return;
+        }
+
         var fields = new List<DocumentField>
         {
             new("digest", new RenderNode.KeyValue("digest", DigestCell(result.Digest))),
@@ -315,10 +341,32 @@ public sealed class PlanCommand(
             // purely additive key.
             new("reviewModel", new RenderNode.KeyValue("reviewModel", ReviewModelCell(result.ReviewModel))),
         };
-        var human = new RenderNode.Section(null, BuildPreviewHumanLines(result, full));
+        if (includeRendering)
+            fields.Add(new("presentation", new RenderNode.KeyValue("presentation", PresentationCell(result, width ?? 120, color))));
         var doc = new RenderNode.Document("proposalPreview", fields);
-        var tree = new RenderTree.RenderTree([WrapHumanOverride(doc, human, outputFormat)]);
+        var tree = new RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
+    }
+
+    private RenderCell PresentationCell(PlanPreviewResult result, int width, string color)
+    {
+        if (result.ReviewModel is not { } model || !ChangeProposalReviewRenderer.IsSupported(model.ModelVersion))
+            return new RenderCell("(none)", new RenderValue.Null());
+
+        // Both densities and the semantic payload share the same captured result. Native
+        // rendering remains the only layout authority; a host only selects a retained frame.
+        var brief = _rendererFactory.CaptureHuman(
+            new RenderTree.RenderTree([new RenderNode.Section(null, BuildPreviewHumanLines(result, false))]), width, color);
+        var full = _rendererFactory.CaptureHuman(
+            new RenderTree.RenderTree([new RenderNode.Section(null, BuildPreviewHumanLines(result, true))]), width, color);
+        return new RenderCell("native review", new RenderValue.Object(new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["version"] = RenderCell.Integer(1),
+            ["format"] = RenderCell.String(brief.Ansi ? "ansi" : "text"),
+            ["width"] = RenderCell.Integer(width),
+            ["brief"] = RenderCell.String(brief.Text),
+            ["full"] = RenderCell.String(full.Text),
+        }));
     }
 
     /// <summary>

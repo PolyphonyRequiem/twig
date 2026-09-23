@@ -512,7 +512,7 @@ internal static class ExceptionHandler
 public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompatibility
 {
     protected override Task<int> PreviewLegacyAsync(string? file, string output, CancellationToken ct)
-        => PlanPreview(file, output, false, false, ct);
+        => PlanPreview(file, output, full: false, interactive: false, ct: ct);
 
     /// <summary>
     /// Splits <c>seed chain</c>'s comma-separated titles into the array the command takes.
@@ -1411,9 +1411,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="full">Show exact full description bodies instead of brief effects.</param>
     /// <param name="interactive">Opt into a terminal-only Details/Back/Cancel review loop. Never applies.</param>
+    /// <param name="includeRendering">Add presentation version 1 with native brief/full frames to JSON output, captured with the same review model. Never applies.</param>
+    /// <param name="width">Render width in columns, 20–400. Defaults to 120 for included frames; human output remains unbounded unless specified.</param>
+    /// <param name="color">Explicit color policy for human output or included frames: always (ANSI truecolor) or never (plain). Default never; no terminal/environment detection.</param>
     [Command("proposal preview|plan preview")]
-    public async Task<int> PlanPreview(string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false, bool interactive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<PlanCommand>().PreviewAsync(file, output, full, interactive, ct);
+    public async Task<int> PlanPreview(
+        string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false,
+        bool interactive = false, bool includeRendering = false, int? width = null, string color = "never",
+        CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().PreviewAsync(
+            file, output, full, interactive, ct, includeRendering, width, color);
 
     /// <summary>Apply a proposal. Requires --confirm &lt;digest&gt; matching the current file digest exactly, and --authorize &lt;identity&gt; recording who signed it off. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
     /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>

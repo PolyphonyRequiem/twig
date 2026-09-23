@@ -299,7 +299,9 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
         var selected = await BuildService().LatestAsync();
         selected.Found.ShouldBeTrue();
-        selected.File.ShouldBe(latestFile);
+        Path.IsPathFullyQualified(selected.File!).ShouldBeTrue();
+        Path.GetFileName(selected.File).ShouldBe("latest.json");
+        (await File.ReadAllTextAsync(selected.File!)).ShouldBe(await File.ReadAllTextAsync(latestFile));
         selected.Digest.ShouldBe(latest.Digest);
 
         await File.WriteAllTextAsync(latestFile, BatchOnlyPlan(workItemId: 816, expectedRev: 2, state: "Closed"));

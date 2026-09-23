@@ -26,6 +26,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(DisplayConfig))]
+[JsonSerializable(typeof(GlobalDisplayPreferences))]
 [JsonSerializable(typeof(DisplayColumnsConfig))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]

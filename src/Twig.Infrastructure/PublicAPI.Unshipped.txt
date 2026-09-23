@@ -6,6 +6,17 @@ Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.RelationType.get
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.SourceId.get -> int
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.TargetId.get -> int
 Twig.Infrastructure.Config.DisplayConfig.ResolveIconMode() -> string!
+Twig.Infrastructure.Config.DisplayConfig.ClearIconsOverride() -> void
+Twig.Infrastructure.Config.DisplayConfig.IconsOverride.get -> string?
+Twig.Infrastructure.Config.DisplayConfig.IconsOverride.set -> void
+static Twig.Infrastructure.Config.DisplayConfig.NormalizeIcons(string! value) -> string?
+Twig.Infrastructure.Config.DisplayConfig.UseGlobalIcons(string? icons) -> void
+Twig.Infrastructure.Config.GlobalDisplayPreferences
+Twig.Infrastructure.Config.GlobalDisplayPreferences.GlobalDisplayPreferences() -> void
+Twig.Infrastructure.Config.GlobalDisplayPreferences.Icons.get -> string?
+Twig.Infrastructure.Config.GlobalDisplayPreferences.Icons.set -> void
+static Twig.Infrastructure.Config.GlobalDisplayPreferences.Load(string! path) -> Twig.Infrastructure.Config.GlobalDisplayPreferences!
+Twig.Infrastructure.Config.GlobalDisplayPreferences.SaveAsync(string! path, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Config.PolicyConfig
 Twig.Infrastructure.Config.PolicyConfig.PolicyConfig() -> void
 Twig.Infrastructure.Config.PolicyConfig.PrimaryScopeTypes.get -> System.Collections.Generic.List<string!>?
@@ -30,6 +41,7 @@ Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.C
 Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.Profile.get -> Twig.Infrastructure.Config.ProfilePinConfig?
 Twig.Infrastructure.Config.TwigConfiguration.Profile.set -> void
+Twig.Infrastructure.Config.TwigPaths.GlobalDisplayPath.get -> string!
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void
 Twig.Infrastructure.Config.TwigRepoConfig.Profile.get -> Twig.Infrastructure.Config.ProfilePinConfig?

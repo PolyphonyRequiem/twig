@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Shouldly;
 using Twig.Commands;
 using Twig.Formatters;
@@ -18,7 +19,7 @@ public class ConfigCommandTests : IDisposable
         Directory.CreateDirectory(_testDir);
         var twigDir = Path.Combine(_testDir, ".twig");
         Directory.CreateDirectory(twigDir);
-        _paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+        _paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), _testDir, Path.Combine(_testDir, "global-display.json"));
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
     }
 
@@ -120,6 +121,82 @@ public class ConfigCommandTests : IDisposable
         result.ShouldBe(0);
         config.Display.Icons.ShouldBe("nerd");
         File.Exists(_paths.ConfigPath).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Config_GlobalIconsPreference_AppliesAcrossWorkspacesWithoutWritingEitherWorkspace()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        (await cmd.ExecuteAsync("display.icons", "nerd", global: true)).ShouldBe(0);
+
+        config.Display.Icons.ShouldBe("nerd");
+        TwigConfiguration.LoadSplit(_paths).Display.Icons.ShouldBe("nerd");
+        File.Exists(_paths.GlobalDisplayPath).ShouldBeTrue();
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
+        File.Exists(_paths.RepoConfigPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Config_UnsetWorkspaceIcons_InheritsGlobalPreference()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+        (await cmd.ExecuteAsync("display.icons", "nerd", global: true)).ShouldBe(0);
+        (await cmd.ExecuteAsync("display.icons", "unicode")).ShouldBe(0);
+        TwigConfiguration.LoadSplit(_paths).Display.Icons.ShouldBe("unicode");
+
+        (await cmd.ExecuteAsync("display.icons", unset: true)).ShouldBe(0);
+
+        TwigConfiguration.LoadSplit(_paths).Display.Icons.ShouldBe("nerd");
+        (await File.ReadAllTextAsync(_paths.ConfigPath)).ShouldNotContain("\"icons\"");
+    }
+
+    [Fact]
+    public async Task Config_GlobalFlag_RejectsNonDisplaySettings()
+    {
+        var cmd = new ConfigCommand(new TwigConfiguration(), _paths, _formatterFactory);
+
+        (await cmd.ExecuteAsync("auth.method", "pat", global: true)).ShouldBe(1);
+        File.Exists(_paths.GlobalDisplayPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GlobalIconsRead_WorksBeforeAnyWorkspaceIsInitialized()
+    {
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var assembly = Path.Combine(root, "src", "Twig", "bin", configuration, "net11.0", "twig.dll");
+        File.Exists(assembly).ShouldBeTrue();
+        var scratch = Directory.CreateTempSubdirectory("twig-global-display-cli-");
+        try
+        {
+            var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+            {
+                WorkingDirectory = scratch.FullName,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            foreach (var argument in new[] { assembly, "config", "display.icons", "--global", "-o", "json" })
+                start.ArgumentList.Add(argument);
+            start.Environment.Remove("TWIG_TELEMETRY_ENDPOINT");
+            using var process = Process.Start(start);
+            process.ShouldNotBeNull();
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+
+            process.ExitCode.ShouldBe(0);
+            (await stdout).ShouldContain("\"key\": \"display.icons\"");
+            (await stderr).ShouldNotContain("No twig workspace found");
+            File.Exists(Path.Combine(scratch.FullName, ".twig", "config")).ShouldBeFalse();
+        }
+        finally { scratch.Delete(recursive: true); }
     }
 
     // ── areas.paths config path ──

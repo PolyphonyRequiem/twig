@@ -1790,7 +1790,42 @@ public class TwigConfigurationTests : IDisposable
         Directory.CreateDirectory(twigDir);
         var configPath = Path.Combine(twigDir, "config");
         var dbPath = Path.Combine(twigDir, "twig.db");
-        return new TwigPaths(twigDir, configPath, dbPath);
+        return new TwigPaths(twigDir, configPath, dbPath, globalDisplayPath: Path.Combine(_tempDir, "global-display.json"), startDir: root);
+    }
+
+    [Fact]
+    public async Task GlobalIconsFallback_PreservesExplicitWorkspaceOverrideAndNeverLeaksIntoSavedWorkspace()
+    {
+        var paths = MakeSplitPaths("global-icons");
+        await new TwigConfiguration { Organization = "org", Project = "project" }.SaveRepoAsync(paths.RepoConfigPath);
+        await new GlobalDisplayPreferences { Icons = "nerd" }.SaveAsync(paths.GlobalDisplayPath);
+
+        var inherited = TwigConfiguration.LoadSplit(paths);
+        inherited.Display.Icons.ShouldBe("nerd");
+        (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("nerd");
+        await inherited.SaveUserAsync(paths.ConfigPath);
+        (await File.ReadAllTextAsync(paths.ConfigPath)).ShouldNotContain("\"icons\"");
+
+        inherited.SetValue("display.icons", "auto").ShouldBeTrue();
+        await inherited.SaveUserAsync(paths.ConfigPath);
+        (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("auto");
+
+        inherited.Display.ClearIconsOverride();
+        await inherited.SaveUserAsync(paths.ConfigPath);
+        (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("nerd");
+    }
+
+    [Fact]
+    public async Task LegacyWorkspaceIconOverride_WinsOverGlobalFallback()
+    {
+        var paths = MakeSplitPaths("legacy-global-icons");
+        await File.WriteAllTextAsync(paths.ConfigPath, """{"organization":"legacy","display":{"icons":"unicode"}}""");
+        await new GlobalDisplayPreferences { Icons = "nerd" }.SaveAsync(paths.GlobalDisplayPath);
+
+        var loaded = TwigConfiguration.LoadSplit(paths);
+        loaded.IsLegacyMode.ShouldBeTrue();
+        loaded.Display.Icons.ShouldBe("unicode");
+        (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("unicode");
     }
 
     [Fact]

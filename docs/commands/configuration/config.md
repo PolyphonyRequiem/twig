@@ -8,16 +8,16 @@ mutates: local
 
 # `twig config`
 
-Read or write a single key on the split Twig configuration. In read mode the current value
-is emitted; in write mode the value is persisted to the appropriate side of the split —
-repo coordinates land in `twig.json`, per-user preferences land in `.twig/config` — and
-`display.*` writes also refresh the Oh My Posh prompt-state cache so the shell segment
-updates without a manual `twig sync`.
+Read or write a single key on the split Twig configuration. By default, repo coordinates
+land in `twig.json` and workspace-specific user preferences in `.twig/config`. The
+`--global` option is limited to `display.icons` and stores a home-wide display default
+in `~/.twig/display.json`; it never stores authentication, identity, tracker coordinates,
+or Bench state.
 
 ## Synopsis
 
 ```
-twig config <key> [<value>] [-o|--output human|json|minimal]
+twig config <key> [<value>] [--global] [--unset] [-o|--output human|json|minimal]
 ```
 
 ## Arguments
@@ -34,18 +34,20 @@ twig config <key> [<value>] [-o|--output human|json|minimal]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o`, `--output`|`human` \| `json` \| `minimal`|`human`|Output format.|
+|`--global`|flag|`false`|Read or write the home-wide `display.icons` default only.|
+|`--unset`|flag|`false`|Clear the selected workspace or global icon preference; omit `<value>`.|
 
 ## Behavior
 
-- Read mode (`value` omitted) resolves the key against the split configuration and prints the
-  current value. Unknown keys are rejected with exit code `1` and a stderr error
-  (`src/Twig/Commands/ConfigCommand.cs:40-44`).
-- Write mode calls `TwigConfiguration.SetValue`; on success the whole configuration is saved
-  through `SaveSplitAsync` which writes both `twig.json` and `.twig/config` atomically
-  (`src/Twig/Commands/ConfigCommand.cs:50-57`).
-- A key prefixed with `display.` additionally invokes `IPromptStateWriter.WritePromptStateAsync`
-  so the Oh My Posh segment is refreshed without a separate command
-  (`src/Twig/Commands/ConfigCommand.cs:59-60`).
+- Normal read mode returns the effective value; a workspace icon override wins over the
+  global default, which wins over the built-in `auto` default. An explicit workspace
+  `auto` is an override, not an absent setting.
+- Normal write mode calls `TwigConfiguration.SetValue` and saves workspace configuration
+  through `SaveSplitAsync`. A global write changes only `~/.twig/display.json`, and
+  `--unset` removes the selected icon override to inherit the next layer. `--global`
+  rejects every key except `display.icons`; neither mode stores global credentials.
+- Workspace display writes refresh the Oh My Posh prompt-state cache. Global changes
+  take effect the next time Twig loads configuration, even outside a workspace.
 - Empty or whitespace-only keys exit `2` with a usage error
   (`src/Twig/Commands/ConfigCommand.cs:30-34`).
 - Machine formats emit records under the tags `configValue` (read) and `configSet` (write)
@@ -54,8 +56,9 @@ twig config <key> [<value>] [-o|--output human|json|minimal]
 
 ### Icon display
 
-`display.icons` defaults to `auto`. Explicit `nerd` and `unicode` preferences
-always win and existing saved preferences are preserved.
+`display.icons` falls back to `auto` when neither the workspace nor the global
+display file specifies a value. Explicit `nerd`, `unicode`, or `auto` workspace values
+win over the global preference. Existing saved preferences are preserved.
 
 Automatic mode uses Nerd Font glyphs for terminals with documented bundled
 support: [Kitty](https://sw.kovidgoyal.net/kitty/faq/#kitty-is-not-able-to-use-my-favorite-font),
@@ -67,9 +70,11 @@ establish Nerd Font support. Fonts installed on the server are not evidence
 of the client's selected font. No font installation, terminal query, input
 reading, or configuration rewrite is performed.
 
-Use `twig config display.icons auto` to enable automatic selection for an
-existing connection, or `twig config display.icons nerd` if your terminal has
-a Nerd Font but does not advertise one of the supported capabilities.
+Use `twig config display.icons nerd --global` to prefer Nerd Font glyphs across
+Twig workspaces on this machine. Use `twig config display.icons --unset` in a
+workspace with an explicit value to inherit the global setting, or set an explicit
+workspace `auto`/`unicode` override. This is a remembered preference, not font
+detection: an SSH or attached terminal without those glyphs needs an override.
 
 ## Examples
 
@@ -87,6 +92,15 @@ $ twig config defaults.areapath "Contoso\\Team Alpha" -o json
 {"kind":"configSet","key":"defaults.areapath","value":"Contoso\\Team Alpha","message":"Set defaults.areapath = Contoso\\Team Alpha"}
 ```
 
+Set and inspect a machine-wide icon default without changing any workspace config:
+
+```console
+$ twig config display.icons nerd --global
+Set display.icons = nerd
+$ twig config display.icons --global
+nerd
+```
+
 ## Exit codes and failure modes
 
 |Condition|Result|
@@ -94,6 +108,8 @@ $ twig config defaults.areapath "Contoso\\Team Alpha" -o json
 |Successful read or write|`0`|
 |Unknown key in read mode|`1` with stderr error|
 |Unknown key or invalid value in write mode|`1` with stderr error|
+|`--global` or `--unset` with unsupported key, or invalid icon value|`1` with stderr error|
+|`--unset` combined with a value|`2` with usage error|
 |Missing key argument|`2` with usage error|
 
 ## See also

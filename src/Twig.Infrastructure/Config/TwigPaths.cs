@@ -42,6 +42,9 @@ public sealed class TwigPaths
     /// <summary>Path to the SQLite database — AB#736 §4.2.4: <c>.twig/cache/twig.db</c>.</summary>
     public string DbPath { get; }
 
+    /// <summary>Home-wide display defaults, shared across Twig workspaces on this machine.</summary>
+    public string GlobalDisplayPath { get; }
+
     /// <summary>Path to the status-fields configuration file: <c>.twig/status-fields</c>.</summary>
     public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");
 
@@ -49,6 +52,9 @@ public sealed class TwigPaths
     public string TrackingFilePath => Path.Combine(TwigDir, "tracking.json");
 
     public TwigPaths(string twigDir, string configPath, string dbPath, string? startDir = null)
+        : this(twigDir, configPath, dbPath, startDir, null) { }
+
+    internal TwigPaths(string twigDir, string configPath, string dbPath, string? startDir, string? globalDisplayPath)
     {
         TwigDir = twigDir;
         ConfigPath = configPath;
@@ -56,6 +62,8 @@ public sealed class TwigPaths
         StartDir = startDir ?? Directory.GetCurrentDirectory();
         RepoRoot = Path.GetDirectoryName(twigDir) ?? twigDir;
         RepoConfigPath = Path.Combine(RepoRoot, "twig.json");
+        GlobalDisplayPath = globalDisplayPath ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".twig", "display.json");
     }
 
     /// <summary>

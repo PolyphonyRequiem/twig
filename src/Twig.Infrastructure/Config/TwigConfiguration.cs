@@ -217,12 +217,12 @@ public sealed class TwigConfiguration
             var user = File.Exists(paths.ConfigPath)
                 ? await LoadJsonAsync(paths.ConfigPath, TwigJsonContext.Default.TwigUserConfig, ct) ?? new TwigUserConfig()
                 : new TwigUserConfig();
-            return new TwigConfiguration
+            return WithGlobalDisplay(new TwigConfiguration
             {
                 RepoCoords = repo,
                 UserPrefs = user,
                 IsLegacyMode = false,
-            };
+            }, paths);
         }
 
         // Legacy single-file shape — load via the existing flat path. The delegating
@@ -230,7 +230,7 @@ public sealed class TwigConfiguration
         // RepoCoords and UserPrefs both end up populated.
         var legacy = await LoadAsync(paths.ConfigPath, ct);
         legacy.IsLegacyMode = File.Exists(paths.ConfigPath);
-        return legacy;
+        return WithGlobalDisplay(legacy, paths);
     }
 
     /// <summary>
@@ -245,17 +245,31 @@ public sealed class TwigConfiguration
             var user = File.Exists(paths.ConfigPath)
                 ? LoadJson(paths.ConfigPath, TwigJsonContext.Default.TwigUserConfig) ?? new TwigUserConfig()
                 : new TwigUserConfig();
-            return new TwigConfiguration
+            return WithGlobalDisplay(new TwigConfiguration
             {
                 RepoCoords = repo,
                 UserPrefs = user,
                 IsLegacyMode = false,
-            };
+            }, paths);
         }
 
         var legacy = Load(paths.ConfigPath);
         legacy.IsLegacyMode = File.Exists(paths.ConfigPath);
-        return legacy;
+        return WithGlobalDisplay(legacy, paths);
+    }
+
+    private static TwigConfiguration WithGlobalDisplay(TwigConfiguration config, TwigPaths paths)
+    {
+        var preference = GlobalDisplayPreferences.Load(paths.GlobalDisplayPath).Icons;
+        if (preference is not null)
+        {
+            var normalized = DisplayConfig.NormalizeIcons(preference)
+                ?? throw new TwigConfigurationException(
+                    $"Invalid display.icons value in '{paths.GlobalDisplayPath}': '{preference}'.",
+                    new InvalidDataException("Expected auto, unicode, or nerd."));
+            config.Display.UseGlobalIcons(normalized);
+        }
+        return config;
     }
 
     private static async Task<T?> LoadJsonAsync<T>(string path, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo, CancellationToken ct)
@@ -622,10 +636,9 @@ public sealed class TwigConfiguration
                 }
                 return false;
             case "display.icons":
-                var lower = value.ToLowerInvariant();
-                if (lower is "auto" or "unicode" or "nerd")
+                if (DisplayConfig.NormalizeIcons(value) is { } iconMode)
                 {
-                    Display.Icons = lower;
+                    Display.Icons = iconMode;
                     return true;
                 }
                 return false;
@@ -996,7 +1009,24 @@ public sealed class DisplayConfig
     public int TreeDepthUp { get; set; } = 2;
     public int TreeDepthDown { get; set; } = 10;
     public int TreeDepthSideways { get; set; } = 1;
-    public string Icons { get; set; } = "auto";
+    private string? _globalIcons;
+
+    /// <summary>The effective setting; assigning it creates a workspace override.</summary>
+    [JsonIgnore]
+    public string Icons { get => IconsOverride ?? _globalIcons ?? "auto"; set => IconsOverride = value; }
+
+    /// <summary>Null means inherit the home-wide display setting.</summary>
+    [JsonPropertyName("icons")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IconsOverride { get; set; }
+
+    public void ClearIconsOverride() => IconsOverride = null;
+    public void UseGlobalIcons(string? icons) => _globalIcons = icons;
+    public static string? NormalizeIcons(string value)
+    {
+        var mode = value.ToLowerInvariant();
+        return mode is "auto" or "unicode" or "nerd" ? mode : null;
+    }
     public int CacheStaleMinutes { get; set; } = 5;
     public int CacheStaleMinutesReadOnly { get; set; } = 15;
     public Dictionary<string, string>? TypeColors { get; set; }

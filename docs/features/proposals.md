@@ -274,8 +274,8 @@ Each row (`src/Twig.Domain/Services/Plan/PlanJournal.cs:10-68`) carries:
 - the digest (primary key) and the source path,
 - the canonical JSON captured at import, so recovery does not need the
   original file on disk,
-- the top-level lifecycle state, plus `PreviewedAt`, `ConfirmedAt`, and
-  `CompletedAt` timestamps,
+- the top-level lifecycle state, `PreviewedAt`, and the separate `LastPreviewedAt`
+  selection timestamp, plus `ConfirmedAt` and `CompletedAt`;
 - the authorization mode, authorizer identity, rationale, `AuthorizedAt`
   timestamp, and the review-model JSON the authorizer was shown,
 - the per-operation rows in declaration order.
@@ -285,6 +285,15 @@ recording_, not _unauthorized_; rows written before the audit columns
 existed are real history and are never rewritten. Consumers must treat
 that null explicitly rather than falling back to "unauthorized"
 (`src/Twig.Domain/Services/Plan/PlanJournal.cs:39-49`).
+
+## `proposal latest`
+
+`twig proposal latest` reads the current workspace journal and selects its most recently
+previewed header that is not fully `Verified`. Re-previewing an existing digest updates
+`LastPreviewedAt` without changing `PreviewedAt` or lifecycle state. Failed, Indeterminate,
+and partial states remain eligible; equal times use ascending digest order. The command
+checks only the selected file against its journal digest and errors on missing or changed
+bytes rather than falling back to an older entry. It does not scan proposal files or call ADO.
 
 ## `proposal status`
 
@@ -365,6 +374,7 @@ a forensics exercise.
 
 - [`proposal validate`](../commands/plans/proposal-validate.md) — parse, canonicalize, digest.
 - [`proposal preview`](../commands/plans/proposal-preview.md) — import journal, snapshot pending, evaluate `canApply`, and optionally capture native version-1 presentation frames for a rich host.
+- [`proposal latest`](../commands/plans/README.md#latest-unresolved-proposal) — select the latest unresolved journal header.
 - [`proposal apply`](../commands/plans/proposal-apply.md) — digest-gated, authorization-bound apply.
 - [`proposal status`](../commands/plans/proposal-status.md) — read the journal row for a proposal file.
 - [`proposal seed`](../commands/plans/proposal-seed.md) — describe a staged seed for proposal authoring.

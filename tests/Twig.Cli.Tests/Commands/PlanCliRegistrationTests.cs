@@ -53,8 +53,9 @@ public sealed class PlanCliRegistrationTests
         await lifecycle.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default, default);
         // CAF registers only the declared preview handler; the inherited legacy overload
         // must remain a callable C# method, not a second CLI verb.
-        typeof(TwigCommands).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+        var registered = typeof(TwigCommands).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Where(m => m.Name == nameof(TwigCommands.PlanPreview)).ShouldHaveSingleItem();
+        registered.GetParameters().Length.ShouldBe(9);
         method.DeclaringType.ShouldNotBe(typeof(TwigCommands));
     }
 
@@ -70,9 +71,19 @@ public sealed class PlanCliRegistrationTests
         result.Stdout.ShouldContain("-o, --output");
         result.Stdout.ShouldContain("--full");
         result.Stdout.ShouldContain("--interactive");
+        result.Stdout.ShouldContain("--expect-digest");
         var unknown = await RunPreviewCliAsync("plan-preview", "--help");
         unknown.ExitCode.ShouldBe(1);
         unknown.Stderr.ShouldContain("Unknown command: 'plan-preview'");
+    }
+
+    [Fact]
+    public async Task LatestProductionCommand_IsRegisteredWithJsonOutput()
+    {
+        var result = await RunPreviewCliAsync("proposal", "latest", "--help");
+        result.ExitCode.ShouldBe(0, result.Stderr);
+        result.Stdout.ShouldContain("Usage: proposal latest");
+        result.Stdout.ShouldContain("-o, --output");
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunPreviewCliAsync(params string[] args)
@@ -114,6 +125,7 @@ public sealed class PlanCliRegistrationTests
     [Theory]
     [InlineData("proposal")]
     [InlineData("proposal validate")]
+    [InlineData("proposal latest")]
     [InlineData("proposal preview")]
     [InlineData("proposal apply")]
     [InlineData("proposal status")]
@@ -154,6 +166,7 @@ public sealed class PlanCliRegistrationTests
     [Theory]
     [InlineData(nameof(TwigCommands.PlanValidate), "proposal validate|plan validate")]
     [InlineData(nameof(TwigCommands.PlanPreview), "proposal preview|plan preview")]
+    [InlineData(nameof(TwigCommands.PlanLatest), "proposal latest")]
     [InlineData(nameof(TwigCommands.PlanApply), "proposal apply|plan apply")]
     [InlineData(nameof(TwigCommands.PlanStatus), "proposal status|plan status")]
     [InlineData(nameof(TwigCommands.PlanSeed), "proposal seed|plan seed")]

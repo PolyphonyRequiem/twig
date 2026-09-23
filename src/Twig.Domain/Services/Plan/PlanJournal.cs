@@ -27,6 +27,12 @@ public sealed record PlanJournal
     /// <summary>When the plan was imported (previewed).</summary>
     public required DateTimeOffset PreviewedAt { get; init; }
 
+    /// <summary>
+    /// When this digest was most recently previewed. Re-previewing refreshes this ordering
+    /// timestamp without changing <see cref="PreviewedAt"/> or the journal state.
+    /// </summary>
+    public DateTimeOffset LastPreviewedAt { get; init; }
+
     /// <summary>When the plan was confirmed; null while still Planned.</summary>
     public DateTimeOffset? ConfirmedAt { get; init; }
 

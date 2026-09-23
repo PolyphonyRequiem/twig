@@ -166,6 +166,105 @@ public sealed class PlanCommandTests
     // ── preview: pendingChanges and canApply appear in the machine surface ──
 
     [Fact]
+    public async Task Latest_FoundJsonProjectsExactlyTheSelectedHeader()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle.LatestAsync(Arg.Any<CancellationToken>()).Returns(new PlanLatestResult
+        {
+            Found = true,
+            File = "/workspace/.twig/proposals/latest.json",
+            Digest = new string('a', 64),
+            State = PlanOperationState.Failed,
+        });
+
+        var exit = await CreateCommand(stdout, stderr).LatestAsync("json", default);
+
+        exit.ShouldBe(0);
+        using var json = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        var root = json.RootElement;
+        root.GetProperty("found").GetBoolean().ShouldBeTrue();
+        root.GetProperty("file").GetString().ShouldBe("/workspace/.twig/proposals/latest.json");
+        root.GetProperty("digest").GetString().ShouldBe(new string('a', 64));
+        root.GetProperty("state").GetString().ShouldBe("Failed");
+        stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Latest_NoCandidateEmitsFoundFalseWithoutSelectionFields()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle.LatestAsync(Arg.Any<CancellationToken>()).Returns(new PlanLatestResult { Found = false });
+
+        var exit = await CreateCommand(stdout, stderr).LatestAsync("json", default);
+
+        exit.ShouldBe(0);
+        using var json = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        json.RootElement.GetProperty("found").GetBoolean().ShouldBeFalse();
+        json.RootElement.EnumerateObject().Count().ShouldBe(1);
+        stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Latest_StaleCandidateIsErrorAndDoesNotEmitSelection()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle.LatestAsync(Arg.Any<CancellationToken>()).Returns(new PlanLatestResult
+        {
+            Found = true,
+            File = "/workspace/latest.json",
+            Digest = "old-digest",
+            State = PlanOperationState.Planned,
+            Error = "Latest proposal file changed after preview.",
+        });
+
+        var exit = await CreateCommand(stdout, stderr).LatestAsync("json", default);
+
+        exit.ShouldBe(2);
+        stdout.ToString().ShouldBeEmpty();
+        stderr.ToString().ShouldContain("changed after preview");
+    }
+
+    [Fact]
+    public async Task Preview_ExpectedDigestGuardUsesLifecycleOverloadAndDoesNotEnterReview()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle.PreviewExpectedAsync("plan.json", "expected-digest", Arg.Any<CancellationToken>())
+            .Returns(new PlanPreviewResult
+            {
+                Digest = "actual-digest",
+                Operations = [],
+                Issues =
+                [
+                    new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.DigestMismatch,
+                        Path = string.Empty,
+                        Message = "Proposal digest actual-digest does not match expected digest expected-digest.",
+                    },
+                ],
+                PendingChanges = [],
+                CanApply = false,
+            });
+        var command = new PlanCommand(_lifecycle, _formatterFactory, _steering, TimeProvider.System,
+            new RendererFactory(), stdout, stderr)
+        {
+            IsReviewTerminal = () => true,
+            ReviewInput = new StringReader("details\n"),
+        };
+
+        var exit = await command.PreviewAsync("plan.json", "human", false, true, default, expectedDigest: "expected-digest");
+
+        exit.ShouldBe(1);
+        stdout.ToString().ShouldContain("digest_mismatch");
+        stdout.ToString().ShouldNotContain("Review only");
+        await _lifecycle.DidNotReceive().PreviewAsync("plan.json", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Preview_ValidWithoutPending_ExitsZero_AndJsonCanApplyTrue()
     {
         var stdout = new StringWriter();

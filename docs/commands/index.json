@@ -744,6 +744,14 @@
     "path": "plans/proposal-preview.md"
   },
   {
+    "command": "proposal latest",
+    "group": "plans",
+    "summary": "Show the latest successfully previewed unresolved proposal in this workspace.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "plans/README.md"
+  },
+  {
     "command": "proposal seed",
     "group": "plans",
     "summary": "Describe a staged seed's identity and fingerprint for proposal authoring.",

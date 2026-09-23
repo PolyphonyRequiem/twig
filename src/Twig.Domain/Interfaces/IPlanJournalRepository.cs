@@ -29,9 +29,9 @@ public interface IPlanJournalRepository
     /// <para>
     /// Re-import of the same digest is idempotent: the persisted canonical JSON is compared
     /// against the incoming <paramref name="canonicalJson"/>; equal returns the existing
-    /// journal, unequal (a doctored digest) is refused. The insertion itself is transactional
-    /// against concurrent same-digest importers, so two racing callers observe the same row
-    /// rather than a primary-key exception.
+    /// journal and updates its last-preview ordering timestamp, while unequal (a doctored
+    /// digest) is refused. Original <c>previewed_at</c> and lifecycle state are preserved.
+    /// The insertion is transactional against concurrent same-digest importers.
     /// </para>
     /// </summary>
     Task<PlanJournal> ImportAsync(
@@ -44,6 +44,12 @@ public interface IPlanJournalRepository
 
     /// <summary>Returns the journal for a digest, or null when none exists.</summary>
     Task<PlanJournal?> GetAsync(string digest, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the most recently previewed journal that is not fully Verified, using digest
+    /// as a deterministic tie-breaker. Failed, Indeterminate and partial states are eligible.
+    /// </summary>
+    Task<PlanLatestResult?> GetLatestUnresolvedAsync(CancellationToken ct = default);
 
     /// <summary>
     /// AB#832: returns every digest journaled against <paramref name="sourcePath"/>, oldest

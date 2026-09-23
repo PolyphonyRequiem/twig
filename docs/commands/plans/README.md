@@ -1,16 +1,16 @@
 # Plans — proposal lifecycle and pending changes
 
-The **plans** group covers everything on the change-proposal path: the five
-canonical `proposal <verb>` commands that validate, preview, apply, inspect,
-and describe a proposal v1 file, plus `pending` — the read-only dump of every
-staged pending change. A proposal is an immutable JSON declaration; state
+The **plans** group covers the five original `proposal <verb>` commands that
+validate, preview, apply, inspect, and describe a proposal v1 file, plus the
+read-only `proposal latest` selection and `pending` staged-change dump. A proposal
+is an immutable JSON declaration; state
 lives in a per-workspace **journal** keyed on the proposal's canonical SHA-256
 digest, and every board mutation that flows through this path is auditable by
 that digest.
 
 ## Canonical vs. legacy verbs
 
-Every command in this group has both a canonical name and a retained
+The original five commands each have a canonical name and a retained
 deprecated alias:
 
 |Canonical (use this)|Deprecated alias (still works)|
@@ -20,6 +20,7 @@ deprecated alias:
 |`twig proposal apply`|`twig plan apply`|
 |`twig proposal status`|`twig plan status`|
 |`twig proposal seed`|`twig plan seed`|
+|`twig proposal latest`|—|
 
 The two forms share one handler, one help block, one exit contract, and one
 underlying `IPlanLifecycleService`. The rename to **proposal** — from the
@@ -57,12 +58,36 @@ errors land on `PlanJournalOperation.Error`; a terminal-level failure lands
 on the row's `Error` field
 (`src/Twig.Domain/Services/Plan/PlanApplyResult.cs:14-26`).
 
+## Behavior
+
+### Latest unresolved proposal
+
+`twig proposal latest -o json` selects the most recently successfully previewed
+proposal in the **current workspace** whose journal is not fully `Verified`.
+Failed, Indeterminate, and partial plans remain inspectable. Re-preview of the
+same digest updates a separate last-preview ordering timestamp without changing
+the original audit `previewed_at` or lifecycle state; ties sort by digest.
+The command reads no ADO data, does not scan files, and returns `found: false`
+when no candidate exists. It refuses a missing or changed selected file rather
+than silently substituting an older proposal. A presenter uses the returned file
+and digest with `proposal preview --file <path> --expect-digest <digest> --interactive`
+to check the canonical digest before journal import or review rendering. These
+are presentation controls, not authorization or apply.
+
+## Exit codes and failure modes
+
+|Condition|Result|
+|---|---|
+|Latest unresolved proposal found, or none exists.|`0`; JSON reports `found: true` or `found: false`.|
+|The selected file is missing, invalid, outside this workspace, or changed since its preview.|`2`; no older proposal is substituted.|
+
 ## Command index
 
 |Command|Summary|Mutates|
 |---|---|---|
 |[`proposal validate`](proposal-validate.md)|Validate a proposal v1 file; no ADO calls.|none|
-|[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`, with optional native presentation.|local|
+|[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`, with optional native presentation and digest guard.|local|
+|[`proposal latest`](README.md#latest-unresolved-proposal)|Select the latest unresolved workspace preview without mutation.|none|
 |[`proposal apply`](proposal-apply.md)|Apply a proposal after digest confirmation and authorization.|ado|
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|

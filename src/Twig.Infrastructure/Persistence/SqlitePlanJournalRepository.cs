@@ -122,10 +122,11 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 header.CommandText = """
                     INSERT OR IGNORE INTO proposal_journals
                         (digest, schema_version, organization, project, source_path,
-                         canonical_json, state, previewed_at, confirmed_at, completed_at, error)
+                         canonical_json, state, previewed_at, last_previewed_at,
+                         confirmed_at, completed_at, error)
                     VALUES
                         (@digest, @schemaVersion, @org, @project, @source,
-                         @canonical, @state, @previewedAt, NULL, NULL, NULL);
+                         @canonical, @state, @previewedAt, @previewedAt, NULL, NULL, NULL);
                     """;
                 header.Parameters.AddWithValue("@digest", digest);
                 header.Parameters.AddWithValue("@schemaVersion", PlanFileSchemaVersion);
@@ -201,6 +202,28 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             throw new InvalidOperationException(
                 $"Plan digest '{digest}' is already recorded against a different canonical " +
                 "document. Refusing to overwrite an existing plan journal.");
+        }
+        // Re-preview refreshes only after canonical equality. A late-finishing older preview
+        // must never move the last-preview ordering backward; keep the max atomically.
+        if (!inserted)
+        {
+            using var refreshed = conn.CreateCommand();
+            refreshed.Transaction = _store.ActiveTransaction;
+            refreshed.CommandText = """
+                UPDATE proposal_journals
+                SET last_previewed_at = CASE
+                    WHEN last_previewed_at < @timestamp THEN @timestamp
+                    ELSE last_previewed_at END
+                WHERE digest = @digest AND canonical_json = @canonical;
+                """;
+            refreshed.Parameters.AddWithValue("@timestamp", FormatTimestamp(previewedAt));
+            refreshed.Parameters.AddWithValue("@digest", digest);
+            refreshed.Parameters.AddWithValue("@canonical", canonicalJson);
+            if (refreshed.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException(
+                    $"Plan digest '{digest}' changed while refreshing its preview timestamp.");
+            loaded = await GetAsync(digest, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Plan journal disappeared after re-preview.");
         }
 
         return loaded;
@@ -381,7 +404,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         header.Transaction = _store.ActiveTransaction;
         header.CommandText = """
             SELECT organization, project, source_path, canonical_json,
-                   state, previewed_at, confirmed_at, completed_at, error,
+                   state, previewed_at, last_previewed_at, confirmed_at, completed_at, error,
                    authorization_mode, authorizer_identity, rationale,
                    review_model_json, authorized_at
             FROM proposal_journals
@@ -402,18 +425,18 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var canonicalJson = reader.GetString(3);
         var state = ParseState(reader.GetString(4));
         var previewedAt = ParseTimestamp(reader.GetString(5));
-        var confirmedAt = reader.IsDBNull(6) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(6));
-        var completedAt = reader.IsDBNull(7) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(7));
-        var error = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var lastPreviewedAt = ParseTimestamp(reader.GetString(6));
+        var confirmedAt = reader.IsDBNull(7) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(7));
+        var completedAt = reader.IsDBNull(8) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(8));
+        var error = reader.IsDBNull(9) ? null : reader.GetString(9);
 
         // Every audit column is nullable by design (durable migration [9]). NULL here means the
         // row predates authorization recording — never that the apply was unauthorized.
-        var authorizationMode = ProposalAuthorization.ModeFromWire(reader.IsDBNull(9) ? null : reader.GetString(9));
-        var authorizerIdentity = reader.IsDBNull(10) ? null : reader.GetString(10);
-        var rationale = reader.IsDBNull(11) ? null : reader.GetString(11);
-        var reviewModelJson = reader.IsDBNull(12) ? null : reader.GetString(12);
-        var authorizedAt = reader.IsDBNull(13) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(13));
-        reader.Close();
+        var authorizationMode = ProposalAuthorization.ModeFromWire(reader.IsDBNull(10) ? null : reader.GetString(10));
+        var authorizerIdentity = reader.IsDBNull(11) ? null : reader.GetString(11);
+        var rationale = reader.IsDBNull(12) ? null : reader.GetString(12);
+        var reviewModelJson = reader.IsDBNull(13) ? null : reader.GetString(13);
+        var authorizedAt = reader.IsDBNull(14) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(14));
 
         var operations = ReadOperations(digest);
 
@@ -425,6 +448,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             Workspace = workspace,
             State = state,
             PreviewedAt = previewedAt,
+            LastPreviewedAt = lastPreviewedAt,
             ConfirmedAt = confirmedAt,
             CompletedAt = completedAt,
             Error = error,
@@ -434,6 +458,32 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             ReviewModelJson = reviewModelJson,
             AuthorizedAt = authorizedAt,
             Operations = operations,
+        });
+    }
+
+    /// <inheritdoc />
+    public Task<PlanLatestResult?> GetLatestUnresolvedAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = """
+            SELECT source_path, digest, state
+            FROM proposal_journals
+            WHERE state <> 'Verified'
+            ORDER BY last_previewed_at DESC, digest ASC
+            LIMIT 1;
+            """;
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return Task.FromResult<PlanLatestResult?>(null);
+
+        return Task.FromResult<PlanLatestResult?>(new PlanLatestResult
+        {
+            Found = true,
+            File = reader.GetString(0),
+            Digest = reader.GetString(1),
+            State = ParseState(reader.GetString(2)),
         });
     }
 

@@ -69,10 +69,10 @@ public sealed class PlanCommand(
     internal Func<bool> IsReviewTerminal { get; init; } = () => !Console.IsInputRedirected && !Console.IsOutputRedirected;
     internal TextReader ReviewInput { get; init; } = Console.In;
 
-    /// <summary>Preview with explicit density and an optional review-only line loop. Never applies.</summary>
+    /// <summary>Preview with optional digest guard and retained native rendering. Never applies.</summary>
     public async Task<int> PreviewAsync(
         string? file, string outputFormat, bool full, bool interactive, CancellationToken ct,
-        bool includeRendering = false, int? width = null, string color = "never")
+        bool includeRendering = false, int? width = null, string color = "never", string? expectedDigest = null)
     {
         color = color.ToLowerInvariant();
         if (color is not ("always" or "never"))
@@ -101,7 +101,9 @@ public sealed class PlanCommand(
             return 2;
         }
 
-        var result = await lifecycle.PreviewAsync(resolved, ct);
+        var result = expectedDigest is null
+            ? await lifecycle.PreviewAsync(resolved, ct)
+            : await lifecycle.PreviewExpectedAsync(resolved, expectedDigest, ct);
         RenderPreview(result, outputFormat, full, includeRendering, width, color);
         if (interactive && result.ReviewModel is { } model && ChangeProposalReviewRenderer.IsSupported(model.ModelVersion))
         {
@@ -122,6 +124,39 @@ public sealed class PlanCommand(
             }
         }
         return result.Issues.Count == 0 ? 0 : 1;
+    }
+
+    /// <summary>Show the most recently previewed unresolved proposal in this workspace.</summary>
+    public async Task<int> LatestAsync(string outputFormat, CancellationToken ct)
+    {
+        var result = await lifecycle.LatestAsync(ct);
+        if (result.Error is { } error)
+        {
+            _stderr.WriteLine(formatterFactory.GetFormatter(outputFormat).FormatError(error));
+            return 2;
+        }
+
+        if (IsJsonOutput(outputFormat))
+        {
+            var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["found"] = RenderCell.Boolean(result.Found),
+            };
+            if (result.Found)
+            {
+                fields["file"] = RenderCell.String(result.File!);
+                fields["digest"] = RenderCell.String(result.Digest!);
+                fields["state"] = NullableStringCell(result.State?.ToString());
+            }
+            _rendererFactory.GetRenderer(outputFormat, _stdout).Render(
+                new RenderTree.RenderTree([new RenderNode.Record("proposalLatest", fields)]));
+            return 0;
+        }
+
+        _stdout.WriteLine(result.Found
+            ? $"file: {result.File}{Environment.NewLine}digest: {result.Digest}{Environment.NewLine}state: {result.State}"
+            : "No unresolved proposal in the current workspace.");
+        return 0;
     }
 
     /// <summary>

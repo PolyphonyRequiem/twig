@@ -1,3 +1,4 @@
+using System.Globalization;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Twig.Diagnostics;
@@ -486,8 +487,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                         container.AddRow(new Markup(""));
 
                                     if (showHeaders)
-                                        container.AddRow(new Markup(
-                                            $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]"));
+                                        container.AddRow(new Markup(FormatTreeHeading($"── {section.ModeName} ({section.Items.Count}) ──")));
 
                                     if (section.TreeRoots is { Count: > 0 })
                                     {
@@ -534,15 +534,30 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                                 if (seeds.Count > 0)
                                 {
-                                    container.AddRow(new Markup("[dim]───── Seeds ─────[/]"));
+                                    container.AddRow(new Markup(FormatTreeHeading("─── Seeds ───")));
                                     var seedIndicator = _theme.FormatSeedIndicator();
+                                    var titleWidth = budget.TreeTitleBudget(0);
+                                    var rowWidth = WorkspaceTreeRowWidth(budget, 0);
                                     foreach (var seed in seeds)
                                     {
                                         var staleMarker = seed.SeedCreatedAt.HasValue
                                             && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
                                             ? " [yellow]⚠ stale[/]" : "";
-                                        container.AddRow(new Markup(
-                                            $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TreeTitleBudget(0)))}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                        var prefix = $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id}";
+                                        var stateMarkup = _theme.FormatState(seed.State);
+                                        var titleBudget = Math.Max(Math.Min(
+                                            titleWidth,
+                                            rowWidth - GetVisibleCellCount(prefix) - 1
+                                                - GetVisibleCellCount(staleMarker)
+                                                - GetVisibleCellCount(stateMarkup)), 1);
+                                        var truncatedTitle = Markup.Escape(TruncateTreeTitle(seed.Title, titleBudget));
+                                        var row = BuildRightAlignedTreeRow(
+                                            prefix,
+                                            truncatedTitle,
+                                            staleMarker,
+                                            stateMarkup,
+                                            rowWidth);
+                                        container.AddRow(new Markup(row));
                                     }
                                 }
 
@@ -601,8 +616,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     {
         var prunedRoots = PruneAncestorsAboveDepthUp(roots);
 
-        foreach (var root in prunedRoots)
+        for (var i = 0; i < prunedRoots.Count; i++)
         {
+            if (i > 0)
+                container.AddRow(new Markup(""));
+
+            var root = prunedRoots[i];
             var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes, budget, 0);
             var tree = new Tree(rootLabel);
             AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes, budget);
@@ -658,7 +677,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int depth)
     {
         if (node.IsVirtualGroup)
-            return $"[dim italic]{Markup.Escape(node.GroupLabel ?? "Unparented")}[/]";
+            return FormatTreeHeading(node.GroupLabel ?? "Unparented");
 
         var item = node.Item;
         var isAboveWorking = IsParentAboveWorkingLevel(item);
@@ -666,32 +685,92 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
         var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
         var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
-
-        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+        var cacheAge = FormatTreeCacheAge(item.LastSyncedAt, cacheStaleMinutes);
         var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+        var stateMarkup = _theme.FormatState(item.State);
 
-        var titleBudget = budget.TreeTitleBudget(depth);
-        titleBudget -= Math.Max(item.Type.Value.Length - 4, 0);
-        if (cacheAge is not null)
-            titleBudget -= cacheAge.Length + 1;
-        if (item.IsDirty)
-            titleBudget -= 2;
-        if (marker.Length > 0)
-            titleBudget -= 2;
-
-        var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, Math.Max(titleBudget, 10)));
+        var titleWidth = budget.TreeTitleBudget(depth);
+        var rowWidth = WorkspaceTreeRowWidth(budget, depth);
         var identity = $"{marker}{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.Value)} #{item.Id}";
+        var titleBudget = Math.Max(Math.Min(
+            titleWidth,
+            rowWidth - GetVisibleCellCount(identity) - 1
+                - GetVisibleCellCount(dirty)
+                - GetVisibleCellCount(cacheAgeMarkup)
+                - GetVisibleCellCount(stateMarkup)), 1);
+        var truncatedTitle = Markup.Escape(TruncateTreeTitle(item.Title, titleBudget));
+        var titleMarkup = node.IsSprintItem ? $"[bold]{truncatedTitle}[/]" : $"[dim]{truncatedTitle}[/]";
+        var content = BuildRightAlignedTreeRow(identity, titleMarkup, dirty + cacheAgeMarkup, stateMarkup, rowWidth);
 
-        string content;
         if (isAboveWorking)
-            content = $"[dim]{identity} {truncatedTitle}{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
-        else if (node.IsSprintItem)
-            content = $"{identity} [bold]{truncatedTitle}[/]{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}";
-        else
-            content = $"{identity} [dim]{truncatedTitle}[/]{dirty} {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+            content = $"[dim]{content}[/]";
 
         return _theme.FormatWorkItemLink(item, isActive ? $"[on #16324f]{content}[/]" : content);
     }
+
+    // Leave space for the borderless Live table's layout and the Tree connector at each depth.
+    private static int WorkspaceTreeRowWidth(WidthBudget budget, int depth) =>
+        Math.Max(budget.ViewportWidth - 4 - depth * WidthBudget.TreeIndentPerLevel, 1);
+
+    private static string? FormatTreeCacheAge(DateTimeOffset? lastSyncedAt, int cacheStaleMinutes)
+    {
+        var cacheAge = CacheAgeFormatter.FormatAge(lastSyncedAt, cacheStaleMinutes);
+        return cacheAge is null ? null : $"({cacheAge})";
+    }
+
+    private static string BuildRightAlignedTreeRow(
+        string prefixMarkup,
+        string titleMarkup,
+        string suffixMarkup,
+        string stateMarkup,
+        int width)
+    {
+        var left = $"{prefixMarkup} {titleMarkup}{suffixMarkup}";
+        var padding = Math.Max(width - GetVisibleCellCount(left) - GetVisibleCellCount(stateMarkup), 0);
+        return padding == 0 ? $"{left}{stateMarkup}" : $"{left}{new string(' ', padding)}{stateMarkup}";
+    }
+
+    private static int GetVisibleCellCount(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        return Segment.CellCount([new Segment(Markup.Remove(text))]);
+    }
+
+    private static string TruncateTreeTitle(string title, int maxCells)
+    {
+        if (string.IsNullOrEmpty(title) || maxCells <= 0)
+            return string.Empty;
+        if (PlainCellCount(title) <= maxCells)
+            return title;
+
+        const string ellipsis = "…";
+        var contentCells = maxCells - PlainCellCount(ellipsis);
+        if (contentCells <= 0)
+            return ellipsis;
+
+        var starts = StringInfo.ParseCombiningCharacters(title);
+        var low = 0;
+        var high = starts.Length;
+        while (low < high)
+        {
+            var count = (low + high + 1) / 2;
+            var end = count == starts.Length ? title.Length : starts[count];
+            if (PlainCellCount(title[..end]) <= contentCells)
+                low = count;
+            else
+                high = count - 1;
+        }
+
+        var cut = low == starts.Length ? title.Length : starts[low];
+        return title[..cut] + ellipsis;
+    }
+
+    private static int PlainCellCount(string text) => Segment.CellCount([new Segment(text)]);
+
+    private static string FormatTreeHeading(string text) =>
+        $"[bold #9fd8ff on #1c3042]{Markup.Escape(text)}[/]";
 
     /// <summary>
     /// Renders flat item listing into the tree-mode container (fallback when no tree roots).
@@ -708,16 +787,30 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
             var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
             var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
-            var boldOpen = isActive ? "[bold]" : "";
-            var boldClose = isActive ? "[/]" : "";
+            var titleStyleOpen = isActive ? "[bold]" : "";
+            var titleStyleClose = isActive ? "[/]" : "";
+            var stateMarkup = _theme.FormatState(item.State);
+            var cacheAgeMarkup = FormatTreeCacheAge(item.LastSyncedAt, cacheStaleMinutes) is { } cacheAge
+                ? $" [dim]{Markup.Escape(cacheAge)}[/]"
+                : "";
 
-            var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
-            var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+            var prefix = $"  {marker}{_theme.FormatTypeBadge(item.Type)} #{item.Id}";
+            var titleWidth = budget.TreeTitleBudget(0);
+            var rowWidth = WorkspaceTreeRowWidth(budget, 0);
+            var titleBudget = Math.Max(Math.Min(
+                titleWidth,
+                rowWidth - GetVisibleCellCount(prefix) - 1
+                    - GetVisibleCellCount(cacheAgeMarkup)
+                    - GetVisibleCellCount(stateMarkup)), 1);
+            var truncatedTitle = Markup.Escape(TruncateTreeTitle(item.Title, titleBudget));
+            var row = BuildRightAlignedTreeRow(
+                prefix,
+                $"{titleStyleOpen}{truncatedTitle}{titleStyleClose}",
+                cacheAgeMarkup,
+                stateMarkup,
+                rowWidth);
 
-            var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(0)));
-
-            container.AddRow(new Markup(_theme.FormatWorkItemLink(item,
-                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {truncatedTitle}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}")));
+            container.AddRow(new Markup(_theme.FormatWorkItemLink(item, row)));
         }
     }
 

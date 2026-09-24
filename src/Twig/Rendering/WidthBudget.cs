@@ -28,6 +28,9 @@ internal readonly record struct WidthBudget
     /// <summary>Console width clamped to <see cref="MinConsoleWidth"/> minimum.</summary>
     public int ConsoleWidth { get; }
 
+    /// <summary>Actual terminal viewport width, clamped only to a usable positive value.</summary>
+    public int ViewportWidth { get; }
+
     /// <summary>Responsive breakpoint computed from <see cref="ConsoleWidth"/>.</summary>
     public RenderBreakpoint Breakpoint { get; }
 
@@ -56,6 +59,7 @@ internal readonly record struct WidthBudget
 
     public WidthBudget(int consoleWidth)
     {
+        ViewportWidth = Math.Max(consoleWidth, 1);
         ConsoleWidth = Math.Max(consoleWidth, MinConsoleWidth);
         Breakpoint = ConsoleWidth switch
         {

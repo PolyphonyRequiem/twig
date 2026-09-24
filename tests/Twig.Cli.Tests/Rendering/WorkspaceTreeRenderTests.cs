@@ -1,4 +1,6 @@
 using Shouldly;
+using Spectre.Console;
+using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
@@ -307,22 +309,32 @@ public sealed class WorkspaceTreeRenderTests
     // ── Virtual group nodes ─────────────────────────────────────────
 
     [Fact]
-    public async Task TreeMode_VirtualGroupNode_RenderedDimItalic()
+    public async Task TreeMode_VirtualGroups_RenderAsBannersWithSpaceBetweenRoots()
     {
         var (console, renderer) = CreateTreeRenderer();
 
         var task = new WorkItemBuilder(30, "Orphan Task").AsTask().InState("Active").Build();
-        var virtualRoot = BuildVirtualGroupNode("Unparented Tasks", new[]
-        {
-            BuildNode(task, isSprintItem: true)
-        });
+        var feature = new WorkItemBuilder(31, "Orphan Feature").AsFeature().InState("Active").Build();
+        var taskRoot = BuildVirtualGroupNode("Unparented Tasks",
+            [BuildNode(task, isSprintItem: true)]);
+        var featureRoot = BuildVirtualGroupNode("Unparented Features",
+            [BuildNode(feature, isSprintItem: true)]);
 
-        var sections = BuildSectionsWithTree(new[] { task }, new[] { virtualRoot });
-        var output = await RenderTreeWorkspace(console, renderer,
-            sprintItems: new[] { task }, sections: sections);
+        var budget = new WidthBudget(console.Profile.Width);
+        var heading = renderer.FormatWorkspaceTreeNodeLabel(taskRoot, null, 5, budget, 0);
+        heading.ShouldBe("[bold #9fd8ff on #1c3042]Unparented Tasks[/]");
+
+        var sections = BuildSectionsWithTree([task, feature], [taskRoot, featureRoot]);
+        var output = (await RenderTreeWorkspace(console, renderer,
+            sprintItems: [task, feature], sections: sections)).ReplaceLineEndings("\n");
 
         output.ShouldContain("Unparented Tasks");
-        output.ShouldContain("Orphan Task");
+        output.ShouldContain("Orphan Feature");
+        var lines = output.Split('\n');
+        var taskLine = Array.FindIndex(lines, line => line.Contains("Orphan Task", StringComparison.Ordinal));
+        var featureHeadingLine = Array.FindIndex(lines, line => line.Contains("Unparented Features", StringComparison.Ordinal));
+        featureHeadingLine.ShouldBe(taskLine + 2);
+        string.IsNullOrWhiteSpace(lines[taskLine + 1]).ShouldBeTrue();
     }
 
     // ── Seed indicators preserved ───────────────────────────────────
@@ -361,6 +373,42 @@ public sealed class WorkspaceTreeRenderTests
             seeds: new[] { staleSeed }, staleDays: 14);
 
         output.ShouldContain("stale");
+    }
+
+    [Fact]
+    public async Task TreeMode_Seeds_KeepStateRightAligned_AndPreserveIndicators()
+    {
+        var (console, renderer) = CreateTreeRenderer();
+        console.Profile.Width = 76;
+
+        var freshSeed = new WorkItemBuilder(-1, "Short seed").AsSeed().InState("Active").Build();
+        var staleSeed = new WorkItemBuilder(-2, "A much longer seed 🚀 " + new string('X', 90)).AsSeed(daysOld: 30).InState("Active").Build();
+
+        var output = await RenderTreeWorkspaceWithSeeds(console, renderer,
+            sprintItems: Array.Empty<WorkItem>(),
+            sections: WorkspaceSections.Build(Array.Empty<WorkItem>()),
+            seeds: new[] { freshSeed, staleSeed },
+            staleDays: 14);
+
+        output.ShouldContain("─── Seeds ───");
+        output.ShouldContain("⚠ stale");
+        output.ShouldContain("Short seed");
+        output.ShouldContain("A much longer seed");
+
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var freshLine = lines.First(line => line.Contains("Short seed"));
+        var staleLine = lines.First(line => line.Contains("A much longer seed"));
+
+        static int CellIndex(string line, string needle)
+        {
+            var index = line.IndexOf(needle, StringComparison.Ordinal);
+            return index < 0 ? -1 : Segment.CellCount([new Segment(line[..index])]);
+        }
+
+        CellIndex(freshLine, "Active").ShouldBe(CellIndex(staleLine, "Active"));
+        staleLine.ShouldContain("…");
+        freshLine.ShouldNotContain("cached");
+        staleLine.ShouldNotContain("cached");
     }
 
     // ── Section headers ─────────────────────────────────────────────
@@ -550,21 +598,24 @@ public sealed class WorkspaceTreeRenderTests
     // ── Title truncation via WidthBudget ────────────────────────────
 
     [Fact]
-    public void FormatLabel_TruncatesLongTitle_AtBudgetWidth()
+    public void FormatLabel_DeeperDepth_ReducesTitleBudget()
     {
         var (console, renderer) = CreateTreeRenderer();
         console.Profile.Width = 80;
         var budget = new WidthBudget(console.Profile.Width);
 
-        var longTitle = new string('A', 200);
-        var story = new WorkItemBuilder(10, longTitle).AsUserStory().InState("Active").Build();
+        var title = new string('X', 45);
+        var story = new WorkItemBuilder(10, title).AsUserStory().InState("Active").Build();
 
-        var label = renderer.FormatWorkspaceTreeNodeLabel(
+        var labelDepth0 = renderer.FormatWorkspaceTreeNodeLabel(
             BuildNode(story, isSprintItem: true), null, 5, budget, 0);
+        var labelDepth5 = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 5);
 
-        // Title should be truncated — should NOT contain the full 200-char title
-        label.ShouldNotContain(longTitle);
-        label.ShouldContain("…");
+        // Depth 0 should fit without truncation; a deeper row should still truncate.
+        labelDepth0.ShouldContain(title);
+        labelDepth0.ShouldNotContain("…");
+        labelDepth5.ShouldContain("…");
     }
 
     [Fact]
@@ -584,26 +635,35 @@ public sealed class WorkspaceTreeRenderTests
     }
 
     [Fact]
-    public void FormatLabel_DeeperDepth_ReducesTitleBudget()
+    public void FormatLabel_NarrowViewport_DoesNotPadPastActualWidth()
     {
-        var (console, renderer) = CreateTreeRenderer();
-        console.Profile.Width = 80;
-        var budget = new WidthBudget(console.Profile.Width);
+        var (_, renderer) = CreateTreeRenderer();
+        var budget = new WidthBudget(50);
+        var story = new WorkItemBuilder(10, "Short title").AsUserStory().InState("Active").Build();
 
-        // At depth 0: budget = 80 - 0*4 - 26 = 54; at depth 5: budget = 80 - 5*4 - 26 = 34
-        // Use a title that fits at depth 0 but not at depth 5
-        var title = new string('X', 45);
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 0);
+
+        Segment.CellCount([new Segment(Markup.Remove(label))]).ShouldBeLessThanOrEqualTo(46);
+        label.ShouldContain("Active");
+    }
+
+    [Fact]
+    public void FormatLabel_WideUnicodeTitle_TruncatesByDisplayCells()
+    {
+        var (_, renderer) = CreateTreeRenderer();
+        var budget = new WidthBudget(80);
+        var title = new string('X', 45) + new string('界', 7);
         var story = new WorkItemBuilder(10, title).AsUserStory().InState("Active").Build();
 
-        var labelDepth0 = renderer.FormatWorkspaceTreeNodeLabel(
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
             BuildNode(story, isSprintItem: true), null, 5, budget, 0);
-        var labelDepth5 = renderer.FormatWorkspaceTreeNodeLabel(
-            BuildNode(story, isSprintItem: true), null, 5, budget, 5);
 
-        // Depth 0 should fit without truncation, depth 5 should truncate
-        labelDepth0.ShouldNotContain("…");
-        labelDepth5.ShouldContain("…");
+        Segment.CellCount([new Segment(Markup.Remove(label))]).ShouldBeLessThanOrEqualTo(76);
+        label.ShouldContain("…");
+        label.ShouldContain("Active");
     }
+
 
     [Fact]
     public void FormatLabel_AboveWorkingLevel_TruncatesDimmedTitle()
@@ -645,6 +705,7 @@ public sealed class WorkspaceTreeRenderTests
     public async Task TreeMode_ConnectorsPrecedeWholeIdentity_AndRetainAnnotations()
     {
         var (console, renderer) = CreateTreeRenderer();
+        console.Profile.Width = 78;
         renderer.TrackedItemIds = new HashSet<int> { 10 };
 
         var parent = new WorkItemBuilder(10, "Context Feature").AsFeature().InState("Active").Build();
@@ -663,29 +724,50 @@ public sealed class WorkspaceTreeRenderTests
 
         var output = await RenderTreeWorkspaceWithContext(
             console, renderer, active, new[] { active }, sections);
-        var childLine = output.Split('\n').First(line => line.Contains("Working child"));
+        var childLine = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Last(line => line.Contains("Working child"));
 
         childLine.ShouldContain("└──");
         childLine.IndexOf("└──", StringComparison.Ordinal).ShouldBeLessThan(
             childLine.IndexOf("Task", StringComparison.Ordinal));
         childLine.IndexOf("Task", StringComparison.Ordinal).ShouldBeLessThan(
             childLine.IndexOf("#20", StringComparison.Ordinal));
+        childLine.ShouldContain("(15m ago)");
+        childLine.ShouldNotContain("cached 15m ago");
         output.ShouldContain("Feature");
         output.ShouldContain("#10");
         output.ShouldContain("#20");
         output.ShouldContain("Active");
-        output.ShouldContain("cached 15m ago");
         output.ShouldContain("📌");
         output.ShouldContain("✎");
         output.ShouldContain("►");
         output.ShouldNotContain("State");
         output.ShouldNotContain("Age");
 
+        // Render the labels once, outside Live's redraw stream, to measure terminal columns.
+        var measured = new TestConsole();
+        measured.Profile.Width = console.Profile.Width;
+        var width = new WidthBudget(measured.Profile.Width);
+        var tree = new Spectre.Console.Tree(renderer.FormatWorkspaceTreeNodeLabel(roots[0], active.Id, 5, width, 0));
+        tree.AddNode(renderer.FormatWorkspaceTreeNodeLabel(roots[0].Children[0], active.Id, 5, width, 1));
+        measured.Write(tree);
+        var lines = measured.Output.ReplaceLineEndings("\n").Split('\n');
+        var rootRow = lines.First(line => line.Contains("Context Feature"));
+        var childRow = lines.First(line => line.Contains("Working child"));
+
+        static int CellIndex(string line, string needle)
+        {
+            var index = line.IndexOf(needle, StringComparison.Ordinal);
+            return index < 0 ? -1 : Segment.CellCount([new Segment(line[..index])]);
+        }
+
+        CellIndex(rootRow, "Active").ShouldBe(CellIndex(childRow, "Active"));
+
         var budget = new WidthBudget(console.Profile.Width);
         var activeLabel = renderer.FormatWorkspaceTreeNodeLabel(
             BuildNode(active, isSprintItem: true), active.Id, 5, budget, 1);
         activeLabel.ShouldContain("[on #16324f]");
     }
+
 
     [Theory]
     [InlineData(true)]

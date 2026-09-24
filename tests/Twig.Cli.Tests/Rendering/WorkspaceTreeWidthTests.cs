@@ -123,7 +123,7 @@ public sealed class WorkspaceTreeWidthTests
         output.ShouldContain("Task");
         output.ShouldContain("#20");
         output.ShouldContain("Active");
-        output.ShouldContain("cached 15m ago");
+        output.ShouldContain("(15m ago)");
         output.ShouldContain("✎");
         output.ShouldContain("…");
         output.ShouldNotContain(LongTitle);

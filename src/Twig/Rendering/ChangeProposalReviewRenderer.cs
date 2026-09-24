@@ -92,8 +92,7 @@ public static class ChangeProposalReviewRenderer
         }
 
         lines.Add(Text("Legend: → = field change; (clear) = remove field; absent = known null; unknown = unavailable baseline; \"\" = empty string. Context and peers are not mutation targets."));
-        if (!full && model.Operations.SelectMany(o => o.Consequences)
-            .Any(c => string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase)))
+        if (!full && model.Operations.SelectMany(o => o.Consequences).Any(IsHtmlField))
             lines.Add(Text("Description summaries count removed and inserted Unicode characters. Use --full or Details to show complete bodies."));
         return lines;
     }
@@ -163,7 +162,7 @@ public static class ChangeProposalReviewRenderer
     private static RenderCell DescribeField(ReviewConsequence con, bool full)
     {
         var spans = new List<RenderTextSpan>();
-        if (!full && string.Equals(con.Field, "System.Description", StringComparison.OrdinalIgnoreCase))
+        if (!full && IsHtmlField(con))
         {
             spans.Add(new(con.Kind == "field-clear" ? "(clear) " : con.To == "" ? "→ \"\" " : "→ replace body "));
             if (con.TextChange is { } metric)
@@ -177,16 +176,28 @@ public static class ChangeProposalReviewRenderer
         }
         else
         {
-            var before = con.Before?.State switch { "value" => Quote(con.Before.Value ?? ""), "absent" => "(absent)", _ => "(unknown)" };
+            var before = con.Before?.State switch
+            {
+                "value" => Quote(DisplayFieldValue(con, con.Before.Value ?? "")),
+                "absent" => "(absent)",
+                _ => "(unknown)",
+            };
             spans.Add(new(Safe(before), RenderTextRole.Before));
             spans.Add(new(" → "));
-            spans.Add(new(Safe(con.Kind == "field-clear" ? "(clear)" : Quote(con.To ?? "")), RenderTextRole.After));
+            var after = con.Kind == "field-clear" ? "(clear)" : Quote(DisplayFieldValue(con, con.To ?? ""));
+            spans.Add(new(Safe(after), RenderTextRole.After));
         }
         var text = string.Concat(spans.Select(s => s.Text));
         return RenderCell.String(text) with { Spans = spans };
     }
 
     private static string Quote(string value) => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
+    private static bool IsHtmlField(ReviewConsequence consequence)
+        => string.Equals(consequence.FieldType, "html", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(consequence.Field, "System.Description", StringComparison.OrdinalIgnoreCase);
+
+    private static string DisplayFieldValue(ReviewConsequence consequence, string value)
+        => IsHtmlField(consequence) ? Formatters.FormatterHelpers.HtmlToReviewText(value) : value;
     private static string DescribeConsequence(ReviewConsequence c) => c.Kind switch
     {
         "link-add" => $"add {c.Relation} link to #{c.OtherId}",

@@ -82,7 +82,7 @@ public sealed class ChangeProposalReviewRendererTests
     [Fact]
     public void Render_HtmlFieldUsesReadableDetailsButKeepsBriefConciseAndContentInert()
     {
-        const string html = "<h2>Heading &amp; scope</h2><p>First&nbsp;paragraph</p>"
+        const string html = "<h2>Heading &amp; scope</h2>Following <p>First&nbsp;paragraph</p>"
             + "<ul><li>One &rarr; two</li><li>&lt;script&gt;[bold] &#x1b;[31m</li></ul>";
         var model = Model();
         var operation = model.Operations[0];
@@ -111,6 +111,8 @@ public sealed class ChangeProposalReviewRendererTests
 
         var details = RenderText(model);
         details.ShouldContain("Heading & scope");
+        details.ShouldContain("Following");
+        details.ShouldNotContain("Heading & scopeFollowing");
         details.ShouldContain("First");
         details.ShouldContain("paragraph");
         details.ShouldContain("• One → two");

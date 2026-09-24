@@ -161,7 +161,7 @@ internal static class FormatterHelpers
         if (string.IsNullOrWhiteSpace(html))
             return string.Empty;
 
-        var marked = InsertBlockMarkers(html);
+        var marked = InsertBlockMarkers(html, preserveClosingBoundaries: true);
         var stripped = StripAllTags(marked);
         var decoded = System.Net.WebUtility.HtmlDecode(stripped);
         return string.Join('\n', NormalizeLines(decoded));
@@ -283,7 +283,7 @@ internal static class FormatterHelpers
         // else: unknown tag — strip silently
     }
 
-    private static string InsertBlockMarkers(string html)
+    private static string InsertBlockMarkers(string html, bool preserveClosingBoundaries = false)
     {
         var sb = new StringBuilder(html.Length + 64);
         var i = 0;
@@ -300,7 +300,7 @@ internal static class FormatterHelpers
                 }
 
                 var tagContent = html.AsSpan(i + 1, tagEnd - i - 1);
-                // Trim leading '/' for closing tags — we only care about opening tags
+                // Trim leading '/' for closing tags and preserve block boundaries.
                 var isClosing = tagContent.Length > 0 && tagContent[0] == '/';
                 var tagName = isClosing ? tagContent[1..] : tagContent;
 
@@ -309,8 +309,16 @@ internal static class FormatterHelpers
                 if (spaceIdx >= 0)
                     tagName = tagName[..spaceIdx];
 
-                if (!isClosing && IsBlockElement(tagName))
-                    sb.Append(tagName.Equals("li", StringComparison.OrdinalIgnoreCase) ? "\n• " : "\n");
+                if (IsBlockElement(tagName))
+                {
+                    if (isClosing)
+                    {
+                        if (preserveClosingBoundaries)
+                            sb.Append('\n');
+                    }
+                    else
+                        sb.Append(tagName.Equals("li", StringComparison.OrdinalIgnoreCase) ? "\n• " : "\n");
+                }
                 else if (!isClosing && IsBreakElement(tagName))
                     sb.Append('\n');
 

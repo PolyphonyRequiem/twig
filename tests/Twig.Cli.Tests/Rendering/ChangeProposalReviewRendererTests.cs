@@ -79,6 +79,48 @@ public sealed class ChangeProposalReviewRendererTests
         return output.ToString();
     }
 
+    [Fact]
+    public void Render_HtmlFieldUsesReadableDetailsButKeepsBriefConciseAndContentInert()
+    {
+        const string html = "<h2>Heading &amp; scope</h2><p>First&nbsp;paragraph</p>"
+            + "<ul><li>One &rarr; two</li><li>&lt;script&gt;[bold] &#x1b;[31m</li></ul>";
+        var model = Model();
+        var operation = model.Operations[0];
+        model = model with
+        {
+            Operations = [operation with
+            {
+                Consequences = [new ReviewConsequence
+                {
+                    Kind = "field-set",
+                    Field = "Custom.FalsificationCriteria",
+                    FieldLabel = "Falsification Criteria",
+                    FieldType = "html",
+                    To = html,
+                    Before = new ReviewBeforeValue { State = "unknown", Reason = "field-not-cached" },
+                }],
+            }],
+        };
+
+        var brief = new StringWriter();
+        new RendererFactory().GetRenderer("human", brief).Render(
+            new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, false)));
+        brief.ToString().ShouldContain("Falsification Criteria");
+        brief.ToString().ShouldNotContain("Heading");
+        brief.ToString().ShouldNotContain("<h2>");
+
+        var details = RenderText(model);
+        details.ShouldContain("Heading & scope");
+        details.ShouldContain("First");
+        details.ShouldContain("paragraph");
+        details.ShouldContain("• One → two");
+        details.ShouldContain("<script>[bold] \\u001b[31m");
+        details.ShouldNotContain("<h2>");
+        details.ShouldNotContain("&rarr;");
+        details.ShouldNotContain("\u001b[31m");
+        model.Operations[0].Consequences[0].To.ShouldBe(html);
+    }
+
     // The human projection keeps material effects, warnings and blockers, but no approval controls.
     // Digest, workspace and wire-level operation bookkeeping remain machine data.
     [Fact]

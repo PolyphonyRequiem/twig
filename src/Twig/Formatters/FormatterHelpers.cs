@@ -153,6 +153,21 @@ internal static class FormatterHelpers
     }
 
     /// <summary>
+    /// Converts HTML to readable, untruncated review text. This is presentation-only: callers
+    /// retain the original field value in the semantic review model and machine output.
+    /// </summary>
+    internal static string HtmlToReviewText(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        var marked = InsertBlockMarkers(html);
+        var stripped = StripAllTags(marked);
+        var decoded = System.Net.WebUtility.HtmlDecode(stripped);
+        return string.Join('\n', NormalizeLines(decoded));
+    }
+
+    /// <summary>
     /// Converts an HTML string (typically from ADO description fields) to Spectre.Console markup.
     /// The returned string already contains Spectre markup tags (e.g. <c>[bold]</c>, <c>[italic]</c>)
     /// and user text has been escaped via <see cref="Markup.Escape"/>.

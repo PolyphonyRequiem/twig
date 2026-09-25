@@ -8,11 +8,12 @@ mutates: local
 
 # `twig config`
 
-Read or write a single key on the split Twig configuration. By default, repo coordinates
-land in `twig.json` and workspace-specific user preferences in `.twig/config`. The
-`--global` option is limited to `display.icons` and stores a home-wide display default
-in `~/.twig/display.json`; it never stores authentication, identity, tracker coordinates,
-or Bench state.
+Read or write a single key on the split Twig configuration. Repo coordinates
+land in `twig.json`; only explicitly chosen workspace preferences are persisted
+in `.twig/config`, which is absent when there are none. Unset local values
+inherit home-wide preferences where available and otherwise use built-in
+defaults. The `--global` option is limited to `display.icons` and stores its
+home-wide value in `~/.twig/display.json`, never credentials or tracker state.
 
 ## Synopsis
 
@@ -46,6 +47,9 @@ twig config <key> [<value>] [--global] [--unset] [-o|--output human|json|minimal
   through `SaveSplitAsync`. A global write changes only `~/.twig/display.json`, and
   `--unset` removes the selected icon override to inherit the next layer. `--global`
   rejects every key except `display.icons`; neither mode stores global credentials.
+- Workspace saves preserve explicit values, even when they equal today's
+  built-in default. A local config with no explicit preferences is removed;
+  loading it thereafter uses global settings and built-in defaults.
 - Workspace display writes refresh the Oh My Posh prompt-state cache. Global changes
   take effect the next time Twig loads configuration, even outside a workspace.
 - Empty or whitespace-only keys exit `2` with a usage error

@@ -76,12 +76,19 @@ public sealed class MigrateConfigCommand(
             ? await File.ReadAllBytesAsync(paths.ConfigPath, ct)
             : null;
         var userAfter = await config.GetUserBytesAsync(ct);
-        var userChanged = userBefore is null || !userBefore.AsSpan().SequenceEqual(userAfter);
+        var userChanged = userAfter is null
+            ? userBefore is not null
+            : userBefore is null || !userBefore.AsSpan().SequenceEqual(userAfter);
         if (userChanged)
         {
-            changes.Add(dryRun
-                ? $"  would rewrite {paths.ConfigPath} as user-prefs-only"
-                : hasLegacyConfig
+            if (userAfter is null)
+                changes.Add(dryRun
+                    ? $"  would remove {paths.ConfigPath} (no local preferences)"
+                    : $"  removed {RelativeTo(paths.ConfigPath, paths.RepoRoot)} (no local preferences)");
+            else if (dryRun)
+                changes.Add($"  would rewrite {paths.ConfigPath} as user-prefs-only");
+            else
+                changes.Add(hasLegacyConfig
                     ? $"  rewrote {RelativeTo(paths.ConfigPath, paths.RepoRoot)} as user-prefs-only"
                     : $"  created {RelativeTo(paths.ConfigPath, paths.RepoRoot)}");
             didWork = true;

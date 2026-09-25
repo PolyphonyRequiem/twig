@@ -380,13 +380,17 @@ public sealed class TwigConfiguration
     /// </summary>
     public async Task SaveUserAsync(string userPath, CancellationToken ct = default)
     {
-        var directory = Path.GetDirectoryName(userPath);
-        if (directory is not null && directory.Length > 0 && !Directory.Exists(directory))
+        var newBytes = await GetUserBytesAsync(ct);
+        if (newBytes is null)
         {
-            Directory.CreateDirectory(directory);
+            if (File.Exists(userPath))
+                File.Delete(userPath);
+            return;
         }
 
-        var newBytes = await GetUserBytesAsync(ct);
+        var directory = Path.GetDirectoryName(userPath);
+        if (directory is not null && directory.Length > 0 && !Directory.Exists(directory))
+            Directory.CreateDirectory(directory);
 
         if (File.Exists(userPath))
         {
@@ -398,15 +402,19 @@ public sealed class TwigConfiguration
             }
             catch (IOException)
             {
-                // fall through and overwrite
+                // Fall through and overwrite an unreadable config.
             }
         }
 
         await File.WriteAllBytesAsync(userPath, newBytes, ct);
     }
 
-    internal async Task<byte[]> GetUserBytesAsync(CancellationToken ct = default)
+    /// <summary>Null means no local preferences exist and no file should be written.</summary>
+    internal async Task<byte[]?> GetUserBytesAsync(CancellationToken ct = default)
     {
+        if (!UserPrefs.HasOverrides)
+            return null;
+
         using var buffer = new MemoryStream();
         await JsonSerializer.SerializeAsync(buffer, UserPrefs, TwigJsonContext.Default.TwigUserConfig, ct);
         return buffer.ToArray();
@@ -780,7 +788,15 @@ public enum ConfigScope
 
 public sealed class AuthConfig
 {
-    public string Method { get; set; } = "azcli";
+    [JsonIgnore]
+    public string Method { get => MethodOverride ?? "azcli"; set => MethodOverride = value; }
+
+    [JsonInclude]
+    [JsonPropertyName("method")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal string? MethodOverride { get; set; }
+
+    internal bool HasOverride => MethodOverride is not null;
 }
 
 /// <summary>
@@ -910,10 +926,43 @@ public sealed class ProfilePinConfig
 /// </summary>
 public sealed class TwigUserConfig
 {
-    public AuthConfig Auth { get; set; } = new();
-    public DisplayConfig Display { get; set; } = new();
-    public UserConfig User { get; set; } = new();
-    public TrackingConfig Tracking { get; set; } = new();
+    // Persist only explicit choices. Nullable stored members distinguish an
+    // absent preference from one deliberately set to today's default value.
+    private AuthConfig _auth = new();
+    private DisplayConfig _display = new();
+    private UserConfig _user = new();
+    private TrackingConfig _tracking = new();
+
+    [JsonIgnore]
+    public AuthConfig Auth { get => _auth; set => _auth = value ?? new(); }
+    [JsonInclude]
+    [JsonPropertyName("auth")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal AuthConfig? StoredAuth { get => _auth.HasOverride ? _auth : null; set => _auth = value ?? new(); }
+
+    [JsonIgnore]
+    public DisplayConfig Display { get => _display; set => _display = value ?? new(); }
+    [JsonInclude]
+    [JsonPropertyName("display")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal DisplayConfig? StoredDisplay { get => _display.HasOverrides ? _display : null; set => _display = value ?? new(); }
+
+    [JsonIgnore]
+    public UserConfig User { get => _user; set => _user = value ?? new(); }
+    [JsonInclude]
+    [JsonPropertyName("user")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal UserConfig? StoredUser { get => _user.DisplayName is not null || _user.Email is not null ? _user : null; set => _user = value ?? new(); }
+
+    [JsonIgnore]
+    public TrackingConfig Tracking { get => _tracking; set => _tracking = value ?? new(); }
+    [JsonInclude]
+    [JsonPropertyName("tracking")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal TrackingConfig? StoredTracking { get => _tracking.HasOverride ? _tracking : null; set => _tracking = value ?? new(); }
+
+    internal bool HasOverrides => StoredAuth is not null || StoredDisplay is not null
+        || StoredUser is not null || StoredTracking is not null;
 
     /// <summary>
     /// AB#3296 PR-3: this field is hydrated at bootstrap from the SQLite
@@ -1004,11 +1053,40 @@ public sealed class SeedConfig
 
 public sealed class DisplayConfig
 {
-    public bool Hints { get; set; } = true;
-    public int TreeDepth { get; set; } = 5;
-    public int TreeDepthUp { get; set; } = 2;
-    public int TreeDepthDown { get; set; } = 10;
-    public int TreeDepthSideways { get; set; } = 1;
+    [JsonIgnore]
+    public bool Hints { get => HintsOverride ?? true; set => HintsOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("hints")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal bool? HintsOverride { get; set; }
+
+    [JsonIgnore]
+    public int TreeDepth { get => TreeDepthOverride ?? 5; set => TreeDepthOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("treeDepth")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? TreeDepthOverride { get; set; }
+
+    [JsonIgnore]
+    public int TreeDepthUp { get => TreeDepthUpOverride ?? 2; set => TreeDepthUpOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("treeDepthUp")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? TreeDepthUpOverride { get; set; }
+
+    [JsonIgnore]
+    public int TreeDepthDown { get => TreeDepthDownOverride ?? 10; set => TreeDepthDownOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("treeDepthDown")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? TreeDepthDownOverride { get; set; }
+
+    [JsonIgnore]
+    public int TreeDepthSideways { get => TreeDepthSidewaysOverride ?? 1; set => TreeDepthSidewaysOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("treeDepthSideways")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? TreeDepthSidewaysOverride { get; set; }
     private string? _globalIcons;
 
     /// <summary>The effective setting; assigning it creates a workspace override.</summary>
@@ -1027,12 +1105,42 @@ public sealed class DisplayConfig
         var mode = value.ToLowerInvariant();
         return mode is "auto" or "unicode" or "nerd" ? mode : null;
     }
-    public int CacheStaleMinutes { get; set; } = 5;
-    public int CacheStaleMinutesReadOnly { get; set; } = 15;
+    [JsonIgnore]
+    public int CacheStaleMinutes { get => CacheStaleMinutesOverride ?? 5; set => CacheStaleMinutesOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("cacheStaleMinutes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? CacheStaleMinutesOverride { get; set; }
+
+    [JsonIgnore]
+    public int CacheStaleMinutesReadOnly { get => CacheStaleMinutesReadOnlyOverride ?? 15; set => CacheStaleMinutesReadOnlyOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("cacheStaleMinutesReadOnly")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? CacheStaleMinutesReadOnlyOverride { get; set; }
+
     public Dictionary<string, string>? TypeColors { get; set; }
     public DisplayColumnsConfig? Columns { get; set; }
-    public double FillRateThreshold { get; set; } = 0.4;
-    public int MaxExtraColumns { get; set; } = 3;
+
+    [JsonIgnore]
+    public double FillRateThreshold { get => FillRateThresholdOverride ?? 0.4; set => FillRateThresholdOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("fillRateThreshold")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal double? FillRateThresholdOverride { get; set; }
+
+    [JsonIgnore]
+    public int MaxExtraColumns { get => MaxExtraColumnsOverride ?? 3; set => MaxExtraColumnsOverride = value; }
+    [JsonInclude]
+    [JsonPropertyName("maxExtraColumns")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal int? MaxExtraColumnsOverride { get; set; }
+
+    internal bool HasOverrides => HintsOverride.HasValue || TreeDepthOverride.HasValue
+        || TreeDepthUpOverride.HasValue || TreeDepthDownOverride.HasValue || TreeDepthSidewaysOverride.HasValue
+        || IconsOverride is not null || CacheStaleMinutesOverride.HasValue || CacheStaleMinutesReadOnlyOverride.HasValue
+        || TypeColors is not null || Columns is not null || FillRateThresholdOverride.HasValue
+        || MaxExtraColumnsOverride.HasValue;
 
     /// <summary>
     /// Resolves the saved preference without changing it. Automatic mode uses
@@ -1165,5 +1273,13 @@ public sealed class TrackingConfig
     /// Controls automatic cleanup of tracked items.
     /// Valid values: "none", "on-complete", "on-complete-and-past".
     /// </summary>
-    public string CleanupPolicy { get; set; } = "none";
+    [JsonIgnore]
+    public string CleanupPolicy { get => CleanupPolicyOverride ?? "none"; set => CleanupPolicyOverride = value; }
+
+    [JsonInclude]
+    [JsonPropertyName("cleanupPolicy")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal string? CleanupPolicyOverride { get; set; }
+
+    internal bool HasOverride => CleanupPolicyOverride is not null;
 }

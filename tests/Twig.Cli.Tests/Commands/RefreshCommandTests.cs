@@ -99,12 +99,9 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _config.TypeAppearances.ShouldContain(a => a.Name == "Bug" && a.Color == "CC293D");
         _config.TypeAppearances.ShouldContain(a => a.Name == "Task" && a.Color == "F2CB1D");
 
-        // The user-prefs file MUST NOT contain typeAppearances — eliminating the
-        // 60-line JSON array that twig sync used to rewrite on every invocation.
-        File.Exists(_paths.ConfigPath).ShouldBeTrue();
-        var content = await File.ReadAllTextAsync(_paths.ConfigPath);
-        content.ShouldNotContain("typeAppearances");
-        content.ShouldNotContain("CC293D");
+        // Process metadata lives in SQLite; refreshing it creates no local
+        // preference override when the user has chosen none.
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
 
         // SQLite process_types writes still happen via ProcessTypeSyncService.
         await _processTypeStore.Received(2).SaveAsync(Arg.Any<ProcessTypeRecord>(), Arg.Any<CancellationToken>());

@@ -33,6 +33,25 @@ public sealed class AdminToolsConfigTests : ReadToolsTestBase
     }
 
     [Fact]
+    public async Task Config_NoKey_ReportsEffectivePreferencesWhenStorageIsSparse()
+    {
+        var config = new TwigConfiguration();
+        config.Display.UseGlobalIcons("nerd");
+        var sut = CreateAdminSut(config);
+
+        var result = await sut.Config();
+
+        result.IsError.ShouldBeNull();
+        var full = ParseResult(result).GetProperty("config");
+        full.GetProperty("auth").GetProperty("method").GetString().ShouldBe("azcli");
+        var display = full.GetProperty("display");
+        display.GetProperty("hints").GetBoolean().ShouldBeTrue();
+        display.GetProperty("treeDepth").GetInt32().ShouldBe(5);
+        display.GetProperty("icons").GetString().ShouldBe("nerd");
+        full.GetProperty("tracking").GetProperty("cleanupPolicy").GetString().ShouldBe("none");
+    }
+
+    [Fact]
     public async Task Config_NoKey_ConfigContainsExpectedSections()
     {
         var config = new TwigConfiguration

@@ -61,9 +61,35 @@ public sealed class AdminTools(ConnectionResolver resolver)
         return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
         {
             writer.WritePropertyName("config");
-            JsonSerializer.Serialize(writer, config, TwigJsonContext.Default.TwigConfiguration);
+            JsonSerializer.Serialize(writer, EffectiveConfigSnapshot(config), TwigJsonContext.Default.TwigConfiguration);
         }, verbose, ct);
     }
+
+    private static TwigConfiguration EffectiveConfigSnapshot(TwigConfiguration config) => new()
+    {
+        RepoCoords = config.RepoCoords,
+        UserPrefs = new TwigUserConfig
+        {
+            Auth = new AuthConfig { Method = config.Auth.Method },
+            Display = new DisplayConfig
+            {
+                Hints = config.Display.Hints,
+                TreeDepth = config.Display.TreeDepth,
+                TreeDepthUp = config.Display.TreeDepthUp,
+                TreeDepthDown = config.Display.TreeDepthDown,
+                TreeDepthSideways = config.Display.TreeDepthSideways,
+                Icons = config.Display.Icons,
+                CacheStaleMinutes = config.Display.CacheStaleMinutes,
+                CacheStaleMinutesReadOnly = config.Display.CacheStaleMinutesReadOnly,
+                TypeColors = config.Display.TypeColors,
+                Columns = config.Display.Columns,
+                FillRateThreshold = config.Display.FillRateThreshold,
+                MaxExtraColumns = config.Display.MaxExtraColumns,
+            },
+            User = config.User,
+            Tracking = new TrackingConfig { CleanupPolicy = config.Tracking.CleanupPolicy },
+        },
+    };
 
     [McpServerTool(Name = "twig_area"), Description("Show the project area path classification tree. Cached locally; refreshes from ADO when stale (>1 hour). Read-only — does not modify area paths.")]
     public async Task<CallToolResult> Area(

@@ -8,10 +8,11 @@ mutates: local
 
 # `twig migrate-config`
 
-One-shot migration that splits the legacy single-file `.twig/config` into a committed
-`twig.json` manifest at the repo root plus a gitignored `.twig/config` holding per-user
-preferences. Idempotent — re-running converges on the split layout and never re-dirties a
-repo that is already migrated. Introduced by AB#3296.
+One-shot migration that splits the legacy single-file `.twig/config` into a
+committed `twig.json` manifest at the repo root and a gitignored `.twig/config`
+containing only explicit per-user preferences. If there are none, no local
+config file remains. Re-running converges on the split layout without
+re-dirtying an already migrated repo. Introduced by AB#3296.
 
 ## Synopsis
 
@@ -44,9 +45,10 @@ twig migrate-config [--dry-run] [-o|--output human|json|minimal]
   (`src/Twig/Commands/MigrateConfigCommand.cs:53-79`).
 - Writes `twig.json` at the repo root when its target bytes differ from disk. In `--dry-run`
   mode it only records the intended change (`src/Twig/Commands/MigrateConfigCommand.cs:63-73`).
-- Rewrites `.twig/config` as user-prefs-only when its target bytes differ from disk. In
-  `--dry-run` mode it only records the intended change
-  (`src/Twig/Commands/MigrateConfigCommand.cs:80-90`).
+- Writes `.twig/config` only when explicit user preferences remain after the
+  split; an existing defaults-only file is removed. `--dry-run` reports the
+  proposed write or removal without changing the file
+  (`src/Twig/Commands/MigrateConfigCommand.cs:75-95`).
 - Updates the repo-root `.gitignore` to ignore `.twig/` and remove any stale `!.twig/config`
   negation that would leak user preferences (`src/Twig/Commands/MigrateConfigCommand.cs:92-100`
   and `UpdateGitignore` at `src/Twig/Commands/MigrateConfigCommand.cs:197-230`).

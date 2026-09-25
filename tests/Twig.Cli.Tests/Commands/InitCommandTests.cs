@@ -120,6 +120,21 @@ public class InitCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Init_DoesNotCreateLocalConfigForImplicitPreferences()
+    {
+        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        (await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject")).ShouldBe(0);
+
+        File.Exists(_paths.RepoConfigPath).ShouldBeTrue();
+        File.Exists(_configPath).ShouldBeFalse();
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
+        loaded.Auth.Method.ShouldBe("azcli");
+        loaded.Display.Hints.ShouldBeTrue();
+        loaded.Display.Icons.ShouldBe(GlobalDisplayPreferences.Load(_paths.GlobalDisplayPath).Icons ?? "auto");
+    }
+
+    [Fact]
     public async Task Init_CreatesGitignore_WhenMissing()
     {
         var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
@@ -195,7 +210,6 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", team: "Z Team");
 
         result.ShouldBe(0);
-        File.Exists(_configPath).ShouldBeTrue();
         var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Team.ShouldBe("Z Team");
     }
@@ -301,17 +315,6 @@ public class InitCommandTests : IDisposable
         result.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task Init_Force_ReinitializesExistingWorkspace()
-    {
-        Directory.CreateDirectory(_twigDir);
-        var cmd = CreateInitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
-
-        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", force: true);
-
-        result.ShouldBe(0);
-        File.Exists(_configPath).ShouldBeTrue();
-    }
 
     [Fact]
     public async Task Init_Force_ClearsNavigationHistory()
@@ -430,12 +433,6 @@ public class InitCommandTests : IDisposable
 
         await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
-        // The user-prefs file must not contain any appearance data.
-        File.Exists(_configPath).ShouldBeTrue();
-        var content = await File.ReadAllTextAsync(_configPath);
-        content.ShouldNotContain("typeAppearances");
-        content.ShouldNotContain("icon_insect");
-        content.ShouldNotContain("CC293D");
 
         // The SQLite cache must hold the appearance data (queried by the
         // bootstrap hydrator in subsequent CLI invocations).

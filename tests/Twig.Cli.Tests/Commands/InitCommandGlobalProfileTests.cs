@@ -254,7 +254,11 @@ public class InitCommandGlobalProfileTests : IDisposable
 
         // Init should succeed despite profile logic failure (FR-09)
         result.ShouldBe(0);
-        File.Exists(_configPath).ShouldBeTrue();
+        File.Exists(_paths.RepoConfigPath).ShouldBeTrue();
+        File.Exists(_configPath).ShouldBeFalse();
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
+        loaded.Organization.ShouldBe(org);
+        loaded.Project.ShouldBe("MyProject");
     }
 
     [Fact]

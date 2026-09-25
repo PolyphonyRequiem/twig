@@ -43,6 +43,61 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveUser_WithoutExplicitPreferences_DoesNotCreateLocalConfig()
+    {
+        var path = Path.Combine(_tempDir, "user-config.json");
+
+        await new TwigConfiguration().SaveUserAsync(path);
+
+        File.Exists(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SaveUser_ExplicitDefaultsRemainOverridesWithoutWritingOtherDefaults()
+    {
+        var path = Path.Combine(_tempDir, "user-config.json");
+        var config = new TwigConfiguration();
+        config.Auth.Method = "azcli";
+        config.Display.Hints = true;
+        config.Display.Icons = "auto";
+        config.Tracking.CleanupPolicy = "none";
+
+        await config.SaveUserAsync(path);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var root = document.RootElement;
+        root.GetProperty("auth").EnumerateObject().Select(p => p.Name).ShouldBe(["method"]);
+        root.GetProperty("display").EnumerateObject().Select(p => p.Name).ShouldBe(["hints", "icons"]);
+        root.GetProperty("tracking").EnumerateObject().Select(p => p.Name).ShouldBe(["cleanupPolicy"]);
+        root.TryGetProperty("user", out _).ShouldBeFalse();
+        root.GetProperty("auth").GetProperty("method").GetString().ShouldBe("azcli");
+        root.GetProperty("display").GetProperty("hints").GetBoolean().ShouldBeTrue();
+        root.GetProperty("display").GetProperty("icons").GetString().ShouldBe("auto");
+        root.GetProperty("tracking").GetProperty("cleanupPolicy").GetString().ShouldBe("none");
+    }
+
+    [Fact]
+    public async Task SaveUser_RetainsExistingOverridesWithoutRematerializingDefaults()
+    {
+        var path = Path.Combine(_tempDir, "user-config.json");
+        await File.WriteAllTextAsync(path,
+            """{"auth":{"method":"pat"},"display":{"icons":"unicode","treeDepth":7},"tracking":{"cleanupPolicy":"on-complete"}}""");
+        var user = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), TwigJsonContext.Default.TwigUserConfig);
+        var config = new TwigConfiguration { UserPrefs = user! };
+
+        await config.SaveUserAsync(path);
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var root = document.RootElement;
+        root.GetProperty("auth").GetProperty("method").GetString().ShouldBe("pat");
+        root.GetProperty("display").GetProperty("icons").GetString().ShouldBe("unicode");
+        root.GetProperty("display").GetProperty("treeDepth").GetInt32().ShouldBe(7);
+        root.GetProperty("tracking").GetProperty("cleanupPolicy").GetString().ShouldBe("on-complete");
+        root.GetProperty("display").EnumerateObject().Select(p => p.Name).ShouldBe(["treeDepth", "icons"]);
+        root.TryGetProperty("user", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task LoadAsync_ProcessTemplate_DefaultsToEmpty_WhenKeyMissing()
     {
         // Simulates upgrading from a config file that predates ProcessTemplate
@@ -1804,7 +1859,7 @@ public class TwigConfigurationTests : IDisposable
         inherited.Display.Icons.ShouldBe("nerd");
         (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("nerd");
         await inherited.SaveUserAsync(paths.ConfigPath);
-        (await File.ReadAllTextAsync(paths.ConfigPath)).ShouldNotContain("\"icons\"");
+        File.Exists(paths.ConfigPath).ShouldBeFalse();
 
         inherited.SetValue("display.icons", "auto").ShouldBeTrue();
         await inherited.SaveUserAsync(paths.ConfigPath);
@@ -1812,6 +1867,7 @@ public class TwigConfigurationTests : IDisposable
 
         inherited.Display.ClearIconsOverride();
         await inherited.SaveUserAsync(paths.ConfigPath);
+        File.Exists(paths.ConfigPath).ShouldBeFalse();
         (await TwigConfiguration.LoadSplitAsync(paths)).Display.Icons.ShouldBe("nerd");
     }
 

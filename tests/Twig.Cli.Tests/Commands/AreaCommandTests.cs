@@ -128,14 +128,17 @@ public sealed class AreaCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Add_PersistsToConfigFile()
+    public async Task Add_PersistsAreaInRepoManifestWithoutLocalDefaults()
     {
         var config = new TwigConfiguration();
         var cmd = CreateCommand(config);
 
         await cmd.AddAsync(@"Project\Team A");
 
-        File.Exists(_paths.ConfigPath).ShouldBeTrue();
+        var saved = await TwigConfiguration.LoadSplitAsync(_paths);
+        saved.Defaults.AreaPathEntries.ShouldNotBeNull();
+        saved.Defaults.AreaPathEntries.Single().Path.ShouldBe(@"Project\Team A");
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
     }
 
     // ── Remove ─────────────────────────────────────────────────────────
@@ -651,7 +654,7 @@ public sealed class AreaCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Remove_PersistsToConfigFile()
+    public async Task Remove_PersistsAreaChangeInRepoManifest()
     {
         var config = new TwigConfiguration
         {
@@ -664,7 +667,10 @@ public sealed class AreaCommandTests : IDisposable
 
         await cmd.RemoveAsync(@"Project\Team A");
 
-        File.Exists(_paths.ConfigPath).ShouldBeTrue();
+        var saved = await TwigConfiguration.LoadSplitAsync(_paths);
+        saved.Defaults.AreaPathEntries.ShouldNotBeNull();
+        saved.Defaults.AreaPathEntries.ShouldBeEmpty();
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
     }
 
     [Fact]
@@ -749,7 +755,7 @@ public sealed class AreaCommandTests : IDisposable
     // ── Sync — edge cases ──────────────────────────────────────────────
 
     [Fact]
-    public async Task Sync_PersistsToConfigFile()
+    public async Task Sync_PersistsAreaInRepoManifestWithoutLocalDefaults()
     {
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
@@ -763,7 +769,10 @@ public sealed class AreaCommandTests : IDisposable
 
         await StdoutCapture.RunAsync(() => cmd.SyncAsync());
 
-        File.Exists(_paths.ConfigPath).ShouldBeTrue();
+        var saved = await TwigConfiguration.LoadSplitAsync(_paths);
+        saved.Defaults.AreaPathEntries.ShouldNotBeNull();
+        saved.Defaults.AreaPathEntries.Single().Path.ShouldBe(@"Project\Team X");
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
     }
 
     [Fact]

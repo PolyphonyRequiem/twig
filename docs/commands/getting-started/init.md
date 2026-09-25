@@ -8,7 +8,14 @@ mutates: local
 
 # `twig init`
 
-`twig init` bootstraps a Twig workspace under the current git-worktree root: it detects the worktree anchor, creates the `.twig/` tree, writes the split `twig.json` + user-preference config, initializes the per-workspace SQLite cache, and captures the process description needed for downstream commands. Reach for it the first time you point Twig at an ADO org/project, or when you need to rebuild a workspace from scratch with `--reinitialize`.
+`twig init` bootstraps a Twig workspace under the current git-worktree root.
+It detects the worktree anchor, creates `.twig/`, writes the committed
+`twig.json`, initializes the per-workspace SQLite cache, and captures the
+process description needed by downstream commands. Gitignored `.twig/config`
+is written only for explicit local preferences (such as a detected user
+identity); implicit auth, display and tracking defaults do not create it.
+Use `init` when first pointing Twig at an ADO org/project or rebuilding a
+workspace with `--reinitialize`.
 
 ## Synopsis
 

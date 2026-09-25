@@ -64,7 +64,7 @@ public class ConfigCommandTests : IDisposable
 
         result.ShouldBe(0);
         config.Seed.StaleDays.ShouldBe(7);
-        File.Exists(_paths.ConfigPath).ShouldBeTrue();
+        (await TwigConfiguration.LoadSplitAsync(_paths)).Seed.StaleDays.ShouldBe(7);
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class ConfigCommandTests : IDisposable
         (await cmd.ExecuteAsync("display.icons", unset: true)).ShouldBe(0);
 
         TwigConfiguration.LoadSplit(_paths).Display.Icons.ShouldBe("nerd");
-        (await File.ReadAllTextAsync(_paths.ConfigPath)).ShouldNotContain("\"icons\"");
+        File.Exists(_paths.ConfigPath).ShouldBeFalse();
     }
 
     [Fact]

@@ -249,15 +249,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 }
                             }
 
-                            // Exclusion footer
-                            if (currentSections is { ExcludedItemIds.Count: > 0 })
-                            {
-                                var exclRow = new string[colCount];
-                                var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
-                                exclRow[0] = $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]";
-                                for (var ei = 1; ei < colCount; ei++) exclRow[ei] = "";
-                                table.AddRow(exclRow);
-                            }
 
                             ctx.Refresh();
                             break;
@@ -561,12 +552,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     }
                                 }
 
-                                if (currentSections is { ExcludedItemIds.Count: > 0 })
-                                {
-                                    var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
-                                    container.AddRow(new Markup(
-                                        $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]"));
-                                }
 
                                 if (container.Rows.Count == 0)
                                 {

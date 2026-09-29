@@ -1,15 +1,13 @@
 # Workspace commands
 
-The `workspace` group is Twig's canonical entry point for viewing and shaping
-the local working set: what appears in the workspace view, which items are
-pinned or hidden, and which sprints and area paths the workspace subscribes to.
-`workspace` on its own renders the current view; the sub-commands mutate the
-workspace configuration or the local tracking tables.
+The `workspace` group shows the local working set, pins items through the current
+Bench, and manages sprint and area configuration. `workspace` on its own renders
+the current view. It does not hide items matched by Bench selectors.
 
-Everything under `workspace` operates on cache and workspace config. The one
-exception is `workspace area sync`, which reads team area paths from Azure
-DevOps to rebuild the local configuration. No sub-command in this group pushes
-work-item mutations to ADO.
+Workspace reads use the local cache; pin verbs update Bench selectors and area/sprint
+verbs update workspace config. `workspace area sync` reads team area paths from
+Azure DevOps to rebuild local configuration. No sub-command here pushes work-item
+mutations to ADO.
 
 ## Commands
 
@@ -20,8 +18,6 @@ work-item mutations to ADO.
 |[`workspace track`](./track.md)|Track a single work item by ID (pinned to workspace).|
 |[`workspace track-tree`](./track-tree.md)|Track a work item and its subtree.|
 |[`workspace untrack`](./untrack.md)|Remove a work item from tracking.|
-|[`workspace exclude`](./exclude.md)|Exclude a work item from workspace view.|
-|[`workspace exclusions`](./exclusions.md)|List, clear, or remove exclusions.|
 |[`workspace area`](./area.md)|Show the area-filtered workspace view.|
 |[`workspace area add`](./area-add.md)|Add an area path to workspace configuration.|
 |[`workspace area remove`](./area-remove.md)|Remove an area path from workspace configuration.|

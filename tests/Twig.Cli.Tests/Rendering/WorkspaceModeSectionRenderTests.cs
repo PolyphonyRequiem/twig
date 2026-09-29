@@ -11,7 +11,7 @@ namespace Twig.Cli.Tests.Rendering;
 
 /// <summary>
 /// Tests for SpectreRenderer.RenderWorkspaceAsync mode-sectioned output:
-/// section headers, dedup rendering, seed indicators, and exclusion footer.
+/// section headers, dedup rendering, and seed indicators.
 /// </summary>
 public sealed class WorkspaceModeSectionRenderTests
 {
@@ -197,50 +197,6 @@ public sealed class WorkspaceModeSectionRenderTests
         output.ShouldContain("Fresh Seed");
     }
 
-    // ── Exclusion footer ────────────────────────────────────────────
-
-    [Fact]
-    public async Task ExcludedItems_ShowsExclusionFooter()
-    {
-        var item = new WorkItemBuilder(1, "Active Item").InState("Active").Build();
-        var sections = WorkspaceSections.Build(
-            new[] { item },
-            excludedIds: new[] { 42, 99 });
-
-        var output = await RenderWithSectionsAndSeeds(
-            new[] { item }, sections, Array.Empty<WorkItem>());
-
-        output.ShouldContain("2 excluded");
-        output.ShouldContain("#42");
-        output.ShouldContain("#99");
-    }
-
-    [Fact]
-    public async Task NoExcludedItems_NoExclusionFooter()
-    {
-        var item = new WorkItemBuilder(1, "Active Item").InState("Active").Build();
-        var sections = WorkspaceSections.Build(new[] { item });
-
-        var output = await RenderWithSectionsAndSeeds(
-            new[] { item }, sections, Array.Empty<WorkItem>());
-
-        output.ShouldNotContain("excluded");
-    }
-
-    [Fact]
-    public async Task SingleExcludedItem_ShowsSingularCount()
-    {
-        var item = new WorkItemBuilder(1, "Active Item").InState("Active").Build();
-        var sections = WorkspaceSections.Build(
-            new[] { item },
-            excludedIds: new[] { 77 });
-
-        var output = await RenderWithSectionsAndSeeds(
-            new[] { item }, sections, Array.Empty<WorkItem>());
-
-        output.ShouldContain("1 excluded");
-        output.ShouldContain("#77");
-    }
 
     // ── Backward compatibility ──────────────────────────────────────
 
@@ -266,7 +222,7 @@ public sealed class WorkspaceModeSectionRenderTests
     {
         var item = new WorkItemBuilder(1, "Fallback Item").InState("Active").Build();
 
-        // Pass sections with no actual sections (e.g., all items excluded)
+        // Pass sections with no actual sections (empty section set)
         var sections = WorkspaceSections.Build(Array.Empty<WorkItem>());
 
         var chunks = CreateChunksAsync(

@@ -126,9 +126,8 @@ public sealed class WorkspaceCommand(
             IReadOnlyList<Domain.Aggregates.WorkItem> manualItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
 
-            // Load tracking overlay (tracked items + excluded IDs)
+            // Load tracking overlay (tracked items)
             var trackedItems = await trackingService.GetTrackedItemsAsync(ct);
-            var excludedIds = await trackingService.GetExcludedIdsAsync(ct);
 
             var useTreeRendering = viewMode != WorkspaceViewMode.Table && !flat;
 
@@ -189,7 +188,7 @@ public sealed class WorkspaceCommand(
 
                 var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
                 var sections = WorkspaceSections.Build(
-                    sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
+                    sprintItems, manualItems: manualItems, treeRoots: treeRoots);
                 if (useTreeRendering)
                     sections = await AddSectionHierarchiesAsync(sections, ct);
                 yield return new SprintItemsLoaded(sprintItems, sections);
@@ -253,7 +252,7 @@ public sealed class WorkspaceCommand(
                         // Yield data rows (refreshed on success, original on failure)
                         var refreshTreeRoots = await BuildTreeRootsAsync(sprintItems, ct);
                         var refreshedSections = WorkspaceSections.Build(
-                            sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots);
+                            sprintItems, manualItems: manualItems, treeRoots: refreshTreeRoots);
                         if (useTreeRendering)
                             refreshedSections = await AddSectionHierarchiesAsync(refreshedSections, ct);
                         yield return new SprintItemsLoaded(sprintItems, refreshedSections);
@@ -269,10 +268,8 @@ public sealed class WorkspaceCommand(
             var workspace = Workspace.Build(contextItem, sprintItems, seeds,
                 sections: WorkspaceSections.Build(
                     sprintItems,
-                    manualItems: manualItems,
-                    excludedIds: excludedIds),
-                trackedItems: trackedItems,
-                excludedIds: excludedIds);
+                    manualItems: manualItems),
+                trackedItems: trackedItems);
 
             var hints = ctx.HintEngine.GetHints("workspace",
                 workspace: workspace,
@@ -407,9 +404,8 @@ public sealed class WorkspaceCommand(
         // Get seeds
         var seeds = await workItemRepo.GetSeedsAsync();
 
-        // Load tracking overlay (tracked items + excluded IDs)
+        // Load tracking overlay (tracked items)
         var trackedItems = await trackingService.GetTrackedItemsAsync();
-        var excludedIds = await trackingService.GetExcludedIdsAsync();
 
         // Resolve dynamic columns (EPIC-004)
         var isJsonOutput = IsJsonFormat(outputFormat);
@@ -495,11 +491,11 @@ public sealed class WorkspaceCommand(
         }
 
         var sections = WorkspaceSections.Build(
-            sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
+            sprintItems, manualItems: manualItems, treeRoots: treeRoots);
         if (useTreeRendering)
             sections = await AddSectionHierarchiesAsync(sections);
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: sections, trackedItems: trackedItems, excludedIds: excludedIds);
+            sections: sections, trackedItems: trackedItems);
 
         if (fmt is HumanOutputFormatter human)
         {
@@ -728,7 +724,7 @@ public sealed class WorkspaceCommand(
             var roots = section.TreeRoots ?? await BuildTreeRootsAsync(section.Items, ct);
             enriched.Add(section with { TreeRoots = roots is null ? null : MergeBenchRoots(roots) });
         }
-        return WorkspaceSections.BuildWithTreeRoots(enriched, sections.ExcludedItemIds);
+        return WorkspaceSections.BuildWithTreeRoots(enriched);
     }
 
     // The sprint builder groups by assignee. A bench tree has one identity per
@@ -900,14 +896,10 @@ public sealed class WorkspaceCommand(
         if (workspace.Sections is not null)
         {
             fields.Add(new DocumentField("sections", BuildSectionsNode(workspace.Sections)));
-            fields.Add(new DocumentField("excludedItemIds", BuildIdSection(workspace.Sections.ExcludedItemIds)));
         }
 
         if (workspace.TrackedItems.Count > 0)
             fields.Add(new DocumentField("trackedItems", BuildTrackedItemsSection(workspace.TrackedItems)));
-
-        if (workspace.ExcludedIds.Count > 0)
-            fields.Add(new DocumentField("excludedIds", BuildIdSection(workspace.ExcludedIds)));
 
         var dirtyCount = workspace.GetDirtyItems().Count;
         fields.Add(new DocumentField("dirtyCount", new RenderNode.KeyValue("dirtyCount", RenderCell.Integer(dirtyCount))));

@@ -35,6 +35,7 @@ public class WorkspaceBuilderTests
         ws.SprintItems.ShouldBeEmpty();
         ws.Seeds.ShouldBeEmpty();
         ws.Hierarchy.ShouldBeNull();
+        ws.TrackedItems.ShouldBeEmpty();
     }
 
     [Fact]
@@ -68,22 +69,10 @@ public class WorkspaceBuilderTests
     }
 
     [Fact]
-    public void Build_WithExcludedIds_ExposesExcludedIds()
-    {
-        var ws = new WorkspaceBuilder()
-            .WithExcludedIds(10, 20, 30)
-            .Build();
-
-        ws.ExcludedIds.Count.ShouldBe(3);
-        ws.ExcludedIds[0].ShouldBe(10);
-    }
-
-    [Fact]
-    public void Build_Empty_TrackedAndExcludedAreEmpty()
+    public void Build_Empty_TrackedIsEmpty()
     {
         var ws = new WorkspaceBuilder().Build();
 
         ws.TrackedItems.ShouldBeEmpty();
-        ws.ExcludedIds.ShouldBeEmpty();
     }
 }

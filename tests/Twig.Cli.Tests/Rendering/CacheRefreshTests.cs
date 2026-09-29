@@ -56,8 +56,6 @@ public class CacheRefreshTests
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
-        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);

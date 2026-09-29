@@ -256,8 +256,23 @@ SelfUpdater.CleanupOldBinary();
 // First-run companion check — installs missing companions after upgrade.
 // Runs before app.Run() — no SynchronizationContext, blocking is safe.
 CompanionStartup.RunFirstRunCheck();
+var twigDir = WorkspaceDiscovery.FindTwigDir();
+if (twigDir is not null)
+{
+    var trackingFile = Path.Combine(twigDir, "tracking.json");
+    try
+    {
+        FileTrackingRepository.PurgeLegacyExclusions(trackingFile);
+    }
+    catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
+    {
+        ExceptionHandler.Handle(new InvalidDataException($"Cannot purge legacy exclusions from {trackingFile}: {ex.Message}", ex));
+        return;
+    }
+}
 
 app.Run(args);
+
 
 /// <summary>
 /// Detects the git remote URL by spawning <c>git remote get-url origin</c>.
@@ -1150,20 +1165,6 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct);
 
-    /// <summary>Exclude a work item from workspace view.</summary>
-    /// <param name="id">Work item ID to exclude.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("workspace exclude")]
-    public async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().ExcludeAsync(id, output, ct);
-
-    /// <summary>List all excluded work items.</summary>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    /// <param name="clear">Remove all exclusions.</param>
-    /// <param name="remove">Remove a specific exclusion by work item ID.</param>
-    [Command("workspace exclusions")]
-    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
     // ── Bench (ADO #148) ──
 
@@ -1569,8 +1570,6 @@ internal static class GroupedHelp
         "workspace track",
         "workspace track-tree",
         "workspace untrack",
-        "workspace exclude",
-        "workspace exclusions",
         "workspace area",
         "workspace area add",
         "workspace area remove",

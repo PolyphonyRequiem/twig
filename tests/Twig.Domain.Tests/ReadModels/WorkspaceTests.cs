@@ -255,7 +255,7 @@ public class WorkspaceTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  TrackedItems + ExcludedIds
+    //  TrackedItems
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -270,23 +270,11 @@ public class WorkspaceTests
     }
 
     [Fact]
-    public void Build_WithExcludedIds_ExposesExcludedIds()
-    {
-        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
-            excludedIds: new[] { 10, 20 });
-
-        ws.ExcludedIds.Count.ShouldBe(2);
-        ws.ExcludedIds[0].ShouldBe(10);
-        ws.ExcludedIds[1].ShouldBe(20);
-    }
-
-    [Fact]
     public void Build_DefaultTrackedItemsIsEmpty()
     {
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         ws.TrackedItems.ShouldBeEmpty();
-        ws.ExcludedIds.ShouldBeEmpty();
     }
 
     [Fact]

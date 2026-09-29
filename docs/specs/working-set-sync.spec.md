@@ -10,11 +10,10 @@
 > sprint query are the same kind of thing, differing only in how many items they match; the
 > hard-coded sprint question is one query selector, not a special case beside the mechanism.
 >
-> 🔴 **The "minus exclusions" clause below was already false before the Bench, and is retained
-> here only so the correction is visible.** Nothing subtracts excluded items: the service that
-> computes the view never reads them. The ids are carried into the read model and printed as a
-> dim footer while the items themselves appear in the list. Exclusions are deliberately **out of
-> the Bench entirely**; the existing exclude commands are untouched and still write to the file.
+> 🔴 **The "minus exclusions" clause was false and the commands are now retired
+> (ratified Grilling #623, implemented by Task #1086).** Nothing ever subtracted
+> excluded items from the view. Existing inert exclusion rows are purged, not
+> migrated to a Bench; a nonzero purge reports its count once on stderr.
 >
 > **What moved in ADO #145:** the pin COMMANDS now act on the current Bench. `twig workspace
 > track <id>` adds an **item selector** and `track-tree <id>` adds a **subtree selector** to the
@@ -24,19 +23,17 @@
 > (The agent surface previously walked the tree at pin time and pinned each descendant it found —
 > that snapshot could not see a later child, and is gone.)
 >
-> **What has NOT moved yet:** the pin is still ALSO written to `.twig/tracking.json`, which
-> remains the live source for tracked-tree refresh, the tracking cleanup policy, and
-> `twig_tracking_status`. So the table below still describes storage accurately, with the Bench
-> now holding the same pins alongside it. ADO #146 migrates the file's contents into the durable
-> store and retires that second write.
+> **What moved in ADO #146:** pin commands and tracked-tree refresh now use the current
+> Bench's durable selectors. The old file is not a second pin authority. Legacy
+> `tracked` rows can still exist in `.twig/tracking.json`; their import is separate
+> from #1086's exclusion purge and must preserve item/subtree selectors.
 >
 > Untouched by the Bench and still current: the entire sync model — push ordering,
 > notes-before-fields, conflict resolution, protected items, the dirty-state lifecycle. A Bench
 > is never a sync unit, so nothing in that half moves.
 
 The workspace is the user's configurable view of relevant work items. It is the union
-of **configured sources** (sprints, area paths) and **manual pins** (tracked items/trees),
-minus **exclusions**.
+of **configured sources** (sprints, area paths) and **manual pins** (tracked items/trees).
 
 ### 1.1 Workspace Sources
 
@@ -47,9 +44,8 @@ items to the working set.
 |--------|--------------|---------|-------|
 | Sprint iteration | `twig workspace sprint add <path>` | `.twig/config` → `workspace.sprints[]` | Team-shared |
 | Area path | `twig workspace area add <path>` | `.twig/config` → `defaults.areaPathEntries[]` | Team-shared |
-| Tracked item | `twig workspace track <id>` | `.twig/tracking.json` (gitignored) | User-local |
-| Tracked tree | `twig workspace track-tree <id>` | `.twig/tracking.json` (gitignored) | User-local |
-| Excluded item | `twig workspace exclude <id>` | `.twig/tracking.json` (gitignored) | User-local |
+| Tracked item | `twig workspace track <id>` | Bench selector in `pending.db` | Bench-scoped |
+| Tracked tree | `twig workspace track-tree <id>` | Bench selector in `pending.db` | Bench-scoped |
 
 **Key principle:** Sprint items are ONLY included when at least one sprint iteration
 is explicitly added to the workspace. No implicit "current iteration" inclusion.
@@ -103,33 +99,27 @@ twig workspace area sync                    # Import team area paths from ADO
 
 Storage: `.twig/config` → `defaults.areaPathEntries[]` (unchanged location, already works).
 
-### 1.4 Tracking (User-Local)
+### 1.4 Tracking (Bench-scoped)
 
-Tracked items and exclusions are **user-local** state that should not be shared
-via config. They persist across DB rebuilds (which destroy SQLite tables).
-
-Storage: `.twig/tracking.json` (gitignored)
+Pins are Bench selectors. Legacy tracked rows may remain in the gitignored
+`.twig/tracking.json` until their separate import; the following JSON shows only
+that legacy payload, not the live pin authority:
 
 ```json
 {
   "tracked": [
     { "id": 2115, "mode": "tree", "addedAt": "2026-04-27T10:00:00Z" },
     { "id": 2200, "mode": "single", "addedAt": "2026-04-27T10:05:00Z" }
-  ],
-  "excluded": [
-    { "id": 2150, "addedAt": "2026-04-27T10:10:00Z" }
   ]
 }
 ```
 
-Commands (unchanged surface, new storage):
+Current pin commands:
 
 ```
 twig workspace track <id>           # Pin a single item
 twig workspace track-tree <id>      # Pin an item + subtree
 twig workspace untrack <id>         # Remove pin
-twig workspace exclude <id>         # Hide from workspace view
-twig workspace exclusions           # List excluded items
 ```
 
 ### 1.5 Tree Tracking — Sync Behavior

@@ -155,8 +155,7 @@ internal static class McpResultBuilder
         });
 
     public static CallToolResult FormatWorkspace(
-        Workspace workspace, int staleDays, string? workspaceKey = null,
-        IReadOnlyList<ExcludedItem>? excludedItems = null) =>
+        Workspace workspace, int staleDays, string? workspaceKey = null) =>
         BuildJson(writer =>
         {
             // Context
@@ -202,26 +201,13 @@ internal static class McpResultBuilder
             }
             writer.WriteEndArray();
 
-            // Excluded items
-            var excluded = excludedItems ?? Array.Empty<ExcludedItem>();
-            writer.WriteStartArray("excludedItems");
-            foreach (var e in excluded)
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("workItemId", e.WorkItemId);
-                writer.WriteString("reason", e.Reason);
-                writer.WriteString("excludedAt", e.ExcludedAt.ToString("o"));
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
 
             WriteOptionalWorkspace(writer, workspaceKey);
         });
 
     public static CallToolResult FormatWorkspaceTree(
         IReadOnlyList<(WorkTree Tree, int TotalChildren)> roots,
-        Workspace workspace, string? workspaceKey = null,
-        IReadOnlyList<ExcludedItem>? excludedItems = null) =>
+        Workspace workspace, string? workspaceKey = null) =>
         BuildJson(writer =>
         {
             writer.WriteString("workspace", workspaceKey ?? "");
@@ -283,18 +269,6 @@ internal static class McpResultBuilder
             }
             writer.WriteEndArray();
 
-            // Excluded items
-            var excluded = excludedItems ?? Array.Empty<ExcludedItem>();
-            writer.WriteStartArray("excludedItems");
-            foreach (var e in excluded)
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("workItemId", e.WorkItemId);
-                writer.WriteString("reason", e.Reason);
-                writer.WriteString("excludedAt", e.ExcludedAt.ToString("o"));
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
         });
 
     public static CallToolResult FormatStateChange(WorkItem updated, string previousState) =>

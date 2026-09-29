@@ -526,13 +526,6 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             sb.AppendLine($"  {Yellow}📌 {ws.TrackedItems.Count} tracked: {trackedIds}{Reset}");
         }
 
-        // Exclusion footer
-        if (ws.ExcludedIds.Count > 0)
-        {
-            sb.AppendLine();
-            var ids = string.Join(", ", ws.ExcludedIds.Select(id => $"#{id}"));
-            sb.AppendLine($"  {Dim}{ws.ExcludedIds.Count} excluded: {ids}{Reset}");
-        }
 
         // Dirty summary
         var dirtyItems = ws.GetDirtyItems();

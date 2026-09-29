@@ -143,6 +143,39 @@ public sealed class ProgressiveHelpProductionCliTests : IDisposable
     }
 
     [Theory]
+    [InlineData("exclude", "42")]
+    [InlineData("exclusions")]
+    public async Task RemovedWorkspaceExclusionCommands_FailLikeUnknownSubcommand(params string[] suffix)
+    {
+        var result = await RunTwig(["workspace", .. suffix]);
+
+        result.ExitCode.ShouldBe(1);
+        result.Stdout.ShouldBeEmpty();
+        result.Stderr.ShouldContain("Unknown subcommand:");
+        result.Stderr.ShouldNotContain("Excluded #");
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
+    }
+
+    [Fact]
+    public async Task MalformedLegacyTrackingFile_FailsWithoutDroppingDataOrWritingStdout()
+    {
+        File.WriteAllText(Path.Combine(_scratch, ".twig", "config"), "{}");
+        File.WriteAllText(Path.Combine(_scratch, "twig.json"),
+            """{"organization":"Example","project":"Example"}""");
+        var trackingPath = Path.Combine(_scratch, ".twig", "tracking.json");
+        const string invalidJson = """{"tracked":[],"excluded":oops}""";
+        File.WriteAllText(trackingPath, invalidJson);
+
+        var result = await RunTwig("bench", "list", "-o", "json");
+
+        result.ExitCode.ShouldBe(1);
+        result.Stdout.ShouldBeEmpty();
+        result.Stderr.ShouldContain("error: Cannot purge legacy exclusions");
+        File.ReadAllText(trackingPath).ShouldBe(invalidJson);
+    }
+
+    [Theory]
     [InlineData("help", "nonexistent")]
     [InlineData("proposal", "nonexistent", "--help")]
     [InlineData("workspace", "area", "nonexistent", "--help")]

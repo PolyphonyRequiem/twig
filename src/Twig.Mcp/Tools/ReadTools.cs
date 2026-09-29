@@ -91,35 +91,30 @@ public sealed class ReadTools(ConnectionResolver resolver, NavigationTools navig
         // 3. Seeds
         var seeds = await ctx.Get<IWorkItemRepository>().GetSeedsAsync(ct);
 
-        // 4. Tracked items and exclusions
+        // 4. Tracked items
         var trackedItems = ctx.Get<ITrackingRepository>() is not null
             ? await ctx.Get<ITrackingRepository>().GetAllTrackedAsync(ct)
             : Array.Empty<TrackedItem>();
-        var excludedItems = ctx.Get<ITrackingRepository>() is not null
-            ? await ctx.Get<ITrackingRepository>().GetAllExcludedAsync(ct)
-            : Array.Empty<ExcludedItem>();
-        var excludedIds = excludedItems.Select(e => e.WorkItemId).ToList();
 
         // 5. Build workspace
         var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds,
-            trackedItems: trackedItems, excludedIds: excludedIds);
+            trackedItems: trackedItems);
 
         // 6. Tree mode — build WorkTree per sprint item and return tree-structured JSON
         if (tree)
         {
-            var treeResult = await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+            var treeResult = await BuildWorkspaceTreeAsync(ctx, ws, ct);
             return await EnvelopeBuilder.WrapAsync(ctx, treeResult, verbose, ct);
         }
 
         // 7. Format flat result
-        var toolResult = McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Connection.ToString(), excludedItems);
+        var toolResult = McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Connection.ToString());
         return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildWorkspaceTreeAsync(
         ConnectionScope ctx,
         Domain.ReadModels.Workspace ws,
-        IReadOnlyList<ExcludedItem> excludedItems,
         CancellationToken ct)
     {
         var maxDepth = ctx.Config.Display.TreeDepth;
@@ -145,7 +140,7 @@ public sealed class ReadTools(ConnectionResolver resolver, NavigationTools navig
             roots.Add((workTree, totalChildCount));
         }
 
-        return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Connection.ToString(), excludedItems);
+        return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Connection.ToString());
     }
 
     [McpServerTool(Name = "twig_refresh"), Description("Pull-only cache refresh from ADO — no pending changes are pushed. When id is omitted, refreshes the full active context (active item, parent chain, children). When id is provided, refreshes only that single work item.")]

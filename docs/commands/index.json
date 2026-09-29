@@ -128,22 +128,6 @@
     "path": "workspace/area-sync.md"
   },
   {
-    "command": "workspace exclude",
-    "group": "workspace",
-    "summary": "Exclude a work item from workspace view.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/exclude.md"
-  },
-  {
-    "command": "workspace exclusions",
-    "group": "workspace",
-    "summary": "List all excluded work items; also clears or removes exclusions.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/exclusions.md"
-  },
-  {
     "command": "workspace sprint add",
     "group": "workspace",
     "summary": "Add a sprint iteration expression to workspace configuration.",

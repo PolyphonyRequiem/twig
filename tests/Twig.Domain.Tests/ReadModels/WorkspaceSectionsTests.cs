@@ -25,7 +25,6 @@ public class WorkspaceSectionsTests
         sections.Sections.Count.ShouldBe(1);
         sections.Sections[0].ModeName.ShouldBe("Sprint");
         sections.Sections[0].Items.Count.ShouldBe(2);
-        sections.ExcludedItemIds.ShouldBeEmpty();
     }
 
     [Fact]
@@ -34,7 +33,6 @@ public class WorkspaceSectionsTests
         var sections = WorkspaceSections.Build(Array.Empty<Domain.Aggregates.WorkItem>());
 
         sections.Sections.ShouldBeEmpty();
-        sections.ExcludedItemIds.ShouldBeEmpty();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -146,30 +144,6 @@ public class WorkspaceSectionsTests
         sections.Sections[0].ModeName.ShouldBe("Sprint");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Build — exclusion footer
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void Build_ExcludedIds_Preserved()
-    {
-        var sections = WorkspaceSections.Build(
-            sprintItems: new[] { WorkItemBuilder.Simple(1, "Task") },
-            excludedIds: new[] { 42, 99 });
-
-        sections.ExcludedItemIds.Count.ShouldBe(2);
-        sections.ExcludedItemIds.ShouldContain(42);
-        sections.ExcludedItemIds.ShouldContain(99);
-    }
-
-    [Fact]
-    public void Build_NoExcludedIds_EmptyList()
-    {
-        var sections = WorkspaceSections.Build(
-            sprintItems: new[] { WorkItemBuilder.Simple(1, "Task") });
-
-        sections.ExcludedItemIds.ShouldBeEmpty();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Build — section ordering

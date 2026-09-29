@@ -10,7 +10,7 @@ using Xunit;
 namespace Twig.Infrastructure.Tests.Persistence;
 
 /// <summary>
-/// Tests for <see cref="FileTrackingRepository"/> — file-backed ITrackingRepository implementation.
+/// Tests for <see cref="FileTrackingRepository"/> — file-backed tracking persistence.
 /// Uses temp directories for isolation; each test gets a fresh directory.
 /// </summary>
 public sealed class FileTrackingRepositoryTests : IDisposable
@@ -33,6 +33,31 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     }
 
     private FileTrackingRepository CreateRepo() => new(_paths);
+
+    private static string CreateLegacyTrackingJson(
+        (int id, string mode, string addedAt)[]? tracked = null,
+        (int id, string addedAt)[]? excluded = null)
+    {
+        var payload = new Dictionary<string, object?>();
+
+        if (tracked is not null)
+        {
+            payload["tracked"] = tracked
+                .Select(entry => new { id = entry.id, mode = entry.mode, addedAt = entry.addedAt })
+                .ToArray();
+        }
+
+        if (excluded is not null)
+        {
+            payload["excluded"] = excluded
+                .Select(entry => new { id = entry.id, addedAt = entry.addedAt })
+                .ToArray();
+        }
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    private string ReadTrackingJson() => File.ReadAllText(_paths.TrackingFilePath);
 
     // ──────────────────────── GetAllTrackedAsync ────────────────────────
 
@@ -176,112 +201,6 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         items.ShouldBeEmpty();
     }
 
-    // ──────────────────────── GetAllExcludedAsync ────────────────────────
-
-    [Fact]
-    public async Task GetAllExcludedAsync_NoFile_ReturnsEmptyList()
-    {
-        var repo = CreateRepo();
-        var items = await repo.GetAllExcludedAsync();
-        items.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task GetAllExcludedAsync_ReturnsItemsOrderedByTimestamp()
-    {
-        var repo = CreateRepo();
-        await repo.AddExcludedAsync(10);
-        await repo.AddExcludedAsync(20);
-
-        var items = await repo.GetAllExcludedAsync();
-
-        items.Count.ShouldBe(2);
-        items[0].WorkItemId.ShouldBe(10);
-        items[0].ExcludedAt.ShouldNotBe(default);
-        items[1].WorkItemId.ShouldBe(20);
-    }
-
-    // ──────────────────────── AddExcludedAsync ────────────────────────
-
-    [Fact]
-    public async Task AddExcludedAsync_Idempotent_NoDuplicate()
-    {
-        var repo = CreateRepo();
-        await repo.AddExcludedAsync(1);
-        await repo.AddExcludedAsync(1);
-
-        var items = await repo.GetAllExcludedAsync();
-        items.Count.ShouldBe(1);
-    }
-
-    // ──────────────────────── RemoveExcludedAsync ────────────────────────
-
-    [Fact]
-    public async Task RemoveExcludedAsync_ExistingItem_RemovesIt()
-    {
-        var repo = CreateRepo();
-        await repo.AddExcludedAsync(1);
-        await repo.RemoveExcludedAsync(1);
-
-        var items = await repo.GetAllExcludedAsync();
-        items.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task RemoveExcludedAsync_NonExistent_NoOp()
-    {
-        var repo = CreateRepo();
-        await repo.RemoveExcludedAsync(999);
-        var items = await repo.GetAllExcludedAsync();
-        items.ShouldBeEmpty();
-    }
-
-    // ──────────────────────── ClearAllExcludedAsync ────────────────────────
-
-    [Fact]
-    public async Task ClearAllExcludedAsync_RemovesAll()
-    {
-        var repo = CreateRepo();
-        await repo.AddExcludedAsync(1);
-        await repo.AddExcludedAsync(2);
-        await repo.AddExcludedAsync(3);
-
-        await repo.ClearAllExcludedAsync();
-
-        var items = await repo.GetAllExcludedAsync();
-        items.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task ClearAllExcludedAsync_EmptyFile_NoOp()
-    {
-        var repo = CreateRepo();
-        await repo.ClearAllExcludedAsync();
-        var items = await repo.GetAllExcludedAsync();
-        items.ShouldBeEmpty();
-    }
-
-    // ──────────────────────── Cross-concern: independence ────────────────────────
-
-    [Fact]
-    public async Task TrackedAndExcluded_AreIndependent()
-    {
-        var repo = CreateRepo();
-        await repo.UpsertTrackedAsync(42, TrackingMode.Single);
-        await repo.AddExcludedAsync(42);
-
-        var tracked = await repo.GetAllTrackedAsync();
-        var excluded = await repo.GetAllExcludedAsync();
-        tracked.Count.ShouldBe(1);
-        excluded.Count.ShouldBe(1);
-
-        await repo.RemoveTrackedAsync(42);
-        tracked = await repo.GetAllTrackedAsync();
-        excluded = await repo.GetAllExcludedAsync();
-        tracked.ShouldBeEmpty();
-        excluded.Count.ShouldBe(1);
-    }
-
     // ──────────────────────── Atomic write / persistence ────────────────────────
 
     [Fact]
@@ -309,45 +228,32 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     {
         var repo1 = CreateRepo();
         await repo1.UpsertTrackedAsync(1, TrackingMode.Single);
-        await repo1.AddExcludedAsync(2);
 
         // New instance reads from same file
         var repo2 = CreateRepo();
         var tracked = await repo2.GetAllTrackedAsync();
-        var excluded = await repo2.GetAllExcludedAsync();
 
         tracked.Count.ShouldBe(1);
         tracked[0].WorkItemId.ShouldBe(1);
-        excluded.Count.ShouldBe(1);
-        excluded[0].WorkItemId.ShouldBe(2);
     }
 
-    // ──────────────────────── Lazy loading ────────────────────────
+    // ──────────────────────── Lazy loading / file parsing ────────────────────────
 
     [Fact]
     public async Task LazyLoading_ReadsFromExistingFile()
     {
         // Pre-create a tracking.json file
-        var file = new TrackingFile
-        {
-            Tracked = [new TrackingFileEntry { Id = 99, Mode = "tree", AddedAt = "2026-01-15T10:00:00+00:00" }],
-            Excluded = [new ExclusionFileEntry { Id = 50, AddedAt = "2026-01-15T11:00:00+00:00" }]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        var json = CreateLegacyTrackingJson(
+            tracked: [(99, "tree", "2026-01-15T10:00:00+00:00")]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
         var tracked = await repo.GetAllTrackedAsync();
-        var excluded = await repo.GetAllExcludedAsync();
 
         tracked.Count.ShouldBe(1);
         tracked[0].WorkItemId.ShouldBe(99);
         tracked[0].Mode.ShouldBe(TrackingMode.Tree);
-        excluded.Count.ShouldBe(1);
-        excluded[0].WorkItemId.ShouldBe(50);
     }
-
-    // ──────────────────────── Edge cases ────────────────────────
 
     [Fact]
     public async Task EmptyJsonFile_HandledGracefully()
@@ -356,20 +262,15 @@ public sealed class FileTrackingRepositoryTests : IDisposable
 
         var repo = CreateRepo();
         var tracked = await repo.GetAllTrackedAsync();
-        var excluded = await repo.GetAllExcludedAsync();
 
         tracked.ShouldBeEmpty();
-        excluded.ShouldBeEmpty();
     }
 
     [Fact]
     public async Task InvalidModeString_DefaultsToSingle()
     {
-        var file = new TrackingFile
-        {
-            Tracked = [new TrackingFileEntry { Id = 1, Mode = "unknown_mode", AddedAt = "2026-01-01T00:00:00Z" }]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        var json = CreateLegacyTrackingJson(
+            tracked: [(1, "unknown_mode", "2026-01-01T00:00:00Z")]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
@@ -382,11 +283,8 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     [Fact]
     public async Task InvalidTimestamp_DefaultsToMinValue()
     {
-        var file = new TrackingFile
-        {
-            Tracked = [new TrackingFileEntry { Id = 1, Mode = "single", AddedAt = "not-a-date" }]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        var json = CreateLegacyTrackingJson(
+            tracked: [(1, "single", "not-a-date")]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
@@ -415,88 +313,120 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     {
         var repo = CreateRepo();
         await repo.UpsertTrackedAsync(42, TrackingMode.Tree);
-        await repo.AddExcludedAsync(7);
 
-        var json = File.ReadAllText(_paths.TrackingFilePath);
+        var json = ReadTrackingJson();
         var deserialized = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TrackingFile);
 
         deserialized.ShouldNotBeNull();
         deserialized.Tracked.Count.ShouldBe(1);
         deserialized.Tracked[0].Id.ShouldBe(42);
         deserialized.Tracked[0].Mode.ShouldBe("tree");
-        deserialized.Excluded.Count.ShouldBe(1);
-        deserialized.Excluded[0].Id.ShouldBe(7);
+        json.ShouldContain("\"tracked\"");
+        json.ShouldNotContain("\"excluded\"");
     }
 
-    // ──────────────────────── SQLite → JSON migration ────────────────────────
+    // ──────────────────────── Migration output validation ────────────────────────
 
-    /// <summary>
-    /// Creates a SQLite database at <paramref name="dbPath"/> with tracked_items and excluded_items tables,
-    /// populated with the given data. Used to test the one-time migration path.
-    /// </summary>
-    private static void CreateSqliteWithTrackingData(
-        string dbPath,
-        (int id, string mode, string createdAt)[]? tracked = null,
-        (int id, string createdAt)[]? excluded = null)
+    [Fact]
+    public void PurgeLegacyExclusions_LegacyJson_PurgesExcludedEntriesAndReturnsCount()
     {
-        var dir = Path.GetDirectoryName(dbPath);
-        if (!string.IsNullOrEmpty(dir))
-            Directory.CreateDirectory(dir);
+        var json = CreateLegacyTrackingJson(
+            tracked:
+            [
+                (1, "single", "2026-01-01T00:00:00Z"),
+                (2, "tree", "2026-01-02T00:00:00Z")
+            ],
+            excluded:
+            [
+                (10, "2026-01-03T00:00:00Z"),
+                (20, "2026-01-04T00:00:00Z")
+            ]);
+        File.WriteAllText(_paths.TrackingFilePath, json);
 
-        using var connection = new SqliteConnection($"Data Source={dbPath}");
-        connection.Open();
+        var purged = FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath);
 
-        using var schemaCmd = connection.CreateCommand();
-        schemaCmd.CommandText = """
-            CREATE TABLE tracked_items (
-                id INTEGER PRIMARY KEY,
-                mode TEXT NOT NULL DEFAULT 'single',
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE excluded_items (
-                id INTEGER PRIMARY KEY,
-                created_at TEXT NOT NULL
-            );
-            """;
-        schemaCmd.ExecuteNonQuery();
+        purged.ShouldBe(2);
 
-        if (tracked is not null)
-        {
-            foreach (var (id, mode, createdAt) in tracked)
-            {
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = "INSERT INTO tracked_items (id, mode, created_at) VALUES (@id, @mode, @createdAt);";
-                cmd.Parameters.AddWithValue("@id", id);
-                cmd.Parameters.AddWithValue("@mode", mode);
-                cmd.Parameters.AddWithValue("@createdAt", createdAt);
-                cmd.ExecuteNonQuery();
-            }
-        }
+        var after = ReadTrackingJson();
+        after.ShouldContain("\"tracked\"");
+        after.ShouldNotContain("\"excluded\"");
 
-        if (excluded is not null)
-        {
-            foreach (var (id, createdAt) in excluded)
-            {
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = "INSERT INTO excluded_items (id, created_at) VALUES (@id, @createdAt);";
-                cmd.Parameters.AddWithValue("@id", id);
-                cmd.Parameters.AddWithValue("@createdAt", createdAt);
-                cmd.ExecuteNonQuery();
-            }
-        }
+        var deserialized = JsonSerializer.Deserialize(after, TwigJsonContext.Default.TrackingFile);
+        deserialized.ShouldNotBeNull();
+        deserialized.Tracked.Count.ShouldBe(2);
+        deserialized.Tracked[0].Id.ShouldBe(1);
+        deserialized.Tracked[0].Mode.ShouldBe("single");
+        deserialized.Tracked[1].Id.ShouldBe(2);
+        deserialized.Tracked[1].Mode.ShouldBe("tree");
     }
 
+    [Fact]
+    public void PurgeLegacyExclusions_EmptyLegacyArray_RemovesDormantProperty()
+    {
+        File.WriteAllText(_paths.TrackingFilePath,
+            CreateLegacyTrackingJson(excluded: []));
 
+        FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath).ShouldBe(0);
 
+        using var result = JsonDocument.Parse(ReadTrackingJson());
+        result.RootElement.TryGetProperty("excluded", out _).ShouldBeFalse();
+    }
 
+    [Fact]
+    public void PurgeLegacyExclusions_AlreadyPurged_ReturnsZeroAndKeepsTrackedOnly()
+    {
+        var json = CreateLegacyTrackingJson(
+            tracked: [(1, "single", "2026-01-01T00:00:00Z")],
+            excluded: [(7, "2026-01-02T00:00:00Z")]);
+        File.WriteAllText(_paths.TrackingFilePath, json);
 
+        FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath).ShouldBe(1);
+        FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath).ShouldBe(0);
 
+        var after = ReadTrackingJson();
+        after.ShouldContain("\"tracked\"");
+        after.ShouldNotContain("\"excluded\"");
 
+        var deserialized = JsonSerializer.Deserialize(after, TwigJsonContext.Default.TrackingFile);
+        deserialized.ShouldNotBeNull();
+        deserialized.Tracked.Count.ShouldBe(1);
+        deserialized.Tracked[0].Id.ShouldBe(1);
+    }
 
+    [Fact]
+    public void PurgeLegacyExclusions_CleanTrackedOnlyFile_ReturnsZeroAndDoesNotInventData()
+    {
+        var json = CreateLegacyTrackingJson(
+            tracked:
+            [
+                (1, "single", "2026-01-01T00:00:00Z"),
+                (2, "tree", "2026-01-02T00:00:00Z")
+            ]);
+        File.WriteAllText(_paths.TrackingFilePath, json);
 
+        var purged = FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath);
 
+        purged.ShouldBe(0);
 
+        var after = ReadTrackingJson();
+        after.ShouldContain("\"tracked\"");
+        after.ShouldNotContain("\"excluded\"");
 
+        var deserialized = JsonSerializer.Deserialize(after, TwigJsonContext.Default.TrackingFile);
+        deserialized.ShouldNotBeNull();
+        deserialized.Tracked.Count.ShouldBe(2);
+        deserialized.Tracked[0].Id.ShouldBe(1);
+        deserialized.Tracked[1].Id.ShouldBe(2);
+    }
+
+    [Fact]
+    public void PurgeLegacyExclusions_NoFile_ReturnsZeroAndLeavesNoFile()
+    {
+        var purged = FileTrackingRepository.PurgeLegacyExclusions(_paths.TrackingFilePath);
+
+        purged.ShouldBe(0);
+        File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
+    }
 
 
     // ──────────────────────── Ordering edge cases ────────────────────────
@@ -505,16 +435,13 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     public async Task GetAllTrackedAsync_SameTimestamp_OrdersById()
     {
         // Pre-create file with entries sharing the same timestamp
-        var file = new TrackingFile
-        {
-            Tracked =
+        var json = CreateLegacyTrackingJson(
+            tracked:
             [
-                new TrackingFileEntry { Id = 30, Mode = "single", AddedAt = "2026-01-01T00:00:00Z" },
-                new TrackingFileEntry { Id = 10, Mode = "tree", AddedAt = "2026-01-01T00:00:00Z" },
-                new TrackingFileEntry { Id = 20, Mode = "single", AddedAt = "2026-01-01T00:00:00Z" }
-            ]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+                (30, "single", "2026-01-01T00:00:00Z"),
+                (10, "tree", "2026-01-01T00:00:00Z"),
+                (20, "single", "2026-01-01T00:00:00Z")
+            ]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
@@ -526,30 +453,6 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         tracked[2].WorkItemId.ShouldBe(30);
     }
 
-    [Fact]
-    public async Task GetAllExcludedAsync_SameTimestamp_OrdersById()
-    {
-        var file = new TrackingFile
-        {
-            Excluded =
-            [
-                new ExclusionFileEntry { Id = 30, AddedAt = "2026-01-01T00:00:00Z" },
-                new ExclusionFileEntry { Id = 10, AddedAt = "2026-01-01T00:00:00Z" },
-                new ExclusionFileEntry { Id = 20, AddedAt = "2026-01-01T00:00:00Z" }
-            ]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
-        File.WriteAllText(_paths.TrackingFilePath, json);
-
-        var repo = CreateRepo();
-        var excluded = await repo.GetAllExcludedAsync();
-
-        excluded.Count.ShouldBe(3);
-        excluded[0].WorkItemId.ShouldBe(10);
-        excluded[1].WorkItemId.ShouldBe(20);
-        excluded[2].WorkItemId.ShouldBe(30);
-    }
-
     // ──────────────────────── Caching ────────────────────────
 
     [Fact]
@@ -558,13 +461,9 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         var repo = CreateRepo();
         await repo.UpsertTrackedAsync(1, TrackingMode.Single);
         await repo.UpsertTrackedAsync(2, TrackingMode.Tree);
-        await repo.AddExcludedAsync(3);
 
         var tracked = await repo.GetAllTrackedAsync();
-        var excluded = await repo.GetAllExcludedAsync();
-
         tracked.Count.ShouldBe(2);
-        excluded.Count.ShouldBe(1);
 
         // Remove and verify cache reflects the change
         await repo.RemoveTrackedAsync(1);
@@ -581,7 +480,7 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         var repo = CreateRepo();
         await repo.UpsertTrackedAsync(1, TrackingMode.Tree);
 
-        var json = File.ReadAllText(_paths.TrackingFilePath);
+        var json = ReadTrackingJson();
         var file = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TrackingFile)!;
 
         file.Tracked[0].Mode.ShouldBe("tree");
@@ -591,15 +490,12 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     public async Task MixedCaseMode_InFile_ParsesCorrectly()
     {
         // Simulate a hand-edited file with mixed-case mode
-        var file = new TrackingFile
-        {
-            Tracked =
+        var json = CreateLegacyTrackingJson(
+            tracked:
             [
-                new TrackingFileEntry { Id = 1, Mode = "TREE", AddedAt = "2026-01-01T00:00:00Z" },
-                new TrackingFileEntry { Id = 2, Mode = "Single", AddedAt = "2026-01-02T00:00:00Z" }
-            ]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+                (1, "TREE", "2026-01-01T00:00:00Z"),
+                (2, "Single", "2026-01-02T00:00:00Z")
+            ]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
@@ -609,21 +505,7 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         tracked[1].Mode.ShouldBe(TrackingMode.Single);
     }
 
-    // ──────────────────────── Excluded timestamp preservation ────────────────────────
-
-    [Fact]
-    public async Task AddExcludedAsync_SetsValidTimestamp()
-    {
-        var repo = CreateRepo();
-        var before = DateTimeOffset.UtcNow;
-
-        await repo.AddExcludedAsync(1);
-
-        var excluded = await repo.GetAllExcludedAsync();
-        excluded.Count.ShouldBe(1);
-        excluded[0].ExcludedAt.ShouldBeGreaterThanOrEqualTo(before);
-        excluded[0].ExcludedAt.ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow.AddSeconds(1));
-    }
+    // ──────────────────────── Timestamp preservation ────────────────────────
 
     [Fact]
     public async Task UpsertTrackedAsync_SetsValidTimestamp()
@@ -638,10 +520,6 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         tracked[0].TrackedAt.ShouldBeGreaterThanOrEqualTo(before);
         tracked[0].TrackedAt.ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow.AddSeconds(1));
     }
-
-    // ──────────────────────── Migration output validation ────────────────────────
-
-
 
     // ──────────────────────── RemoveTrackedAsync edge cases ────────────────────────
 
@@ -666,19 +544,16 @@ public sealed class FileTrackingRepositoryTests : IDisposable
     [Fact]
     public async Task EmptyAddedAt_InFile_ParsesAsMinValue()
     {
-        var file = new TrackingFile
-        {
-            Tracked = [new TrackingFileEntry { Id = 1, Mode = "single", AddedAt = "" }],
-            Excluded = [new ExclusionFileEntry { Id = 2, AddedAt = "" }]
-        };
-        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        var json = CreateLegacyTrackingJson(
+            tracked:
+            [
+                (1, "single", "")
+            ]);
         File.WriteAllText(_paths.TrackingFilePath, json);
 
         var repo = CreateRepo();
         var tracked = await repo.GetAllTrackedAsync();
-        var excluded = await repo.GetAllExcludedAsync();
 
         tracked[0].TrackedAt.ShouldBe(DateTimeOffset.MinValue);
-        excluded[0].ExcludedAt.ShouldBe(DateTimeOffset.MinValue);
     }
 }

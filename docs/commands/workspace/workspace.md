@@ -144,5 +144,4 @@ $ twig workspace --tree --refresh -o json
 
 - [`ws`](./ws.md) — short alias
 - [`workspace track`](./track.md)
-- [`workspace exclusions`](./exclusions.md)
 - [`workspace area`](./area.md)

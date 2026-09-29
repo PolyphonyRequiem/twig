@@ -16,6 +16,14 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
     private readonly string _filePath = paths.TrackingFilePath;
     private TrackingFile? _cached;
 
+    public static int PurgeLegacyExclusions(string filePath)
+    {
+        if (!File.Exists(filePath))
+            return 0;
+
+        return LoadTrackingFile(filePath, loadTracked: false).PurgedCount;
+    }
+
     public Task<IReadOnlyList<TrackedItem>> GetAllTrackedAsync(CancellationToken ct = default)
     {
         var file = EnsureLoaded();
@@ -76,54 +84,9 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<ExcludedItem>> GetAllExcludedAsync(CancellationToken ct = default)
-    {
-        var file = EnsureLoaded();
-        var items = file.Excluded
-            .OrderBy(e => e.AddedAt, StringComparer.Ordinal)
-            .ThenBy(e => e.Id)
-            .Select(e => new ExcludedItem(e.Id, string.Empty, ParseTimestamp(e.AddedAt)))
-            .ToList();
-        return Task.FromResult<IReadOnlyList<ExcludedItem>>(items);
-    }
-
-    public Task AddExcludedAsync(int workItemId, CancellationToken ct = default)
-    {
-        var file = EnsureLoaded();
-        var existing = file.Excluded.Find(e => e.Id == workItemId);
-        if (existing is null)
-        {
-            file.Excluded.Add(new ExclusionFileEntry
-            {
-                Id = workItemId,
-                AddedAt = DateTimeOffset.UtcNow.ToString("O")
-            });
-        }
-
-        Save(file);
-        return Task.CompletedTask;
-    }
-
-    public Task RemoveExcludedAsync(int workItemId, CancellationToken ct = default)
-    {
-        var file = EnsureLoaded();
-        file.Excluded.RemoveAll(e => e.Id == workItemId);
-        Save(file);
-        return Task.CompletedTask;
-    }
-
-    public Task ClearAllExcludedAsync(CancellationToken ct = default)
-    {
-        var file = EnsureLoaded();
-        file.Excluded.Clear();
-        Save(file);
-        return Task.CompletedTask;
-    }
-
     /// <summary>
-    /// Lazily loads the tracking file on first access.
-    /// If the file does not exist, attempts a one-time migration from SQLite.
-    /// If no SQLite data is found, starts with an empty <see cref="TrackingFile"/>.
+    /// Lazily loads tracked rows, purging obsolete exclusion rows before reading.
+    /// A missing file starts with no legacy tracked rows.
     /// </summary>
     private TrackingFile EnsureLoaded()
     {
@@ -132,21 +95,15 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
 
         if (File.Exists(_filePath))
         {
-            var json = File.ReadAllText(_filePath);
-            _cached = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TrackingFile) ?? new TrackingFile();
+            _cached = LoadTrackingFile(_filePath, loadTracked: true).File!;
         }
         else
         {
-            // ADO #151: the one-time SQLite import is gone with the tables it read. Those tables
-            // were dropped by every SchemaVersion bump, so after #144 bumped 12 -> 13 the import
-            // could only ever find nothing. Keeping it left a grep-visible story that pins live
-            // in the cache — the exact false premise the Bench build brief inherited.
             _cached = new TrackingFile();
         }
 
         return _cached;
     }
-
 
     /// <summary>
     /// Atomically writes the tracking file: serialize → write temp file → rename over original.
@@ -164,6 +121,105 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
         File.Move(tempPath, _filePath, overwrite: true);
     }
 
+    private static TrackingFileLoadResult LoadTrackingFile(string filePath, bool loadTracked)
+    {
+        using (var snapshot = JsonDocument.Parse(File.ReadAllText(filePath)))
+        {
+            if (!HasExclusions(snapshot.RootElement, out _))
+                return new TrackingFileLoadResult(
+                    loadTracked ? new TrackingFile { Tracked = ReadTracked(snapshot.RootElement) } : null, 0);
+        }
+
+        // Competing processes may have read the same legacy rows. Re-read under an OS-visible
+        // lock so only the process that actually removes them emits the one-time notice.
+        using var purgeLock = AcquirePurgeLock(filePath);
+        using var current = JsonDocument.Parse(File.ReadAllText(filePath));
+        if (!HasExclusions(current.RootElement, out var excludedElement))
+            return new TrackingFileLoadResult(
+                loadTracked ? new TrackingFile { Tracked = ReadTracked(current.RootElement) } : null, 0);
+
+        var file = new TrackingFile { Tracked = ReadTracked(current.RootElement) };
+        var purgedCount = excludedElement.GetArrayLength();
+
+        var normalizedJson = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        var tempPath = filePath + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, normalizedJson);
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+
+        if (purgedCount > 0)
+            Console.Error.WriteLine($"Purged {purgedCount} legacy exclusion(s) from tracking.json; exclusions never changed workspace membership.");
+
+        return new TrackingFileLoadResult(loadTracked ? file : null, purgedCount);
+    }
+    private static bool HasExclusions(JsonElement root, out JsonElement excluded)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new JsonException("tracking.json must contain a JSON object at the root.");
+        if (!TryGetPropertyIgnoreCase(root, "excluded", out excluded))
+            return false;
+        if (excluded.ValueKind != JsonValueKind.Array)
+            throw new JsonException("tracking.json Excluded must be an array when present.");
+        return true;
+    }
+
+    private static FileStream AcquirePurgeLock(string filePath)
+    {
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            try
+            {
+                return new FileStream(filePath + ".lock", FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (attempt < 49)
+            {
+                Thread.Sleep(20);
+            }
+        }
+        throw new IOException($"Cannot acquire migration lock for {filePath}.");
+    }
+
+
+    private static List<TrackingFileEntry> ReadTracked(JsonElement root)
+    {
+        if (!TryGetPropertyIgnoreCase(root, "tracked", out var trackedElement))
+            return [];
+        if (trackedElement.ValueKind != JsonValueKind.Array)
+            throw new JsonException("tracking.json Tracked must be an array when present.");
+        return DeserializeTrackedList(trackedElement);
+    }
+
+    private static List<TrackingFileEntry> DeserializeTrackedList(JsonElement trackedElement)
+    {
+        var tracked = JsonSerializer.Deserialize(trackedElement.GetRawText(), TwigJsonContext.Default.ListTrackingFileEntry)
+            ?? throw new JsonException("tracking.json Tracked could not be deserialized.");
+
+        return tracked;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
     private static TrackedItem ToDomain(TrackingFileEntry entry) =>
         new(entry.Id,
             Enum.TryParse<TrackingMode>(entry.Mode, ignoreCase: true, out var mode) ? mode : TrackingMode.Single,
@@ -171,4 +227,6 @@ public sealed class FileTrackingRepository(TwigPaths paths) : ITrackingRepositor
 
     private static DateTimeOffset ParseTimestamp(string value) =>
         DateTimeOffset.TryParse(value, out var dt) ? dt : DateTimeOffset.MinValue;
+
+    private readonly record struct TrackingFileLoadResult(TrackingFile? File, int PurgedCount);
 }

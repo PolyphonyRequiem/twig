@@ -314,18 +314,6 @@ internal static class CommandExamples
             "twig workspace untrack 1234        Stop tracking work item #1234",
             "twig workspace untrack 5678        Remove a pinned item from workspace",
         ],
-        ["workspace exclude"] =
-        [
-            "twig workspace exclude 1234        Hide #1234 from workspace view",
-            "twig workspace exclude 5678        Exclude a noisy item from sprint display",
-        ],
-        ["workspace exclusions"] =
-        [
-            "twig workspace exclusions              List all excluded work items",
-            "twig workspace exclusions --clear      Remove all exclusions",
-            "twig workspace exclusions --remove 42  Remove exclusion for #42",
-            "twig workspace exclusions -o json      List exclusions as JSON",
-        ],
         // ADO #148 — Bench. The name is a plain argument, which spec §8 flags as PROVISIONAL:
         // whether a Bench is addressed the same way as a Context is a later ruling.
         ["bench create"] =

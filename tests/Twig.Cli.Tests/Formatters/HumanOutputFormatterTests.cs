@@ -335,32 +335,6 @@ public class HumanOutputFormatterTests
         result.ShouldContain("── Manual");
     }
 
-    [Fact]
-    public void FormatWorkspace_WithExclusions_ShowsExclusionFooter()
-    {
-        var items = new[] { CreateWorkItem(1, "Task", "Active") };
-        var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42, 99 });
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections,
-            excludedIds: new[] { 42, 99 });
-
-        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
-
-        result.ShouldContain("2 excluded");
-        result.ShouldContain("#42");
-        result.ShouldContain("#99");
-    }
-
-    [Fact]
-    public void FormatWorkspace_WithNoExclusions_NoExclusionFooter()
-    {
-        var items = new[] { CreateWorkItem(1, "Task", "Active") };
-        var sections = WorkspaceSections.Build(items);
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
-
-        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
-
-        result.ShouldNotContain("excluded");
-    }
 
     [Fact]
     public void FormatWorkspace_WithoutSections_FallsBackToLegacy()
@@ -451,19 +425,6 @@ public class HumanOutputFormatterTests
         result.ShouldNotContain("tracked");
     }
 
-    [Fact]
-    public void FormatWorkspace_WithExcludedIds_ShowsExclusionFooter()
-    {
-        var items = new[] { CreateWorkItem(1, "Task", "Active") };
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
-            excludedIds: new[] { 50, 60 });
-
-        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
-
-        result.ShouldContain("2 excluded");
-        result.ShouldContain("#50");
-        result.ShouldContain("#60");
-    }
 
     // ── Mode-sectioned dedup & ordering (T-1964-C) ──────────────────
 
@@ -545,20 +506,6 @@ public class HumanOutputFormatterTests
         // Only Sprint section should appear (Area fully deduped = omitted)
         plain.ShouldContain("Sprint");
         plain.ShouldNotContain("Area");
-    }
-
-    [Fact]
-    public void FormatWorkspace_SingleExclusion_ShowsSingularCount()
-    {
-        var items = new[] { CreateWorkItem(1, "Task", "Active") };
-        var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42 });
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections,
-            excludedIds: new[] { 42 });
-
-        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
-
-        result.ShouldContain("1 excluded");
-        result.ShouldContain("#42");
     }
 
     [Fact]

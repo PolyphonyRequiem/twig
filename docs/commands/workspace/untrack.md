@@ -73,5 +73,4 @@ $ twig workspace untrack 4211 -o json
 
 - [`workspace track`](./track.md)
 - [`workspace track-tree`](./track-tree.md)
-- [`workspace exclude`](./exclude.md)
 - [`workspace`](./workspace.md)

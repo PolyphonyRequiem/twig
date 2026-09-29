@@ -139,33 +139,21 @@ acceptance sentences. A Bench with **no selectors at all** still surfaces owed w
   quietly mutates the Bench moves the person's view out from under them.
 - **Not a place where work can hide.** See the guard above.
 
-### Exclusions are OUT of scope — decided 2026-08-06
+### Exclusions are OUT of scope — decided 2026-08-06, retired by Grilling #623
 
 A Bench has selectors and nothing else. There is no subtracting selector, no exclusion, and
 no way to remove an item a selector matched.
 
-**This is a deliberate cut, made after investigating what exclusion does today.** The
-finding that drove it:
+The earlier `workspace exclude` commands persisted IDs and reported success but never
+subtracted items from the view. Their IDs appeared only in a footer and in separate
+machine-output arrays while the same items remained visible. Building exclusions into
+the Bench would therefore have specified new behavior, not migrated existing behavior.
 
-🔴 **`exclude` does not currently exclude anything.** Nothing subtracts excluded items from
-the view. The service that computes the working set never reads exclusions at all. The ids
-are carried into the read model, handed to the formatters, and printed as a dim footer at
-the bottom of the output — `3 excluded: #12, #40, #71` — while the items themselves appear
-in the list looking exactly like everything else. The two halves never meet: the section
-builder takes the excluded ids as a parameter and stores them without ever filtering
-against them. Machine output has the same shape, a separate id array beside untouched items.
-
-So exclusion today is a note-to-self with a misleading verb. That has two consequences:
-
-- **There is nothing to migrate.** Building exclusion into the Bench would not be preserving
-  a behaviour, it would be *specifying one for the first time* — a bigger change than it
-  appears, wearing the costume of a data move.
-- **The parity bar does not protect it.** Parity means the same items in the same order, and
-  exclusion currently affects neither.
-
-**The existing exclude commands are left exactly as they are** — not deleted, not moved,
-not changed. They continue to write to the file and print their footer, outside the Bench.
-Retiring or fixing them is separate work.
+Daniel subsequently ratified their immediate retirement in Grilling #623: both verbs
+take the ordinary unknown-subcommand path, legacy exclusion rows are purged rather than
+migrated, and a nonzero purge reports its count once on stderr without changing the
+requested command's stdout or exit status. This does not decide any future exclusion
+capability or the distinct completed-work presentation filter in Feature #1087.
 
 This cut also removes a genuine design problem rather than deferring it. With subtraction in
 the model, a person can express two contradictory intentions about one item, and every way
@@ -377,9 +365,9 @@ Two rules are inherited and non-negotiable:
 
 ### 6. The migration is mandatory, and it moves pins out of the file
 
-Existing pins move from the file into the default Bench in the durable store as item and
-subtree selectors. Exclusions are not migrated — they stay in the file, untouched, serving
-the existing commands.
+Existing pins must move from the file into the default Bench as item and subtree
+selectors. Grilling #623 separately retired exclusions: their rows are purged,
+not imported as selectors or retained in the file.
 
 🔴 **A clean break is not available here.** The earlier store split could take one, because
 a non-empty pending set could refuse the operation and say so. Pins are silent: nothing
@@ -394,7 +382,7 @@ Migration properties the implementing change must satisfy:
 - Every pin present before is present after, with single-vs-subtree preserved.
 - Running it twice does not duplicate or destroy anything.
 - Anything that cannot be carried across is **reported, not dropped**.
-- The file is not deleted, since exclusions still live there.
+- The file remains only while legacy tracked rows await their separate import.
 
 ### 7. Where the Context touches this — one seam, and only one
 
@@ -522,12 +510,10 @@ until this lands.** Naming them now is the point: this is the part that goes wro
 | Pins are user-local state stored in a file beside the cache. | They are **selectors on a Bench** in the durable store. Migrated out of the file. |
 | Pin commands are described as operating on "the workspace". | They operate on **a Bench** — by default the current one. |
 | Sprint sources and manual pins are separate mechanisms. | Both are **selectors**. The hard-coded sprint question is one query selector, not a special case. |
-| Post-init state lists the tracking file as part of a fresh setup. | A fresh setup creates the **default Bench**. The file survives for exclusions only. |
+| Post-init state lists the tracking file as part of a fresh setup. | A fresh setup creates the **default Bench**; no exclusion file is created for new workspaces. |
 
-🔴 **One line in that document is already false, independently of this change.** It describes
-the view as sources and pins *minus exclusions*. Nothing subtracts exclusions — the working
-set service never reads them. That is a documentation defect today, not something this spec
-introduces, and it should be corrected whether or not the Bench ships.
+The old "minus exclusions" language in the earlier working-set spec has been corrected:
+nothing ever subtracted exclusions from Bench membership.
 
 **Not touched by this spec, and must remain intact:** the entire sync model — push ordering,
 notes-before-fields, conflict resolution, protected items, the dirty-state lifecycle. A

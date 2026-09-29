@@ -27,17 +27,13 @@ public sealed class Workspace
     /// <summary>Manually tracked items (pinned to the workspace via track/track-tree).</summary>
     public IReadOnlyList<TrackedItem> TrackedItems { get; }
 
-    /// <summary>IDs of items manually excluded from the workspace view.</summary>
-    public IReadOnlyList<int> ExcludedIds { get; }
-
     private Workspace(
         WorkItem? context,
         IReadOnlyList<WorkItem> sprintItems,
         IReadOnlyList<WorkItem> seeds,
         SprintHierarchy? hierarchy,
         WorkspaceSections? sections,
-        IReadOnlyList<TrackedItem>? trackedItems,
-        IReadOnlyList<int>? excludedIds)
+        IReadOnlyList<TrackedItem>? trackedItems)
     {
         ContextItem = context;
         SprintItems = sprintItems;
@@ -45,7 +41,6 @@ public sealed class Workspace
         Hierarchy = hierarchy;
         Sections = sections;
         TrackedItems = trackedItems ?? Array.Empty<TrackedItem>();
-        ExcludedIds = excludedIds ?? Array.Empty<int>();
     }
 
     /// <summary>
@@ -57,10 +52,9 @@ public sealed class Workspace
         IReadOnlyList<WorkItem> seeds,
         SprintHierarchy? hierarchy = null,
         WorkspaceSections? sections = null,
-        IReadOnlyList<TrackedItem>? trackedItems = null,
-        IReadOnlyList<int>? excludedIds = null)
+        IReadOnlyList<TrackedItem>? trackedItems = null)
     {
-        return new Workspace(context, sprintItems, seeds, hierarchy, sections, trackedItems, excludedIds);
+        return new Workspace(context, sprintItems, seeds, hierarchy, sections, trackedItems);
     }
 
     /// <summary>

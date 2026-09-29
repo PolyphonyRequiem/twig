@@ -7,11 +7,10 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Services.Sync;
 
 /// <summary>
-/// Domain service that orchestrates tracking and exclusion operations
-/// by delegating to <see cref="ITrackingRepository"/>.
+/// Domain service that orchestrates tracking and cleanup operations
+/// by delegating to Bench-backed pin readers and writers.
 /// </summary>
 public sealed class TrackingService(
-    ITrackingRepository repository,
     IWorkItemRepository workItemRepository,
     IProcessTypeStore processTypeStore,
     IPinReader? pinReader = null,
@@ -51,45 +50,8 @@ public sealed class TrackingService(
     }
 
     /// <inheritdoc />
-    public Task ExcludeAsync(int workItemId, CancellationToken ct = default)
-        => repository.AddExcludedAsync(workItemId, ct);
-
-    /// <inheritdoc />
     public Task<IReadOnlyList<TrackedItem>> GetTrackedItemsAsync(CancellationToken ct = default)
         => ReadPinsAsync(ct);
-
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<int>> GetExcludedIdsAsync(CancellationToken ct = default)
-    {
-        var excluded = await repository.GetAllExcludedAsync(ct);
-        return excluded.Select(e => e.WorkItemId).ToList();
-    }
-
-    /// <inheritdoc />
-    public Task<IReadOnlyList<ExcludedItem>> ListExclusionsAsync(CancellationToken ct = default)
-        => repository.GetAllExcludedAsync(ct);
-
-    /// <inheritdoc />
-    public async Task<bool> RemoveExclusionAsync(int workItemId, CancellationToken ct = default)
-    {
-        var existing = await repository.GetAllExcludedAsync(ct);
-        if (!existing.Any(e => e.WorkItemId == workItemId))
-            return false;
-
-        await repository.RemoveExcludedAsync(workItemId, ct);
-        return true;
-    }
-
-    /// <inheritdoc />
-    public async Task<int> ClearExclusionsAsync(CancellationToken ct = default)
-    {
-        var existing = await repository.GetAllExcludedAsync(ct);
-        var count = existing.Count;
-        if (count > 0)
-            await repository.ClearAllExcludedAsync(ct);
-
-        return count;
-    }
 
     /// <inheritdoc />
     public async Task<int> SyncTrackedTreesAsync(SyncCoordinator syncCoordinator, CancellationToken ct = default)
@@ -159,7 +121,6 @@ public sealed class TrackingService(
             }
 
             var category = StateCategoryResolver.Resolve(workItem.State, processType?.States);
-
             var isCompleted = category == StateCategory.Completed;
 
             switch (policy)
@@ -179,13 +140,10 @@ public sealed class TrackingService(
             }
         }
 
-        if (removalIds.Count > 0)
+        if (removalIds.Count > 0 && pinWriter is not null)
         {
-            if (pinWriter is not null)
-            {
-                foreach (var id in removalIds)
-                    await pinWriter.RemovePinAsync(id, ct);
-            }
+            foreach (var id in removalIds)
+                await pinWriter.RemovePinAsync(id, ct);
         }
 
         return removalIds.Count;

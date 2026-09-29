@@ -63,8 +63,6 @@ public class CacheFirstReadCommandTests
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
-        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _processTypeStore = Substitute.For<IProcessTypeStore>();

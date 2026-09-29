@@ -57,8 +57,6 @@ public sealed class WorkspaceSectionsWiringTests
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
-        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -90,38 +88,6 @@ public sealed class WorkspaceSectionsWiringTests
         output.ShouldContain("Task Beta");
     }
 
-    [Fact]
-    public async Task AsyncPath_ExcludedIds_FlowThroughToRenderer()
-    {
-        var item = CreateWorkItem(1, "Sprint Task");
-        SetupDefaultMocks(sprintItems: new[] { item });
-        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 42, 99 });
-
-        var cmd = CreateCommandWithTtyPipeline();
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        var output = _testConsole.Output;
-        // Exclusion footer rendered by SpectreRenderer when excluded IDs present
-        output.ShouldContain("excluded");
-        output.ShouldContain("#42");
-        output.ShouldContain("#99");
-    }
-
-    [Fact]
-    public async Task AsyncPath_NoExcludedIds_NoExclusionFooter()
-    {
-        var item = CreateWorkItem(1, "Sprint Task");
-        SetupDefaultMocks(sprintItems: new[] { item });
-
-        var cmd = CreateCommandWithTtyPipeline();
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        var output = _testConsole.Output;
-        output.ShouldNotContain("excluded");
-    }
 
     [Fact]
     public async Task AsyncPath_EmptySprintItems_FallbackRendering()
@@ -151,34 +117,6 @@ public sealed class WorkspaceSectionsWiringTests
     }
 
     [Fact]
-    public async Task SyncPath_ExcludedIds_ExclusionFooterRendered()
-    {
-        var item = CreateWorkItem(1, "Sprint Task");
-        SetupDefaultMocks(sprintItems: new[] { item });
-        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 55 });
-
-        var cmd = CreateDefaultCommand();
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        // HumanOutputFormatter renders exclusion footer from Workspace.ExcludedIds
-        // which flows from WorkspaceSections.Build(excludedIds:)
-    }
-
-    [Fact]
-    public async Task SyncPath_NoExcludedIds_NoExclusionContent()
-    {
-        var item = CreateWorkItem(1, "Sprint Task");
-        SetupDefaultMocks(sprintItems: new[] { item });
-
-        var cmd = CreateDefaultCommand();
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-    }
-
-    [Fact]
     public async Task SyncPath_EmptySprintItems_GracefulHandling()
     {
         SetupDefaultMocks(sprintItems: Array.Empty<WorkItem>());
@@ -195,14 +133,13 @@ public sealed class WorkspaceSectionsWiringTests
     public void WorkspaceBuild_WithSections_SectionsPopulated()
     {
         var item = CreateWorkItem(1, "Item");
-        var sections = WorkspaceSections.Build(new[] { item }, excludedIds: new[] { 10 });
+        var sections = WorkspaceSections.Build(new[] { item });
         var ws = Workspace.Build(null, new[] { item }, Array.Empty<WorkItem>(), sections: sections);
 
         ws.Sections.ShouldNotBeNull();
         ws.Sections.Sections.Count.ShouldBe(1);
         ws.Sections.Sections[0].ModeName.ShouldBe("Sprint");
         ws.Sections.Sections[0].Items.Count.ShouldBe(1);
-        ws.Sections.ExcludedItemIds.ShouldContain(10);
     }
 
     [Fact]
@@ -247,44 +184,11 @@ public sealed class WorkspaceSectionsWiringTests
     public void SprintItemsLoaded_CarriesSections()
     {
         var item = CreateWorkItem(1, "Item");
-        var sections = WorkspaceSections.Build(new[] { item }, excludedIds: new[] { 5 });
+        var sections = WorkspaceSections.Build(new[] { item });
         var chunk = new SprintItemsLoaded(new[] { item }, sections);
 
         chunk.Sections.ShouldNotBeNull();
         chunk.Sections!.Sections.Count.ShouldBe(1);
-        chunk.Sections.ExcludedItemIds.ShouldContain(5);
-    }
-
-    [Fact]
-    public void SprintItemsLoaded_NullSections_DefaultsToNull()
-    {
-        var chunk = new SprintItemsLoaded(Array.Empty<WorkItem>());
-
-        chunk.Sections.ShouldBeNull();
-    }
-
-    // ── TrackingService integration ─────────────────────────────────
-
-    [Fact]
-    public async Task AsyncPath_TrackingServiceQueried_ForExcludedIds()
-    {
-        SetupDefaultMocks(sprintItems: new[] { CreateWorkItem(1, "Item") });
-
-        var cmd = CreateCommandWithTtyPipeline();
-        await cmd.ExecuteAsync("human");
-
-        await _trackingService.Received(1).GetExcludedIdsAsync(Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SyncPath_TrackingServiceQueried_ForExcludedIds()
-    {
-        SetupDefaultMocks(sprintItems: new[] { CreateWorkItem(1, "Item") });
-
-        var cmd = CreateDefaultCommand();
-        await cmd.ExecuteAsync("human");
-
-        await _trackingService.Received(1).GetExcludedIdsAsync(Arg.Any<CancellationToken>());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

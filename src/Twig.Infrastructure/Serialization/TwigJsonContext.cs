@@ -151,8 +151,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<SprintEntry>))]
 [JsonSerializable(typeof(TrackedItem))]
 [JsonSerializable(typeof(List<TrackedItem>))]
-[JsonSerializable(typeof(ExcludedItem))]
-[JsonSerializable(typeof(List<ExcludedItem>))]
 [JsonSerializable(typeof(TrackingMode))]
 [JsonSerializable(typeof(TrackingCleanupPolicy))]
 // Descendant verification read models (Epic — SDLC close-out drill-down)
@@ -161,8 +159,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(TrackingFile))]
 [JsonSerializable(typeof(TrackingFileEntry))]
 [JsonSerializable(typeof(List<TrackingFileEntry>))]
-[JsonSerializable(typeof(ExclusionFileEntry))]
-[JsonSerializable(typeof(List<ExclusionFileEntry>))]
+
 // AB#734/AB#735 reference profile. The nested records are attributed explicitly
 // rather than left to root-graph reachability, because T1 §8.2 requires the
 // aggregate root AND every §5 nested record registered — and an explicit entry

@@ -5,8 +5,8 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Interfaces;
 
 /// <summary>
-/// Domain service for managing manually tracked and excluded work items.
-/// Orchestrates calls to <see cref="ITrackingRepository"/>.
+/// Domain service for managing tracked work items and Bench-backed pin operations.
+/// Orchestrates calls to the current pin reader and writer.
 /// </summary>
 public interface ITrackingService
 {
@@ -19,23 +19,8 @@ public interface ITrackingService
     /// <summary>Removes a work item from tracking. Returns true if it was tracked, false if not.</summary>
     Task<bool> UntrackAsync(int workItemId, CancellationToken ct = default);
 
-    /// <summary>Adds a work item to the exclusion list. Idempotent.</summary>
-    Task ExcludeAsync(int workItemId, CancellationToken ct = default);
-
     /// <summary>Returns all currently tracked items.</summary>
     Task<IReadOnlyList<TrackedItem>> GetTrackedItemsAsync(CancellationToken ct = default);
-
-    /// <summary>Returns the IDs of all excluded work items.</summary>
-    Task<IReadOnlyList<int>> GetExcludedIdsAsync(CancellationToken ct = default);
-
-    /// <summary>Returns all exclusion entries for display purposes.</summary>
-    Task<IReadOnlyList<ExcludedItem>> ListExclusionsAsync(CancellationToken ct = default);
-
-    /// <summary>Removes a single exclusion by work item ID. Returns true if it existed, false if not.</summary>
-    Task<bool> RemoveExclusionAsync(int workItemId, CancellationToken ct = default);
-
-    /// <summary>Removes all exclusions. Returns the count of exclusions removed.</summary>
-    Task<int> ClearExclusionsAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Syncs all Tree-mode tracked items: re-explores each root via

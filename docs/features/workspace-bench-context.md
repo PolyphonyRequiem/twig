@@ -82,10 +82,9 @@ Two rules follow from that shape:
 - **Shared view — no private pins.** Everything standing on a Bench sees
   the same Bench. A pin is a change to the Bench, visible to everyone
   standing on it (ticket 0022 §5).
-- **Exclusions are out of the Bench entirely** (decided 2026-08-06). There
-  is no subtracting selector, and the top-level
-  [`workspace exclude`](../commands/workspace/exclude.md) group
-  continues to own hiding items from the workspace view.
+- **No exclusions.** A Bench has no subtracting selector. The former exclusion
+  commands persisted inert rows but never changed membership; Task #1086 retires
+  those commands and purges the rows without migrating them to a Bench.
 
 ⚠ **A Bench does not "reconcile" Contexts.** `Reconciliation` is the
 staged → published → reconciled → invalidated module against ADO
@@ -276,8 +275,7 @@ or changes behavior based on machine output format.
 - [`bench`](../commands/bench/README.md) — create, list, switch, delete Benches.
 - [`context`](../commands/context/README.md) — `set`, `show`, `show-batch`, `query`, `web`, `history`.
 - [`workspace`](../commands/workspace/README.md) — the view rendered on the current Bench.
-- [`workspace track`](../commands/workspace/track.md) /
-  [`workspace exclusions`](../commands/workspace/exclusions.md) — pin and hide items.
+- [`workspace track`](../commands/workspace/track.md) — pin items to the current Bench.
 - [`auth login`](../commands/system/auth-login.md) /
   [`auth status`](../commands/system/auth-status.md) — Connection credentials.
 

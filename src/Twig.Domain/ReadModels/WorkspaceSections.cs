@@ -22,27 +22,22 @@ public sealed class WorkspaceSections
     /// <summary>Non-empty mode sections in display order.</summary>
     public IReadOnlyList<WorkspaceSection> Sections { get; }
 
-    /// <summary>IDs of items manually excluded from the workspace.</summary>
-    public IReadOnlyList<int> ExcludedItemIds { get; }
-
-    private WorkspaceSections(IReadOnlyList<WorkspaceSection> sections, IReadOnlyList<int> excludedItemIds)
+    private WorkspaceSections(IReadOnlyList<WorkspaceSection> sections)
     {
         Sections = sections;
-        ExcludedItemIds = excludedItemIds;
     }
 
     /// <summary>
     /// Builds mode sections with first-mode-wins deduplication.
     /// Items are assigned to the first mode in which they appear (Sprint → Area → Recent).
     /// Manual inclusions always appear in the Manual section, even if already shown elsewhere.
-    /// Empty sections and empty excluded-ID lists are handled gracefully.
+    /// Empty sections are handled gracefully.
     /// </summary>
     public static WorkspaceSections Build(
         IReadOnlyList<WorkItem> sprintItems,
         IReadOnlyList<WorkItem>? areaItems = null,
         IReadOnlyList<WorkItem>? recentItems = null,
         IReadOnlyList<WorkItem>? manualItems = null,
-        IReadOnlyList<int>? excludedIds = null,
         IReadOnlyList<SprintHierarchyNode>? treeRoots = null)
     {
         var seen = new HashSet<int>();
@@ -55,7 +50,7 @@ public sealed class WorkspaceSections
         // Manual inclusions always show — no dedup against prior sections
         AddSection(sections, "Manual", manualItems, seen, dedup: false);
 
-        return new WorkspaceSections(sections, excludedIds ?? Array.Empty<int>());
+        return new WorkspaceSections(sections);
     }
 
     /// <summary>
@@ -64,10 +59,9 @@ public sealed class WorkspaceSections
     /// multi-mode tree rendering).
     /// </summary>
     public static WorkspaceSections BuildWithTreeRoots(
-        IReadOnlyList<WorkspaceSection> sections,
-        IReadOnlyList<int>? excludedIds = null)
+        IReadOnlyList<WorkspaceSection> sections)
     {
-        return new WorkspaceSections(sections, excludedIds ?? Array.Empty<int>());
+        return new WorkspaceSections(sections);
     }
 
     private static void AddSection(

@@ -443,10 +443,9 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<IPinReader>(sp => sp.GetRequiredService<BenchPinReader>());
         services.TryAddSingleton<IPinWriter>(sp => sp.GetRequiredService<BenchPinReader>());
 
-        // Tracking now reads and writes pins through the Bench. The tracking REPOSITORY survives
-        // for exclusions only, which are deliberately out of the Bench entirely.
+        // Tracking now reads and writes pins through the Bench. The tracking repository remains
+        // for file-backed tracked rows and the legacy tracking.json purge helper.
         services.TryAddSingleton<ITrackingService>(sp => new TrackingService(
-            sp.GetRequiredService<ITrackingRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetService<IPinReader>(),

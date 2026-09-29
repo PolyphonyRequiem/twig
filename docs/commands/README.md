@@ -41,8 +41,6 @@ and updates.
 | [Workspace](workspace/README.md) | [`twig workspace area list`](workspace/area-list.md) | List configured area paths with match semantics. | stable | `none` |
 | [Workspace](workspace/README.md) | [`twig workspace area remove`](workspace/area-remove.md) | Remove an area path from workspace configuration. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig workspace area sync`](workspace/area-sync.md) | Fetch team area paths from ADO and replace configuration. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace exclude`](workspace/exclude.md) | Exclude a work item from workspace view. | stable | `local` |
-| [Workspace](workspace/README.md) | [`twig workspace exclusions`](workspace/exclusions.md) | List all excluded work items; also clears or removes exclusions. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig workspace sprint add`](workspace/sprint-add.md) | Add a sprint iteration expression to workspace configuration. | stable | `local` |
 | [Workspace](workspace/README.md) | [`twig workspace sprint list`](workspace/sprint-list.md) | List configured sprint iteration expressions. | stable | `none` |
 | [Workspace](workspace/README.md) | [`twig workspace sprint remove`](workspace/sprint-remove.md) | Remove a sprint iteration expression from workspace configuration. | stable | `local` |

@@ -474,26 +474,6 @@ public sealed class WorkspaceTreeRenderTests
         output.ShouldContain("Active Story");
     }
 
-    // ── Exclusion footer ────────────────────────────────────────────
-
-    [Fact]
-    public async Task TreeMode_ExcludedItems_ShowsFooter()
-    {
-        var (console, renderer) = CreateTreeRenderer();
-
-        var story = new WorkItemBuilder(20, "Sprint Story").AsUserStory().InState("Active").Build();
-        var roots = new[] { BuildNode(story, isSprintItem: true) };
-        var sections = BuildSectionsWithTreeAndExclusions(
-            new[] { story }, roots, excludedIds: new[] { 42, 99 });
-
-        var output = await RenderTreeWorkspaceWithSeeds(console, renderer,
-            sprintItems: new[] { story }, sections: sections,
-            seeds: Array.Empty<WorkItem>());
-
-        output.ShouldContain("2 excluded");
-        output.ShouldContain("#42");
-        output.ShouldContain("#99");
-    }
 
     // ── Flat fallback in tree mode ──────────────────────────────────
 
@@ -861,13 +841,6 @@ public sealed class WorkspaceTreeRenderTests
         return WorkspaceSections.Build(items, treeRoots: treeRoots);
     }
 
-    private static WorkspaceSections BuildSectionsWithTreeAndExclusions(
-        WorkItem[] items,
-        SprintHierarchyNode[] treeRoots,
-        int[] excludedIds)
-    {
-        return WorkspaceSections.Build(items, treeRoots: treeRoots, excludedIds: excludedIds);
-    }
 
     private static async Task<string> RenderTreeWorkspace(
         TestConsole console, SpectreRenderer renderer,

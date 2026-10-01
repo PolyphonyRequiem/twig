@@ -3,7 +3,7 @@ using Twig.Infrastructure.Config;
 
 namespace Twig.Infrastructure.Auth;
 
-/// <summary>Registered AAD principal metadata. Credential material is stored separately.</summary>
+/// <summary>Registered principal metadata. Credential material is stored separately.</summary>
 internal sealed record AuthenticationIdentity(
     string IdentityId,
     string Name,
@@ -12,10 +12,10 @@ internal sealed record AuthenticationIdentity(
     string Issuer,
     string AuthorityHost,
     string CredentialRef,
-    string? AccountName)
-{
-    public string Method => "aad";
-}
+    string? AccountName,
+    string Method = "aad",
+    string? AdoPrincipalId = null,
+    string? AdoAuthority = null);
 
 /// <summary>An explicit association between an endpoint and a registered identity.</summary>
 internal sealed record IdentityBinding(
@@ -56,6 +56,14 @@ internal interface IConnectionBindingService
         string name,
         TwigRefreshTokenStoreEntry credential,
         CancellationToken ct = default);
+
+    Task<AuthenticationIdentity> RegisterPatIdentityAsync(
+        string name,
+        string organization,
+        string pat,
+        CancellationToken ct = default);
+
+    Task ClearIdentityAccessCacheAsync(string name, CancellationToken ct = default);
 
     Task<IReadOnlyList<AuthenticationIdentity>> ListIdentitiesAsync(CancellationToken ct = default);
 

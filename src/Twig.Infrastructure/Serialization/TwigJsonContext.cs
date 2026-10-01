@@ -86,6 +86,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoClassificationNodeResponse))]
 [JsonSerializable(typeof(List<AdoClassificationNodeResponse>))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
+[JsonSerializable(typeof(PatCredentialEntry))]
 [JsonSerializable(typeof(AdoProfileResponse))]
 [JsonSerializable(typeof(TypeAppearanceConfig))]
 [JsonSerializable(typeof(List<TypeAppearanceConfig>))]

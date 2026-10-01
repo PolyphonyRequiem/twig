@@ -9,7 +9,7 @@ using Twig.Infrastructure.Persistence;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>
-/// Task #1104 — the only entry point that mints <see cref="IAuthenticationProvider"/>
+/// The entry point that mints <see cref="IAuthenticationProvider"/>
 /// instances for the normal attached-worktree route and the explicit init
 /// bootstrap route. Owns the central <c>system.db</c> identity/binding/default
 /// tables and the sibling per-credential files; refuses to answer when the
@@ -36,9 +36,12 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     private readonly SqliteSystemWorktreeRegistry _registry;
     private readonly ITokenRefresher _refresher;
     private readonly TimeProvider _clock;
+    private readonly HttpClient _patHttpClient;
+    private readonly bool _ownsPatHttpClient;
+    private readonly PatPrincipalAttestor _patAttestor;
     private bool _disposed;
 
-    public ConnectionBindingService(string userHome, ITokenRefresher? refresher = null, TimeProvider? clock = null)
+    public ConnectionBindingService(string userHome, ITokenRefresher? refresher = null, TimeProvider? clock = null, HttpClient? patHttpClient = null)
     {
         if (string.IsNullOrWhiteSpace(userHome) || !Path.IsPathFullyQualified(userHome))
             throw new ArgumentException("userHome must be a non-empty absolute path.", nameof(userHome));
@@ -57,6 +60,9 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             File.SetUnixFileMode(_credentialsDir, privateMode);
         }
         _registry = new SqliteSystemWorktreeRegistry(Path.Combine(_userHome, SystemDbFileName), _clock);
+        _ownsPatHttpClient = patHttpClient is null;
+        _patHttpClient = patHttpClient ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false });
+        _patAttestor = new PatPrincipalAttestor(_patHttpClient);
     }
 
     /// <summary>Resolve the metadata home used when the DI composition root
@@ -162,7 +168,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
 
         if (existing is not null)
         {
-            if (!string.Equals(existing.TenantId, tenantId, StringComparison.OrdinalIgnoreCase)
+            if (existing.Method != "aad"
+                || !string.Equals(existing.TenantId, tenantId, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(existing.ObjectId, objectId, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(existing.Issuer, issuer, StringComparison.Ordinal)
                 || !string.Equals(existing.AuthorityHost, authorityHost, StringComparison.OrdinalIgnoreCase))
@@ -207,6 +214,65 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         return ToIdentity(row);
     }
 
+    public async Task<AuthenticationIdentity> RegisterPatIdentityAsync(
+        string name, string organization, string pat, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (name.Trim().Length > 64)
+            throw new ArgumentException("Identity name must be 64 characters or fewer.", nameof(name));
+        ArgumentException.ThrowIfNullOrWhiteSpace(pat);
+        var alias = name.Trim();
+        var authority = PatPrincipalAttestor.NormalizeAuthority(organization);
+        var lookup = await _registry.FindIdentityByNameAsync(alias, ct).ConfigureAwait(false);
+        if (!lookup.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {lookup.Error}");
+        var existing = lookup.Value;
+        if (existing is not null && (existing.Method != "pat"
+            || !string.Equals(existing.AdoAuthority, authority, StringComparison.Ordinal)))
+            throw new InvalidOperationException($"Identity '{alias}' already has different method or authority requirements. Register a separate identity; renewal cannot change authority.");
+
+        // No secret is persisted or bound until authoritative read-only attestation succeeds.
+        var principal = await _patAttestor.AttestAsync(authority, pat, ct).ConfigureAwait(false);
+        if (existing is not null && !string.Equals(existing.AdoPrincipalId, principal.PrincipalId, StringComparison.OrdinalIgnoreCase))
+            throw new ConnectionIdentityMismatchException(
+                $"PAT identity '{alias}' requires ADO principal {existing.AdoPrincipalId} at {authority}; observed principal {principal.PrincipalId}. The existing credential is unchanged; register another principal under a separate alias.");
+        var now = _clock.GetUtcNow();
+        if (existing is not null)
+        {
+            new PatCredentialStore(ResolveCredentialPath(existing.CredentialRef)).Write(pat);
+            var stamp = await _registry.UpdateIdentityRefreshStampAsync(existing.IdentityId, principal.AccountName, now, ct).ConfigureAwait(false);
+            if (!stamp.IsSuccess) throw new InvalidOperationException($"Registry refused identity refresh stamp: {stamp.Error}");
+            // Neither selection/binding revisions nor mirror/durable state change on renewal.
+            return ToIdentity(existing with { AccountName = principal.AccountName, UpdatedAt = now });
+        }
+        var credentialRef = "cred-" + Guid.NewGuid().ToString("N");
+        new PatCredentialStore(ResolveCredentialPath(credentialRef)).Write(pat);
+        var row = new IdentityRow(
+            ComputeIdentityId(alias), alias, string.Empty, string.Empty, string.Empty, string.Empty,
+            credentialRef, principal.AccountName, now, now,
+            Method: "pat", AdoPrincipalId: principal.PrincipalId, AdoAuthority: authority);
+        var insert = await _registry.InsertIdentityAsync(row, ct).ConfigureAwait(false);
+        if (!insert.IsSuccess)
+        {
+            TryDeleteCredential(credentialRef);
+            throw new InvalidOperationException($"Registry refused new identity: {insert.Error}");
+        }
+        return ToIdentity(row);
+    }
+
+    public async Task ClearIdentityAccessCacheAsync(string name, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var result = await _registry.FindIdentityByNameAsync(name.Trim(), ct).ConfigureAwait(false);
+        if (!result.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {result.Error}");
+        var row = result.Value ?? throw new InvalidOperationException($"No identity named '{name}' is registered.");
+        if (row.Method == "pat")
+            new PatCredentialStore(ResolveCredentialPath(row.CredentialRef)).ResetAdmission();
+        else
+            new TwigTokenFileCache(ResolveTokenCachePath(row.CredentialRef)).TryDelete();
+    }
+
     public async Task<IReadOnlyList<AuthenticationIdentity>> ListIdentitiesAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
@@ -237,6 +303,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         var identity = identityRes.Value
             ?? throw new InvalidOperationException(
                 $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first.");
+        EnsurePatAuthority(ToIdentity(identity), organization);
 
         var connectionRef = ConnectionRefResolver.Compute(organization, project);
 
@@ -354,6 +421,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (identityRes.Value is not { } idRow)
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");
+        EnsurePatAuthority(ToIdentity(idRow), configuration.Organization);
 
         return new ResolvedConnectionBinding(
             Binding: ToBinding(b),
@@ -397,6 +465,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (identityRes.Value is not { } idRow)
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");
+        EnsurePatAuthority(ToIdentity(idRow), configuration.Organization);
 
         return CreateProvider(ToIdentity(idRow));
     }
@@ -405,12 +474,17 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(binding);
+        EnsurePatAuthority(binding.Identity, binding.Operation.Organization);
         return CreateProvider(binding.Identity);
     }
 
-    private BoundConnectionAuthenticationProvider CreateProvider(AuthenticationIdentity identity)
+    private IAuthenticationProvider CreateProvider(AuthenticationIdentity identity)
     {
         var credentialPath = ResolveCredentialPath(identity.CredentialRef);
+        if (identity.Method == "pat")
+            return new BoundPatAuthenticationProvider(identity, new PatCredentialStore(credentialPath), _patAttestor);
+        if (identity.Method != "aad")
+            throw new InvalidOperationException("Unsupported registered authentication method; explicit enrollment is required.");
         var tokenCachePath = ResolveTokenCachePath(identity.CredentialRef);
         return new BoundConnectionAuthenticationProvider(
             identity: identity,
@@ -418,6 +492,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             tokenCache: new TwigTokenFileCache(tokenCachePath),
             refresher: _refresher,
             clock: _clock);
+    }
+
+    private static void EnsurePatAuthority(AuthenticationIdentity identity, string organization)
+    {
+        if (identity.Method == "pat"
+            && !string.Equals(identity.AdoAuthority, PatPrincipalAttestor.NormalizeAuthority(organization), StringComparison.Ordinal))
+            throw new InvalidOperationException("PAT identity belongs to another authority; refusing account crossover.");
     }
 
     private string ResolveCredentialPath(string credentialRef)
@@ -487,7 +568,10 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             Issuer: row.Issuer,
             AuthorityHost: row.AuthorityHost,
             CredentialRef: row.CredentialRef,
-            AccountName: row.AccountName);
+            AccountName: row.AccountName,
+            Method: row.Method,
+            AdoPrincipalId: row.AdoPrincipalId,
+            AdoAuthority: row.AdoAuthority);
 
     private static IdentityBinding ToBinding(BindingRow row) =>
         new(
@@ -510,5 +594,6 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (_disposed) return;
         _disposed = true;
         _registry.Dispose();
+        if (_ownsPatHttpClient) _patHttpClient.Dispose();
     }
 }

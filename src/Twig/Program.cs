@@ -1361,11 +1361,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
 
-    /// <summary>Wipe the cached ADO access token. Use after auth changes or to recover from a poisoned cache.</summary>
+    /// <summary>Clear the selected admission proof. Without --identity, invalidates the attached binding's cached access token (unchanged pre-#1105 behavior). With --identity, clears the named identity's cached admission proof via the shared binding service; stored credentials are untouched.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="identity">Alias of a registered identity whose cached admission proof should be cleared. Omit to clear the attached binding's cached access token.</param>
     [Command("auth clear")]
-    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
+    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? identity = null)
+        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(identity, output, ct);
 
     /// <summary>Sign in to Azure DevOps interactively and enroll the credential against a named identity. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
@@ -1383,11 +1384,25 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, identity, output, ct);
 
-    /// <summary>List every registered AAD identity with safe principal metadata (alias, tenant, object id, authority host, account). Credential blobs are never surfaced.</summary>
+    /// <summary>List every registered identity (AAD and PAT) with safe principal metadata. Credential blobs are never surfaced; AAD rows show tenant/objectId/authorityHost, PAT rows show adoPrincipalId/adoAuthority.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth identities")]
     public async Task<int> AuthIdentities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AuthIdentitiesCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Enroll or renew a Personal Access Token identity. The PAT is read from a non-echoing Spectre prompt on a TTY, or from stdin when --stdin is set or stdin is redirected; it is never accepted as an argument. The service performs authoritative read-only principal attestation before touching any stored credential.</summary>
+    /// <param name="identity">Alias of the PAT identity to register or renew. Required outside an attached workspace; defaults to the attached binding's identity (and refuses when its method is AAD).</param>
+    /// <param name="org">Azure DevOps organization name or HTTPS endpoint. Omit to use the named identity's registered PAT authority; a new alias can use the attached organization. Required for new enrollment outside attachment.</param>
+    /// <param name="stdin">Read the PAT from standard input instead of prompting. Automatic when stdin is redirected (e.g. piped).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("auth pat")]
+    public async Task<int> AuthPat(
+        string? identity = null,
+        string? org = null,
+        bool stdin = false,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<AuthPatCommand>().ExecuteAsync(identity, org, stdin, output, ct);
 
     /// <summary>Bind an endpoint (org/project) to a registered identity. Use --default to request this as the initial default; the service refuses to switch an existing different default.</summary>
     /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
@@ -1702,6 +1717,7 @@ internal static class GroupedHelp
         "auth clear",
         "auth login",
         "auth identities",
+        "auth pat",
         "connection",
         "connection bind",
         "connection list",

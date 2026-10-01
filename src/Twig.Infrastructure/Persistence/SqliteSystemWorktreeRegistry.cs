@@ -11,13 +11,10 @@ namespace Twig.Infrastructure.Persistence;
 /// Stores the AB#736 §4.3 <c>system.db</c> at <c>~/.twig/system.db</c>.
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
-/// Schema is at <see cref="SchemaVersion"/> 2 (AB#739 tuple storage bump —
-/// the <c>primary_scope_kind</c> column and the extended partial-unique
-/// index it participates in). A file whose <c>layout_meta.version</c>
-/// disagrees with <see cref="SchemaVersion"/> fails closed with
-/// <c>system-store-schema-mismatch</c>; no silent migration adopts an
-/// older shape and then trips on the missing column. AB#739's tuple
-/// storage bump is a hard bump: the T2 §Schema clause names it.
+/// Unknown <c>layout_meta.version</c> values fail closed with
+/// <c>system-store-schema-mismatch</c>. Only the bounded additive v3/v4→v5
+/// identity migrations are supported; earlier tuple-storage layouts remain
+/// a hard boundary. Existing worktree, claim and credential authority is retained.
 /// </para>
 /// <para>
 /// <b>Concurrent open safety.</b> Initialization is serialized across
@@ -38,12 +35,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegi
 {
     // AB#739 bump from 1 → 2 for the tuple-storage schema change
     // (`primary_scope_kind` column + extended partial unique index).
-    // Task #1104 bump 3 → 4 for the identity/binding/default tables added by
-    // the <see cref="ConnectionBindingService"/>. The new tables are additive
-    // and never touch the connection/worktree/claim rows above; the schema
-    // version still fails closed on any older DB so an outdated system.db
-    // never surfaces a half-wired identity surface.
-    private const int SchemaVersion = 4;
+    // Additive identity migrations: v3→v4 adds AAD bindings; v4→v5 adds
+    // method-specific PAT principal evidence without rewriting AAD authority.
+    private const int SchemaVersion = 5;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -818,16 +812,12 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     }
 
     /// <summary>
-    /// Forward-only additive migration between adjacent schema versions. Only
-    /// Task #1104's v3→v4 identity-table addition is supported today; every
-    /// other transition fails closed so a user system.db is never silently
-    /// rewritten in a way the registry has not been reviewed for. The migration
-    /// is a pure CREATE TABLE IF NOT EXISTS batch plus a version-row bump —
-    /// no existing connection/worktree/claim/profile row is touched.
+    /// Forward-only additive identity migrations from v3/v4 to v5. Existing
+    /// connection/worktree/claim rows and credentials are never rewritten.
     /// </summary>
     private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
     {
-        if (fromVersion == 3 && toVersion == 4)
+        if (fromVersion is 3 or 4 && toVersion == 5)
         {
             using var tx = connection.BeginTransaction(deferred: false);
             try
@@ -835,7 +825,7 @@ ON CONFLICT(connection_ref) DO UPDATE SET
                 using (var cmd = connection.CreateCommand())
                 {
                     cmd.Transaction = tx;
-                    cmd.CommandText = IdentitySchemaSql;
+                    cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql;
                     cmd.ExecuteNonQuery();
                 }
                 using (var cmd = connection.CreateCommand())
@@ -860,7 +850,7 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     /// <summary>
     /// Shared DDL for the Task #1104 identity surface, used both by the
     /// initial-provision path in <see cref="EnsureSchema"/> and by the
-    /// additive v3→v4 migrator. Pure <c>CREATE TABLE IF NOT EXISTS</c> and
+    /// additive identity migrator. Pure <c>CREATE TABLE IF NOT EXISTS</c> and
     /// <c>CREATE INDEX IF NOT EXISTS</c> so running it against an
     /// already-migrated DB is a no-op.
     /// </summary>
@@ -895,6 +885,14 @@ CREATE TABLE IF NOT EXISTS connection_defaults (
     revision INTEGER NOT NULL,
     updated_at TEXT NOT NULL
 );";
+
+    private const string PatPrincipalSchemaSql = """
+        CREATE TABLE IF NOT EXISTS pat_principals (
+            identity_id TEXT PRIMARY KEY REFERENCES identities(identity_id) ON DELETE RESTRICT,
+            authority TEXT NOT NULL,
+            principal_id TEXT NOT NULL
+        );
+        """;
 
     private static (bool present, int version) ProbeLayoutMeta(SqliteConnection connection)
     {
@@ -980,12 +978,11 @@ CREATE TABLE IF NOT EXISTS profile_cache (
 );";
             cmd.ExecuteNonQuery();
         }
-        // Task #1104 identity surface — kept in a single constant so the
-        // fresh-install path and the v3→v4 additive migrator cannot drift.
+        // Fresh provisioning and additive migration share the same identity DDL.
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

@@ -418,8 +418,9 @@ internal static class CommandExamples
         ],
         ["auth clear"] =
         [
-            "twig auth clear                Wipe refresh-token store and cached access token",
-            "twig auth clear                Use after 'az login' to re-bootstrap, or to recover from a poisoned cache",
+            "twig auth clear                               Invalidate the attached binding's access/admission proof",
+            "twig auth clear --identity work               Clear only the 'work' identity's cached admission proof (stored credentials unchanged)",
+            "twig auth clear --identity work --output json  Emit the clear result as JSON for scripts",
         ],
         ["auth login"] =
         [
@@ -431,8 +432,15 @@ internal static class CommandExamples
         ],
         ["auth identities"] =
         [
-            "twig auth identities                   List registered identities with safe principal metadata",
+            "twig auth identities                   List registered AAD and PAT identities with safe principal metadata",
             "twig auth identities --output json     Emit the identity list as JSON for scripts",
+        ],
+        ["auth pat"] =
+        [
+            "twig auth pat                                  Renew the attached PAT binding; prompts for the token with input hidden",
+            "twig auth pat --identity work --org contoso    Enroll (or renew) 'work' at https://dev.azure.com/contoso",
+            "twig auth pat --stdin --identity work --org contoso  Read a token from stdin (e.g. a pipe), never argv",
+            "twig auth pat --identity work --output json           Renew a registered identity at its saved authority",
         ],
         ["connection bind"] =
         [

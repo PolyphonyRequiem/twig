@@ -32,11 +32,15 @@ Human and structured output use the same admitted snapshot. Status performs no
 work-item request and does not claim fresh remote authorization or locally
 verified JWT signatures.
 
+AAD metadata includes tenant/object/issuer requirements. PAT metadata includes
+`adoPrincipalId` and `adoAuthority`; PAT output omits AAD-only claims. Names are
+management aliases and display labels, never authoritative principal evidence.
+
 Identity listing is explicit bootstrap administration and works before attachment.
 Connection listing inspects bindings for paired explicit `--org`/`--project`
 coordinates, or the current configuration's endpoint. Neither command selects
 an account or changes a default. Registry listings contain principal metadata and
-opaque references, never refresh/access tokens.
+opaque references, never refresh/access tokens or PATs.
 
 Missing, unknown or cross-endpoint selection refuses rather than using a machine
 cache, Azure CLI account, global token store or last login. An initial binding can

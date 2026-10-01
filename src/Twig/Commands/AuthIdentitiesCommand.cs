@@ -50,7 +50,7 @@ internal sealed class AuthIdentitiesCommand
             var empty = human
                 ? (RenderNode)new RenderNode.Section("No identities registered.", new RenderNode[]
                 {
-                    new RenderNode.Hint("Run 'twig auth login --identity <alias>' to register one."),
+                    new RenderNode.Hint("Run 'twig auth login --identity <alias>' (AAD) or 'twig auth pat --identity <alias> --org <org>' (PAT) to register one."),
                 })
                 : new RenderNode.Record("identityList", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
                 {

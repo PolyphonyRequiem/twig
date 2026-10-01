@@ -110,6 +110,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<AuthClearCommand>();
         services.AddSingleton<AuthLoginCommand>();
         services.AddSingleton<AuthIdentitiesCommand>();
+        services.AddSingleton<AuthPatCommand>();
         services.AddSingleton<ConnectionBindCommand>();
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();

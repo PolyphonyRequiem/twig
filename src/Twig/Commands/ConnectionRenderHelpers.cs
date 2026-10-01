@@ -16,6 +16,13 @@ namespace Twig.Commands;
 /// from every projection — the service owns credential materialization; callers only
 /// ever see principal metadata.
 /// </para>
+///
+/// <para>
+/// PAT identities render <c>method</c> / <c>adoPrincipalId</c> / <c>adoAuthority</c>
+/// and OMIT the AAD-only claim fields (<c>tenant</c>, <c>objectId</c>, <c>issuer</c>,
+/// <c>authorityHost</c>) so JSON consumers never read made-up tenant or oid values.
+/// AAD identities keep their existing fields with the new <c>method</c> added.
+/// </para>
 /// </summary>
 internal static class ConnectionRenderHelpers
 {
@@ -25,12 +32,23 @@ internal static class ConnectionRenderHelpers
         {
             ["identityId"] = RenderCell.String(identity.IdentityId),
             ["name"] = RenderCell.String(identity.Name),
-            ["tenant"] = RenderCell.String(identity.TenantId),
-            ["objectId"] = RenderCell.String(identity.ObjectId),
-            ["issuer"] = RenderCell.String(identity.Issuer),
-            ["authorityHost"] = RenderCell.String(identity.AuthorityHost),
+            ["method"] = RenderCell.String(identity.Method),
             ["account"] = RenderCell.String(identity.AccountName ?? string.Empty),
         };
+        if (string.Equals(identity.Method, "pat", StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrEmpty(identity.AdoPrincipalId))
+                fields["adoPrincipalId"] = RenderCell.String(identity.AdoPrincipalId);
+            if (!string.IsNullOrEmpty(identity.AdoAuthority))
+                fields["adoAuthority"] = RenderCell.String(identity.AdoAuthority);
+        }
+        else
+        {
+            fields["tenant"] = RenderCell.String(identity.TenantId);
+            fields["objectId"] = RenderCell.String(identity.ObjectId);
+            fields["issuer"] = RenderCell.String(identity.Issuer);
+            fields["authorityHost"] = RenderCell.String(identity.AuthorityHost);
+        }
         if (!string.IsNullOrEmpty(message))
             fields["message"] = RenderCell.String(message);
         return new RenderNode.Record(kind, fields);
@@ -52,24 +70,40 @@ internal static class ConnectionRenderHelpers
         return new RenderNode.Record(kind, fields);
     }
 
+    /// <summary>Method-specific columns; empty human cells do not invent JWT claims for PATs.</summary>
     internal static IReadOnlyList<RenderColumn> IdentityColumns { get; } =
     [
         new RenderColumn("name", "name"),
+        new RenderColumn("method", "method"),
         new RenderColumn("tenant", "tenant"),
         new RenderColumn("objectId", "objectId"),
         new RenderColumn("authorityHost", "authorityHost"),
+        new RenderColumn("adoPrincipalId", "adoPrincipalId"),
+        new RenderColumn("adoAuthority", "adoAuthority"),
         new RenderColumn("account", "account"),
     ];
 
     internal static RenderRow IdentityRow(AuthenticationIdentity identity)
-        => new("identity", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["name"] = RenderCell.String(identity.Name),
-            ["tenant"] = RenderCell.String(identity.TenantId),
-            ["objectId"] = RenderCell.String(identity.ObjectId),
-            ["authorityHost"] = RenderCell.String(identity.AuthorityHost),
+            ["method"] = RenderCell.String(identity.Method),
             ["account"] = RenderCell.String(identity.AccountName ?? string.Empty),
-        });
+        };
+        if (identity.Method == "pat")
+        {
+            fields["adoPrincipalId"] = RenderCell.String(identity.AdoPrincipalId ?? string.Empty);
+            fields["adoAuthority"] = RenderCell.String(identity.AdoAuthority ?? string.Empty);
+        }
+        else
+        {
+            fields["tenant"] = RenderCell.String(identity.TenantId);
+            fields["objectId"] = RenderCell.String(identity.ObjectId);
+            fields["authorityHost"] = RenderCell.String(identity.AuthorityHost);
+        }
+        return new RenderRow("identity", fields);
+    }
 
     internal static IReadOnlyList<RenderColumn> BindingColumns { get; } =
     [

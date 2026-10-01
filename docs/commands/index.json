@@ -810,7 +810,7 @@
   {
     "command": "auth clear",
     "group": "system",
-    "summary": "Invalidate only the selected identity's access cache, preserving refresh credentials and bindings.",
+    "summary": "Invalidate selected access/admission proof while preserving credentials and bindings.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-clear.md"
@@ -818,7 +818,7 @@
   {
     "command": "auth identities",
     "group": "system",
-    "summary": "List every registered AAD identity with safe principal metadata; credentials are never surfaced.",
+    "summary": "List registered AAD and PAT identities with method-specific principal metadata; credentials are never surfaced.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"
@@ -827,6 +827,14 @@
     "command": "auth login",
     "group": "system",
     "summary": "Enroll or renew an explicitly named AAD identity without changing another connection's account.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-login.md"
+  },
+  {
+    "command": "auth pat",
+    "group": "system",
+    "summary": "Enroll or renew a PAT identity through hidden/stdin input and authoritative principal attestation.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"

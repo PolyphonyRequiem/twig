@@ -40,7 +40,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         => ExecuteReadAsync<IdentityRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = IdentitySelectSql + " WHERE name = $name COLLATE NOCASE LIMIT 1;";
+            cmd.CommandText = IdentitySelectSql + " WHERE i.name = $name COLLATE NOCASE LIMIT 1;";
             cmd.Parameters.AddWithValue("$name", name);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -52,7 +52,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         => ExecuteReadAsync<IdentityRow?>(async connection =>
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = IdentitySelectSql + " WHERE identity_id = $id LIMIT 1;";
+            cmd.CommandText = IdentitySelectSql + " WHERE i.identity_id = $id LIMIT 1;";
             cmd.Parameters.AddWithValue("$id", identityId);
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -64,7 +64,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         => ExecuteReadAsync<IReadOnlyList<IdentityRow>>(async connection =>
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = IdentitySelectSql + " ORDER BY name;";
+            cmd.CommandText = IdentitySelectSql + " ORDER BY i.name;";
             var rows = new List<IdentityRow>();
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -90,6 +90,16 @@ INSERT INTO identities (identity_id, name, tenant_id, object_id, issuer, authori
 VALUES ($id, $name, $tid, $oid, $iss, $auth, $cred, $acct, $created, $updated);";
                 BindIdentity(cmd, row);
                 await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                if (row.Method == "pat")
+                {
+                    using var principal = connection.CreateCommand();
+                    principal.Transaction = tx;
+                    principal.CommandText = "INSERT INTO pat_principals (identity_id, authority, principal_id) VALUES ($id, $authority, $principal);";
+                    principal.Parameters.AddWithValue("$id", row.IdentityId);
+                    principal.Parameters.AddWithValue("$authority", row.AdoAuthority);
+                    principal.Parameters.AddWithValue("$principal", row.AdoPrincipalId);
+                    await principal.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
                 return Result.Ok();
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19 /* SQLITE_CONSTRAINT */)
@@ -259,7 +269,7 @@ VALUES ($ref, $bid, $rev, $updated);";
         }, ct);
 
     private const string IdentitySelectSql =
-        "SELECT identity_id, name, tenant_id, object_id, issuer, authority_host, credential_ref, account_name, created_at, updated_at FROM identities";
+        "SELECT i.identity_id, i.name, i.tenant_id, i.object_id, i.issuer, i.authority_host, i.credential_ref, i.account_name, i.created_at, i.updated_at, p.authority, p.principal_id FROM identities i LEFT JOIN pat_principals p ON p.identity_id = i.identity_id";
 
     private const string BindingSelectSql =
         "SELECT binding_id, connection_ref, identity_id, revision, created_at, updated_at FROM connection_bindings";
@@ -275,7 +285,10 @@ VALUES ($ref, $bid, $rev, $updated);";
             CredentialRef: reader.GetString(6),
             AccountName: reader.IsDBNull(7) ? null : reader.GetString(7),
             CreatedAt: DateTimeOffset.Parse(reader.GetString(8)).ToUniversalTime(),
-            UpdatedAt: DateTimeOffset.Parse(reader.GetString(9)).ToUniversalTime());
+            UpdatedAt: DateTimeOffset.Parse(reader.GetString(9)).ToUniversalTime(),
+            Method: reader.IsDBNull(10) ? "aad" : "pat",
+            AdoAuthority: reader.IsDBNull(10) ? null : reader.GetString(10),
+            AdoPrincipalId: reader.IsDBNull(11) ? null : reader.GetString(11));
 
     private static BindingRow ReadBindingRow(SqliteDataReader reader) =>
         new(
@@ -314,7 +327,10 @@ internal sealed record IdentityRow(
     string CredentialRef,
     string? AccountName,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string Method = "aad",
+    string? AdoPrincipalId = null,
+    string? AdoAuthority = null);
 
 /// <summary>Row projection for <c>connection_bindings</c>.</summary>
 internal sealed record BindingRow(

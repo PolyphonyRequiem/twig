@@ -61,30 +61,40 @@ internal sealed class ConnectionStatusCommand
         var identity = resolved.Identity;
         var binding = resolved.Binding;
         var message = $"Using identity '{identity.Name}' for {binding.ConnectionRef}";
+        var isPat = string.Equals(identity.Method, "pat", StringComparison.Ordinal);
 
         RenderNode node;
         if (ConnectionRenderHelpers.IsHumanFormat(outputFormat))
         {
-            node = new RenderNode.Section(message, new RenderNode[]
+            var human = new List<RenderNode>
             {
                 new RenderNode.Text($"  identity:          {identity.Name}"),
                 new RenderNode.Text($"  method:            {identity.Method}"),
                 new RenderNode.Text($"  endpoint:          {resolved.Operation.Organization}/{resolved.Operation.Project}"),
-                new RenderNode.Text($"  issuer:            {identity.Issuer}"),
-                new RenderNode.Text($"  tenant:            {identity.TenantId}"),
-                new RenderNode.Text($"  objectId:          {identity.ObjectId}"),
-                new RenderNode.Text($"  authorityHost:     {identity.AuthorityHost}"),
-                new RenderNode.Text($"  account:           {identity.AccountName ?? "(unknown)"}"),
-                new RenderNode.Text($"  bindingId:         {binding.BindingId}"),
-                new RenderNode.Text($"  revision:          {binding.Revision}"),
-                new RenderNode.Text($"  worktreeRoot:      {resolved.WorktreeRoot}"),
-                new RenderNode.Text($"  selectionSource:   {resolved.SelectionSource}"),
-                new RenderNode.Text($"  selectionRevision: {resolved.SelectionRevision}"),
-                new RenderNode.Text($"  attachmentRevision: {resolved.Operation.AttachmentRevision}"),
-                new RenderNode.Text($"  endpoint/policy/defaults source: {resolved.Operation.PortableConfigurationSource}"),
-                new RenderNode.Text($"  local preferences source: {resolved.Operation.UserPreferencesSource}"),
-                new RenderNode.Text($"  display.icons:     {resolved.Operation.DisplayIcons} ({resolved.Operation.DisplayIconsSource})"),
-            });
+            };
+            if (isPat)
+            {
+                human.Add(new RenderNode.Text($"  adoPrincipalId:    {identity.AdoPrincipalId ?? "(unknown)"}"));
+                human.Add(new RenderNode.Text($"  adoAuthority:      {identity.AdoAuthority ?? "(unknown)"}"));
+            }
+            else
+            {
+                human.Add(new RenderNode.Text($"  issuer:            {identity.Issuer}"));
+                human.Add(new RenderNode.Text($"  tenant:            {identity.TenantId}"));
+                human.Add(new RenderNode.Text($"  objectId:          {identity.ObjectId}"));
+                human.Add(new RenderNode.Text($"  authorityHost:     {identity.AuthorityHost}"));
+            }
+            human.Add(new RenderNode.Text($"  account:           {identity.AccountName ?? "(unknown)"}"));
+            human.Add(new RenderNode.Text($"  bindingId:         {binding.BindingId}"));
+            human.Add(new RenderNode.Text($"  revision:          {binding.Revision}"));
+            human.Add(new RenderNode.Text($"  worktreeRoot:      {resolved.WorktreeRoot}"));
+            human.Add(new RenderNode.Text($"  selectionSource:   {resolved.SelectionSource}"));
+            human.Add(new RenderNode.Text($"  selectionRevision: {resolved.SelectionRevision}"));
+            human.Add(new RenderNode.Text($"  attachmentRevision: {resolved.Operation.AttachmentRevision}"));
+            human.Add(new RenderNode.Text($"  endpoint/policy/defaults source: {resolved.Operation.PortableConfigurationSource}"));
+            human.Add(new RenderNode.Text($"  local preferences source: {resolved.Operation.UserPreferencesSource}"));
+            human.Add(new RenderNode.Text($"  display.icons:     {resolved.Operation.DisplayIcons} ({resolved.Operation.DisplayIconsSource})"));
+            node = new RenderNode.Section(message, human);
         }
         else if ((outputFormat ?? string.Empty).Equals("minimal", StringComparison.OrdinalIgnoreCase))
         {
@@ -101,10 +111,6 @@ internal sealed class ConnectionStatusCommand
                 ["project"] = RenderCell.String(resolved.Operation.Project),
                 ["team"] = RenderCell.String(resolved.Operation.Team),
                 ["identityId"] = RenderCell.String(identity.IdentityId),
-                ["tenant"] = RenderCell.String(identity.TenantId),
-                ["objectId"] = RenderCell.String(identity.ObjectId),
-                ["issuer"] = RenderCell.String(identity.Issuer),
-                ["authorityHost"] = RenderCell.String(identity.AuthorityHost),
                 ["account"] = RenderCell.String(identity.AccountName ?? string.Empty),
                 ["bindingId"] = RenderCell.String(binding.BindingId),
                 ["connection"] = RenderCell.String(binding.ConnectionRef),
@@ -120,6 +126,20 @@ internal sealed class ConnectionStatusCommand
                 ["displayIcons"] = RenderCell.String(resolved.Operation.DisplayIcons),
                 ["displayIconsSource"] = RenderCell.String(resolved.Operation.DisplayIconsSource),
             };
+            if (isPat)
+            {
+                if (!string.IsNullOrEmpty(identity.AdoPrincipalId))
+                    fields["adoPrincipalId"] = RenderCell.String(identity.AdoPrincipalId);
+                if (!string.IsNullOrEmpty(identity.AdoAuthority))
+                    fields["adoAuthority"] = RenderCell.String(identity.AdoAuthority);
+            }
+            else
+            {
+                fields["tenant"] = RenderCell.String(identity.TenantId);
+                fields["objectId"] = RenderCell.String(identity.ObjectId);
+                fields["issuer"] = RenderCell.String(identity.Issuer);
+                fields["authorityHost"] = RenderCell.String(identity.AuthorityHost);
+            }
             node = new RenderNode.Record("connectionStatus", fields);
         }
 

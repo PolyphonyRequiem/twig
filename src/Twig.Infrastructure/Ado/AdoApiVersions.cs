@@ -168,6 +168,9 @@ internal static class AdoApiVersions
     /// </summary>
     internal const string Profile = "7.1";
 
+    /// <summary><c>_apis/connectionData</c> — authenticated organization identity; preview is required.</summary>
+    internal const string ConnectionData = "7.1-preview";
+
     // ── Git ───────────────────────────────────────────────────────────────────
 
     /// <summary>

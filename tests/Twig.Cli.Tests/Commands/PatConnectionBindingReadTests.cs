@@ -487,6 +487,8 @@ public sealed class PatConnectionBindingReadTests : IAsyncLifetime
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
             {
                 ConnectionDataRequests++;
+                if (!request.RequestUri.Query.Contains("api-version=7.1-preview", StringComparison.Ordinal))
+                    return Reply(HttpStatusCode.BadRequest, "{\"message\":\"The requested resource version is under preview; the -preview flag is required\"}");
                 return Failure switch
                 {
                     AttestationFailure.Unauthorized => Reply(HttpStatusCode.Unauthorized, "{\"message\":\"Rejected " + pat + "\"}"),

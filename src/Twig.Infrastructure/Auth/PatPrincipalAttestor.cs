@@ -44,7 +44,7 @@ internal sealed class PatPrincipalAttestor(HttpClient http)
     internal async Task<PatPrincipalEvidence> AttestAsync(string authority, string pat, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pat);
-        using var request = new HttpRequestMessage(HttpMethod.Get, authority + "/_apis/connectionData?api-version=7.1");
+        using var request = new HttpRequestMessage(HttpMethod.Get, authority + "/_apis/connectionData?api-version=" + AdoApiVersions.ConnectionData);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         AdoErrorHandler.ApplyAuthHeader(request, FormatAuthorization(pat));
         HttpResponseMessage response;

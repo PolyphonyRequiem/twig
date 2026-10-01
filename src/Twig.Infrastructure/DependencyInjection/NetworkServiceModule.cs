@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Process;
@@ -28,16 +29,41 @@ public static class NetworkServiceModule
         string? resolvedGitProject = null,
         string? resolvedRepository = null)
     {
-        // Auth provider (resolve from config via centralized factory)
         services.AddSingleton<IAuthenticationProvider>(sp =>
-            AuthProviderFactory.Create(sp.GetRequiredService<TwigConfiguration>().Auth.Method));
+        {
+            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            var intent = sp.GetService<ConnectionBindingOperationIntent>();
+
+            // Explicit init metadata acquisition still routes through the
+            // bootstrap provider (no attached binding yet) — but admission is
+            // deferred so local init preconditions can fail without forcing a
+            // default-binding lookup against the shared registry.
+            if (intent?.InitializationMetadataOnly == true)
+            {
+                return new DeferredBoundAuthenticationProvider(
+                    ct => bindings.CreateBootstrapProviderAsync(cfg, ct));
+            }
+
+            // Normal attached-worktree route: ResolveAsync admits the central
+            // binding + registered identity before a bound provider is minted.
+            // The deferral is what keeps that admission off the construction
+            // path for commands whose local validation (portable manifest
+            // conflicts, help, offline flows) completes without an HTTP call.
+            var paths = sp.GetRequiredService<TwigPaths>();
+            return new DeferredBoundAuthenticationProvider(async ct =>
+            {
+                var resolved = await bindings.ResolveAsync(cfg, paths, ct).ConfigureAwait(false);
+                return bindings.CreateAuthenticationProvider(resolved);
+            });
+        });
 
         // HTTP client — singleton backed by SocketsHttpHandler for automatic
         // gzip/Brotli decompression and HTTP/2 multiplexing with HTTP/1.1 fallback.
-        services.AddSingleton<HttpClient>(_ => CreateHttpClient());
+        services.TryAddSingleton<HttpClient>(_ => CreateHttpClient());
 
         // Process-wide ADO concurrency limiter — shared across all ADO HTTP call sites.
-        services.AddSingleton<AdoConcurrencyThrottle>();
+        services.TryAddSingleton<AdoConcurrencyThrottle>();
 
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {

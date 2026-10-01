@@ -71,6 +71,7 @@ internal static class SubcommandGuard
         "link",
         "bench",
         "auth",
+        "connection",
         "ohmyposh",
         "plan",
         "proposal",

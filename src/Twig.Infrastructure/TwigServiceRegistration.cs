@@ -10,6 +10,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
@@ -80,6 +81,9 @@ public static class TwigServiceRegistration
             var config = sp.GetRequiredService<TwigConfiguration>();
             return TwigPaths.BuildPaths(resolvedTwigDir, config, startDir);
         });
+
+        services.TryAddSingleton<IConnectionBindingService>(_ =>
+            new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
 
         // SQLite persistence — registered unconditionally. SqliteCacheStore is
         // created lazily (on first resolution) for any discovered workspace.
@@ -176,7 +180,7 @@ public static class TwigServiceRegistration
             // tmp/ to be present. The registry opens system.db and creates
             // the file lazily; layout.json + tmp/ are materialized here so
             // the tier is complete even before the first registry call.
-            var systemRoot = Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath;
+            var systemRoot = ConnectionBindingService.ResolveUserHome();
             Twig.Infrastructure.Persistence.SystemStoreLayout.EnsureRoot(systemRoot, TimeProvider.System);
             return new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
                 Path.Combine(systemRoot, "system.db"),

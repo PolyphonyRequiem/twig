@@ -810,15 +810,23 @@
   {
     "command": "auth clear",
     "group": "system",
-    "summary": "Wipe the refresh-token store and cached access token, and flush the in-process copy.",
+    "summary": "Invalidate only the selected identity's access cache, preserving refresh credentials and bindings.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-clear.md"
   },
   {
+    "command": "auth identities",
+    "group": "system",
+    "summary": "List every registered AAD identity with safe principal metadata; credentials are never surfaced.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "auth login",
     "group": "system",
-    "summary": "Sign in to Azure DevOps interactively and persist a refresh token under ~/.twig/.",
+    "summary": "Enroll or renew an explicitly named AAD identity without changing another connection's account.",
     "stability": "stable",
     "mutates": "local",
     "path": "system/auth-login.md"
@@ -826,7 +834,31 @@
   {
     "command": "auth status",
     "group": "system",
-    "summary": "Inspect the refresh-token store and cached ADO access token without ever printing the token.",
+    "summary": "Inspect the effective attached identity binding and configuration provenance without secrets.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
+    "command": "connection bind",
+    "group": "system",
+    "summary": "Bind an endpoint (org/project) to a registered identity; --default requests the initial endpoint default without replacing a different one.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-login.md"
+  },
+  {
+    "command": "connection list",
+    "group": "system",
+    "summary": "List identity bindings for an endpoint; falls back to the workspace's checked-in coordinates when --org and --project are both omitted.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
+    "command": "connection status",
+    "group": "system",
+    "summary": "Show the identity and binding the current attached worktree resolves to; refuses with setup guidance when attachment or selection is missing or ambiguous.",
     "stability": "stable",
     "mutates": "none",
     "path": "system/auth-status.md"

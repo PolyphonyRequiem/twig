@@ -34,11 +34,16 @@ namespace Twig.Infrastructure.Persistence;
 /// path doesn't already give.
 /// </para>
 /// </summary>
-internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
+internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
 {
     // AB#739 bump from 1 → 2 for the tuple-storage schema change
     // (`primary_scope_kind` column + extended partial unique index).
-    private const int SchemaVersion = 3;
+    // Task #1104 bump 3 → 4 for the identity/binding/default tables added by
+    // the <see cref="ConnectionBindingService"/>. The new tables are additive
+    // and never touch the connection/worktree/claim rows above; the schema
+    // version still fails closed on any older DB so an outdated system.db
+    // never surfaces a half-wired identity surface.
+    private const int SchemaVersion = 4;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -743,12 +748,24 @@ ON CONFLICT(connection_ref) DO UPDATE SET
                 else
                 {
                     // Existing DB — could be another peer's in-flight init.
-                    // Wait for a committed layout_meta then compare version.
-                    if (!WaitForCommittedSchema(newConnection))
+                    // Wait for a committed layout_meta row, then either accept
+                    // the current version, run a bounded additive migration
+                    // from the previous version, or fail closed.
+                    var (present, committedVersion) = WaitForCommittedSchemaVersion(newConnection);
+                    if (!present)
                     {
                         _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
                         newConnection.Dispose();
                         connection = null; failure = _openFailure; return false;
+                    }
+                    if (committedVersion != SchemaVersion)
+                    {
+                        if (!TryAdditiveMigrate(newConnection, committedVersion, SchemaVersion))
+                        {
+                            _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
+                            newConnection.Dispose();
+                            connection = null; failure = _openFailure; return false;
+                        }
                     }
                 }
             }
@@ -788,17 +805,96 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         if (last is not null) throw last;
     }
 
-    private static bool WaitForCommittedSchema(SqliteConnection connection)
+    private static (bool present, int version) WaitForCommittedSchemaVersion(SqliteConnection connection)
     {
         for (var attempt = 0; attempt < OpenValidationRetryCount; attempt++)
         {
             var (present, version) = ProbeLayoutMeta(connection);
             if (present)
-                return version == SchemaVersion;
+                return (true, version);
             Thread.Sleep(OpenValidationRetryDelayMs);
+        }
+        return (false, 0);
+    }
+
+    /// <summary>
+    /// Forward-only additive migration between adjacent schema versions. Only
+    /// Task #1104's v3→v4 identity-table addition is supported today; every
+    /// other transition fails closed so a user system.db is never silently
+    /// rewritten in a way the registry has not been reviewed for. The migration
+    /// is a pure CREATE TABLE IF NOT EXISTS batch plus a version-row bump —
+    /// no existing connection/worktree/claim/profile row is touched.
+    /// </summary>
+    private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
+    {
+        if (fromVersion == 3 && toVersion == 4)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            try
+            {
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = IdentitySchemaSql;
+                    cmd.ExecuteNonQuery();
+                }
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1;";
+                    cmd.Parameters.AddWithValue("$version", toVersion);
+                    cmd.ExecuteNonQuery();
+                }
+                tx.Commit();
+                return true;
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { /* best effort */ }
+                return false;
+            }
         }
         return false;
     }
+
+    /// <summary>
+    /// Shared DDL for the Task #1104 identity surface, used both by the
+    /// initial-provision path in <see cref="EnsureSchema"/> and by the
+    /// additive v3→v4 migrator. Pure <c>CREATE TABLE IF NOT EXISTS</c> and
+    /// <c>CREATE INDEX IF NOT EXISTS</c> so running it against an
+    /// already-migrated DB is a no-op.
+    /// </summary>
+    private const string IdentitySchemaSql = @"
+CREATE TABLE IF NOT EXISTS identities (
+    identity_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    authority_host TEXT NOT NULL,
+    credential_ref TEXT NOT NULL,
+    account_name TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_name ON identities(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_credential_ref ON identities(credential_ref);
+CREATE TABLE IF NOT EXISTS connection_bindings (
+    binding_id TEXT PRIMARY KEY,
+    connection_ref TEXT NOT NULL,
+    identity_id TEXT NOT NULL REFERENCES identities(identity_id) ON DELETE RESTRICT,
+    revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(connection_ref, identity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bindings_connection_ref ON connection_bindings(connection_ref);
+CREATE TABLE IF NOT EXISTS connection_defaults (
+    connection_ref TEXT PRIMARY KEY,
+    binding_id TEXT NOT NULL REFERENCES connection_bindings(binding_id) ON DELETE RESTRICT,
+    revision INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);";
 
     private static (bool present, int version) ProbeLayoutMeta(SqliteConnection connection)
     {
@@ -882,6 +978,14 @@ CREATE TABLE IF NOT EXISTS profile_cache (
     payload TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );";
+            cmd.ExecuteNonQuery();
+        }
+        // Task #1104 identity surface — kept in a single constant so the
+        // fresh-install path and the v3→v4 additive migrator cannot drift.
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = IdentitySchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

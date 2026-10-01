@@ -423,10 +423,34 @@ internal static class CommandExamples
         ],
         ["auth login"] =
         [
-            "twig auth login                          Sign in interactively (opens a browser, loopback PKCE)",
-            "twig auth login --device-code            Use device code grant (for headless boxes; often blocked by tenant policy)",
-            "twig auth login --tenant <tenant-id>     Sign in to a specific AAD tenant",
-            "twig auth login --no-browser             Print the authorize URL instead of launching the browser",
+            "twig auth login --identity work                   Enroll (or re-enroll) the 'work' identity via loopback PKCE",
+            "twig auth login --identity personal --tenant <tenant-id>   Enroll against a specific AAD tenant",
+            "twig auth login --identity work --device-code     Device-code grant (headless boxes; often blocked by tenant policy)",
+            "twig auth login --identity work --no-browser      Print the authorize URL instead of launching the browser",
+            "twig auth login                                   Renew the identity named by the current attached binding",
+        ],
+        ["auth identities"] =
+        [
+            "twig auth identities                   List registered identities with safe principal metadata",
+            "twig auth identities --output json     Emit the identity list as JSON for scripts",
+        ],
+        ["connection bind"] =
+        [
+            "twig connection bind --identity work                             Bind the current workspace endpoint to 'work'",
+            "twig connection bind --identity work --default                   Also request it as the initial default (refuses to replace a different one)",
+            "twig connection bind --org contoso --project web --identity work  Bind an explicit endpoint",
+            "twig connection bind --org contoso --project web --identity work --default --output json   Bind and emit the resulting record as JSON",
+        ],
+        ["connection list"] =
+        [
+            "twig connection list                                 List bindings for the current workspace endpoint",
+            "twig connection list --org contoso --project web     List bindings for an explicit endpoint",
+            "twig connection list --output json                   Emit bindings as JSON for scripts",
+        ],
+        ["connection status"] =
+        [
+            "twig connection status                 Show the identity + binding this worktree resolves to",
+            "twig connection status --output json   Emit the resolved binding and principal metadata as JSON",
         ],
         ["version"] =
         [

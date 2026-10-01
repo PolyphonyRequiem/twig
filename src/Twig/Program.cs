@@ -6,6 +6,7 @@ using Twig.Formatters;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
@@ -79,6 +80,14 @@ var app = ConsoleApp.Create()
         {
             (gitProject, repository) = gitDetectTask.GetAwaiter().GetResult();
         }
+
+        // ADO #1104: tell the network factory whether this invocation is the explicit
+        // `twig init` metadata path. Only `init` is allowed to resolve an auth provider via
+        // CreateBootstrapProviderAsync (no attachment required); every normal command path
+        // resolves identity through ResolveAsync + CreateAuthenticationProvider, which
+        // enforces the current attached-worktree binding.
+        services.AddSingleton(new ConnectionBindingOperationIntent(
+            args.Length > 0 && args[0] == "init"));
 
         services.AddTwigNetworkServices(config, gitProject, repository);
 
@@ -1350,7 +1359,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth status")]
     public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AuthStatusCommand>().ExecuteAsync(output, ct);
+        => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Wipe the cached ADO access token. Use after auth changes or to recover from a poisoned cache.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1358,19 +1367,61 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
 
-    /// <summary>Sign in to Azure DevOps interactively and store a refresh token. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
+    /// <summary>Sign in to Azure DevOps interactively and enroll the credential against a named identity. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
     /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
     /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
+    /// <param name="identity">Alias of the identity to register or re-enroll. Required unless an attached binding already names one; a named login never clobbers an existing global/sibling account.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth login")]
     public async Task<int> AuthLogin(
         bool deviceCode = false,
         string? tenant = null,
         bool noBrowser = false,
+        string? identity = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, output, ct);
+        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, identity, output, ct);
+
+    /// <summary>List every registered AAD identity with safe principal metadata (alias, tenant, object id, authority host, account). Credential blobs are never surfaced.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("auth identities")]
+    public async Task<int> AuthIdentities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AuthIdentitiesCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Bind an endpoint (org/project) to a registered identity. Use --default to request this as the initial default; the service refuses to switch an existing different default.</summary>
+    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
+    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
+    /// <param name="identity">Alias of a registered identity (see 'twig auth identities'). Required.</param>
+    /// <param name="default">Request this binding as the initial default for the endpoint. Refused when a different default is already set.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection bind")]
+    public async Task<int> ConnectionBind(
+        string? identity = null,
+        string? org = null,
+        string? project = null,
+        bool @default = false,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionBindCommand>().ExecuteAsync(org, project, identity, @default, output, ct);
+
+    /// <summary>List bindings for an endpoint (org/project). Falls back to the workspace's checked-in coordinates when both --org and --project are omitted.</summary>
+    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
+    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection list")]
+    public async Task<int> ConnectionList(
+        string? org = null,
+        string? project = null,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionListCommand>().ExecuteAsync(org, project, output, ct);
+
+    /// <summary>Show the identity + binding the current attached worktree resolves to. Fails with setup guidance when there is no attachment or the binding is ambiguous; no fallback.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection status")]
+    public async Task<int> ConnectionStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
@@ -1650,6 +1701,11 @@ internal static class GroupedHelp
         "auth status",
         "auth clear",
         "auth login",
+        "auth identities",
+        "connection",
+        "connection bind",
+        "connection list",
+        "connection status",
         "version",
         "upgrade",
         "changelog",

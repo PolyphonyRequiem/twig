@@ -1,105 +1,79 @@
 ---
 command: auth login
 group: system
-summary: Sign in to Azure DevOps interactively and persist a refresh token under ~/.twig/.
+summary: Enroll or renew an explicitly named AAD identity without changing another connection's account.
 stability: stable
 mutates: local
 ---
 
 # `twig auth login`
 
-Runs an interactive Azure Active Directory sign-in against the multi-tenant
-Azure DevOps API and writes the resulting refresh token to
-`~/.twig/.refresh-token`. Once this succeeds, subsequent twig commands mint
-access tokens from that refresh token directly and no longer need to read
-`~/.azure/msal_token_cache.json` or shell out to `az`. Reach for it when you
-are bootstrapping a fresh machine, switching identities, or recovering from a
-"wrong audience" failure that `auth clear` alone cannot resolve.
+Enrolls an Azure Active Directory (AAD) identity through interactive sign-in. The
+central system registry stores principal metadata and an opaque credential
+reference; user-private credential files store refresh tokens separately.
+This integration-branch change is not a partial-feature release.
 
 ## Synopsis
 
-```
+```text
+twig auth login --identity <alias> [--device-code] [--tenant <id>] [--no-browser] [-o <format>]
 twig auth login [--device-code] [--tenant <id>] [--no-browser] [-o <format>]
 ```
 
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-| `--device-code` | bool | `false` | Use the OAuth 2.0 device authorization grant instead of the default loopback PKCE flow. Required on headless boxes without a browser but frequently blocked by tenant Conditional Access policy. |
-| `--tenant <id>` | string | `organizations` | AAD tenant ID, domain, or the literal `organizations`. Set this when your account is a guest in multiple directories and you need the sign-in bound to a specific one. |
-| `--no-browser` | bool | `false` | Print the authorize URL to stdout instead of launching the system browser. Use over SSH or when the OS launcher is unreliable. Ignored when `--device-code` is set. |
-| `-o, --output <format>` | string | `human` | Output format for the "signed in" summary: `human`, `json`, or `minimal`. |
-
 ## Behavior
 
-The command dispatches on `--device-code`: without it, it starts a loopback
-HTTP listener and runs PKCE against Azure CLI's well-known public client
-(`04b07795-8ddb-461a-bbee-02f9e1bf7b46`), optionally launching the browser
-(`src/Twig/Commands/AuthLoginCommand.cs:43-50`, `src/Twig/Commands/AuthLoginCommand.cs:21`).
-With it, the command runs the device code grant, printing a code and a
-verification URL for you to enter in another browser
-(`src/Twig/Commands/AuthLoginCommand.cs:139-154`).
+`--identity` selects an explicit management alias and works before worktree
+attachment. Without it, login resolves the current attached binding and renews
+that identity. Missing attachment or selection refuses; it never chooses the
+Azure CLI active account, a machine cache, or the last logged-in identity.
 
-On success the refresh-token entry — tenant ID, object ID, client ID,
-authority host, source, and the refresh token itself — is written atomically
-via a `.tmp` file and rename to `~/.twig/.refresh-token`
-(`src/Twig/Commands/AuthLoginCommand.cs:67-76`, `src/Twig.Infrastructure/Auth/TwigRefreshTokenStore.cs:14-16,57-61`).
-The old in-process access-token cache at `~/.twig/.token-cache` is then
-deleted so the next ADO call mints a fresh token against the new identity
-instead of reusing a wrong-audience one from a previous sign-in
-(`src/Twig/Commands/AuthLoginCommand.cs:78-81`).
+The default flow uses a loopback listener and Proof Key for Code Exchange (PKCE).
+`--device-code` uses the device authorization grant; enterprise policy can block
+that grant. `--tenant` targets a tenant; `--no-browser` prints the authorization
+URL instead of opening it for the loopback flow.
 
-Failure paths are distinguished so twig can suggest the other flow:
-* `InteractiveAuthErrorKind.PolicyBlocked` combined with `--device-code`
-  emits "Your tenant blocks the device code grant. Try 'twig auth login'
-  (loopback PKCE) instead." (`src/Twig/Commands/AuthLoginCommand.cs:56-59`).
-* `InteractiveAuthErrorKind.LoopbackUnavailable` emits "Could not bind a
-  loopback listener. Try 'twig auth login --device-code'."
-  (`src/Twig/Commands/AuthLoginCommand.cs:60-63`).
+Enrollment exchanges the refresh credential for an ADO access token, validates
+its audience and tenant/object/issuer evidence, and registers that principal.
+Re-enrollment under an existing alias must match its principal and authority.
+A mismatch leaves the existing credential intact. JWT decoding is consistency
+checking, not local signature verification; enrollment relies on authenticated
+issuance and ADO validates credentials presented to it.
 
-The command never echoes the refresh token or access token to the terminal.
-The success record contains only user principal name, tenant ID, source, and
-the store path.
+Login does not select an endpoint default or switch an existing binding. To
+create an initial selection, use:
 
-## Examples
-
-Interactive sign-in on a workstation with a browser:
-
-```
-$ twig auth login
-Signed in as alice@example.com (tenant 11111111-1111-1111-1111-111111111111).
-Refresh token stored at C:\Users\alice\.twig\.refresh-token
+```text
+twig connection bind --org <organization> --project <project> --identity <alias> --default
 ```
 
-Headless server using the device code grant against a specific tenant:
+A different existing default refuses; safe identity transitions belong to the
+separate guarded transition workflow. Normal work requests require attachment.
 
-```
-$ twig auth login --device-code --tenant contoso.onmicrosoft.com
-To sign in, use a web browser to open https://microsoft.com/devicelogin
-and enter the code A1B2-C3D4 to authenticate.
-Signed in as alice@contoso.onmicrosoft.com (tenant 22222222-2222-2222-2222-222222222222).
-```
+`connection bind` does not perform interactive sign-in: `--identity` must name
+an already registered identity. Explicit `--org` and `--project` must be paired;
+omitting both uses the current portable endpoint. Without `--default`, creating
+a binding does not select it implicitly. Binding administration can run before
+attachment and never authorizes work requests from an unattached checkout.
+
+## Storage and output
+
+The metadata home is the existing system-state root unless `TWIG_USER_HOME`
+explicitly supplies an absolute path. Blank or relative overrides refuse.
+Credentials live under its private `credentials` directory, keyed by opaque
+references; they are not written to portable configuration or registry rows.
+Output includes safe principal metadata, never access or refresh tokens.
 
 ## Exit codes and failure modes
 
-|Condition|Result|
-|---|---|
-| Sign-in completed and refresh token stored | `0` |
-| Interactive auth failed (user cancelled, policy blocked, loopback unavailable) | `1` with a `Sign-in failed:` error and a follow-up hint |
-| Sign-in succeeded but writing `~/.twig/.refresh-token` failed | `1` with the underlying file-system error |
-| Cancellation via Ctrl-C during the wait for the browser or device code | `1` |
+Successful enrollment returns `0`. Interactive, principal-validation and storage
+failures return `1` with repair guidance. Cancellation propagates through the
+interactive flow.
+
+Successful initial binding also returns `0`. An unknown identity, unpaired
+endpoint coordinates, or a different existing default refuses with setup
+guidance. No binding refusal selects a fallback account.
 
 ## See also
 
-* [`auth status`](auth-status.md) — verify the token the login just produced.
-* [`auth clear`](auth-clear.md) — wipe the store before re-running login.
-* [Auth commands group](README.md)
+- [`auth status`](auth-status.md) — inspect the effective attached binding.
+- [`auth clear`](auth-clear.md) — invalidate only the selected access cache.

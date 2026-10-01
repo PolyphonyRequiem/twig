@@ -107,9 +107,12 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
-        services.AddSingleton<AuthStatusCommand>();
         services.AddSingleton<AuthClearCommand>();
         services.AddSingleton<AuthLoginCommand>();
+        services.AddSingleton<AuthIdentitiesCommand>();
+        services.AddSingleton<ConnectionBindCommand>();
+        services.AddSingleton<ConnectionListCommand>();
+        services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<QueryCommand>();
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();

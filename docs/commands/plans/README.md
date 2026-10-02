@@ -2,7 +2,8 @@
 
 The **plans** group covers the five original `proposal <verb>` commands that
 validate, preview, apply, inspect, and describe a proposal v1 file, plus the
-read-only `proposal latest` selection and `pending` staged-change dump. A proposal
+read-only `proposal latest` selection, explicit `proposal reconcile` settlement,
+and `pending` staged-change dump. A proposal
 is an immutable JSON declaration; state
 lives in a per-workspace **journal** keyed on the proposal's canonical SHA-256
 digest, and every board mutation that flows through this path is auditable by
@@ -21,6 +22,7 @@ deprecated alias:
 |`twig proposal status`|`twig plan status`|
 |`twig proposal seed`|`twig plan seed`|
 |`twig proposal latest`|—|
+|`twig proposal reconcile`|—|
 
 The two forms share one handler, one help block, one exit contract, and one
 underlying `IPlanLifecycleService`. The rename to **proposal** — from the
@@ -63,8 +65,9 @@ on the row's `Error` field
 ### Latest unresolved proposal
 
 `twig proposal latest -o json` selects the most recently successfully previewed
-proposal in the **current workspace** whose journal is not fully `Verified`.
-Failed, Indeterminate, and partial plans remain inspectable. Re-preview of the
+proposal in the **current workspace** with an operation that is neither `Verified`
+nor covered by a native outcome receipt. Failed, Indeterminate, and partial plans
+remain inspectable while any outcome remains unknown. Re-preview of the
 same digest updates a separate last-preview ordering timestamp without changing
 the original audit `previewed_at` or lifecycle state; ties sort by digest.
 The command reads no ADO data, does not scan files, and returns `found: false`
@@ -74,12 +77,53 @@ and digest with `proposal preview --file <path> --expect-digest <digest> --inter
 to check the canonical digest before journal import or review rendering. These
 are presentation controls, not authorization or apply.
 
+### Explicit reconciliation and retirement
+
+`twig proposal reconcile` appends a native receipt; it does not apply the proposal,
+change historical execution states, delete its original file, or publish pending work:
+
+```text
+twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
+  --outcome retire --authorize <identity> --rationale "Intent deliberately abandoned" -o json
+twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
+  --outcome readback --authorize <identity> --rationale "Verify acknowledged outcome" -o json
+twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> \
+  --outcome supersede --replacement-digest <verified-digest> --replacement-operation <replacement-op> \
+  --authorize <identity> --rationale "Verified replacement establishes the original effect" -o json
+```
+
+- **Retire** requires a never-admitted Planned/Confirmed operation. Retirement and
+  execution admission share a durable CAS fence: exactly one wins. Saved apply,
+  resume, re-preview and re-import cannot revive the retired operation, even if its
+  expected ADO revision still matches. Retirement is not successful application.
+- **Readback** requires attributable native evidence and a fresh authoritative
+  read. Matching newer values alone do not settle an unacknowledged attempt.
+- **Supersede** names a Verified replacement that establishes every original effect
+  under the same known authority. Unrelated success is not reconciliation.
+
+Every receipt binds the original digest, operation, expected request, captured origin,
+authorizing origin, digest-bound authorization/rationale and observed evidence.
+Publish receipts also bind the exact durable intent identity and recording timestamp.
+Unknown/in-flight outcomes, active leases, missing evidence and mismatches stay blocked.
+`proposal status` exposes `origin` and each operation's separate `outcomeReceipt`;
+the historical `state` is never rewritten as `Verified`. Unknown legacy origin
+cannot silently adopt the current actor. A fresh proposal requires fresh operation
+identities and current preview/authorization. Plan JSON v1 still has only its five
+existing operation kinds; reconciliation is a separate native action.
+
+The MCP equivalent is `twig_proposal_reconcile`, including batch dispatch. It requires
+`confirmed: true`, separate confirmed/authorization digests, an operation, outcome,
+authorizer and rationale. Its `settled` result is distinct from successful execution.
+
 ## Exit codes and failure modes
 
 |Condition|Result|
 |---|---|
 |Latest unresolved proposal found, or none exists.|`0`; JSON reports `found: true` or `found: false`.|
 |The selected file is missing, invalid, outside this workspace, or changed since its preview.|`2`; no older proposal is substituted.|
+|Explicit receipt appended, or identical settlement already exists.|`0`; `settled: true`, with the native receipt.|
+|Digest, origin, evidence or CAS fence refuses settlement.|`1`; `settled: false`, with the refusal; no remote mutation.|
+|Reconciliation selectors/rationale are missing or inconsistent.|`2`; structured usage error.|
 
 ## Command index
 
@@ -90,6 +134,7 @@ are presentation controls, not authorization or apply.
 |[`proposal latest`](README.md#latest-unresolved-proposal)|Select the latest unresolved workspace preview without mutation.|none|
 |[`proposal apply`](proposal-apply.md)|Apply a proposal after digest confirmation and authorization.|ado|
 |[`proposal status`](proposal-status.md)|Show journal state for a proposal file.|none|
+|[`proposal reconcile`](README.md#explicit-reconciliation-and-retirement)|Append an evidence-backed outcome receipt without replay or historical-state rewrites.|local|
 |[`proposal seed`](proposal-seed.md)|Describe a staged seed for proposal authoring.|none|
 |[`plan validate`](plan-validate.md)|Deprecated alias for `proposal validate`.|none|
 |[`plan preview`](plan-preview.md)|Deprecated alias for `proposal preview`.|local|

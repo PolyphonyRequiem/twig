@@ -887,4 +887,213 @@ public sealed class PlanCommandTests
         body.ShouldContain("fp-xyz");
         body.ShouldContain(identity.ToString());
     }
+
+    // ── reconcile boundary tests ─────────────────────────────────────
+
+    [Fact]
+    public async Task Reconcile_MissingFile_ExitsUsageWithoutCallingLifecycle()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: null, confirmedDigest: "abc", opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--file");
+        await _lifecycle.DidNotReceive().ReconcileAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reconcile_MissingConfirm_IsUsageError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: null, opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--confirm");
+    }
+
+    [Fact]
+    public async Task Reconcile_MissingOperation_IsUsageError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: " ", outcome: "retire",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--operation");
+    }
+
+    [Fact]
+    public async Task Reconcile_BadOutcome_IsUsageError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "nope",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--outcome");
+    }
+
+    [Fact]
+    public async Task Reconcile_MissingRationale_IsUsageError()
+    {
+        // Rationale is a hard precondition on reconcile — a receipt is append-only durable
+        // evidence, so anonymous settlement is refused at the CLI boundary rather than
+        // leaking into the gate.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "   ",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--rationale");
+    }
+
+    [Fact]
+    public async Task Reconcile_SupersedeWithoutReplacement_IsUsageError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "supersede",
+            authorizerIdentity: "author", rationale: "replaced",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("--replacement-digest");
+    }
+
+    [Fact]
+    public async Task Reconcile_ReplacementOnNonSupersede_IsUsageError()
+    {
+        // Replacement arguments are only coherent with the supersede outcome — attaching
+        // them to retire or readback is a caller bug the adapter catches before the
+        // lifecycle ever sees it.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stdout, stderr);
+
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "nope",
+            replacementDigest: "abc", replacementOpId: "op-2",
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(2);
+        stderr.ToString().ShouldContain("supersede");
+    }
+
+    [Fact]
+    public async Task Reconcile_LifecycleRefuses_Exit1_AndRendersError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        _lifecycle
+            .ReconcileAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+                Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new PlanReconciliationResult { Settled = false, Receipt = null, Error = "digest mismatch" });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "human", ct: default);
+
+        exit.ShouldBe(1);
+        stdout.ToString().ShouldContain("digest mismatch");
+        // Reconcile never phrases a refusal as "applied" — the receipt is a separate outcome.
+        stdout.ToString().ShouldNotContain("applied");
+    }
+
+    [Fact]
+    public async Task Reconcile_Settled_Exit0_AndJsonCarriesReceipt()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var origin = new PlanOrigin(
+            WorktreeRoot: "/w", WorktreeFingerprint: "fp", AttachmentRevision: 1,
+            ConnectionRef: "cr", BindingId: "bind", BindingRevision: 2,
+            SelectionSource: "ambient", SelectionRevision: 3,
+            IdentityId: "idA", Method: "oauth", CredentialRef: "cred",
+            TenantId: "tenant", ObjectId: "oid", Issuer: "iss", Authority: "authUrl",
+            AdoPrincipalId: null);
+        var auth = new ProposalAuthorization
+        {
+            Digest = "deadbeef",
+            Mode = ProposalAuthorizationMode.Human,
+            AuthorizerIdentity = "author",
+            Rationale = "ok",
+            AuthorizedAt = DateTimeOffset.UnixEpoch,
+        };
+        var receipt = new PlanOutcomeReceipt
+        {
+            ReceiptId = "rcpt-1",
+            Digest = "deadbeef",
+            OpId = "op-1",
+            Kind = PlanOutcomeKind.Retired,
+            RequestJson = "{}",
+            EvidenceJson = "{}",
+            Origin = origin,
+            AuthorizingOrigin = origin,
+            Authorization = auth,
+        };
+        _lifecycle
+            .ReconcileAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+                Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new PlanReconciliationResult { Settled = true, Receipt = receipt, Error = null });
+
+        var cmd = CreateCommand(stdout, stderr);
+        var exit = await cmd.ReconcileAsync(
+            file: "plan.json", confirmedDigest: "deadbeef", opId: "op-1", outcome: "retire",
+            authorizerIdentity: "author", rationale: "ok",
+            replacementDigest: null, replacementOpId: null,
+            outputFormat: "json", ct: default);
+
+        exit.ShouldBe(0);
+        var json = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        json.RootElement.GetProperty("settled").GetBoolean().ShouldBeTrue();
+        json.RootElement.GetProperty("receipt").GetProperty("receiptId").GetString().ShouldBe("rcpt-1");
+        json.RootElement.GetProperty("receipt").GetProperty("kind").GetString().ShouldBe("Retired");
+    }
 }

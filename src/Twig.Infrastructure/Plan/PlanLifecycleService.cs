@@ -56,7 +56,7 @@ namespace Twig.Infrastructure.Plan;
 ///     callers read the per-operation <see cref="PlanJournalOperation.Error"/> for detail.</item>
 /// </list>
 /// </summary>
-public sealed class PlanLifecycleService : IPlanLifecycleService
+public sealed partial class PlanLifecycleService : IPlanLifecycleService
 {
     private readonly PlanDocumentParser _parser;
     private readonly IPlanJournalRepository _journal;
@@ -67,6 +67,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
     private readonly IStagedIdentityRegistry _stagedRegistry;
     private readonly IPublishIdMapRepository _publishIdMap;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound;
+    private readonly IPublishIntentRepository _publishIntent;
+    private readonly IPlanOriginProvider _origin;
 
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
@@ -98,11 +100,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigConfiguration config,
         TwigPaths paths,
         TimeProvider clock,
-        ISessionSteeringModeProvider steering)
+        ISessionSteeringModeProvider steering,
+        IPlanOriginProvider origin)
         : this(
             parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
-            config, paths, clock, steering, ruleProvider: null)
+            config, paths, clock, steering, origin, ruleProvider: null)
     {
     }
 
@@ -129,6 +132,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         TwigPaths paths,
         TimeProvider clock,
         ISessionSteeringModeProvider steering,
+        IPlanOriginProvider origin,
         IProcessRuleProvider? ruleProvider)
     {
         _parser = parser;
@@ -139,6 +143,8 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         _stagedRegistry = stagedRegistry;
         _publishIdMap = publishIdMap;
         _revisionBound = revisionBound;
+        _publishIntent = publishIntent;
+        _origin = origin;
 
         _config = config;
         _paths = paths;
@@ -275,17 +281,19 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         // one throws (the ledger refuses to co-sign a doctored file). We hoist that as a
         // preview-level issue rather than an unhandled exception.
         PlanJournal? journal;
+        PlanOrigin previewOrigin;
         try
         {
+            previewOrigin = await _origin.GetOriginAsync(ct).ConfigureAwait(false);
             journal = await _journal.ImportAsync(
                 parsed.Plan,
                 parsed.CanonicalJson,
                 parsed.Digest,
                 containment.AbsolutePath!,
                 _clock.GetUtcNow(),
-                ct).ConfigureAwait(false);
+                ct, origin: previewOrigin).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             var issue = new PlanValidationIssue
             {
@@ -311,16 +319,26 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             };
         }
 
+        var originError = journal.Operations.Any(static op => op.OutcomeReceipt is not null)
+            ? "Proposal contains explicit native outcome receipts; settled intents cannot be replayed."
+            : journal.Origin is null
+                ? "Proposal origin is unknown. Retire it explicitly or author a fresh immutable proposal."
+                : journal.Origin != previewOrigin
+                    ? "Proposal origin changed. Re-preview cannot adopt the current actor; author a fresh immutable proposal."
+                    : null;
+        var previewIssues = originError is null ? parsed.Issues
+            : [.. parsed.Issues, new PlanValidationIssue { Code = "native-settlement", Path = string.Empty, Message = originError }];
+
         return new PlanPreviewResult
         {
             Digest = journal.Digest,
             Operations = parsed.Plan.Operations,
-            Issues = parsed.Issues,
+            Issues = previewIssues,
             Workspace = parsed.Plan.Workspace,
             PendingChanges = pending,
-            CanApply = pending.Count == 0,
+            CanApply = pending.Count == 0 && originError is null,
             ReviewModel = await _reviewModel.BuildAsync(
-                parsed.Plan, journal.Digest, parsed.Issues, pending, pending.Count == 0, ct: ct)
+                parsed.Plan, journal.Digest, previewIssues, pending, pending.Count == 0 && originError is null, ct: ct)
                 .ConfigureAwait(false),
         };
     }
@@ -373,6 +391,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(
                 confirmedDigest,
                 "No preview journal exists for this plan. Run `twig plan preview` first.");
+
+        if (journal.Operations.Any(static row => row.OutcomeReceipt is not null))
+            return TopLevelApplyFailure(confirmedDigest, "Proposal contains an explicit native outcome receipt; settled intents cannot be applied or resumed.");
+        var originError = await ValidateOriginAsync(journal.Origin, ct).ConfigureAwait(false);
+        if (originError is not null)
+            return TopLevelApplyFailure(confirmedDigest, originError);
 
         // Authorization gate. Last of the top-level refusals and first thing after the journal
         // is in hand: it must run before any Planned→Confirmed transition, because confirming a
@@ -552,6 +576,7 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
             State = journal.State,
             Operations = journal.Operations,
             Error = journal.Error,
+            Origin = journal.Origin,
             Replacement = replacement,
         };
     }
@@ -720,6 +745,12 @@ public sealed class PlanLifecycleService : IPlanLifecycleService
         Dictionary<int, WorkItemSnapshot> carry,
         CancellationToken ct)
     {
+        if (row.OutcomeReceipt is not null)
+            return StepResult.NeedsRefresh("This operation has been explicitly settled; native admission refuses replay.");
+        var journal = await _journal.GetAsync(digest, ct).ConfigureAwait(false);
+        var originError = await ValidateOriginAsync(journal?.Origin, ct).ConfigureAwait(false);
+        if (originError is not null)
+            return StepResult.NeedsRefresh(originError);
         // Fast paths: already terminal.
         if (row.State is PlanOperationState.Verified or PlanOperationState.Failed
             or PlanOperationState.Indeterminate)

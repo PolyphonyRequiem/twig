@@ -24,6 +24,7 @@ internal sealed class AdoGitClient : IAdoGitService
     private readonly string _project;
     private readonly string _backlogProject;
     private readonly string? _repository;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     public AdoGitClient(
         HttpClient httpClient,
@@ -31,7 +32,8 @@ internal sealed class AdoGitClient : IAdoGitService
         string orgUrl,
         string project,
         string? repository = null,
-        string? backlogProject = null)
+        string? backlogProject = null,
+        AdoConcurrencyThrottle? throttle = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(authProvider);
@@ -46,6 +48,7 @@ internal sealed class AdoGitClient : IAdoGitService
         _project = project;
         _backlogProject = string.IsNullOrWhiteSpace(backlogProject) ? project : backlogProject;
         _repository = string.IsNullOrWhiteSpace(repository) ? null : repository;
+        _throttle = throttle;
     }
 
     public async Task<IReadOnlyList<PullRequestInfo>> GetPullRequestsForBranchAsync(string branchName, CancellationToken ct = default)
@@ -208,6 +211,8 @@ internal sealed class AdoGitClient : IAdoGitService
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
         configureRequest?.Invoke(request);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
+        using var throttleSlot = _throttle is not null ? await _throttle.AcquireAsync(budget, ct) : null;
 
         HttpResponseMessage response;
         try
@@ -225,7 +230,13 @@ internal sealed class AdoGitClient : IAdoGitService
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (AdoRateLimitException ex)
+        {
+            response.Dispose();
+            _throttle?.SetPause(budget, ex.RetryAfter);
+            throw;
         }
         catch
         {

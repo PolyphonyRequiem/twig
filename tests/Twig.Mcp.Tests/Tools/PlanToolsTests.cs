@@ -843,4 +843,89 @@ public sealed class PlanToolsTests
         var sut = new PlanTools(resolver);
         return (sut, lifecycle, reader);
     }
+
+    // ── twig_proposal_reconcile boundary tests ───────────────────────
+
+    [Fact]
+    public async Task Reconcile_WithoutConfirmed_IsRefusedWithoutLifecycle()
+    {
+        var (sut, lifecycle, _) = BuildSut();
+
+        var result = await sut.PlanReconcile(
+            file: "plan.json", confirmed: false, confirmedDigest: ValidDigest, operationId: "op-1",
+            outcome: "retire", authorizerIdentity: "author",
+            authorizationDigest: ValidDigest, rationale: "ok",
+            replacementDigest: null, replacementOperationId: null,
+            workspace: null, verbose: false, ct: default);
+
+        result.IsError.ShouldBe(true);
+        await lifecycle.DidNotReceive().ReconcileAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reconcile_BadOutcome_IsStructuredRefusal()
+    {
+        var (sut, lifecycle, _) = BuildSut();
+
+        var result = await sut.PlanReconcile(
+            file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
+            outcome: "destroy", authorizerIdentity: "author",
+            authorizationDigest: ValidDigest, rationale: "ok",
+            replacementDigest: null, replacementOperationId: null,
+            workspace: null, verbose: false, ct: default);
+
+        result.IsError.ShouldBe(true);
+        await lifecycle.DidNotReceive().ReconcileAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reconcile_SupersedeWithoutReplacement_IsStructuredRefusal()
+    {
+        var (sut, lifecycle, _) = BuildSut();
+
+        var result = await sut.PlanReconcile(
+            file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
+            outcome: "supersede", authorizerIdentity: "author",
+            authorizationDigest: ValidDigest, rationale: "replaced",
+            replacementDigest: null, replacementOperationId: null,
+            workspace: null, verbose: false, ct: default);
+
+        result.IsError.ShouldBe(true);
+        await lifecycle.DidNotReceive().ReconcileAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+            Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Reconcile_SettledFalse_IsPayloadWithIsErrorTrue()
+    {
+        // Gate refusal stays a payload response so the caller can inspect why the gate
+        // refused — not a transport error that elides the structured reason.
+        var (sut, lifecycle, _) = BuildSut();
+        lifecycle
+            .ReconcileAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<PlanOutcomeKind>(),
+                Arg.Any<ProposalAuthorization?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new PlanReconciliationResult { Settled = false, Receipt = null, Error = "digest mismatch" });
+
+        var result = await sut.PlanReconcile(
+            file: "plan.json", confirmed: true, confirmedDigest: ValidDigest, operationId: "op-1",
+            outcome: "retire", authorizerIdentity: "author",
+            authorizationDigest: ValidDigest, rationale: "ok",
+            replacementDigest: null, replacementOperationId: null,
+            workspace: null, verbose: false, ct: default);
+
+        result.IsError.ShouldBe(true);
+        var data = ParseData(result);
+        data.GetProperty("settled").GetBoolean().ShouldBeFalse();
+        data.GetProperty("error").GetString().ShouldBe("digest mismatch");
+    }
 }

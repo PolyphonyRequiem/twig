@@ -800,6 +800,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         // Auth header
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
 
         // If-Match for optimistic concurrency
         if (ifMatch is not null)
@@ -809,7 +810,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         // Acquire concurrency slot (no-op when throttle is not registered)
         using var throttleSlot = _throttle is not null
-            ? await _throttle.AcquireAsync(ct)
+            ? await _throttle.AcquireAsync(budget, ct)
             : null;
 
         HttpResponseMessage response;
@@ -829,12 +830,12 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
         }
         catch (AdoRateLimitException ex)
         {
             response.Dispose();
-            _throttle?.SetPause(ex.RetryAfter);
+            _throttle?.SetPause(budget, ex.RetryAfter);
             throw;
         }
         catch

@@ -523,6 +523,13 @@ internal static class CommandExamples
             "twig proposal seed --id -42                    Describe staged seed -42 (identity + fingerprint) for proposal authoring.",
             "twig proposal seed --id -42 --output json      Emit descriptor as JSON to paste into a proposal file.",
         ],
+        ["proposal reconcile"] =
+        [
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\"    Append a Retired receipt; the authored mutation is NOT applied.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome readback --authorize <identity> --rationale \"...\"    Establish outcome by fresh ADO readback.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2> --authorize <identity> --rationale \"...\"    Map the exact effect to a Verified replacement.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\" --output json    Emit the full receipt (origins, authorization, evidence) as JSON.",
+        ],
         ["pending"] =
         [
             "twig pending                           List raw staged pending changes in exact staging order.",

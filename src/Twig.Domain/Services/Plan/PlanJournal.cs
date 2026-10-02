@@ -70,6 +70,9 @@ public sealed record PlanJournal
     /// <summary>When the authorization was recorded; null when the row predates recording.</summary>
     public DateTimeOffset? AuthorizedAt { get; init; }
 
+    /// <summary>Authority captured on the first preview; null means unknown legacy origin.</summary>
+    public PlanOrigin? Origin { get; init; }
+
     /// <summary>Per-operation rows, in declaration order.</summary>
     public required IReadOnlyList<PlanJournalOperation> Operations { get; init; }
 }

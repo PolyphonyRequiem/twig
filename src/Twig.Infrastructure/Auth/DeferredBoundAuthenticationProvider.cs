@@ -19,7 +19,7 @@ namespace Twig.Infrastructure.Auth;
 /// failure, never a silent swap).
 /// </para>
 /// </summary>
-internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider
+internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata
 {
     private readonly Func<CancellationToken, Task<IAuthenticationProvider>> _factory;
     private readonly object _sync = new();
@@ -37,6 +37,14 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
         // for sibling waiters. No sync-over-async anywhere on this hot path.
         var provider = await GetProviderAsync(ct).ConfigureAwait(false);
         return await provider.GetAccessTokenAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default)
+    {
+        var provider = await GetProviderAsync(ct).ConfigureAwait(false);
+        if (provider is not IBoundAuthenticationMetadata metadata)
+            throw new InvalidOperationException("Admitted authentication provider has no frozen principal evidence; repair the selected binding.");
+        return await metadata.GetBoundIdentityAsync(ct).ConfigureAwait(false);
     }
 
     public void InvalidateToken()

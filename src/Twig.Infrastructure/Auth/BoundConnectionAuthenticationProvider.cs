@@ -17,7 +17,7 @@ namespace Twig.Infrastructure.Auth;
 /// without reading the token itself.
 /// </para>
 /// </summary>
-internal sealed class BoundConnectionAuthenticationProvider : IAuthenticationProvider
+internal sealed class BoundConnectionAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata
 {
     private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(50);
     private static readonly TimeSpan ExpiryBuffer = TimeSpan.FromMinutes(5);
@@ -44,6 +44,12 @@ internal sealed class BoundConnectionAuthenticationProvider : IAuthenticationPro
         _tokenCache = tokenCache ?? throw new ArgumentNullException(nameof(tokenCache));
         _refresher = refresher ?? throw new ArgumentNullException(nameof(refresher));
         _clock = clock ?? TimeProvider.System;
+    }
+
+    public Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(_identity);
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)

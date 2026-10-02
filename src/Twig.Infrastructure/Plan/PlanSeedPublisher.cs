@@ -182,6 +182,46 @@ internal sealed class PlanSeedPublisher
     }
 
     /// <summary>
+    /// Establishes a receipt without re-driving publication. Missing identity/fingerprint/map
+    /// evidence remains unknown rather than causing a create, link promotion or durable rewrite.
+    /// </summary>
+    internal async Task<PlanReadbackOutcome> ReadbackForReceiptAsync(
+        PublishSeedOperation op, string? acknowledgedJson, CancellationToken ct)
+    {
+        var mapped = await _publishIdMap.GetNewIdAsync(op.StagedIdentity, ct).ConfigureAwait(false);
+        var intent = await _publishIntent.GetIntentAsync(op.StagedIdentity, ct).ConfigureAwait(false);
+        if (mapped is not { } publishedId || intent is null
+            || (intent.PublishedId is { } intentId && intentId != publishedId))
+            return PlanReadbackOutcome.Indeterminate("The original publish identity, durable map and intent do not establish one outcome.");
+
+        var acknowledged = false;
+        if (acknowledgedJson is not null)
+        {
+            using var proof = System.Text.Json.JsonDocument.Parse(acknowledgedJson);
+            acknowledged = proof.RootElement.TryGetProperty("publishedId", out var id)
+                && id.TryGetInt32(out var actualId) && actualId == publishedId
+                && proof.RootElement.TryGetProperty("identity", out var identity)
+                && identity.GetString() == op.StagedIdentity.ToString();
+        }
+        if (!acknowledged)
+        {
+            var alias = await _stagedRegistry.FindAliasAsync(op.StagedIdentity, ct).ConfigureAwait(false);
+            var seed = alias is { } value
+                ? await _workItems.GetByIdAsync(value.Value, ct).ConfigureAwait(false) : null;
+            if (seed is null || !seed.IsSeed || seed.StagedIdentity != op.StagedIdentity)
+                return PlanReadbackOutcome.Indeterminate("No preserved seed shape or attributable acknowledgement proves the original fingerprint.");
+            var links = await _seedLinks.GetLinksForItemAsync(seed.Id, ct).ConfigureAwait(false);
+            var fingerprint = await SeedFingerprintCalculator.ComputeAsync(seed, links, _stagedRegistry, _publishIdMap, ct).ConfigureAwait(false);
+            if (fingerprint != op.ExpectedFingerprint)
+                return PlanReadbackOutcome.Indeterminate("The preserved seed shape no longer matches the original expected effect.");
+        }
+        var remote = await _ado.FetchAsync(publishedId, ct).ConfigureAwait(false);
+        if (remote.Title != intent.Title || remote.Type.Value != intent.TypeName)
+            return PlanReadbackOutcome.Indeterminate("Published item does not match the original durable intent title and type.");
+        return await VerifyRemoteAsync(op.StagedIdentity, publishedId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Applying recovery when only the intent record survives. The wire may or may not have
     /// landed the create; the orchestrator's step-7 idempotency (existing intent detects the
     /// prior create instead of reissuing it) plus step-10 map recording is the single seam

@@ -101,7 +101,8 @@ public static class NetworkServiceModule
                     sp.GetRequiredService<TwigConfiguration>().Organization,
                     capturedGitProject,
                     capturedRepository,
-                    sp.GetRequiredService<TwigConfiguration>().Project));
+                    sp.GetRequiredService<TwigConfiguration>().Project,
+                    throttle: sp.GetRequiredService<AdoConcurrencyThrottle>()));
         }
 
         services.AddSingleton(sp =>
@@ -113,7 +114,8 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IAuthenticationProvider>(),
                 cfg.Organization,
                 cfg.Project,
-                team);
+                team,
+                throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
         services.AddSingleton<IIterationService>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
@@ -132,7 +134,8 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
                 cfg.Organization,
-                cfg.Project);
+                cfg.Project,
+                throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
 
         // The assembler that consumes this source is registered in

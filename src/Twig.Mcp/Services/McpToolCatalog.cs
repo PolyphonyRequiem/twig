@@ -46,6 +46,7 @@ internal static class McpToolCatalog
         "twig_proposal_preview",
         "twig_proposal_seed",
         "twig_proposal_status",
+        "twig_proposal_reconcile",
         "twig_proposal_validate",
         "twig_process",
         "twig_process_description",
@@ -132,6 +133,7 @@ internal static class McpToolCatalog
         "twig_seed_discard",
         "twig_seed_edit",
         "twig_seed_publish",
+        "twig_proposal_reconcile",
         "twig_seed_reconcile",
         "twig_state",
         "twig_sync",
@@ -370,7 +372,7 @@ internal static class McpToolCatalog
         // canonical name. Chosen over duplicating the literal in every branch so a future
         // Change Proposal tool that adds another canonical/alias pair keeps the schema
         // decisions in exactly one place — the branch expresses the RULE, not the naming.
-        if (CanonicalToolName(toolName) == "twig_proposal_apply")
+        if (CanonicalToolName(toolName) is "twig_proposal_apply" or "twig_proposal_reconcile")
         {
             if (properties["confirmed"] is JsonObject confirmed)
             {
@@ -506,6 +508,7 @@ internal static class McpToolCatalog
             case "twig_proposal_preview":
             case "twig_proposal_status":
             case "twig_proposal_apply":
+            case "twig_proposal_reconcile":
                 SetMinimum(properties, "file", 1, "minLength");
                 break;
         }

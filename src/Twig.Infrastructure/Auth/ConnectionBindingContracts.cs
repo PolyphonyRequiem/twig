@@ -45,6 +45,12 @@ internal sealed record ConnectionOperationSnapshot(
     string DisplayIcons,
     string DisplayIconsSource);
 
+/// <summary>Frozen principal evidence from an admitted provider, never a new selector.</summary>
+internal interface IBoundAuthenticationMetadata
+{
+    Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default);
+}
+
 /// <summary>
 /// Shared enrollment, initial binding and resolution seam. Initial-default setup is
 /// permitted only when no different default already exists; identity transitions

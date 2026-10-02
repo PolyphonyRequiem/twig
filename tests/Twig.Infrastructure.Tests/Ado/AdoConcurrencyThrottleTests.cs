@@ -1,163 +1,116 @@
-using System.Diagnostics;
 using Shouldly;
 using Twig.Infrastructure.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
 
-/// <summary>
-/// Unit tests for <see cref="AdoConcurrencyThrottle"/>: concurrency cap, 429 pause behavior, and disposal.
-/// </summary>
 public sealed class AdoConcurrencyThrottleTests
 {
-    [Fact]
-    public async Task AcquireAsync_UnderConcurrencyLimit_GrantsSlotImmediately()
-    {
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-
-        using var slot = await throttle.AcquireAsync(CancellationToken.None);
-
-        slot.ShouldNotBeNull();
-    }
+    private static readonly AdoRateLimitBudget Actor = new("https://dev.azure.com/fixture", "aad:tenant:actor");
+    private static readonly AdoRateLimitBudget Sibling = new("https://dev.azure.com/fixture", "aad:tenant:sibling");
 
     [Fact]
-    public async Task AcquireAsync_AtConcurrencyLimit_BlocksUntilSlotReleased()
+    public async Task ConcurrencySlotBlocksUntilReleased()
     {
         using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 1);
-
-        // Acquire the only available slot
-        var slot1 = await throttle.AcquireAsync(CancellationToken.None);
-
-        // A second acquire should block while the first slot is held
-        var pendingTask = throttle.AcquireAsync(CancellationToken.None);
-
-        // Give the task a moment to run — it should still be waiting
-        await Task.Delay(50);
-        pendingTask.IsCompleted.ShouldBeFalse("second acquire should be blocked while first slot is held");
-
-        // Release the first slot; the pending acquire should now complete
-        slot1.Dispose();
-        using var slot2 = await pendingTask.WaitAsync(TimeSpan.FromSeconds(5));
-        slot2.ShouldNotBeNull();
-    }
-
-    [Fact]
-    public async Task AcquireAsync_MultipleSlotsReleasedConcurrently_AllUnblock()
-    {
-        const int concurrency = 3;
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: concurrency);
-
-        // Fill all slots
-        var slots = new IDisposable[concurrency];
-        for (var i = 0; i < concurrency; i++)
-            slots[i] = await throttle.AcquireAsync(CancellationToken.None);
-
-        // One more acquire should block
-        var pending = throttle.AcquireAsync(CancellationToken.None);
-        await Task.Delay(30);
+        var first = await throttle.AcquireAsync(Actor, CancellationToken.None);
+        var pending = throttle.AcquireAsync(Sibling, CancellationToken.None);
         pending.IsCompleted.ShouldBeFalse();
-
-        // Release all slots
-        foreach (var slot in slots)
-            slot.Dispose();
-
-        using var finalSlot = await pending.WaitAsync(TimeSpan.FromSeconds(5));
-        finalSlot.ShouldNotBeNull();
+        first.Dispose();
+        using var second = await pending.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
-    public async Task AcquireAsync_AfterSetPause_WaitsForPauseDuration()
-    {
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-
-        throttle.SetPause(TimeSpan.FromMilliseconds(150));
-
-        var sw = Stopwatch.StartNew();
-        using var slot = await throttle.AcquireAsync(CancellationToken.None);
-        sw.Stop();
-
-        // Should have waited at least ~100ms (allowing generous tolerance for CI)
-        sw.ElapsedMilliseconds.ShouldBeGreaterThanOrEqualTo(80);
-    }
-
-    [Fact]
-    public async Task AcquireAsync_AfterPauseExpires_GrantsSlotWithoutDelay()
-    {
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-
-        throttle.SetPause(TimeSpan.FromMilliseconds(50));
-        await Task.Delay(120); // Let the pause expire
-
-        var sw = Stopwatch.StartNew();
-        using var slot = await throttle.AcquireAsync(CancellationToken.None);
-        sw.Stop();
-
-        sw.ElapsedMilliseconds.ShouldBeLessThan(80, "pause should have expired before acquisition");
-    }
-
-    [Fact]
-    public async Task AcquireAsync_CancellationRequested_ThrowsOperationCanceledException()
+    public async Task PausedActorDoesNotOccupyTheOnlySlotOrPauseSiblingBudgets()
     {
         using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 1);
-
-        // Hold the only slot so the next acquire will block
-        using var slot1 = await throttle.AcquireAsync(CancellationToken.None);
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => throttle.AcquireAsync(cts.Token));
+        throttle.SetPause(Actor, TimeSpan.FromMinutes(1));
+        using var cancel = new CancellationTokenSource();
+        var paused = throttle.AcquireAsync(Actor, cancel.Token);
+        try
+        {
+            using var sibling = await throttle.AcquireAsync(Sibling, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            paused.IsCompleted.ShouldBeFalse();
+        }
+        finally { cancel.Cancel(); }
+        await Should.ThrowAsync<OperationCanceledException>(() => paused);
     }
 
     [Fact]
-    public async Task AcquireAsync_PauseCancelled_ThrowsOperationCanceledException()
+    public async Task PausePublishedWhileQueuedIsRecheckedWithoutStarvingSibling()
     {
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-
-        throttle.SetPause(TimeSpan.FromSeconds(30)); // Long pause
-
-        using var cts = new CancellationTokenSource(millisecondsDelay: 50);
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => throttle.AcquireAsync(cts.Token));
+        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 1);
+        var held = await throttle.AcquireAsync(Sibling, CancellationToken.None);
+        using var cancel = new CancellationTokenSource();
+        var queued = throttle.AcquireAsync(Actor, cancel.Token);
+        throttle.SetPause(Actor, TimeSpan.FromMinutes(1));
+        held.Dispose();
+        try
+        {
+            using var sibling = await throttle.AcquireAsync(Sibling, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            queued.IsCompleted.ShouldBeFalse("a queued actor cannot escape a pause recorded while it waited");
+        }
+        finally { cancel.Cancel(); }
+        await Should.ThrowAsync<OperationCanceledException>(() => queued);
     }
 
     [Fact]
-    public async Task SetPause_CalledMultipleTimes_LastCallWins()
+    public async Task ShorterConcurrentResponseCannotEraseAnOutstandingDeadline()
     {
-        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-
-        // Set a long pause then override with a short one
-        throttle.SetPause(TimeSpan.FromSeconds(30));
-        throttle.SetPause(TimeSpan.FromMilliseconds(100));
-
-        var sw = Stopwatch.StartNew();
-        using var slot = await throttle.AcquireAsync(CancellationToken.None);
-        sw.Stop();
-
-        // Should complete quickly (short pause won)
-        sw.ElapsedMilliseconds.ShouldBeLessThan(5_000);
+        var clock = new MutableClock();
+        using var throttle = new AdoConcurrencyThrottle(clock: clock);
+        throttle.SetPause(Actor, TimeSpan.FromMinutes(1));
+        throttle.SetPause(Actor, TimeSpan.FromSeconds(1));
+        clock.Advance(TimeSpan.FromSeconds(2));
+        using var cancel = new CancellationTokenSource();
+        var waiting = throttle.AcquireAsync(Actor, cancel.Token);
+        waiting.IsCompleted.ShouldBeFalse();
+        cancel.Cancel();
+        await Should.ThrowAsync<OperationCanceledException>(() => waiting);
     }
 
     [Fact]
-    public void Dispose_CanBeCalledMultipleTimes_DoesNotThrow()
+    public async Task ExpiredDeadlineAdmitsTheOriginalActorAgain()
     {
-        var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-        throttle.Dispose();
-
-        // Second dispose should not throw (SemaphoreSlim.Dispose is safe to call twice)
-        var ex = Record.Exception(() => throttle.Dispose());
-        ex.ShouldBeNull();
+        var clock = new MutableClock();
+        using var throttle = new AdoConcurrencyThrottle(clock: clock);
+        throttle.SetPause(Actor, TimeSpan.FromSeconds(1));
+        clock.Advance(TimeSpan.FromSeconds(2));
+        using var resumed = await throttle.AcquireAsync(Actor, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        throttle.SetPause(Actor, TimeSpan.FromMinutes(1));
+        using var cancel = new CancellationTokenSource();
+        var waiting = throttle.AcquireAsync(Actor, cancel.Token);
+        waiting.IsCompleted.ShouldBeFalse("a later pause must survive cleanup of the expired entry");
+        cancel.Cancel();
+        await Should.ThrowAsync<OperationCanceledException>(() => waiting);
     }
 
     [Fact]
-    public async Task Dispose_SubsequentAcquire_ThrowsObjectDisposedException()
+    public async Task SamePrincipalInAnotherAuthorityHasAnIndependentBudget()
     {
-        var throttle = new AdoConcurrencyThrottle(maxConcurrency: 4);
-        throttle.Dispose();
+        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 1);
+        throttle.SetPause(Actor, TimeSpan.FromMinutes(1));
+        var otherAuthority = Actor with { Authority = "https://dev.azure.com/another-fixture" };
+        using var slot = await throttle.AcquireAsync(otherAuthority, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    }
 
-        await Should.ThrowAsync<ObjectDisposedException>(
-            () => throttle.AcquireAsync(CancellationToken.None));
+    [Fact]
+    public async Task CancellationOfQueuedRequestDoesNotConsumeASlot()
+    {
+        using var throttle = new AdoConcurrencyThrottle(maxConcurrency: 1);
+        var held = await throttle.AcquireAsync(Actor, CancellationToken.None);
+        using var cancel = new CancellationTokenSource();
+        var queued = throttle.AcquireAsync(Sibling, cancel.Token);
+        cancel.Cancel();
+        await Should.ThrowAsync<OperationCanceledException>(() => queued);
+        held.Dispose();
+        using var available = await throttle.AcquireAsync(Sibling, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private sealed class MutableClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan amount) => _now += amount;
     }
 }

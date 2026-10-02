@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
@@ -38,7 +39,8 @@ public sealed class PlanCommand(
     TimeProvider clock,
     RendererFactory? rendererFactory = null,
     TextWriter? stdout = null,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    ITelemetryClient? telemetryClient = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     private readonly TextWriter _stdout = stdout ?? Console.Out;
@@ -294,6 +296,138 @@ public sealed class PlanCommand(
         return 0;
     }
 
+    /// <summary>
+    /// Settle a never-admitted operation as retired, by fresh readback, or as superseded by
+    /// a Verified replacement. Native authority — never emits a Plan JSON op kind, never
+    /// rewrites the original execution lifecycle, appends an append-only receipt bound to
+    /// the original digest's authorizer. Exit 0 when the receipt was settled; 1 when the
+    /// lifecycle refused (bad digest, authorization gate, evidence mismatch); 2 for usage.
+    /// </summary>
+    /// <remarks>
+    /// Authorization follows the exact mode/clock/gate pattern as apply: the mode is read
+    /// from the session seam, the digest the caller confirms IS the digest they signed off,
+    /// and the identity is caller-asserted. The gate carries the same known
+    /// authorizer-separation gap documented on <see cref="ApplyAsync"/>.
+    /// </remarks>
+    public async Task<int> ReconcileAsync(
+        string? file, string? confirmedDigest, string? opId, string? outcome,
+        string? authorizerIdentity, string? rationale, string? replacementDigest,
+        string? replacementOpId, string outputFormat, CancellationToken ct)
+    {
+        var started = Stopwatch.GetTimestamp();
+        var exitCode = await ReconcileCoreAsync(file, confirmedDigest, opId, outcome, authorizerIdentity,
+            rationale, replacementDigest, replacementOpId, outputFormat, ct);
+        try
+        {
+            telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+            {
+                ["command"] = "proposal reconcile",
+                ["exit_code"] = exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["output_format"] = outputFormat.ToLowerInvariant() is "human" or "json" or "minimal" or "ids" or "json-full" or "json-compact"
+                    ? outputFormat.ToLowerInvariant() : OutputFormatterFactory.DefaultFormat,
+                ["twig_version"] = VersionHelper.GetVersion(),
+                ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            }, new Dictionary<string, double> { ["duration_ms"] = Stopwatch.GetElapsedTime(started).TotalMilliseconds });
+        }
+        catch (Exception)
+        {
+            Trace.TraceWarning("Optional command telemetry was unavailable.");
+        }
+        return exitCode;
+    }
+
+    private async Task<int> ReconcileCoreAsync(
+        string? file, string? confirmedDigest, string? opId, string? outcome,
+        string? authorizerIdentity, string? rationale, string? replacementDigest,
+        string? replacementOpId, string outputFormat, CancellationToken ct)
+    {
+        if (!TryRequireFile(file, out var resolved, out var usageError))
+        {
+            WriteUsage(usageError, outputFormat);
+            return 2;
+        }
+        if (string.IsNullOrWhiteSpace(confirmedDigest))
+        {
+            WriteUsage("proposal reconcile requires --confirm <digest>.", outputFormat);
+            return 2;
+        }
+        if (string.IsNullOrWhiteSpace(opId))
+        {
+            WriteUsage("proposal reconcile requires --operation <op-id> naming the original journalled operation.", outputFormat);
+            return 2;
+        }
+        if (!TryParseOutcome(outcome, out var kind))
+        {
+            WriteUsage("proposal reconcile requires --outcome <retire|readback|supersede>.", outputFormat);
+            return 2;
+        }
+        if (string.IsNullOrWhiteSpace(rationale))
+        {
+            // Reconciliation never gets to be anonymous: the receipt is append-only durable
+            // evidence, so the authorizer's reason is a hard precondition rather than a
+            // decoration the way it is on apply.
+            WriteUsage("proposal reconcile requires --rationale <text> explaining why the outcome is being settled.", outputFormat);
+            return 2;
+        }
+        if (kind == PlanOutcomeKind.Superseded)
+        {
+            if (string.IsNullOrWhiteSpace(replacementDigest) || string.IsNullOrWhiteSpace(replacementOpId))
+            {
+                WriteUsage("proposal reconcile --outcome supersede requires --replacement-digest <digest> and --replacement-operation <op-id>.", outputFormat);
+                return 2;
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(replacementDigest) || !string.IsNullOrWhiteSpace(replacementOpId))
+        {
+            WriteUsage("--replacement-digest / --replacement-operation are only valid with --outcome supersede.", outputFormat);
+            return 2;
+        }
+
+        var authorization = string.IsNullOrWhiteSpace(authorizerIdentity)
+            ? null
+            : new ProposalAuthorization
+            {
+                Digest = confirmedDigest!,
+                Mode = ProposalAuthorizationGate.RequiredMode(steering.Resolve()),
+                AuthorizerIdentity = authorizerIdentity!,
+                Rationale = rationale,
+                AuthorizedAt = clock.GetUtcNow(),
+            };
+
+        var result = await lifecycle.ReconcileAsync(
+            resolved,
+            confirmedDigest!,
+            opId!,
+            kind,
+            authorization,
+            string.IsNullOrWhiteSpace(replacementDigest) ? null : replacementDigest,
+            string.IsNullOrWhiteSpace(replacementOpId) ? null : replacementOpId,
+            ct);
+        RenderReconcile(result, outputFormat);
+        return result.Settled ? 0 : 1;
+    }
+
+    private static bool TryParseOutcome(string? outcome, out PlanOutcomeKind kind)
+    {
+        switch (outcome?.Trim().ToLowerInvariant())
+        {
+            case "retire":
+            case "retired":
+                kind = PlanOutcomeKind.Retired;
+                return true;
+            case "readback":
+                kind = PlanOutcomeKind.Readback;
+                return true;
+            case "supersede":
+            case "superseded":
+                kind = PlanOutcomeKind.Superseded;
+                return true;
+            default:
+                kind = default;
+                return false;
+        }
+    }
+
     // ── input handling ────────────────────────────────────────────────
 
     private static bool TryRequireFile(
@@ -467,6 +601,73 @@ public sealed class PlanCommand(
         return lines;
     }
 
+    // ── reconcile ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Renders a <see cref="PlanReconciliationResult"/> as a distinct document — never
+    /// masquerades as apply success. Retirement, readback, and supersession are append-only
+    /// receipts and must read that way on every surface so a consumer never confuses
+    /// "the operation was settled by this outcome" with "the operation was successfully
+    /// applied."
+    /// </summary>
+    private void RenderReconcile(PlanReconciliationResult result, string outputFormat)
+    {
+        if (!IsJsonOutput(outputFormat))
+        {
+            _rendererFactory.GetRenderer(outputFormat, _stdout).Render(
+                new RenderTree.RenderTree([new RenderNode.Section(null, BuildReconcileHumanLines(result))]));
+            return;
+        }
+        var fields = new List<DocumentField>
+        {
+            new("settled", new RenderNode.KeyValue("settled", RenderCell.Boolean(result.Settled))),
+            new("receipt", new RenderNode.KeyValue("receipt", ReceiptCell(result.Receipt))),
+            new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
+        };
+        var doc = new RenderNode.Document("proposalReconcile", fields);
+        _rendererFactory.GetRenderer(outputFormat, _stdout).Render(new RenderTree.RenderTree([doc]));
+    }
+
+    private static IReadOnlyList<RenderNode> BuildReconcileHumanLines(PlanReconciliationResult result)
+    {
+        var lines = new List<RenderNode>();
+        if (!result.Settled)
+        {
+            lines.Add(new RenderNode.Text(
+                $"proposal reconcile: refused  {result.Error ?? "(no reason reported)"}",
+                Severity.Error));
+            return lines;
+        }
+
+        var receipt = result.Receipt;
+        if (receipt is null)
+        {
+            // Lifecycle contract: Settled implies Receipt. Falling into this branch means a
+            // mock/test wired an inconsistent result — surface that explicitly rather than
+            // crashing.
+            lines.Add(new RenderNode.Text(
+                "proposal reconcile: settled  (no receipt payload)",
+                Severity.Warning));
+            return lines;
+        }
+
+        // 🔴 Phrase deliberately NEVER reads "applied". Retire/Readback/Supersede are
+        // outcome settlements; the authored mutation did not land through them.
+        lines.Add(new RenderNode.Text(
+            $"proposal reconcile: settled  outcome={receipt.Kind}  opId={receipt.OpId}  digest={receipt.Digest}",
+            Severity.Success));
+        lines.Add(new RenderNode.Text($"  receiptId: {receipt.ReceiptId}"));
+        lines.Add(new RenderNode.Text(
+            $"  authorizer: {receipt.Authorization.AuthorizerIdentity} "
+            + $"(mode={ProposalAuthorization.ModeToWire(receipt.Authorization.Mode)})"));
+        if (receipt.ReplacementDigest is not null || receipt.ReplacementOpId is not null)
+            lines.Add(new RenderNode.Text(
+                $"  replacement: digest={receipt.ReplacementDigest ?? "(none)"} op={receipt.ReplacementOpId ?? "(none)"}"));
+        lines.Add(new RenderNode.Text(
+            "  full evidence: rerun with '-o json' to inspect receipt payload (request, evidence, origins)."));
+        return lines;
+    }
+
     /// <summary>
     /// Renders the per-operation journal rows shared by <c>plan apply</c> and
     /// <c>plan status</c> human output. Both surfaces render an operation identically by
@@ -532,6 +733,7 @@ public sealed class PlanCommand(
         {
             new("digest", new RenderNode.KeyValue("digest", DigestCell(result.Digest))),
             new("state", new RenderNode.KeyValue("state", NullableStringCell(result.State?.ToString()))),
+            new("origin", new RenderNode.KeyValue("origin", OriginCell(result.Origin))),
             new("operations", new RenderNode.KeyValue("operations", JournalOperationsCell(result.Operations))),
             new("error", new RenderNode.KeyValue("error", NullableStringCell(result.Error))),
         };
@@ -547,11 +749,28 @@ public sealed class PlanCommand(
             new RenderNode.Text($"digest: {result.Digest ?? "(none)"}"),
             new RenderNode.Text($"state:  {result.State?.ToString() ?? "(none)"}"),
         };
+        AppendOriginLine(result.Origin, lines);
         AppendOperationLines(result.Operations, lines);
         if (!string.IsNullOrEmpty(result.Error)
             && !result.Operations.Any(op => string.Equals(op.Error, result.Error, StringComparison.Ordinal)))
             lines.Add(new RenderNode.Text($"error: {result.Error}", Severity.Error));
         return lines;
+    }
+
+    /// <summary>
+    /// Append a one-line Origin summary (never the full 16-field record) to the human
+    /// surface. Null origin is "unknown legacy" — never silently stamped with the current
+    /// actor. Full fields remain accessible via -o json.
+    /// </summary>
+    private static void AppendOriginLine(PlanOrigin? origin, List<RenderNode> lines)
+    {
+        if (origin is null)
+        {
+            lines.Add(new RenderNode.Text("origin: (unknown legacy)"));
+            return;
+        }
+        lines.Add(new RenderNode.Text(
+            $"origin: identity={origin.IdentityId} binding={origin.BindingId}@{origin.BindingRevision} connection={origin.ConnectionRef}"));
     }
 
     /// <summary>
@@ -859,6 +1078,9 @@ public sealed class PlanCommand(
                 // disposition/code/revisions/field-classifications on the same row. Full
                 // evidence (raw resultJson/warning/error) stays present above.
                 ["diagnostics"] = DiagnosticsCell(op.Diagnostics),
+                // Native settled outcome, append-only alongside the immutable execution
+                // state. Null when no reconciliation has settled this row.
+                ["outcomeReceipt"] = ReceiptCell(op.OutcomeReceipt),
             };
             items.Add(new RenderCell($"[{op.Ordinal}] {op.OpId} {op.State}", new RenderValue.Object(obj)));
         }
@@ -909,4 +1131,76 @@ public sealed class PlanCommand(
         => when is null
             ? new RenderCell("(none)", new RenderValue.Null())
             : new RenderCell(when.Value.ToString("O"), new RenderValue.DateTime(when.Value));
+
+    /// <summary>
+    /// Projects a <see cref="PlanOrigin"/> into render cells so every column lands on the
+    /// JSON surface verbatim. Full evidence lives on the status/apply/reconcile payloads;
+    /// consumers that want the compact human line read <see cref="AppendOriginLine"/>.
+    /// </summary>
+    private static RenderCell OriginCell(PlanOrigin? origin)
+    {
+        if (origin is null) return new RenderCell("(none)", new RenderValue.Null());
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["worktreeRoot"] = RenderCell.String(origin.WorktreeRoot),
+            ["worktreeFingerprint"] = RenderCell.String(origin.WorktreeFingerprint),
+            ["attachmentRevision"] = RenderCell.Integer(origin.AttachmentRevision),
+            ["connectionRef"] = RenderCell.String(origin.ConnectionRef),
+            ["bindingId"] = RenderCell.String(origin.BindingId),
+            ["bindingRevision"] = RenderCell.Integer(origin.BindingRevision),
+            ["selectionSource"] = RenderCell.String(origin.SelectionSource),
+            ["selectionRevision"] = RenderCell.Integer(origin.SelectionRevision),
+            ["identityId"] = RenderCell.String(origin.IdentityId),
+            ["method"] = RenderCell.String(origin.Method),
+            ["credentialRef"] = RenderCell.String(origin.CredentialRef),
+            ["tenantId"] = RenderCell.String(origin.TenantId),
+            ["objectId"] = RenderCell.String(origin.ObjectId),
+            ["issuer"] = RenderCell.String(origin.Issuer),
+            ["authority"] = RenderCell.String(origin.Authority),
+            ["adoPrincipalId"] = NullableStringCell(origin.AdoPrincipalId),
+        };
+        return new RenderCell($"identity={origin.IdentityId}", new RenderValue.Object(obj));
+    }
+
+    /// <summary>
+    /// Projects a <see cref="PlanOutcomeReceipt"/> into render cells; null when no outcome
+    /// has been settled. Carries both origins and the exact authorization record so an
+    /// auditor can replay the gate decision from JSON alone.
+    /// </summary>
+    private static RenderCell ReceiptCell(PlanOutcomeReceipt? receipt)
+    {
+        if (receipt is null) return new RenderCell("(none)", new RenderValue.Null());
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["receiptId"] = RenderCell.String(receipt.ReceiptId),
+            ["digest"] = RenderCell.String(receipt.Digest),
+            ["opId"] = RenderCell.String(receipt.OpId),
+            ["kind"] = RenderCell.String(receipt.Kind.ToString()),
+            ["requestJson"] = RenderCell.String(receipt.RequestJson),
+            ["evidenceJson"] = RenderCell.String(receipt.EvidenceJson),
+            ["origin"] = OriginCell(receipt.Origin),
+            ["authorizingOrigin"] = OriginCell(receipt.AuthorizingOrigin),
+            ["authorization"] = AuthorizationCell(receipt.Authorization),
+            ["replacementDigest"] = NullableStringCell(receipt.ReplacementDigest),
+            ["replacementOpId"] = NullableStringCell(receipt.ReplacementOpId),
+            ["publishIdentity"] = NullableStringCell(receipt.PublishIdentity?.ToString()),
+            ["publishIntentRecordedAt"] = NullableStringCell(receipt.PublishIntentRecordedAt),
+        };
+        return new RenderCell($"{receipt.Kind} {receipt.OpId}", new RenderValue.Object(obj));
+    }
+
+    private static RenderCell AuthorizationCell(ProposalAuthorization authorization)
+    {
+        var obj = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["digest"] = RenderCell.String(authorization.Digest),
+            ["mode"] = RenderCell.String(ProposalAuthorization.ModeToWire(authorization.Mode)),
+            ["authorizerIdentity"] = RenderCell.String(authorization.AuthorizerIdentity),
+            ["rationale"] = NullableStringCell(authorization.Rationale),
+            ["authorizedAt"] = new RenderCell(
+                authorization.AuthorizedAt.ToString("O"),
+                new RenderValue.DateTime(authorization.AuthorizedAt)),
+        };
+        return new RenderCell(authorization.AuthorizerIdentity, new RenderValue.Object(obj));
+    }
 }

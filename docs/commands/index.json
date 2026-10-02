@@ -736,6 +736,14 @@
     "path": "plans/proposal-apply.md"
   },
   {
+    "command": "proposal reconcile",
+    "group": "plans",
+    "summary": "Append an explicit native retirement, readback or Verified replacement receipt without replay.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "plans/README.md"
+  },
+  {
     "command": "proposal preview",
     "group": "plans",
     "summary": "Preview a proposal \u2014 journal import, pending snapshot, digest, and canApply gate.",

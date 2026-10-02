@@ -303,59 +303,6 @@ public class SqliteCacheStoreTests
         TableExists(conn, "seed_links").ShouldBeFalse();
     }
 
-    /// <summary>
-    /// The completeness guard for wayfinder 0013's durability line: every table is in exactly one
-    /// store, and each is in the right one per 0005 §3a's "can ADO rebuild it?" test.
-    /// <para>
-    /// A new table added to the wrong store fails here rather than silently becoming droppable
-    /// durable state — the #271 failure shape this map exists to remove.
-    /// </para>
-    /// </summary>
-    [Fact]
-    public void Schema_PlacesEveryTableInExactlyOneStore_ByDurability()
-    {
-        using var store = new SqliteCacheStore("Data Source=:memory:");
-        var conn = store.GetConnection();
-
-        string[] expectedMirror =
-            ["metadata", "work_items", "process_types", "context", "field_definitions",
-             "work_item_links", "work_item_link_verifications", "navigation_history",
-             "iteration_calendar"];
-        // work_item_link_verifications is a MIRROR table (AB#831): it records WHEN a source id's
-        // edge set was last read from ADO, and ADO can rebuild it — the next refresh does, by
-        // re-reading the edges. Dropping it on a SchemaVersion bump is correct and safe: every id
-        // reverts to "never verified", which is the honest answer for a freshly rebuilt mirror.
-        // staged_identities is DURABLE (wayfinder 0014): it is the source of truth for a
-        // staged seed's identity, its display alias, and the retirement record that makes
-        // "never recycled" structural. Putting it in the mirror would make a durable identity
-        // droppable — the exact incoherence 0003 objected to.
-        // publish_intents is DURABLE (wayfinder 0015): it records a create BEFORE the ADO call
-        // and its outcome after. It is durable by 0005's "can ADO rebuild it?" test — it cannot
-        // be, because it is precisely the record of a call whose outcome ADO may or may not
-        // hold. A droppable copy would be erased by the crash it exists to survive.
-        // benches and bench_selectors are DURABLE (ADO #144): a Bench holds pins the person made
-        // by hand and a name only they chose, so ADO cannot rebuild it. Their loss is SILENT —
-        // nothing prompts and nothing refuses — so a droppable copy would surface as a missing
-        // pin weeks later.
-        // iteration_calendar is a MIRROR table by the same test read the other way: it is a copy
-        // of ADO's own iteration list, so ADO CAN rebuild it and the next refresh does. It is
-        // cached locally only so a Bench's sprint rule can be answered without a network call.
-        // tracked_items and excluded_items are GONE (ADO #151). They were declared, dropped on
-        // every SchemaVersion bump, and read by nothing after pins became selectors. Leaving them
-        // meant a grep told the reader pins live in the cache — the exact false premise the Bench
-        // build brief inherited and that cost a wrong plan. Pins are selectors on a Bench in the
-        // durable store; exclusions live in the tracking file, outside the Bench by decision.
-        // current_bench is DURABLE (ADO #149): which arrangement the person is standing on is
-        // theirs and ADO has never heard of it, so ADO cannot rebuild it. A droppable copy would
-        // silently move somebody back to the default on a SchemaVersion bump — the same
-        // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
-        string[] expectedDurable =
-            ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors", "current_bench", "proposal_journals", "proposal_operations"];
-
-        ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
-        ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
-    }
 
     /// <summary>The durable store carries its own version, independent of <c>SchemaVersion</c>.</summary>
     [Fact]

@@ -588,6 +588,10 @@ public static class TwigServiceRegistration
         // nothing about who is allowed to authorize a mutation from it.
         services.AddSingleton<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider,
             Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider>();
+        services.TryAddSingleton<IPlanOriginProvider>(sp => new BoundPlanOriginProvider(
+            sp.GetRequiredService<IConnectionBindingService>(),
+            sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(),
+            sp.GetRequiredService<IAuthenticationProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
             new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
@@ -606,6 +610,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
+                sp.GetRequiredService<IPlanOriginProvider>(),
                 // Runtime process-rule gate (AB#673). Optional in the object graph — if the
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.

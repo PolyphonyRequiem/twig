@@ -64,4 +64,7 @@ public sealed record PlanStatusResult
     /// apart from a clobbered one).
     /// </summary>
     public PlanSourceReplacement? Replacement { get; init; }
+
+    /// <summary>First-preview native authority; null is unknown, never the current actor.</summary>
+    public PlanOrigin? Origin { get; init; }
 }

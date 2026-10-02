@@ -44,7 +44,8 @@ public static class CommandRegistrationModule
             sp.GetService<ITelemetryClient>(),
             sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(),
             sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
-            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>(),
+            sp.GetRequiredService<Twig.Infrastructure.Ado.AdoConcurrencyThrottle>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),

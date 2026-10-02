@@ -33,6 +33,7 @@ public sealed class InitCommand
     private readonly Twig.Domain.Interfaces.IManagedWorktreeInitializer? _managedInitializer;
     private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry? _systemRegistry;
     private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource? _profileRegistry;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -49,7 +50,8 @@ public sealed class InitCommand
         ITelemetryClient? telemetryClient,
         Twig.Domain.Interfaces.IManagedWorktreeInitializer managedInitializer,
         Twig.Domain.Interfaces.ISystemWorktreeRegistry systemRegistry,
-        Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry)
+        Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry,
+        AdoConcurrencyThrottle? throttle = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -62,6 +64,7 @@ public sealed class InitCommand
         _managedInitializer = managedInitializer;
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
+        _throttle = throttle;
     }
 
     /// <summary>
@@ -374,7 +377,7 @@ public sealed class InitCommand
             var effectiveProject = config.Project;
             var effectiveTeam = string.IsNullOrWhiteSpace(config.Team) ? $"{effectiveProject} Team" : config.Team;
             var iterationService = _iterationService
-                ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam);
+                ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam, throttle: _throttle);
 
             var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
 
@@ -669,7 +672,7 @@ public sealed class InitCommand
                     _authProvider,
                     effectiveOrg,
                     effectiveProject,
-                    new WorkItemMapper());
+                    new WorkItemMapper(), throttle: _throttle);
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 

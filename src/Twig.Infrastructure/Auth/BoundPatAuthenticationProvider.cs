@@ -10,12 +10,18 @@ namespace Twig.Infrastructure.Auth;
 internal sealed class BoundPatAuthenticationProvider(
     AuthenticationIdentity identity,
     PatCredentialStore store,
-    PatPrincipalAttestor attestor) : IAuthenticationProvider
+    PatPrincipalAttestor attestor) : IAuthenticationProvider, IBoundAuthenticationMetadata
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _verifiedPat;
     private string? _verifiedReset;
     private string? _verifiedAuthorization;
+
+    public Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(identity);
+    }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {

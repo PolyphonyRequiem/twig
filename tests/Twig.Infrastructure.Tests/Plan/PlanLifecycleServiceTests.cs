@@ -120,6 +120,14 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         AuthorizedAt = DateTimeOffset.UnixEpoch,
     };
 
+    private sealed class FixtureOrigin(string root) : IPlanOriginProvider
+    {
+        public Task<PlanOrigin> GetOriginAsync(CancellationToken ct = default) => Task.FromResult(
+            new PlanOrigin(root, "fixture-fingerprint", 1, "fixture-connection", "fixture-binding", 1,
+                "fixture-selection", 1, "fixture-identity", "aad", "fixture-credential", "fixture-tenant",
+                "fixture-object", "fixture-issuer", "fixture-authority", null));
+    }
+
     private PlanLifecycleService BuildService(DateTimeOffset? clock = null, IPlanJournalRepository? journal = null)
     {
         var provider = clock is null
@@ -142,6 +150,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _paths,
             provider,
             new StubSteering(() => _steeringMode),
+            new FixtureOrigin(_repoRoot),
             _ruleProvider);
     }
 
@@ -1493,7 +1502,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         svc = new PlanLifecycleService(
             new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _ado, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
-            _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode));
+            _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot));
 
         var digest = (await svc.PreviewAsync(file)).Digest!;
 

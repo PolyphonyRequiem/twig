@@ -1528,6 +1528,32 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
 
+    /// <summary>Settle a never-admitted operation as retired, by fresh readback, or as superseded by a Verified replacement. Append-only native receipt; never masquerades as apply success.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the original canonical proposal bytes the receipt is bound to. Must match the journalled digest exactly.</param>
+    /// <param name="operation">Op id of the original journalled operation being settled.</param>
+    /// <param name="outcome">Outcome kind: retire | readback | supersede.</param>
+    /// <param name="authorize">Identity authorizing this settlement, recorded in the receipt.</param>
+    /// <param name="rationale">Why the outcome is being settled. Required — a receipt without a reason is refused.</param>
+    /// <param name="replacementDigest">For --outcome supersede only: canonical digest of the replacement proposal.</param>
+    /// <param name="replacementOperation">For --outcome supersede only: op id of the Verified replacement operation.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("proposal reconcile")]
+    public async Task<int> PlanReconcile(
+        string? file = null,
+        string? confirm = null,
+        string? operation = null,
+        string? outcome = null,
+        string? authorize = null,
+        string? rationale = null,
+        string? replacementDigest = null,
+        string? replacementOperation = null,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ReconcileAsync(
+            file, confirm, operation, outcome, authorize, rationale,
+            replacementDigest, replacementOperation, output, ct);
+
     /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("pending")]
@@ -1768,6 +1794,7 @@ internal static class GroupedHelp
         "proposal apply",
         "proposal status",
         "proposal seed",
+        "proposal reconcile",
         "plan",
         "plan validate",
         "plan preview",

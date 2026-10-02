@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 11;
+    internal const int DurableSchemaVersion = 12;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -653,6 +653,32 @@ public sealed class SqliteCacheStore : IDisposable
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_journals_latest_unresolved
                 ON proposal_journals(last_previewed_at DESC, digest ASC)
                 WHERE state <> 'Verified';
+            """,
+
+        // Native-origin + outcome-receipt ledger. The journal gains an immutable first-preview
+        // origin column (nullable: unknown-legacy rows stay unknown — never backfilled). A new
+        // table carries append-only outcome receipts, keyed (digest, op_id) so exactly one
+        // settlement per operation can land. receipt_json is the TwigJsonContext payload — a
+        // full PlanOutcomeReceipt — and the two publish-* columns are an index-friendly
+        // projection used by the open-intent exclusion query, filled only on receipts that
+        // explicitly bind an identity to a recorded_at.
+        [12] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN origin_json TEXT;
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.proposal_receipts (
+                digest TEXT NOT NULL,
+                op_id TEXT NOT NULL,
+                receipt_id TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                publish_identity TEXT,
+                publish_intent_recorded_at TEXT,
+                receipt_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (digest, op_id)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_receipts_publish
+                ON proposal_receipts(publish_identity, publish_intent_recorded_at)
+                WHERE publish_identity IS NOT NULL;
             """,
 
     };

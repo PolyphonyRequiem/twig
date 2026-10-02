@@ -63,12 +63,14 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
     private readonly string _project;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     public AdoProcessDescriptionSource(
         HttpClient httpClient,
         IAuthenticationProvider authProvider,
         string orgUrl,
-        string project)
+        string project,
+        AdoConcurrencyThrottle? throttle = null)
     {
         if (string.IsNullOrWhiteSpace(orgUrl))
             throw new InvalidOperationException("Organization is not configured. Run 'twig init --org <org> --project <project>' first.");
@@ -78,6 +80,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         _http = httpClient;
         _authProvider = authProvider;
         _orgUrl = AdoRestClient.NormalizeOrgUrl(orgUrl);
+        _throttle = throttle;
         _project = project;
     }
 
@@ -1092,6 +1095,8 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
+        using var throttleSlot = _throttle is not null ? await _throttle.AcquireAsync(budget, ct) : null;
 
         HttpResponseMessage response;
         try
@@ -1109,7 +1114,13 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (AdoRateLimitException ex)
+        {
+            response.Dispose();
+            _throttle?.SetPause(budget, ex.RetryAfter);
+            throw;
         }
         catch
         {

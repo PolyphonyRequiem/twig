@@ -40,10 +40,25 @@ public interface IPlanJournalRepository
         string digest,
         string sourcePath,
         DateTimeOffset previewedAt,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        PlanOrigin? origin = null);
 
     /// <summary>Returns the journal for a digest, or null when none exists.</summary>
     Task<PlanJournal?> GetAsync(string digest, CancellationToken ct = default);
+
+    /// <summary>Every journal with an operation not Verified and not settled by a native receipt.</summary>
+    Task<IReadOnlyList<PlanJournal>> GetUnresolvedAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Appends one receipt only while the original row still matches the observed state and
+    /// evidence. Retirement and execution admission share this durable single-winner fence.
+    /// Original states and artifacts are never rewritten.
+    /// </summary>
+    Task<bool> TryAppendReceiptAsync(
+        PlanOutcomeReceipt receipt,
+        PlanOperationState expectedState,
+        string? expectedResultJson,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Returns the most recently previewed journal that is not fully Verified, using digest

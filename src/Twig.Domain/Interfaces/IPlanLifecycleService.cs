@@ -95,6 +95,21 @@ public interface IPlanLifecycleService
     Task<PlanStatusResult?> StatusAsync(string file, CancellationToken ct = default);
 
     /// <summary>
+    /// Explicitly retires a never-admitted operation, establishes its outcome by fresh readback,
+    /// or maps its exact effect to a Verified replacement. Requires original-digest authorization;
+    /// appends evidence without changing the original lifecycle or replaying a mutation.
+    /// </summary>
+    Task<PlanReconciliationResult> ReconcileAsync(
+        string file,
+        string confirmedDigest,
+        string opId,
+        PlanOutcomeKind kind,
+        Twig.Domain.Services.ChangeProposals.ProposalAuthorization? authorization,
+        string? replacementDigest = null,
+        string? replacementOpId = null,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Returns a descriptor for the currently-staged seed at <paramref name="seedId"/> — a
     /// negative display alias that resolves through the durable staged-identity register.
     /// Returns <c>null</c> for a positive id, an unknown alias, an already-published seed, or

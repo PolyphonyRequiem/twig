@@ -201,8 +201,12 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    Converters = [typeof(StagedIdentityJsonConverter)],
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 

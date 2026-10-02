@@ -79,6 +79,9 @@ internal static class PlanJsonWriter
             // the ADO field bodies. Consumers that want full evidence read the raw
             // `result`/`warning`/`error` above.
             WriteDiagnostics(writer, op.Diagnostics);
+            // Native settled outcome, append-only alongside the immutable execution state.
+            // Null when no reconciliation has settled this row.
+            WriteOutcomeReceipt(writer, "outcomeReceipt", op.OutcomeReceipt);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -210,6 +213,92 @@ internal static class PlanJsonWriter
 
         writer.WriteStartObject("reviewModel");
         ChangeProposalReviewModelJson.WriteBody(writer, model);
+        writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Writes a <see cref="PlanOrigin"/> under <paramref name="name"/>. Null is emitted as
+    /// JSON null — never silently stamped with the current actor — so a consumer can
+    /// detect "unknown legacy origin" without probing.
+    /// </summary>
+    public static void WriteOrigin(Utf8JsonWriter writer, string name, PlanOrigin? origin)
+    {
+        if (origin is null)
+        {
+            writer.WriteNull(name);
+            return;
+        }
+        writer.WriteStartObject(name);
+        writer.WriteString("worktreeRoot", origin.WorktreeRoot);
+        writer.WriteString("worktreeFingerprint", origin.WorktreeFingerprint);
+        writer.WriteNumber("attachmentRevision", origin.AttachmentRevision);
+        writer.WriteString("connectionRef", origin.ConnectionRef);
+        writer.WriteString("bindingId", origin.BindingId);
+        writer.WriteNumber("bindingRevision", origin.BindingRevision);
+        writer.WriteString("selectionSource", origin.SelectionSource);
+        writer.WriteNumber("selectionRevision", origin.SelectionRevision);
+        writer.WriteString("identityId", origin.IdentityId);
+        writer.WriteString("method", origin.Method);
+        writer.WriteString("credentialRef", origin.CredentialRef);
+        writer.WriteString("tenantId", origin.TenantId);
+        writer.WriteString("objectId", origin.ObjectId);
+        writer.WriteString("issuer", origin.Issuer);
+        writer.WriteString("authority", origin.Authority);
+        if (origin.AdoPrincipalId is not null) writer.WriteString("adoPrincipalId", origin.AdoPrincipalId);
+        else writer.WriteNull("adoPrincipalId");
+        writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Writes a <see cref="PlanOutcomeReceipt"/> under <paramref name="name"/>. Carries both
+    /// origins and the exact authorization record so an auditor can replay the gate decision
+    /// from JSON alone; <paramref name="receipt"/> null is emitted as JSON null.
+    /// </summary>
+    public static void WriteOutcomeReceipt(
+        Utf8JsonWriter writer, string name, PlanOutcomeReceipt? receipt)
+    {
+        if (receipt is null)
+        {
+            writer.WriteNull(name);
+            return;
+        }
+        writer.WriteStartObject(name);
+        writer.WriteString("receiptId", receipt.ReceiptId);
+        writer.WriteString("digest", receipt.Digest);
+        writer.WriteString("opId", receipt.OpId);
+        writer.WriteString("kind", receipt.Kind.ToString());
+        writer.WriteString("requestJson", receipt.RequestJson);
+        writer.WriteString("evidenceJson", receipt.EvidenceJson);
+        WriteOrigin(writer, "origin", receipt.Origin);
+        WriteOrigin(writer, "authorizingOrigin", receipt.AuthorizingOrigin);
+        WriteAuthorization(writer, "authorization", receipt.Authorization);
+        if (receipt.ReplacementDigest is not null) writer.WriteString("replacementDigest", receipt.ReplacementDigest);
+        else writer.WriteNull("replacementDigest");
+        if (receipt.ReplacementOpId is not null) writer.WriteString("replacementOpId", receipt.ReplacementOpId);
+        else writer.WriteNull("replacementOpId");
+        if (receipt.PublishIdentity is { } publish)
+            writer.WriteString("publishIdentity", publish.ToString());
+        else
+            writer.WriteNull("publishIdentity");
+        if (receipt.PublishIntentRecordedAt is not null)
+            writer.WriteString("publishIntentRecordedAt", receipt.PublishIntentRecordedAt);
+        else
+            writer.WriteNull("publishIntentRecordedAt");
+        writer.WriteEndObject();
+    }
+
+    public static void WriteAuthorization(
+        Utf8JsonWriter writer, string name, ProposalAuthorization authorization)
+    {
+        writer.WriteStartObject(name);
+        writer.WriteString("digest", authorization.Digest);
+        writer.WriteString("mode", ProposalAuthorization.ModeToWire(authorization.Mode));
+        writer.WriteString("authorizerIdentity", authorization.AuthorizerIdentity);
+        if (authorization.Rationale is not null) writer.WriteString("rationale", authorization.Rationale);
+        else writer.WriteNull("rationale");
+        writer.WriteString(
+            "authorizedAt",
+            authorization.AuthorizedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         writer.WriteEndObject();
     }
 }

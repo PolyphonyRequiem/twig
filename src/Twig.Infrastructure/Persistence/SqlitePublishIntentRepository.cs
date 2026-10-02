@@ -53,15 +53,11 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
+        // First intent wins even when two callers passed the pre-read concurrently. Neither
+        // an open time fence nor a completed outcome may be re-stamped by a losing recorder.
         cmd.CommandText = """
-            INSERT INTO publish_intents (staged_identity, title, type_name, recorded_at, published_id, completed_at)
-            VALUES (@identity, @title, @typeName, @recordedAt, NULL, NULL)
-            ON CONFLICT(staged_identity) DO UPDATE SET
-                title = excluded.title,
-                type_name = excluded.type_name,
-                recorded_at = excluded.recorded_at,
-                published_id = NULL,
-                completed_at = NULL;
+            INSERT OR IGNORE INTO publish_intents (staged_identity, title, type_name, recorded_at, published_id, completed_at)
+            VALUES (@identity, @title, @typeName, @recordedAt, NULL, NULL);
             """;
         cmd.Parameters.AddWithValue("@identity", identity.ToString());
         cmd.Parameters.AddWithValue("@title", intent.Title);
@@ -69,25 +65,72 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         cmd.Parameters.AddWithValue("@recordedAt", intent.RecordedAt.ToString("o"));
         cmd.ExecuteNonQuery();
 
-        return intent;
+        return await GetIntentAsync(identity, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Recorded publish intent disappeared before readback.");
     }
 
-    public Task CompleteIntentAsync(StagedIdentity identity, int publishedId, CancellationToken ct = default)
+    public async Task CompleteIntentAsync(StagedIdentity identity, int publishedId, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();
-        using var cmd = conn.CreateCommand();
-        cmd.Transaction = _store.ActiveTransaction;
-        cmd.CommandText = """
-            UPDATE publish_intents
-            SET published_id = @publishedId, completed_at = @completedAt
-            WHERE staged_identity = @identity;
-            """;
-        cmd.Parameters.AddWithValue("@identity", identity.ToString());
-        cmd.Parameters.AddWithValue("@publishedId", publishedId);
-        cmd.Parameters.AddWithValue("@completedAt", DateTimeOffset.UtcNow.ToString("o"));
-        cmd.ExecuteNonQuery();
+        var ownedTx = _store.ActiveTransaction is null;
+        var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
+        try
+        {
+            // First-outcome-wins. A completed intent is proof that an ADO item exists under
+            // THIS staged identity; overwriting it with a different publishedId would silently
+            // reattribute the create. Re-asserting the SAME publishedId is a safe idempotent
+            // retry (the final commit of a completion that already landed, repeated after a
+            // crash). A contradictory re-completion throws so a caller cannot silently fork
+            // the identity.
+            using (var probe = conn.CreateCommand())
+            {
+                probe.Transaction = tx;
+                probe.CommandText = "SELECT published_id FROM publish_intents WHERE staged_identity = @identity;";
+                probe.Parameters.AddWithValue("@identity", identity.ToString());
+                var existing = probe.ExecuteScalar();
+                if (existing is not null && existing is not DBNull)
+                {
+                    var existingId = Convert.ToInt32(existing);
+                    if (existingId != publishedId)
+                    {
+                        throw new InvalidOperationException(
+                            $"Publish intent {identity} is already completed with id {existingId}; " +
+                            $"refusing contradictory completion with id {publishedId}.");
+                    }
+                    // Same id — nothing to do; the completion already landed.
+                    if (ownedTx) tx.Commit();
+                    return;
+                }
+            }
 
-        return Task.CompletedTask;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                // Guard with `published_id IS NULL` so a race between the probe and the write
+                // cannot still overwrite a parallel completion that beat us.
+                cmd.CommandText = """
+                    UPDATE publish_intents
+                    SET published_id = @publishedId, completed_at = @completedAt
+                    WHERE staged_identity = @identity AND published_id IS NULL;
+                    """;
+                cmd.Parameters.AddWithValue("@identity", identity.ToString());
+                cmd.Parameters.AddWithValue("@publishedId", publishedId);
+                cmd.Parameters.AddWithValue("@completedAt", DateTimeOffset.UtcNow.ToString("o"));
+                cmd.ExecuteNonQuery();
+            }
+
+            if (ownedTx) tx.Commit();
+        }
+        catch
+        {
+            if (ownedTx) tx.Rollback();
+            throw;
+        }
+        finally
+        {
+            if (ownedTx) tx.Dispose();
+        }
+        await Task.CompletedTask;
     }
 
     public Task<PublishIntent?> GetIntentAsync(StagedIdentity identity, CancellationToken ct = default)
@@ -111,10 +154,23 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
+        // A proposal_receipts row that maps PublishIdentity + the EXACT intent recorded_at is a
+        // proof the native authority settled this specific publish — retirement with no mutation
+        // issued, or a readback-confirmed landing. Exclude ONLY the row whose timestamp matches
+        // byte-for-byte; a receipt whose recorded_at drifts by even one tick names a DIFFERENT
+        // intent instance and must not fence this one out. Receipts whose PublishIdentity is NULL
+        // (retirement without a staged identity) match no intent — unrelated unknowns stay
+        // enumerable.
         cmd.CommandText = """
             SELECT staged_identity, title, type_name, recorded_at, published_id, completed_at
-            FROM publish_intents
+            FROM publish_intents i
             WHERE published_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM proposal_receipts r
+                WHERE r.publish_identity = i.staged_identity
+                  AND r.kind IN ('Readback', 'Superseded')
+                  AND r.publish_intent_recorded_at = i.recorded_at
+              )
             ORDER BY recorded_at;
             """;
 

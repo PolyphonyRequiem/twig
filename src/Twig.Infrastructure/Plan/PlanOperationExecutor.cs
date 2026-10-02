@@ -255,6 +255,23 @@ internal sealed class PlanOperationExecutor
         }
     }
 
+    /// <summary>Receipt readback is strictly read-only, including publish-intent recovery.</summary>
+    internal Task<PlanReadbackOutcome> ReadbackForReceiptAsync(
+        PlanOperationDefinition operation, string? acknowledgedJson, CancellationToken ct)
+    {
+        if (operation is PublishSeedOperation seed)
+            return _seedPublisher.ReadbackForReceiptAsync(seed, acknowledgedJson, ct);
+        int? revision = null;
+        if (acknowledgedJson is not null)
+        {
+            using var acknowledged = JsonDocument.Parse(acknowledgedJson);
+            if (acknowledged.RootElement.TryGetProperty("rev", out var value) && value.TryGetInt32(out var parsed))
+                revision = parsed;
+        }
+        return ReadbackAsync(operation,
+            new PlanExecutionResult(PlanExecutionOutcome.Applied, acknowledgedJson, null, null, revision), ct);
+    }
+
     private async Task<PlanReadbackOutcome> ReadbackBatchAsync(
         BatchOperation batch, int? acknowledgedRevision, CancellationToken ct)
     {

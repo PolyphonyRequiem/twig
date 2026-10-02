@@ -29,6 +29,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     private readonly string _orgUrl;
     private readonly string _project;
     private readonly string _team;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     // Lazy-initialized caches — safe because CLI is single-threaded
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
@@ -58,7 +59,8 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         IAuthenticationProvider authProvider,
         string orgUrl,
         string project,
-        string? team = null)
+        string? team = null,
+        AdoConcurrencyThrottle? throttle = null)
     {
         if (string.IsNullOrWhiteSpace(orgUrl))
             throw new InvalidOperationException("Organization is not configured. Run 'twig init --org <org> --project <project>' first.");
@@ -70,6 +72,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         _orgUrl = AdoRestClient.NormalizeOrgUrl(orgUrl);
         _project = project;
         _team = team ?? project; // default team name = project name
+        _throttle = throttle;
     }
 
     public async Task<IterationPath> GetCurrentIterationAsync(CancellationToken ct = default)
@@ -1000,6 +1003,8 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
+        using var throttleSlot = _throttle is not null ? await _throttle.AcquireAsync(budget, ct) : null;
 
         HttpResponseMessage response;
         try
@@ -1017,7 +1022,13 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (AdoRateLimitException ex)
+        {
+            response.Dispose();
+            _throttle?.SetPause(budget, ex.RetryAfter);
+            throw;
         }
         catch
         {

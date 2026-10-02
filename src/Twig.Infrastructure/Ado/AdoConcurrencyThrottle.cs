@@ -1,55 +1,73 @@
+using System.Collections.Concurrent;
+
 namespace Twig.Infrastructure.Ado;
 
 /// <summary>
-/// Process-wide concurrency limiter for ADO HTTP requests.
-/// Caps the number of in-flight ADO API calls and respects 429 Retry-After headers
-/// by pausing all queued requests for the duration of the retry window.
+/// Shared concurrency limiter for ADO HTTP requests. Server pauses belong to a
+/// principal/authority budget, not the transport or an identity's management alias.
 /// </summary>
-/// <remarks>
-/// Default concurrency of 4 is conservative — at ~200ms per request, 4 concurrent
-/// calls produce ~20 requests/second, well within ADO's per-user rate limit.
-/// </remarks>
 internal sealed class AdoConcurrencyThrottle : IDisposable
 {
     private readonly SemaphoreSlim _semaphore;
-    private long _pauseUntilTicks = DateTimeOffset.MinValue.UtcTicks;
+    private readonly ConcurrentDictionary<AdoRateLimitBudget, long> _pauses = new();
+    private readonly TimeProvider _clock;
 
-    public AdoConcurrencyThrottle(int maxConcurrency = 4)
+    public AdoConcurrencyThrottle(int maxConcurrency = 4, TimeProvider? clock = null)
     {
         _semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        _clock = clock ?? TimeProvider.System;
     }
 
-    /// <summary>
-    /// Acquires a concurrency slot, honoring any active Retry-After pause.
-    /// Dispose the returned handle to release the slot.
-    /// </summary>
-    public async Task<IDisposable> AcquireAsync(CancellationToken ct)
+    /// <summary>Waits outside concurrency slots and rechecks a pause after queued admission.</summary>
+    public async Task<IDisposable> AcquireAsync(AdoRateLimitBudget? budget, CancellationToken ct)
     {
-        var pauseUntilTicks = Interlocked.Read(ref _pauseUntilTicks);
-        var nowTicks = DateTimeOffset.UtcNow.UtcTicks;
-        if (pauseUntilTicks > nowTicks)
+        while (true)
         {
-            await Task.Delay(TimeSpan.FromTicks(pauseUntilTicks - nowTicks), ct);
-        }
+            var remaining = RemainingPause(budget);
+            if (remaining > TimeSpan.Zero)
+            {
+                // Task.Delay limits a single timer's range; do not shorten the server deadline.
+                await Task.Delay(remaining > TimeSpan.FromDays(1) ? TimeSpan.FromDays(1) : remaining, _clock, ct).ConfigureAwait(false);
+                continue;
+            }
 
-        await _semaphore.WaitAsync(ct);
-        return new SemaphoreReleaser(_semaphore);
+            await _semaphore.WaitAsync(ct).ConfigureAwait(false);
+            if (RemainingPause(budget) <= TimeSpan.Zero)
+                return new SemaphoreReleaser(_semaphore);
+            _semaphore.Release();
+        }
     }
 
-    /// <summary>
-    /// Records a 429 rate-limit response. All subsequent <see cref="AcquireAsync"/> calls
-    /// will pause until the retry window expires.
-    /// </summary>
-    public void SetPause(TimeSpan retryAfter)
+    /// <summary>Concurrent responses may extend a deadline, never shorten another response's pause.</summary>
+    public void SetPause(AdoRateLimitBudget? budget, TimeSpan retryAfter)
     {
-        var newTicks = (DateTimeOffset.UtcNow + retryAfter).UtcTicks;
-        Interlocked.Exchange(ref _pauseUntilTicks, newTicks);
+        if (budget is not { } key || retryAfter <= TimeSpan.Zero)
+            return;
+        var now = _clock.GetUtcNow().UtcTicks;
+        var deadline = now + Math.Min(retryAfter.Ticks, DateTimeOffset.MaxValue.UtcTicks - now);
+        _pauses.AddOrUpdate(key, static (_, next) => next, static (_, previous, next) => Math.Max(previous, next), deadline);
+    }
+
+    private TimeSpan RemainingPause(AdoRateLimitBudget? budget)
+    {
+        if (budget is not { } key || !_pauses.TryGetValue(key, out var deadline))
+            return TimeSpan.Zero;
+        var now = _clock.GetUtcNow().UtcTicks;
+        if (deadline > now)
+            return TimeSpan.FromTicks(deadline - now);
+        _pauses.TryRemove(new KeyValuePair<AdoRateLimitBudget, long>(key, deadline));
+        return TimeSpan.Zero;
     }
 
     public void Dispose() => _semaphore.Dispose();
 
     private sealed class SemaphoreReleaser(SemaphoreSlim semaphore) : IDisposable
     {
-        public void Dispose() => semaphore.Release();
+        private int _released;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+                semaphore.Release();
+        }
     }
 }

@@ -53,6 +53,7 @@ internal static class WorkItemCopier
             Title = titleOverride ?? source.Title,
             State = source.State,
             AssignedTo = overrideAssignedTo ? assignedToValue : source.AssignedTo,
+            AssignedToUniqueName = overrideAssignedTo ? null : source.AssignedToUniqueName,
             IterationPath = iterationPathOverride ?? source.IterationPath,
             AreaPath = areaPathOverride ?? source.AreaPath,
             ParentId = overrideParentId ? parentIdValue : source.ParentId,

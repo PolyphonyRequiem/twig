@@ -32,7 +32,7 @@ public sealed class DefaultBenchParityTests
     private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
-    private readonly IIterationService _iterationService = Substitute.For<IIterationService>();
+    private readonly IIterationService _iterationService = IdentityStubs.NewBound(uniqueName: WorkingSetBaselineFixture.UserUniqueName);
     private readonly IBenchRepository _benchRepo = Substitute.For<IBenchRepository>();
     private readonly IIterationCalendar _calendar = Substitute.For<IIterationCalendar>();
 
@@ -89,7 +89,7 @@ public sealed class DefaultBenchParityTests
 
     private WorkingSetService CreateSut() => new(
         _contextStore, _workItemRepo, _pendingStore, _iterationService,
-        WorkingSetBaselineFixture.UserDisplayName, _benchRepo,
+        _benchRepo,
         new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
 
     // ═══════════════════════════════════════════════════════════════

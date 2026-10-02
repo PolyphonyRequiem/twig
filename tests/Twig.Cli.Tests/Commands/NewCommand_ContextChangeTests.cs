@@ -25,6 +25,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IIterationService _iterationService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly TwigConfiguration _config;
@@ -44,6 +45,9 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _iterationService = Substitute.For<IIterationService>();
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(("Test User", "test.user@example.com"));
 
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
@@ -126,7 +130,8 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
-            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            _iterationService);
 
         var result = await cmd.ExecuteAsync("My Task", "Task", set: true);
 
@@ -148,6 +153,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
             Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            _iterationService,
             rendererFactory: null,
             contextChangeService: contextChangeService);
     }

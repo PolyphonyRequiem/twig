@@ -130,7 +130,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND assigned_to = @assignee COLLATE NOCASE;";
+        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
         cmd.Parameters.AddWithValue("@assignee", assignee);
 
@@ -446,10 +446,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT OR REPLACE INTO work_items
-                (id, type, title, state, parent_id, assigned_to, iteration_path, area_path,
+                (id, type, title, state, parent_id, assigned_to, assigned_to_unique_name, iteration_path, area_path,
                  revision, is_seed, seed_created_at, staged_identity, fields_json, is_dirty, last_synced_at)
             VALUES
-                (@id, @type, @title, @state, @parentId, @assignedTo, @iterationPath, @areaPath,
+                (@id, @type, @title, @state, @parentId, @assignedTo, @assignedToUniqueName, @iterationPath, @areaPath,
                  @revision, @isSeed, @seedCreatedAt, @stagedIdentity, @fieldsJson, @isDirty, @lastSyncedAt);
             """;
 
@@ -458,7 +458,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Parameters.AddWithValue("@title", item.Title);
         cmd.Parameters.AddWithValue("@state", item.State);
         cmd.Parameters.AddWithValue("@parentId", (object?)item.ParentId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@assignedTo", (object?)item.AssignedTo ?? DBNull.Value);
+        var assignedTo = item.Fields.TryGetValue("System.AssignedTo", out var authoredAssignee)
+            ? authoredAssignee : item.AssignedTo;
+        cmd.Parameters.AddWithValue("@assignedTo", (object?)assignedTo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@assignedToUniqueName", (object?)item.AssignedToUniqueName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@iterationPath", (object?)item.IterationPath.Value ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@areaPath", (object?)item.AreaPath.Value ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@revision", item.Revision);
@@ -521,6 +524,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             AssignedTo = reader.IsDBNull(reader.GetOrdinal("assigned_to"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("assigned_to")),
+            AssignedToUniqueName = reader.IsDBNull(reader.GetOrdinal("assigned_to_unique_name"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("assigned_to_unique_name")),
             IterationPath = reader.IsDBNull(reader.GetOrdinal("iteration_path"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("iteration_path")),

@@ -9,9 +9,12 @@ mutates: local
 # `twig seed new`
 
 Creates a new **local seed** — a draft work item with a negative ID that lives only in
-the workspace SQLite cache. Nothing is sent to Azure DevOps. Reach for this when you
-want to compose one or many work items, wire them together, and publish the batch
-later with `seed publish`.
+the workspace SQLite cache. No work item is pushed to Azure DevOps. The default
+assignee is the bound account's canonical ADO identity, resolved through that
+connection rather than `user.name`. The identity lookup can contact ADO; missing
+canonical metadata refuses before a draft is minted. An explicit
+`--field System.AssignedTo=<identity>` takes precedence and skips that lookup.
+Reach for this when you want to compose work and publish it later with `seed publish`.
 
 ## Synopsis
 
@@ -49,7 +52,7 @@ twig seed new [--title <string>] [--type <type>] [--editor] [--parent <id> | --n
 - Orphan seeds fall back to `TwigConfiguration.Defaults.AreaPath` / `IterationPath`, then the project name, then default, mirroring the MCP `SeedTools.ResolveDefaultPath` path (`src/Twig/Commands/SeedNewCommand.cs:169-176,372-389`).
 - With `--editor`, the seed template is generated from field definitions, launched via `IEditorLauncher`, and reparsed. A cancelled editor yields exit `0` with a `Seed creation cancelled` message (`src/Twig/Commands/SeedNewCommand.cs:210-235`).
 - Persistence: the seed row is saved through `IWorkItemRepository.SaveAsync`. When the parent was **explicit** (either `--parent` or an editor override), an additional parent-child row is written to `ISeedLinkRepository` so `seed validate` can tell "inferred" from "chosen" — the presence of both stores means chosen, `ParentId` alone means inferred (`src/Twig/Commands/SeedNewCommand.cs:238-247`).
-- No ADO calls. No `twig save` or `twig sync` is needed; the seed is immediately visible to `seed view`, `seed link`, and `seed publish`.
+- Draft persistence is local. No `twig save` or `twig sync` is needed; the seed is immediately visible to `seed view`, `seed link`, and `seed publish`. The default-assignee lookup is a read, not publication.
 
 ## Examples
 

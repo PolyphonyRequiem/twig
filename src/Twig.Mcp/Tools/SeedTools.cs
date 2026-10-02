@@ -5,6 +5,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Mutation;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Auth;
 ﻿using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -28,13 +29,13 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFactory)
 {
-    [McpServerTool(Name = "twig_seed_new"), Description("Create a new local seed work item (no ADO interaction). Seeds are draft items with negative IDs that can be published later.")]
+    [McpServerTool(Name = "twig_seed_new"), Description("Create a local draft for later publication. Bound default-assignee lookup can read ADO.")]
     public async Task<CallToolResult> SeedNew(
         [Description("Title for the new seed work item")] string title,
-        [Description("Work item type (e.g. Task, Issue, Bug). Required when no parentId is provided; inferred from parent's allowed child types when omitted.")] string? type = null,
-        [Description("Parent work item ID (positive for ADO items, negative for other seeds). Used for type inference and path inheritance.")] int? parentId = null,
+        [Description("Work item type; required without a parent, otherwise inferred from parent.")] string? type = null,
+        [Description("Parent ID (published or draft); supplies paths and type inference.")] int? parentId = null,
         [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
-        [Description("Assignee display name (optional)")] string? assignedTo = null,
+        [Description("Explicit assignee; defaults to bound canonical identity.")] string? assignedTo = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
@@ -63,6 +64,20 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
             typeOverride = typeResult.Value;
         }
 
+        // AFK Task #1106: when the caller did not supply an explicit assignee, resolve
+        // the bound ADO principal's canonical uniqueName and use it as the authoring
+        // default. If the connection cannot supply a uniqueName, refuse before any
+        // mint/save so the local store never ends up with a seed authored to a
+        // fabricated identity.
+        string? effectiveAssignedTo = assignedTo;
+        if (string.IsNullOrWhiteSpace(effectiveAssignedTo))
+        {
+            var identityResult = await BoundAssigneeResolver.ResolveAsync(ctx.Get<IIterationService>(), ct);
+            if (identityResult.ErrorMessage is not null)
+                return await EnvelopeBuilder.ErrorAsync(identityResult.IsUnavailable ? McpErrorCode.AdoUnreachable : McpErrorCode.InvalidInput, identityResult.ErrorMessage, ctx, ct);
+            effectiveAssignedTo = identityResult.UniqueName;
+        }
+
         Result<Domain.Aggregates.WorkItem> seedResult;
 
         if (parentId.HasValue)
@@ -73,7 +88,7 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
             seedResult = seedFactory.Create(
-                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, assignedTo);
+                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, effectiveAssignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
@@ -94,7 +109,7 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
 
             seedResult = seedFactory.CreateUnparented(
                 title, typeOverride.Value, areaPath, iterationPath,
-                await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), assignedTo);
+                await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), effectiveAssignedTo);
             if (!seedResult.IsSuccess)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.Error, ctx, ct);
         }
@@ -477,12 +492,12 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
         }, verbose, ct);
     }
 
-    [McpServerTool(Name = "twig_seed_chain"), Description("Create a sequence of seeds under the same parent. Returns all created seed IDs. Composable inside twig_batch parallel blocks.")]
+    [McpServerTool(Name = "twig_seed_chain"), Description("Create successor-linked local drafts under one parent; no publication. Uses bound default assignee.")]
     public async Task<CallToolResult> SeedChain(
-        [Description("Parent work item ID (positive for ADO items, negative for other seeds).")] int parentId,
+        [Description("Parent ID (published or draft).")] int parentId,
         [Description("Ordered list of titles for the seed chain.")] string[] titles,
-        [Description("Work item type (e.g. Task, Issue). When omitted, inferred from parent's allowed child types.")] string? type = null,
-        [Description("Assignee display name applied to all seeds (optional)")] string? assignedTo = null,
+        [Description("Work item type; inferred from parent when omitted.")] string? type = null,
+        [Description("Explicit assignee for all drafts; defaults to bound canonical identity.")] string? assignedTo = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
@@ -514,12 +529,24 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
         if (fetchErr is not null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
+        // AFK Task #1106: resolve the bound default once for the chain so a transient
+        // metadata failure doesn't persist some seeds under the bound identity and
+        // others under nothing. Explicit assignedTo bypasses the lookup entirely.
+        string? effectiveAssignedTo = assignedTo;
+        if (string.IsNullOrWhiteSpace(effectiveAssignedTo))
+        {
+            var identityResult = await BoundAssigneeResolver.ResolveAsync(ctx.Get<IIterationService>(), ct);
+            if (identityResult.ErrorMessage is not null)
+                return await EnvelopeBuilder.ErrorAsync(identityResult.IsUnavailable ? McpErrorCode.AdoUnreachable : McpErrorCode.InvalidInput, identityResult.ErrorMessage, ctx, ct);
+            effectiveAssignedTo = identityResult.UniqueName;
+        }
+
         var createdSeeds = new List<Domain.Aggregates.WorkItem>();
 
         foreach (var title in titles)
         {
             var seedResult = seedFactory.Create(
-                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, assignedTo);
+                title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), typeOverride, effectiveAssignedTo);
             if (!seedResult.IsSuccess)
             {
                 var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
@@ -908,4 +935,5 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
         }
         return default;
     }
+
 }

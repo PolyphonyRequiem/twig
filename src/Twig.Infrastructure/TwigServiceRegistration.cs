@@ -421,7 +421,7 @@ public static class TwigServiceRegistration
         // is the sprint rule alone — seeding from the tracking file would resurrect the second pin
         // store the wipe removed.
         services.TryAddSingleton<DefaultBenchSelectors>(sp => new DefaultBenchSelectors(
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+            sp.GetRequiredService<IIterationService>()));
 
         // ADO #149: ONE answer to "which Bench am I standing on". Shared by the view, the pin
         // workflow and the Bench workflow — a second copy is how one surface gets left reading the
@@ -464,13 +464,11 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<DefaultBenchSelectors>(),
             sp.GetRequiredService<CurrentBenchResolver>()));
 
-        // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<BenchEvaluator>()));
 

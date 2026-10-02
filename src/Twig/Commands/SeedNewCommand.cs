@@ -6,6 +6,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
 using Twig.RenderTree;
@@ -14,9 +15,11 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig seed new [--type &lt;type&gt;] [--editor] "title"</c>: creates a seed work item
-/// locally under the active parent without any ADO interaction.
-/// Also backs the bare <c>twig seed "title"</c> shortcut for backward compatibility.
+/// Implements <c>twig seed new [--type &lt;type&gt;] [--editor] "title"</c>: writes a seed work item
+/// to the local store under the active parent. The seed itself is never pushed to ADO, but a
+/// bound-identity lookup is issued against the connection to resolve the default assignee
+/// (AFK Task #1106) — pass <c>--field System.AssignedTo=&lt;upn&gt;</c> to author an explicit
+/// assignee and skip that lookup. Also backs the bare <c>twig seed "title"</c> shortcut.
 /// </summary>
 /// <remarks>
 /// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
@@ -35,11 +38,12 @@ public sealed class SeedNewCommand(
     SeedFactory seedFactory,
     IStagedIdentityRegistry stagedIdentityRegistry,
     ISeedLinkRepository seedLinkRepo,
+    IIterationService iterationService,
     RendererFactory? rendererFactory = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
-    /// <summary>Create a new local seed work item (no ADO push).</summary>
+    /// <summary>Create a new local seed work item (no ADO push; a bound-identity lookup against the connection resolves the default assignee).</summary>
     public async Task<int> ExecuteAsync(
         string? title,
         string? type = null,
@@ -161,6 +165,25 @@ public sealed class SeedNewCommand(
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
+        // AFK Task #1106: default assignee is the bound ADO principal's canonical
+        // uniqueName. `twig seed new` doesn't contact ADO to persist the seed itself,
+        // but it does need a bound identity lookup to decide the authoring default.
+        // Explicit --field System.AssignedTo wins and skips the lookup.
+        var hasExplicitAssignedTo = fieldValues.Any(f =>
+            string.Equals(f.FieldName, "System.AssignedTo", StringComparison.OrdinalIgnoreCase));
+
+        string? defaultAssignedTo = null;
+        if (!hasExplicitAssignedTo)
+        {
+            var identity = await BoundAssigneeResolver.ResolveAsync(iterationService, ct);
+            if (identity.ErrorMessage is not null)
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, identity.ErrorMessage);
+                return 1;
+            }
+            defaultAssignedTo = identity.UniqueName;
+        }
+
         var stagedIdentity = await stagedIdentityRegistry.MintAsync(ct);
 
         // With --no-parent there is no context to inherit area/iteration from, so fall back
@@ -173,9 +196,9 @@ public sealed class SeedNewCommand(
                 ResolveDefaultPath(config.Defaults?.AreaPath, config.Project, AreaPath.Parse),
                 ResolveDefaultPath(config.Defaults?.IterationPath, config.Project, IterationPath.Parse),
                 stagedIdentity,
-                config.User.DisplayName)
+                defaultAssignedTo)
             : seedFactory.Create(seedTitle, parentContext, processConfig, stagedIdentity, typeOverride,
-                config.User.DisplayName);
+                defaultAssignedTo);
         if (!seedResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(seedResult.Error));

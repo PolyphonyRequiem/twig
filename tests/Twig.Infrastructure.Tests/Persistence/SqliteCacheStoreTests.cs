@@ -12,6 +12,49 @@ namespace Twig.Infrastructure.Tests.Persistence;
 public class SqliteCacheStoreTests
 {
     [Fact]
+    public async Task IdentityMetadataUpgradePreservesSeedAndPendingWorkWithoutInventingAnOwner()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "twig-identity-upgrade-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var connection = $"Data Source={Path.Combine(dir, "twig.db")}";
+        try
+        {
+            using (var old = new SqliteCacheStore(connection))
+            {
+                var repo = new SqliteWorkItemRepository(old, new Twig.Domain.Services.WorkItemMapper());
+                var identity = await new SqliteStagedIdentityRegistry(old).MintAsync();
+                var seed = new Twig.Domain.Aggregates.WorkItem
+                {
+                    Id = identity.Alias.Value,
+                    StagedIdentity = identity.Identity,
+                    IsSeed = true,
+                    Title = "Unpublished work",
+                    AssignedTo = "Same display name",
+                    Type = Twig.Domain.ValueObjects.WorkItemType.Task,
+                };
+                await repo.SaveAsync(seed);
+                using var cmd = old.GetConnection().CreateCommand();
+                cmd.CommandText = "ALTER TABLE work_items DROP COLUMN assigned_to_unique_name; UPDATE metadata SET value = '16' WHERE key = 'schema_version'; INSERT INTO pending.pending_changes (work_item_id, change_type, field_name, old_value, new_value, created_at) VALUES (@id, 'note', NULL, NULL, 'Keep this note', '2026-10-01T00:00:00Z');";
+                cmd.Parameters.AddWithValue("@id", seed.Id);
+                cmd.ExecuteNonQuery();
+            }
+            using var upgraded = new SqliteCacheStore(connection);
+            var retained = (await new SqliteWorkItemRepository(upgraded, new Twig.Domain.Services.WorkItemMapper()).GetSeedsAsync()).ShouldHaveSingleItem();
+            retained.Title.ShouldBe("Unpublished work");
+            retained.AssignedToUniqueName.ShouldBeNull();
+            using var notes = upgraded.GetConnection().CreateCommand();
+            notes.CommandText = "SELECT new_value FROM pending.pending_changes WHERE work_item_id = @id;";
+            notes.Parameters.AddWithValue("@id", retained.Id);
+            notes.ExecuteScalar().ShouldBe("Keep this note");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Constructor_CreatesSchema_InMemory()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");

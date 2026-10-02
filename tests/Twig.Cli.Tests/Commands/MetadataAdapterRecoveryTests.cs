@@ -152,7 +152,7 @@ public sealed class MetadataAdapterRecoveryTests
                 var cmd = new NewCommand(ado, items, Substitute.For<IContextStore>(), fields,
                     Substitute.For<IEditorLauncher>(), formatter, new HintEngine(new DisplayConfig { Hints = false }),
                     new TwigConfiguration(), new SeedFactory(), Substitute.For<IStagedIdentityRegistry>(),
-                    ReferenceProfileBuilder.UnpinnedSprintPolicy(), iterationService: service);
+                    ReferenceProfileBuilder.UnpinnedSprintPolicy(), service);
                 exit = await cmd.ExecuteAsync("Fixture", "Task", fields: ["Custom.Unknown=x"], outputFormat: "json", ct: ct);
             }
             else

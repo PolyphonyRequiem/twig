@@ -1,18 +1,18 @@
 # Seeds
 
 Seeds are **local-only work items** with negative IDs (e.g. `#-42`) that live in the
-per-workspace SQLite cache at `.twig/{org}/{project}/twig.db`. They exist so you can
+per-worktree SQLite cache at `.twig/cache/twig.db`. They exist so you can
 compose a batch of draft work — titles, fields, parent/child structure, dependency
-graph — without touching Azure DevOps, and then publish the whole set in dependency
+graph — without publishing work items, and then publish the whole set in dependency
 order when it is ready.
 
 ## Local seed work vs ADO publishing
 
-The commands split cleanly along one axis: does the operation talk to ADO?
+Local authoring and remote publication remain distinct; resolving a default assignee can require an ADO read.
 
 |Group|Commands|What they touch|
 |---|---|---|
-|Local seed authoring|[`seed new`](./seed-new.md), [`seed edit`](./seed-edit.md), [`seed discard`](./seed-discard.md), [`seed view`](./seed-view.md), [`seed link`](./seed-link.md), [`seed unlink`](./seed-unlink.md), [`seed links`](./seed-links.md), [`seed chain`](./seed-chain.md), [`seed validate`](./seed-validate.md)|Workspace cache only. No ADO network calls. Safe offline. `mutates: local` or `none`.|
+|Local seed authoring|[`seed new`](./seed-new.md), [`seed edit`](./seed-edit.md), [`seed discard`](./seed-discard.md), [`seed view`](./seed-view.md), [`seed link`](./seed-link.md), [`seed unlink`](./seed-unlink.md), [`seed links`](./seed-links.md), [`seed chain`](./seed-chain.md), [`seed validate`](./seed-validate.md)|Draft mutations stay local. Creation resolves the bound account's canonical default assignee before minting; that lookup can contact ADO and refuses when identity metadata is unavailable. Other local operations retain their existing offline behavior. `mutates: local` or `none`.|
 |ADO publishing|[`seed publish`](./seed-publish.md), [`seed reconcile`](./seed-reconcile.md)|Push seeds to ADO (`seed publish`) or repair local link tables against the `publish_id_map` after a partial push (`seed reconcile`). `mutates: ado` and `mutates: local` respectively.|
 |Backward-compat shortcut|[`seed`](./seed.md)|Hidden alias for `seed new`. Local only.|
 

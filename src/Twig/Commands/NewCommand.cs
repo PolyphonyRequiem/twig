@@ -9,6 +9,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Persistence;
@@ -30,10 +31,10 @@ public sealed class NewCommand(
     SeedFactory seedFactory,
     IStagedIdentityRegistry stagedIdentityRegistry,
     SprintEntryPolicy sprintEntryPolicy,
+    IIterationService iterationService,
     RendererFactory? rendererFactory = null,
     ContextChangeService? contextChangeService = null,
-    TextReader? stdinReader = null,
-    IIterationService? iterationService = null)
+    TextReader? stdinReader = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     private readonly TextReader _stdin = stdinReader ?? Console.In;
@@ -213,13 +214,33 @@ public sealed class NewCommand(
 
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
+        // AFK Task #1106: the default assignee is the bound ADO principal's canonical
+        // uniqueName — not config.User.DisplayName, which is an unverified rendering.
+        // An explicit --field System.AssignedTo=<value> takes precedence and bypasses
+        // the lookup entirely, so a format-aware error here is only raised when the
+        // caller actually needs the bound identity to default an assignee.
+        var hasExplicitAssignedTo = fieldValues.Any(f =>
+            string.Equals(f.FieldName, "System.AssignedTo", StringComparison.OrdinalIgnoreCase));
+
+        string? defaultAssignedTo = null;
+        if (!hasExplicitAssignedTo)
+        {
+            var identity = await BoundAssigneeResolver.ResolveAsync(iterationService, ct);
+            if (identity.ErrorMessage is not null)
+            {
+                CommandError.Write(_rendererFactory, Console.Error, outputFormat, identity.ErrorMessage);
+                return 1;
+            }
+            defaultAssignedTo = identity.UniqueName;
+        }
+
         var seedResult = seedFactory.CreateUnparented(
             seedTitle,
             typeResult.Value,
             areaResult.Value,
             iterResult.Value,
             await stagedIdentityRegistry.MintAsync(ct),
-            config.User.DisplayName,
+            defaultAssignedTo,
             parent);
 
         if (!seedResult.IsSuccess)

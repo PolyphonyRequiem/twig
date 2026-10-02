@@ -6,10 +6,11 @@ pinned or hidden, and which sprints and area paths the workspace subscribes to.
 `workspace` on its own renders the current view; the sub-commands mutate the
 workspace configuration or the local tracking tables.
 
-Everything under `workspace` operates on cache and workspace config. The one
-exception is `workspace area sync`, which reads team area paths from Azure
-DevOps to rebuild the local configuration. No sub-command in this group pushes
-work-item mutations to ADO.
+Workspace views read cached items and workspace configuration. Self views also
+resolve the bound account's canonical ADO identity; that lookup can contact Azure
+DevOps and refuses if the identity cannot be established. `workspace area sync`
+reads team area paths to rebuild local configuration. No sub-command in this
+group pushes work-item mutations to ADO.
 
 ## Commands
 

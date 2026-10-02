@@ -34,22 +34,28 @@ public sealed class WorkingSetService
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingStore;
     private readonly IIterationService _iterationService;
-    private readonly string? _userDisplayName;
     private readonly IBenchRepository? _benchRepo;
     private readonly BenchEvaluator? _benchEvaluator;
 
     /// <summary>
-    /// The signature that shipped before the Bench existed. Kept working unchanged: it is declared
-    /// public API and existing call sites must not be rewritten. With no Bench wired up, the same
-    /// default selectors are evaluated through the same evaluator, so this is the identical code
-    /// path with an unsaved Bench rather than a second implementation that could drift.
+    /// The signature that shipped before the Bench existed. Kept working unchanged: existing call
+    /// sites must not be rewritten. With no Bench wired up, the same default selectors are
+    /// evaluated through the same evaluator, so this is the identical code path with an unsaved
+    /// Bench rather than a second implementation that could drift.
+    /// <para>
+    /// 🔴 The default Bench's self filter is sourced from the authenticated connection's bound
+    /// canonical identity (ADO #1106), resolved asynchronously through <paramref name="iterationService"/>.
+    /// The old <c>string? userDisplayName</c> primitive was dropped because a display rendering
+    /// is unsafe for self scoping — two accounts can share one, and the primitive carried no
+    /// provenance to say whether it was the bound principal or just the ambient config value.
+    /// Callers that need an explicit team view bypass this service (<c>--all</c>).
+    /// </para>
     /// </summary>
     public WorkingSetService(
         IContextStore contextStore,
         IWorkItemRepository workItemRepo,
         IPendingChangeStore pendingStore,
         IIterationService iterationService,
-        string? userDisplayName,
         IBenchRepository? benchRepo = null,
         BenchEvaluator? benchEvaluator = null)
     {
@@ -57,7 +63,6 @@ public sealed class WorkingSetService
         _workItemRepo = workItemRepo;
         _pendingStore = pendingStore;
         _iterationService = iterationService;
-        _userDisplayName = userDisplayName;
         _benchRepo = benchRepo;
         _benchEvaluator = benchEvaluator;
     }
@@ -144,7 +149,7 @@ public sealed class WorkingSetService
         }
 
         var bench = await new CurrentBenchResolver(
-                _benchRepo, new DefaultBenchSelectors(_userDisplayName))
+                _benchRepo, new DefaultBenchSelectors(_iterationService))
             .ResolveAsync(ct);
         var membership = await _benchEvaluator.EvaluateAsync(bench, iterations, ct);
         return Project(membership, iterations);
@@ -165,7 +170,7 @@ public sealed class WorkingSetService
     /// the read path and the write path cannot disagree about what a fresh default Bench holds.
     /// </summary>
     private Task<IReadOnlyCollection<BenchSelector>> DefaultSelectorsAsync(CancellationToken ct)
-        => new DefaultBenchSelectors(_userDisplayName).BuildAsync(ct);
+        => new DefaultBenchSelectors(_iterationService).BuildAsync(ct);
 
     /// <summary>
     /// Used only when a caller supplies iterations directly and no calendar is wired up, so the

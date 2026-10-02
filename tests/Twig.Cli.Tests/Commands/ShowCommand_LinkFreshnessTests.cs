@@ -48,8 +48,8 @@ public sealed class ShowCommand_LinkFreshnessTests : IDisposable
         var adoService = Substitute.For<IAdoWorkItemService>();
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
         var iterationService = Substitute.For<IIterationService>();
-        var workingSetService = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+                iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, adoService, protectedCacheWriter, _pendingChangeStore, _linkRepo, 30, 30);

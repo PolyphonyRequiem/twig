@@ -14,6 +14,12 @@ title, area/iteration, description, parent link, and arbitrary
 from stdin, or through an editor buffer. Unlike `twig seed new`, `twig new`
 does not stage — the item exists in ADO by the time the command returns.
 
+Unless `--field System.AssignedTo=<identity>` supplies an explicit assignee,
+creation defaults to the bound account's canonical ADO identity. A global
+display-name preference is not used. Missing canonical identity metadata refuses
+before a seed identity is minted or a work item is created. MCP `twig_new`,
+`twig_seed_new` and `twig_seed_chain` use the same default when `assignedTo` is omitted.
+
 ## Synopsis
 
 ```

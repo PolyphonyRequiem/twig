@@ -23,6 +23,7 @@ public sealed class WorkItemMapper
             Title = snapshot.Title,
             State = snapshot.State,
             AssignedTo = assignedTo,
+            AssignedToUniqueName = snapshot.AssignedToUniqueName,
             IterationPath = ParseIterationPath(iterationPath),
             AreaPath = ParseAreaPath(areaPath),
             ParentId = snapshot.ParentId,
@@ -68,6 +69,7 @@ public sealed class WorkItemMapper
             Title = item.Title,
             State = item.State,
             AssignedTo = item.AssignedTo,
+            AssignedToUniqueName = item.AssignedToUniqueName,
             IterationPath = item.IterationPath.ToString(),
             AreaPath = item.AreaPath.ToString(),
             ParentId = item.ParentId,
@@ -94,6 +96,7 @@ public sealed class WorkItemMapper
         string? title = source.Title;
         string? state = source.State;
         string? assignedTo = source.AssignedTo;
+        string? assignedToUniqueName = source.AssignedToUniqueName;
         string? iterationPath = source.IterationPath;
         string? areaPath = source.AreaPath;
 
@@ -105,7 +108,12 @@ public sealed class WorkItemMapper
             else if (string.Equals(change.Key, "System.State", StringComparison.OrdinalIgnoreCase))
                 state = change.Value;
             else if (string.Equals(change.Key, "System.AssignedTo", StringComparison.OrdinalIgnoreCase))
+            {
                 assignedTo = change.Value;
+                // A newly authored string is not server identity evidence. Never retain the
+                // previous assignee's authority while the field names another account.
+                assignedToUniqueName = null;
+            }
             else if (string.Equals(change.Key, "System.IterationPath", StringComparison.OrdinalIgnoreCase))
                 iterationPath = change.Value;
             else if (string.Equals(change.Key, "System.AreaPath", StringComparison.OrdinalIgnoreCase))
@@ -119,6 +127,7 @@ public sealed class WorkItemMapper
             Title = title ?? string.Empty,
             State = state ?? string.Empty,
             AssignedTo = assignedTo,
+            AssignedToUniqueName = assignedToUniqueName,
             IterationPath = iterationPath,
             AreaPath = areaPath,
             Fields = projected,

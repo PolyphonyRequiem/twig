@@ -1023,3 +1023,16 @@ override Twig.Domain.Services.Plan.PlanSourceReplacement.GetHashCode() -> int
 override Twig.Domain.Services.Plan.PlanSourceReplacement.ToString() -> string!
 static Twig.Domain.Services.Plan.PlanSourceReplacement.operator !=(Twig.Domain.Services.Plan.PlanSourceReplacement? left, Twig.Domain.Services.Plan.PlanSourceReplacement? right) -> bool
 static Twig.Domain.Services.Plan.PlanSourceReplacement.operator ==(Twig.Domain.Services.Plan.PlanSourceReplacement? left, Twig.Domain.Services.Plan.PlanSourceReplacement? right) -> bool
+Twig.Domain.Aggregates.WorkItem.AssignedToUniqueName.get -> string?
+Twig.Domain.Aggregates.WorkItem.AssignedToUniqueName.init -> void
+Twig.Domain.ValueObjects.WorkItemSnapshot.AssignedToUniqueName.get -> string?
+Twig.Domain.ValueObjects.WorkItemSnapshot.AssignedToUniqueName.init -> void
+Twig.Domain.ValueObjects.BenchSelector.QueryAssignedToUniqueName.get -> string?
+static Twig.Domain.ValueObjects.BenchSelector.ForCurrentSprintCanonical(string! uniqueName) -> Twig.Domain.ValueObjects.BenchSelector!
+const Twig.Domain.Services.Workspace.DefaultBenchSelectors.MissingBoundIdentityMessage = "Default self-view requires a bound canonical identity, and the authenticated connection did not return one. Enroll a bound principal with `twig connection` or pass `--all` to request the explicit team view." -> string!
+*REMOVED*Twig.Domain.Services.Workspace.DefaultBenchSelectors.DefaultBenchSelectors(string? userDisplayName) -> void
+Twig.Domain.Services.Workspace.DefaultBenchSelectors.DefaultBenchSelectors(Twig.Domain.Interfaces.IIterationService! iterationService) -> void
+*REMOVED*Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, string? userDisplayName, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void
+Twig.Domain.Services.Workspace.WorkingSetService.WorkingSetService(Twig.Domain.Interfaces.IContextStore! contextStore, Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingStore, Twig.Domain.Interfaces.IIterationService! iterationService, Twig.Domain.Interfaces.IBenchRepository? benchRepo = null, Twig.Domain.Services.Workspace.BenchEvaluator? benchEvaluator = null) -> void
+*REMOVED*Twig.Domain.Services.SprintIterationResolver.GetSprintItemsAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationExpression>! expressions, string? userDisplayName, bool allUsers, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!
+Twig.Domain.Services.SprintIterationResolver.GetSprintItemsAsync(System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationExpression>! expressions, string? assignee, bool allUsers, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>!>!

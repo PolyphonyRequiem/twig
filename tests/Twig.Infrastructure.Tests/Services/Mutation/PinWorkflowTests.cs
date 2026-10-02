@@ -56,13 +56,13 @@ public sealed class PinWorkflowTests : IDisposable
 
     private PinWorkflow CreateSut() => new(
         _benchRepo,
-        new DefaultBenchSelectors(null));
+        new DefaultBenchSelectors(IdentityStubs.NewBound()));
 
     /// <summary>What the person actually sees: the ids the current Bench evaluates to.</summary>
     private async Task<IReadOnlySet<int>> ViewAsync()
     {
         var bench = await _benchRepo.GetOrCreateDefaultAsync(
-            await new DefaultBenchSelectors(null).BuildAsync());
+            await new DefaultBenchSelectors(IdentityStubs.NewBound()).BuildAsync());
         var membership = await new BenchEvaluator(_workItemRepo, _calendar, _pendingStore).EvaluateAsync(bench);
         return membership.AllIds;
     }
@@ -180,7 +180,7 @@ public sealed class PinWorkflowTests : IDisposable
         _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new WorkItemBuilder(500, "In the sprint").WithIterationPath(Sprint.Value).Build(),
+                new WorkItemBuilder(500, "In the sprint").AssignedToUniqueName(IdentityStubs.DefaultCanonicalPrincipal).WithIterationPath(Sprint.Value).Build(),
             });
 
         // The precondition that makes the overlap real: the query matches 500 BEFORE the pin.

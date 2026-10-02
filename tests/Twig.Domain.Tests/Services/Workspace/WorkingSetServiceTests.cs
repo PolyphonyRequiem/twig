@@ -7,6 +7,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
+using Twig.Domain.Tests;
 
 namespace Twig.Domain.Tests.Services.Workspace;
 
@@ -28,10 +29,13 @@ public class WorkingSetServiceTests
     /// half). <paramref name="withTracking"/> now means "the Bench carries the fixture's pins"
     /// rather than "a tracking file is wired up" — the observable behaviour it names is the same.
     /// </summary>
-    private WorkingSetService CreateSut(string? userDisplayName = null, bool withTracking = true)
+    private WorkingSetService CreateSut(string? canonicalPrincipal = null, bool withTracking = true)
     {
+        _iterationService.WithBoundIdentity(uniqueName: canonicalPrincipal ?? IdentityStubs.DefaultCanonicalPrincipal);
         var benchRepo = Substitute.For<IBenchRepository>();
-        var selectors = new List<BenchSelector> { BenchSelector.ForCurrentSprint(userDisplayName) };
+        var selectors = canonicalPrincipal is null
+            ? new List<BenchSelector> { BenchSelector.ForCurrentSprint(null) }
+            : new List<BenchSelector> { BenchSelector.ForCurrentSprintCanonical(canonicalPrincipal) };
 
         if (withTracking)
         {
@@ -45,14 +49,14 @@ public class WorkingSetServiceTests
 
         var bench = new Bench
         {
-            Id = 1, Name = Bench.DefaultName, IsDefault = true, Selectors = selectors,
+            Id = 1, Name = canonicalPrincipal is null ? "Team" : Bench.DefaultName, IsDefault = canonicalPrincipal is not null, Selectors = selectors,
         };
         benchRepo.GetOrCreateDefaultAsync(
                 Arg.Any<IReadOnlyCollection<BenchSelector>>(), Arg.Any<CancellationToken>())
             .Returns(bench);
         benchRepo.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
 
-        return new(_contextStore, _workItemRepo, _pendingStore, _iterationService, userDisplayName,
+        return new(_contextStore, _workItemRepo, _pendingStore, _iterationService,
             benchRepo, new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
     }
 
@@ -262,16 +266,16 @@ public class WorkingSetServiceTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ComputeAsync_WithUserDisplayName_FiltersSprintItemsByAssignee()
+    public async Task ComputeAsync_WithCanonicalPrincipal_FiltersSprintItemsByAssignee()
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new WorkItemBuilder(50, "Item 50").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
-                new WorkItemBuilder(51, "Item 51").InState("Active").AssignedTo("Other User").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(50, "Item 50").InState("Active").AssignedTo("Dan Green").AssignedToUniqueName("dan@fixture.test").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(51, "Item 51").InState("Active").AssignedTo("Other User").AssignedToUniqueName("other@fixture.test").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
             });
-        var sut = CreateSut(userDisplayName: "Dan Green");
+        var sut = CreateSut(canonicalPrincipal: "dan@fixture.test");
 
         var ws = await sut.ComputeAsync([TestIteration]);
 
@@ -280,7 +284,7 @@ public class WorkingSetServiceTests
     }
 
     [Fact]
-    public async Task ComputeAsync_WithoutUserDisplayName_QueriesAllSprintItems()
+    public async Task ComputeAsync_WithExplicitTeamBench_QueriesAllSprintItems()
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
@@ -289,7 +293,7 @@ public class WorkingSetServiceTests
                 new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
                 new WorkItemBuilder(60, "Item 60").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
             });
-        var sut = CreateSut(userDisplayName: null);
+        var sut = CreateSut(canonicalPrincipal: null);
 
         var ws = await sut.ComputeAsync([TestIteration]);
 
@@ -433,11 +437,11 @@ public class WorkingSetServiceTests
         _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new WorkItemBuilder(50, "Dan's Item").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
-                new WorkItemBuilder(60, "Other Item").InState("Active").AssignedTo("Other User").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
-                new WorkItemBuilder(70, "Dan's Item 2").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(50, "Dan's Item").InState("Active").AssignedTo("Dan Green").AssignedToUniqueName("dan@fixture.test").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(60, "Other Item").InState("Active").AssignedTo("Other User").AssignedToUniqueName("other@fixture.test").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(70, "Dan's Item 2").InState("Active").AssignedTo("Dan Green").AssignedToUniqueName("dan@fixture.test").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
             });
-        var sut = CreateSut(userDisplayName: "Dan Green");
+        var sut = CreateSut(canonicalPrincipal: "dan@fixture.test");
 
         var ws = await sut.ComputeAsync([TestIteration, sprint2]);
 
@@ -466,9 +470,9 @@ public class WorkingSetServiceTests
         _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                new WorkItemBuilder(50, "Item").InState("Active").AssignedTo("DAN GREEN").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(50, "Item").InState("Active").AssignedTo("DAN GREEN").AssignedToUniqueName("DAN@fixture.test").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
             });
-        var sut = CreateSut(userDisplayName: "Dan Green");
+        var sut = CreateSut(canonicalPrincipal: "dan@fixture.test");
 
         var ws = await sut.ComputeAsync([TestIteration]);
 

@@ -78,6 +78,7 @@ internal static class AdoResponseMapper
         Title = GetStringField(fields, "System.Title") ?? string.Empty,
         State = GetStringField(fields, "System.State") ?? string.Empty,
         AssignedTo = ParseAssignedTo(fields),
+        AssignedToUniqueName = ExtractAssignedUniqueName(fields),
         IterationPath = GetStringField(fields, "System.IterationPath"),
         AreaPath = GetStringField(fields, "System.AreaPath"),
         ParentId = ExtractParentId(dto.Relations),
@@ -399,11 +400,9 @@ internal static class AdoResponseMapper
 
     /// <summary>
     /// Parses the <c>System.AssignedTo</c> projection as a DISPLAY NAME only.
-    /// The stable identity (<c>uniqueName</c>) does not travel through this
-    /// projection — surfaces that need it MUST read the raw identity via
-    /// <see cref="IAdoAssignedIdentityReader"/>. This split preserves the
-    /// display-name user-facing semantics AB#728 pinned while giving
-    /// AB#739's claim projection an exact-UPN read seam.
+    /// Stable assignee evidence is carried separately in <c>AssignedToUniqueName</c>;
+    /// display-name user-facing semantics remain unchanged. Claim verification still
+    /// uses <see cref="IAdoAssignedIdentityReader"/> for a fresh authoritative read.
     /// </summary>
     private static string? ParseAssignedTo(Dictionary<string, object?> fields)
     {

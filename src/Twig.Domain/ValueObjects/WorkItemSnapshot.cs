@@ -13,6 +13,7 @@ public sealed record WorkItemSnapshot
     public string Title { get; init; } = string.Empty;
     public string State { get; init; } = string.Empty;
     public string? AssignedTo { get; init; }
+    public string? AssignedToUniqueName { get; init; }
     public string? IterationPath { get; init; }
     public string? AreaPath { get; init; }
     public int? ParentId { get; init; }

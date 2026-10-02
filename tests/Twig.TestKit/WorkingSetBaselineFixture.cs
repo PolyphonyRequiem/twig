@@ -20,6 +20,7 @@ namespace Twig.TestKit;
 public static class WorkingSetBaselineFixture
 {
     public const string UserDisplayName = "Ada Lovelace";
+    public const string UserUniqueName = "ada@fixture.test";
     public const string OtherUser = "Grace Hopper";
 
     public const string CurrentIterationPath = @"Project\Sprint 7";
@@ -37,12 +38,14 @@ public static class WorkingSetBaselineFixture
         // Assigned to the user — survives the filter.
         new WorkItemBuilder(501, "Sprint item, mine")
             .AsUserStory().InState("Active").AssignedTo(UserDisplayName)
+            .AssignedToUniqueName(UserUniqueName)
             .WithIterationPath(CurrentIterationPath).Build(),
 
         // Assigned to somebody else — MUST be filtered out. If the filter is dropped this
         // item appears and the baseline diverges.
         new WorkItemBuilder(502, "Sprint item, not mine")
             .AsUserStory().InState("Active").AssignedTo(OtherUser)
+            .AssignedToUniqueName("grace@fixture.test")
             .WithIterationPath(CurrentIterationPath).Build(),
 
         // Unassigned — also filtered out, because the filter is an equality match on the name.
@@ -53,11 +56,13 @@ public static class WorkingSetBaselineFixture
         // Assigned with different casing — the filter is case-insensitive, so this SURVIVES.
         new WorkItemBuilder(504, "Sprint item, mine in lower case")
             .AsTask().InState("Active").AssignedTo(UserDisplayName.ToLowerInvariant())
+            .AssignedToUniqueName(UserUniqueName.ToUpperInvariant())
             .WithIterationPath(CurrentIterationPath).Build(),
 
         // Also tracked by hand — the overlap case (spec test 8). Must appear exactly once.
         new WorkItemBuilder(505, "Sprint item that is also pinned")
             .AsBug().InState("Active").AssignedTo(UserDisplayName)
+            .AssignedToUniqueName(UserUniqueName)
             .WithIterationPath(CurrentIterationPath).Build(),
     ];
 
@@ -84,6 +89,7 @@ public static class WorkingSetBaselineFixture
     [
         new WorkItemBuilder(701, "Staged edit, outside the sprint")
             .AsBug().InState("Active").AssignedTo(UserDisplayName)
+            .AssignedToUniqueName(UserUniqueName)
             .WithIterationPath(PastIterationPath).Dirty().Build(),
     ];
 

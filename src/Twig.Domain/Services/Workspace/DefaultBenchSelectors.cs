@@ -21,29 +21,56 @@ namespace Twig.Domain.Services.Workspace;
 /// this ticket exists to remove.
 /// </para>
 /// <para>
-/// Consequence, stated plainly rather than discovered: <b>pins made before this ships do not
-/// survive it.</b> That is the accepted cost of the wipe, not an oversight. Pins made after it
-/// live on the Bench in the durable store, which is never dropped.
+/// 🔴 The sprint rule is filtered to the bound CANONICAL principal (ADO #1106, Spec #1103) — the
+/// authenticated connection's <c>uniqueName</c>, resolved asynchronously through
+/// <see cref="IIterationService.GetAuthenticatedUserIdentityAsync(System.Threading.CancellationToken)"/>.
+/// A display rendering is deliberately NOT used, because two accounts can share one and a
+/// display-keyed self filter would silently merge them. A connection that cannot supply a
+/// canonical identity refuses the self default rather than widening to the whole team or falling
+/// back to a display label; <c>--all</c> consumers never reach this path.
 /// </para>
 /// </summary>
 public sealed class DefaultBenchSelectors
 {
-    private readonly string? _userDisplayName;
+    /// <summary>
+    /// Shared refusal when the authenticated connection carries no canonical identity. Surfaces
+    /// catch and format the same text so a user sees a single actionable error whether the gap
+    /// surfaces through <see cref="BuildAsync(System.Threading.CancellationToken)"/> defensively
+    /// or through a pre-flight check on the surface.
+    /// </summary>
+    public const string MissingBoundIdentityMessage =
+        "Default self-view requires a bound canonical identity, and the authenticated " +
+        "connection did not return one. Enroll a bound principal with `twig connection` " +
+        "or pass `--all` to request the explicit team view.";
 
-    /// <param name="userDisplayName">Who the sprint rule is filtered to, or null for the whole team.</param>
-    public DefaultBenchSelectors(string? userDisplayName)
+    private readonly IIterationService _iterationService;
+
+    public DefaultBenchSelectors(IIterationService iterationService)
     {
-        _userDisplayName = userDisplayName;
+        _iterationService = iterationService;
     }
 
     /// <summary>Composes the selectors a freshly created default Bench holds.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the authenticated connection does not supply a canonical <c>uniqueName</c>.
+    /// A read that falls through here without a bound identity has already lost — widening to
+    /// display or the whole team is exactly the failure #1106 refuses.
+    /// </exception>
     public async Task<IReadOnlyCollection<BenchSelector>> BuildAsync(CancellationToken ct = default)
     {
-        await Task.CompletedTask;
+        var (_, uniqueName) = await _iterationService.GetAuthenticatedUserIdentityAsync(ct)
+            .ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            throw new BoundIdentityUnavailableException();
 
         return new List<BenchSelector>
         {
-            BenchSelector.ForCurrentSprint(_userDisplayName),
+            BenchSelector.ForCurrentSprintCanonical(uniqueName),
         };
     }
 }
+
+/// <summary>A self-derived consumer cannot proceed without the admitted account's canonical identity.</summary>
+internal sealed class BoundIdentityUnavailableException()
+    : InvalidOperationException(DefaultBenchSelectors.MissingBoundIdentityMessage);

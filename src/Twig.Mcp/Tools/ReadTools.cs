@@ -52,19 +52,36 @@ public sealed class ReadTools(ConnectionResolver resolver, NavigationTools navig
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
+        // Self-scoped reads bind to the authenticated principal's canonical identity (ADO #1106,
+        // Spec #1103). --all explicitly bypasses, so a connection without a bound principal does
+        // NOT block the team view. Self without a canonical identity refuses — the view never
+        // widens to the whole team and never falls back to the display rendering.
+        string? canonicalPrincipal = null;
+        if (!all)
+        {
+            var (_, uniqueName) = await ctx.Get<IIterationService>().GetAuthenticatedUserIdentityAsync(ct);
+            if (string.IsNullOrWhiteSpace(uniqueName))
+                return await EnvelopeBuilder.ErrorAsync(
+                    McpErrorCode.InvalidInput,
+                    DefaultBenchSelectors.MissingBoundIdentityMessage,
+                    ctx, ct);
+            canonicalPrincipal = uniqueName;
+        }
+
         // 1. Context item(nullable — no error if absent)
         var contextId = await ctx.Get<IContextStore>().GetActiveWorkItemIdAsync(ct);
         WorkItem? contextItem = contextId.HasValue
             ? await ctx.Get<IWorkItemRepository>().GetByIdAsync(contextId.Value, ct)
             : null;
 
-        // 2. Sprint items — use configured sprints when available, else fall back to current iteration
+        // 2. Sprint items — use configured sprints when available, else fall back to current iteration.
+        //    Rows are loaded unfiltered; the self narrowing happens below against the bound canonical
+        //    principal.
         var sprintEntries = ctx.Config.Workspace.Sprints;
-        IReadOnlyList<WorkItem> sprintItems;
+        IReadOnlyList<IterationPath> sprintIterations;
 
         if (sprintEntries is { Count: > 0 })
         {
-            // Resolve configured sprint expressions via SprintIterationResolver
             var expressions = new List<IterationExpression>(sprintEntries.Count);
             foreach (var entry in sprintEntries)
             {
@@ -72,20 +89,37 @@ public sealed class ReadTools(ConnectionResolver resolver, NavigationTools navig
                 if (parseResult.IsSuccess)
                     expressions.Add(parseResult.Value);
             }
-
-            sprintItems = await ctx.Get<SprintIterationResolver>().GetSprintItemsAsync(
-                expressions,
-                ctx.Config.User.DisplayName,
-                allUsers: all,
-                ct);
+            sprintIterations = expressions.Count > 0
+                ? await ctx.Get<SprintIterationResolver>().ResolveAllAsync(expressions, ct)
+                : Array.Empty<IterationPath>();
         }
         else
         {
-            // No configured sprints — fall back to current iteration
-            var iteration = await ctx.Get<IIterationService>().GetCurrentIterationAsync(ct);
-            sprintItems = !all && ctx.Config.User.DisplayName is not null
-                ? await ctx.Get<IWorkItemRepository>().GetByIterationAndAssigneeAsync(iteration, ctx.Config.User.DisplayName, ct)
-                : await ctx.Get<IWorkItemRepository>().GetByIterationAsync(iteration, ct);
+            sprintIterations = [await ctx.Get<IIterationService>().GetCurrentIterationAsync(ct)];
+        }
+
+        IReadOnlyList<WorkItem> sprintItems;
+        if (sprintIterations.Count == 0)
+        {
+            sprintItems = Array.Empty<WorkItem>();
+        }
+        else
+        {
+            var loaded = await ctx.Get<IWorkItemRepository>().GetByIterationsAsync(sprintIterations, ct);
+            if (canonicalPrincipal is null)
+            {
+                sprintItems = loaded;
+            }
+            else
+            {
+                var narrowed = new List<WorkItem>(loaded.Count);
+                foreach (var item in loaded)
+                {
+                    if (item.IsAssignedToIdentity(canonicalPrincipal))
+                        narrowed.Add(item);
+                }
+                sprintItems = narrowed;
+            }
         }
 
         // 3. Seeds

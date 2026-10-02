@@ -11,6 +11,7 @@ using Twig.Formatters;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
 using Xunit;
+using Twig.Cli.Tests.TestSupport;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -31,7 +32,7 @@ public sealed class TrackingCommandTests
 
     private TrackingCommand CreateCommand()
     {
-        var pinWorkflow = new PinWorkflow(BenchRepo, new DefaultBenchSelectors(null));
+        var pinWorkflow = new PinWorkflow(BenchRepo, new DefaultBenchSelectors(IdentityStubs.NewBound()));
         return new TrackingCommand(_trackingService, _workItemRepo, _formatterFactory, pinWorkflow);
     }
 

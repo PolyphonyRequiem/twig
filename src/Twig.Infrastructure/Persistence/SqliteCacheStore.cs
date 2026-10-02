@@ -10,9 +10,9 @@ public sealed class SqliteCacheStore : IDisposable
 {
     /// <summary>
     /// Current schema version compiled into the binary.
-    /// If the DB schema version differs, all tables are dropped and recreated.
+    /// Older incompatible mirrors are rebuilt; version 16 upgrades additively to preserve unfinished work.
     /// </summary>
-    internal const int SchemaVersion = 16;
+    internal const int SchemaVersion = 17;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -168,6 +168,23 @@ public sealed class SqliteCacheStore : IDisposable
 
     private void EnsureSchema()
     {
+        if (SchemaExists())
+        {
+            using var version = _connection.CreateCommand();
+            version.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+            if (version.ExecuteScalar() is string value && value == "16")
+            {
+                // Identity metadata is nullable until a bound fetch proves it. Never backfill
+                // from display labels, and never drop seeds or pending mirror values here.
+                using var tx = _connection.BeginTransaction();
+                using var upgrade = _connection.CreateCommand();
+                upgrade.Transaction = tx;
+                upgrade.CommandText = "ALTER TABLE work_items ADD COLUMN assigned_to_unique_name TEXT; UPDATE metadata SET value = @version WHERE key = 'schema_version';";
+                upgrade.Parameters.AddWithValue("@version", SchemaVersion.ToString());
+                upgrade.ExecuteNonQuery();
+                tx.Commit();
+            }
+        }
         if (!SchemaExists() || !SchemaVersionMatches())
         {
             GuardLegacyPendingSet();
@@ -710,6 +727,7 @@ public sealed class SqliteCacheStore : IDisposable
             state TEXT NOT NULL,
             parent_id INTEGER,
             assigned_to TEXT,
+            assigned_to_unique_name TEXT,
             iteration_path TEXT,
             area_path TEXT,
             revision INTEGER NOT NULL,

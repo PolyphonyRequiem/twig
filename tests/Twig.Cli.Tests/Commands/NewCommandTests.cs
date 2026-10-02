@@ -22,6 +22,7 @@ public class NewCommandTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
+    private readonly IIterationService _iterationService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly TwigConfiguration _config;
@@ -40,6 +41,9 @@ public class NewCommandTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
+        _iterationService = Substitute.For<IIterationService>();
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(("Test User", "test.user@example.com"));
 
         _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition>
@@ -89,7 +93,8 @@ public class NewCommandTests : IDisposable
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
-            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            _iterationService);
     }
 
     public void Dispose()
@@ -159,17 +164,6 @@ public class NewCommandTests : IDisposable
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task New_AutoAssignsToConfiguredUser()
-    {
-        ArrangeCreateSuccess();
-
-        await _cmd.ExecuteAsync("My Epic", "Epic");
-
-        await _adoService.Received(1).CreateAsync(
-            Arg.Is<CreateWorkItemRequest>(r => r.Fields.ContainsKey("System.AssignedTo") && r.Fields["System.AssignedTo"] == "Test User"),
-            Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task New_OutputsCreatedIdAndTitle()
@@ -322,7 +316,8 @@ public class NewCommandTests : IDisposable
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, configNoDefaults,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
-            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            _iterationService);
 
         ArrangeCreateSuccess();
 
@@ -955,7 +950,8 @@ public class NewCommandTests : IDisposable
             Substitute.For<IEditorLauncher>(),
             _formatterFactory, _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
-            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy());
+            Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
+            _iterationService);
 
         var result = await cmd.ExecuteAsync(
             "My Epic", "Epic",
@@ -1007,7 +1003,7 @@ public class NewCommandTests : IDisposable
             _formatterFactory, _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
             Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
-            iterationService: iteration);
+            iteration);
 
         var result = await cmd.ExecuteAsync(
             "My Epic", "Epic",
@@ -1050,7 +1046,7 @@ public class NewCommandTests : IDisposable
             _formatterFactory, _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
             Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
-            iterationService: iteration);
+            iteration);
 
         var result = await cmd.ExecuteAsync(
             "My Epic", "Epic",
@@ -1087,7 +1083,7 @@ public class NewCommandTests : IDisposable
             _formatterFactory, _hintEngine, _config,
             new SeedFactory(), new FakeStagedIdentityRegistry(),
             Twig.TestKit.ReferenceProfileBuilder.UnpinnedSprintPolicy(),
-            iterationService: iteration);
+            iteration);
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();

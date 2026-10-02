@@ -460,6 +460,11 @@ internal static class CommandExamples
             "twig connection status                 Show the identity + binding this worktree resolves to",
             "twig connection status --output json   Emit the resolved binding and principal metadata as JSON",
         ],
+        ["connection check"] =
+        [
+            "twig connection check                 Inspect every native unfinished-work/claim blocker without changing identity",
+            "twig connection check --output json   Emit exact blocker identities and observed selection revisions",
+        ],
         ["version"] =
         [
             "twig version               Print the installed twig version",

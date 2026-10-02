@@ -7,8 +7,7 @@ namespace Twig.Mcp.Tools;
 internal static class McpToolDescriptions
 {
     public const string WorkspaceOverride =
-        "Workspace override (\"org/project\"). Omit for repo-local inference; " +
-        "set only to disambiguate or retarget.";
+        "Omit for repo-local inference. Explicit org/project only to disambiguate or retarget.";
 
     public const string BatchWorkspaceOverride =
         WorkspaceOverride + " Applied to steps without an explicit workspace.";

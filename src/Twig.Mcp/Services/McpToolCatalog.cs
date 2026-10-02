@@ -25,6 +25,7 @@ internal static class McpToolCatalog
         "twig_batch",
         "twig_cache_status",
         "twig_config",
+        "twig_connection_check",
         "twig_delete",
         "twig_discard",
         "twig_find_or_create",
@@ -98,6 +99,7 @@ internal static class McpToolCatalog
     private static readonly IReadOnlySet<string> ReadOnlyToolNames = new HashSet<string>(StringComparer.Ordinal)
     {
         "twig_area",
+        "twig_connection_check",
         "twig_cache_status",
         "twig_config",
         "twig_history",
@@ -160,6 +162,7 @@ internal static class McpToolCatalog
     {
         "twig_cache_status",
         "twig_config",
+        "twig_connection_check",
         "twig_list_workspaces",
         "twig_pending",
         "twig_plan_preview",

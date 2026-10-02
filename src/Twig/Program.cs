@@ -1438,6 +1438,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Inspect all unfinished-work and claim prerequisites for a later binding transition. Read-only; no publication, discard, release, switch or force bypass. Eligible exits 0; blocked or unreadable inspection exits 1.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection check")]
+    public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1748,6 +1754,7 @@ internal static class GroupedHelp
         "connection bind",
         "connection list",
         "connection status",
+        "connection check",
         "version",
         "upgrade",
         "changelog",

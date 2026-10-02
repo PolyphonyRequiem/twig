@@ -19,6 +19,7 @@ twig auth status [-o <format>]
 twig connection status [-o <format>]
 twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
+twig connection check [-o <format>]
 ```
 
 ## Behavior
@@ -47,6 +48,24 @@ cache, Azure CLI account, global token store or last login. An initial binding c
 be created with `twig connection bind --identity <alias> --default`; explicit
 coordinates use paired `--org` and `--project`. A different existing default
 refuses; safe identity switching is a separate guarded management transition.
+
+### Binding-change prerequisites
+
+`twig connection check` inspects the attached worktree's local prerequisites for
+an identity change without changing its binding, publishing or discarding work,
+releasing claims, or making work-item requests. The MCP equivalent is
+`twig_connection_check`.
+
+JSON output includes the effective selection and attachment revisions plus exact
+pending edits, local seeds, open publish intents, unresolved journal operations,
+reserved claims, worktree guards and unknown rows. Unknown or unresolved evidence
+blocks eligibility; a later successful operation does not erase an earlier
+unsettled journal row. Actionable next steps describe separate native operations,
+not automatic remediation. There is no force bypass.
+
+This is a prerequisite snapshot, not authorization to switch an identity or proof
+of fresh remote access. An eligible snapshot returns `0`; a blocked snapshot
+returns `1`, retaining its structured evidence.
 
 ## Exit codes and failure modes
 

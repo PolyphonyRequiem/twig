@@ -84,6 +84,11 @@ public static class TwigServiceRegistration
 
         services.TryAddSingleton<IConnectionBindingService>(_ =>
             new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
+        services.AddSingleton<IIdentityChangeEligibilityService>(sp => new IdentityChangeEligibilityService(
+            sp.GetRequiredService<ISystemWorktreeRegistry>(), sp.GetRequiredService<IPrimaryScopeAttachmentStore>(),
+            sp.GetRequiredService<IPendingChangeReader>(), sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPublishIntentRepository>(), sp.GetRequiredService<IPlanJournalRepository>(),
+            sp.GetRequiredService<IConnectionBindingService>()));
 
         // SQLite persistence — registered unconditionally. SqliteCacheStore is
         // created lazily (on first resolution) for any discovered workspace.

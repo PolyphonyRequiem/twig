@@ -6,6 +6,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Mutation;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Config;
 using System.ComponentModel;
@@ -19,8 +20,9 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for configuration and admin queries: <c>twig_config</c>, <c>twig_area</c>.
-/// Returns workspace configuration and project structure information.
+/// MCP tools for configuration and admin queries: <c>twig_config</c>, <c>twig_area</c>,
+/// <c>twig_connection_check</c>. Returns workspace configuration, project structure, and
+/// a read-only identity-change eligibility snapshot.
 /// </summary>
 [McpServerToolType]
 public sealed class AdminTools(ConnectionResolver resolver)
@@ -212,5 +214,41 @@ public sealed class AdminTools(ConnectionResolver resolver)
             WriteAreaNodeForOutput(writer, child);
         writer.WriteEndArray();
         writer.WriteEndObject();
+    }
+
+    [McpServerTool(Name = "twig_connection_check"), Description("Read-only binding-change prerequisites and exact native blockers/revisions. No switch, publish, discard, release or force bypass.")]
+    public async Task<CallToolResult> ConnectionCheck(
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        IdentityChangeEligibility snapshot;
+        try
+        {
+            // The MCP surface resolves IIdentityChangeEligibilityService from the per-connection
+            // scope — it NEVER references the CLI command. One inspector call per request; no
+            // parallel binding resolve, no fabricated identity on a missing selection.
+            snapshot = await ctx.Get<IIdentityChangeEligibilityService>()
+                .InspectAsync(ctx.Config, ctx.Paths, ct)
+                .ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Attachment / registry hard failure — surface as a structured refusal so a
+            // batch step stops instead of treating a missing attachment as "all clear".
+            return await EnvelopeBuilder.ErrorAsync(
+                McpErrorCode.InvalidInput,
+                $"Eligibility inspection refused: {ex.Message}",
+                ctx, ct).ConfigureAwait(false);
+        }
+
+        return await EnvelopeBuilder.SuccessAsync(
+            ctx,
+            writer => IdentityChangeEligibilityProjection.WriteBody(writer, snapshot),
+            verbose,
+            ct).ConfigureAwait(false);
     }
 }

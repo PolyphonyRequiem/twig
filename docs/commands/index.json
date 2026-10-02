@@ -880,6 +880,14 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "connection check",
+    "group": "system",
+    "summary": "Inspect local binding-change prerequisites and exact native blockers without switching, publishing, discarding or releasing claims.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "changelog",
     "group": "system",
     "summary": "Display recent release notes from GitHub Releases without applying any update.",

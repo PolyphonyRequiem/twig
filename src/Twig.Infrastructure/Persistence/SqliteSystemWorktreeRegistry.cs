@@ -260,6 +260,24 @@ SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_
             return Result.Ok<IReadOnlyList<SystemClaimRow>>(rows);
         }, ct);
 
+    public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForWorktreeAsync(
+        string worktreeFingerprint, CancellationToken ct = default)
+        => ExecuteReadAsync<IReadOnlyList<SystemClaimRow>>(async connection =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind,
+                       work_item_id, state, cas_token, minted_at, ended_at, record_json
+                FROM claims WHERE worktree_fingerprint = $fingerprint
+                ORDER BY minted_at, claim_id;
+                """;
+            cmd.Parameters.AddWithValue("$fingerprint", worktreeFingerprint);
+            var rows = new List<SystemClaimRow>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false)) rows.Add(ReadClaimRow(reader));
+            return Result.Ok<IReadOnlyList<SystemClaimRow>>(rows);
+        }, ct);
+
     public Task<Result> SupersedeAndActivateClaimAsync(
         string newClaimId,
         string newCasToken,

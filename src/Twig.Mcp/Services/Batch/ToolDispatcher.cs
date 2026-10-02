@@ -48,6 +48,8 @@ internal sealed class ToolDispatcher(
 
         return toolName switch
         {
+            "twig_connection_check" => adminTools.ConnectionCheck(workspace, verbose: false, ct),
+
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "id"),

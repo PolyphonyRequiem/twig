@@ -257,6 +257,12 @@ public sealed class InitCommand
             }
         }
 
+        if ((force || reinitialize) && File.Exists(Path.Combine(twigDir, "cache", Infrastructure.Persistence.MirrorAdmission.MarkerFile)))
+        {
+            Console.Error.WriteLine(fmt.FormatError("Admitted migration storage cannot be reinitialized through legacy init. Preserve its native intent/durable store and use deliberate guarded management recovery."));
+            return (1, false, 0);
+        }
+
         // ── Design §7 legacy recovery: --reinitialize atomically archives
         //    the existing .twig/ tree to .twig-legacy-<timestamp>/ before
         //    running a fresh init. No conversion, no migration. Archive
@@ -303,7 +309,7 @@ public sealed class InitCommand
                 var pendingCount = 0;
                 try
                 {
-                    using var probe = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
+                    using var probe = Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(contextPaths);
                     var conn = probe.GetConnection();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";
@@ -432,357 +438,357 @@ public sealed class InitCommand
             }
 
 
-        // AB#3296 PR-3: type appearances are sourced from the SQLite cache
-        // (process_types table, populated below by ProcessTypeSyncService).
-        // The previous explicit GetWorkItemTypeAppearancesAsync fetch was
-        // redundant — same data, written to two places. The 60-line JSON
-        // array no longer ships to .twig/config.
+            // AB#3296 PR-3: type appearances are sourced from the SQLite cache
+            // (process_types table, populated below by ProcessTypeSyncService).
+            // The previous explicit GetWorkItemTypeAppearancesAsync fetch was
+            // redundant — same data, written to two places. The 60-line JSON
+            // array no longer ships to .twig/config.
 
-        // DD-8/FR-17: Only auto-detect area paths in interactive mode.
-        // Non-interactive init starts empty; use --area flag for explicit config.
-        if (isInteractive && !preserveRepoManifest)
-        {
-            Console.WriteLine("Fetching team area paths...");
+            // DD-8/FR-17: Only auto-detect area paths in interactive mode.
+            // Non-interactive init starts empty; use --area flag for explicit config.
+            if (isInteractive && !preserveRepoManifest)
+            {
+                Console.WriteLine("Fetching team area paths...");
+                try
+                {
+                    var areaPaths = await iterationService.GetTeamAreaPathsAsync();
+                    if (areaPaths.Count > 0)
+                    {
+                        config.Defaults.AreaPathEntries = areaPaths
+                            .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
+                            .ToList();
+                        // Also populate AreaPaths for backward compatibility
+                        config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
+                        foreach (var ap in areaPaths)
+                            Console.WriteLine($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}");
+                    }
+                }
+                catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
+                                             or Twig.Infrastructure.Ado.Exceptions.AdoException)
+                {
+                    Console.WriteLine($"  \u26a0 Could not detect team area paths: {ex.Message}");
+                    Console.WriteLine("You can set it later with: twig config defaults.areapaths 'Path1;Path2'");
+                }
+            }
+
+            Console.WriteLine("Getting current iteration...");
+            Domain.ValueObjects.IterationPath? currentIteration = null;
             try
             {
-                var areaPaths = await iterationService.GetTeamAreaPathsAsync();
-                if (areaPaths.Count > 0)
-                {
-                    config.Defaults.AreaPathEntries = areaPaths
-                        .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
-                        .ToList();
-                    // Also populate AreaPaths for backward compatibility
-                    config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
-                    foreach (var ap in areaPaths)
-                        Console.WriteLine($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}");
-                }
+                currentIteration = await iterationService.GetCurrentIterationAsync();
+                Console.WriteLine($"  Current iteration: {currentIteration}");
             }
             catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
                                          or Twig.Infrastructure.Ado.Exceptions.AdoException)
             {
-                Console.WriteLine($"  \u26a0 Could not detect team area paths: {ex.Message}");
-                Console.WriteLine("You can set it later with: twig config defaults.areapaths 'Path1;Path2'");
+                Console.WriteLine($"  \u26a0 Could not detect current iteration: {ex.Message}");
             }
-        }
 
-        Console.WriteLine("Getting current iteration...");
-        Domain.ValueObjects.IterationPath? currentIteration = null;
-        try
-        {
-            currentIteration = await iterationService.GetCurrentIterationAsync();
-            Console.WriteLine($"  Current iteration: {currentIteration}");
-        }
-        catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
-                                     or Twig.Infrastructure.Ado.Exceptions.AdoException)
-        {
-            Console.WriteLine($"  \u26a0 Could not detect current iteration: {ex.Message}");
-        }
-
-        // Detect authenticated user identity
-        Console.WriteLine("Detecting user identity...");
-        try
-        {
-            var displayName = await iterationService.GetAuthenticatedUserDisplayNameAsync();
-            if (!string.IsNullOrWhiteSpace(displayName))
-            {
-                config.User.DisplayName = displayName;
-                Console.WriteLine($"  User: {displayName}");
-            }
-            else
-            {
-                Console.WriteLine("  \u26a0 Could not detect user identity.");
-                Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Console.WriteLine("  \u26a0 Could not detect user identity.");
-            Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
-        }
-
-        // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
-        if (isInteractive && !preserveRepoManifest)
-        {
-            Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
-            var modeResponse = _consoleInput!.ReadLine()?.Trim().ToLowerInvariant();
-            if (modeResponse is "workspace")
-                config.Defaults.Mode = "workspace";
-        }
-
-        // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
-        if (isInteractive
-            && !preserveRepoManifest
-            && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
-        {
-            Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
-            Console.WriteLine("  1. Sprint only (@Current)");
-            Console.WriteLine("  2. Area paths only (sync from team)");
-            Console.WriteLine("  3. Both sprint and area paths");
-            Console.WriteLine("  4. Neither (start empty, configure later)");
-            Console.Write("Choose [1-4] (4): ");
-            var prefResponse = _consoleInput!.ReadLine()?.Trim();
-
-            switch (prefResponse)
-            {
-                case "1": // Sprint only
-                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
-                    config.Defaults.AreaPathEntries = [];
-                    config.Defaults.AreaPaths = [];
-                    Console.WriteLine("  Sprint: @current");
-                    break;
-                case "2": // Area paths only — keep auto-detected areas
-                    Console.WriteLine("  Keeping team area paths");
-                    break;
-                case "3": // Both
-                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
-                    Console.WriteLine("  Sprint: @current");
-                    Console.WriteLine("  Keeping team area paths");
-                    break;
-                default: // "4" or any other input → Neither (start empty)
-                    config.Defaults.AreaPathEntries = [];
-                    config.Defaults.AreaPaths = [];
-                    Console.WriteLine("  Starting empty \u2014 configure later with workspace commands");
-                    break;
-            }
-        }
-
-        // --sprint flag: the expressions were validated before step 4 (see
-        // the pre-write validation above); apply the parsed entries here.
-        // A non-null list means the flag was supplied; an EMPTY one (e.g.
-        // `--sprint ';'`) still overrides, clearing anything auto-detected.
-        if (preparsedSprints is not null)
-        {
-            config.Workspace.Sprints = preparsedSprints;
-            foreach (var entry in preparsedSprints)
-                Console.WriteLine($"  Sprint: {entry.Expression}");
-        }
-
-        // --area flag: likewise pre-validated; apply the parsed entries.
-        if (preparsedAreas is not null)
-        {
-            config.Defaults.AreaPathEntries = preparsedAreas;
-            config.Defaults.AreaPaths = preparsedAreas.Select(e => e.Path).ToList();
-            foreach (var entry in preparsedAreas)
-                Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
-        }
-
-        if (preserveRepoManifest)
-            await config.SaveUserAsync(contextPaths.ConfigPath, ct);
-        else
-            await config.SaveSplitAsync(contextPaths, ct);
-
-        // Initialize SQLite cache in context-specific path and persist process type data
-        using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
-
-        // Fetch state sequences and process configuration for all types
-        Console.WriteLine("Fetching type state sequences...");
-        Console.WriteLine("Fetching process configuration...");
-        var processTypeStore = new Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
-        try
-        {
-            var count = await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore);
-            Console.WriteLine($"  Loaded state sequences for {count} type(s)");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Console.WriteLine($"  ⚠ Could not fetch type data: {ex.Message}");
-        }
-
-        // DD-08: Fetch field definitions during init for immediate availability
-        var fieldDefStore = new Infrastructure.Persistence.SqliteFieldDefinitionStore(cacheStore);
-        Console.WriteLine("Fetching field definitions...");
-        try
-        {
-            var fieldDefCount = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore, ct);
-            telemetryFieldCount = fieldDefCount;
-            Console.WriteLine($"  Loaded {fieldDefCount} field definition(s)");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Console.WriteLine($"  ⚠ Could not fetch field definitions: {ex.Message}");
-        }
-
-        // Global profile resolution — apply or merge status-fields from global profile (FR-09: wrapped in try-catch)
-        try
-        {
-            if (_globalProfileStore is not null && template is not null)
-            {
-                var metadata = await _globalProfileStore.LoadMetadataAsync(effectiveOrg, template, ct);
-                if (metadata is not null)
-                {
-                    telemetryHadGlobalProfile = true;
-                    var fieldDefs = await fieldDefStore.GetAllAsync(ct);
-                    if (fieldDefs.Count > 0)
-                    {
-                        var currentHash = FieldDefinitionHasher.ComputeFieldHash(fieldDefs);
-                        var profileContent = await _globalProfileStore.LoadStatusFieldsAsync(effectiveOrg, template, ct);
-                        if (profileContent is not null)
-                        {
-                            if (metadata.FieldDefinitionHash == currentHash)
-                            {
-                                // Hash match → copy profile status-fields verbatim (DD-05: workspace layer)
-                                await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, profileContent, ct);
-                                Console.WriteLine($"✓ Applied existing field configuration for {effectiveOrg}/{template}");
-                            }
-                            else
-                            {
-                                // Hash mismatch → merge with existing preferences
-                                var mergedContent = StatusFieldsConfig.Generate(fieldDefs, profileContent);
-                                await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, mergedContent, ct);
-                                await _globalProfileStore.SaveStatusFieldsAsync(effectiveOrg, template, mergedContent, ct);
-                                var updatedMetadata = metadata with
-                                {
-                                    FieldDefinitionHash = currentHash,
-                                    LastSyncedAt = DateTimeOffset.UtcNow,
-                                    FieldCount = fieldDefs.Count
-                                };
-                                await _globalProfileStore.SaveMetadataAsync(effectiveOrg, template, updatedMetadata, ct);
-                                Console.WriteLine("⚠ Process fields changed — merged with existing preferences");
-                                Console.WriteLine("Run 'twig config status-fields' to review");
-                            }
-                        }
-                    }
-                }
-                // If no profile exists → skip silently (first workspace for this org/process)
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // FR-09: init failures in profile logic must never block init completion
-            Console.WriteLine($"  ⚠ Could not apply global profile: {ex.Message}");
-            Console.WriteLine("Run 'twig config status-fields' to configure manually");
-        }
-
-        // SEC-001: Append .twig/ to .gitignore
-        AppendToGitignore();
-
-        // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
-        // Non-interactive init with no flags starts empty; interactive "Neither" also skips.
-        var hasConfiguredSources = (config.Workspace.Sprints is { Count: > 0 }) ||
-                                   config.Defaults.ResolveAreaPaths() is not null;
-
-        // Inline refresh: populate the cache with sprint items when workspace sources exist
-        if (hasConfiguredSources && _httpClient is not null && _authProvider is not null)
-        {
+            // Detect authenticated user identity
+            Console.WriteLine("Detecting user identity...");
             try
             {
-                Console.WriteLine("Refreshing sprint items...");
-                var adoClient = new AdoRestClient(
-                    _httpClient,
-                    _authProvider,
-                    effectiveOrg,
-                    effectiveProject,
-                    new WorkItemMapper(), throttle: _throttle);
-                var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
-                var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
-
-                // Resolve configured sprint expressions to concrete iteration paths
-                var sprintEntries = config.Workspace.Sprints;
-                IReadOnlyList<IterationPath> resolvedIterations = [];
-                if (sprintEntries is { Count: > 0 })
+                var displayName = await iterationService.GetAuthenticatedUserDisplayNameAsync();
+                if (!string.IsNullOrWhiteSpace(displayName))
                 {
-                    var sprintResolver = new SprintIterationResolver(iterationService, workItemRepo);
-                    var expressions = new List<IterationExpression>(sprintEntries.Count);
-                    foreach (var entry in sprintEntries)
-                    {
-                        var parseResult = IterationExpression.Parse(entry.Expression);
-                        if (parseResult.IsSuccess)
-                            expressions.Add(parseResult.Value);
-                    }
-                    if (expressions.Count > 0)
-                        resolvedIterations = await sprintResolver.ResolveAllAsync(expressions, ct);
-                }
-
-                // Build WIQL with multi-sprint OR-joined iteration clauses
-                var wiql = "SELECT [System.Id] FROM WorkItems";
-                var whereClauses = new List<string>();
-
-                if (resolvedIterations.Count > 0)
-                {
-                    var iterationClauses = resolvedIterations
-                        .Select(ip => $"[System.IterationPath] = '{ip.Value.Replace("'", "''")}'");
-                    var joined = string.Join(" OR ", iterationClauses);
-                    whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
-                }
-
-                // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths
-                var areaPathEntries = config.Defaults?.AreaPathEntries;
-                if (areaPathEntries is { Count: > 0 })
-                {
-                    var clauses = areaPathEntries
-                        .Select(entry =>
-                        {
-                            var escaped = entry.Path.Replace("'", "''");
-                            var op = entry.IncludeChildren ? "UNDER" : "=";
-                            return $"[System.AreaPath] {op} '{escaped}'";
-                        });
-                    whereClauses.Add(areaPathEntries.Count == 1
-                        ? clauses.First()
-                        : $"({string.Join(" OR ", clauses)})");
+                    config.User.DisplayName = displayName;
+                    Console.WriteLine($"  User: {displayName}");
                 }
                 else
                 {
-                    var areaPaths = config.Defaults?.AreaPaths;
-                    if (areaPaths is { Count: > 0 })
-                    {
-                        var clauses = areaPaths
-                            .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
-                        whereClauses.Add(areaPaths.Count == 1
-                            ? clauses.First()
-                            : $"({string.Join(" OR ", clauses)})");
-                    }
-                }
-
-                if (whereClauses.Count > 0)
-                {
-                    wiql += " WHERE " + string.Join(" AND ", whereClauses);
-                }
-                wiql += " ORDER BY [System.Id]";
-
-                // Skip query when no WHERE clauses were generated (all expressions failed to resolve)
-                if (whereClauses.Count == 0)
-                {
-                    Console.WriteLine("  No iterations or area paths resolved — skipping refresh.");
-                }
-                else
-                {
-                    var ids = await adoClient.QueryByWiqlAsync(wiql);
-                    var realIds = ids.Where(id => id > 0).ToList();
-                    if (realIds.Count > 0)
-                    {
-                        var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
-                        await workItemRepo.SaveBatchAsync(sprintItems);
-                        Console.WriteLine($"  Cached {sprintItems.Count} sprint item(s).");
-                    }
-                    else
-                    {
-                        Console.WriteLine("  No items found in configured iterations.");
-                    }
-
-                    // Set cache freshness timestamp
-                    await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                    Console.WriteLine("  \u26a0 Could not detect user identity.");
+                    Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.WriteLine($"  \u26a0 Could not refresh sprint items: {ex.Message}");
-                Console.WriteLine("Run 'twig sync' to populate your workspace.");
+                Console.WriteLine("  \u26a0 Could not detect user identity.");
+                Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
             }
-        }
 
-        // Blank line before success message (human output only)
-        if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
-            Console.WriteLine();
-        Console.WriteLine($"Initialized Twig workspace in {twigDir}");
+            // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
+            if (isInteractive && !preserveRepoManifest)
+            {
+                Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
+                var modeResponse = _consoleInput!.ReadLine()?.Trim().ToLowerInvariant();
+                if (modeResponse is "workspace")
+                    config.Defaults.Mode = "workspace";
+            }
 
-        var hints = _hintEngine.GetHints("init", outputFormat: outputFormat);
-        foreach (var hint in hints)
-        {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
-        }
+            // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
+            if (isInteractive
+                && !preserveRepoManifest
+                && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
+            {
+                Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
+                Console.WriteLine("  1. Sprint only (@Current)");
+                Console.WriteLine("  2. Area paths only (sync from team)");
+                Console.WriteLine("  3. Both sprint and area paths");
+                Console.WriteLine("  4. Neither (start empty, configure later)");
+                Console.Write("Choose [1-4] (4): ");
+                var prefResponse = _consoleInput!.ReadLine()?.Trim();
+
+                switch (prefResponse)
+                {
+                    case "1": // Sprint only
+                        config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                        config.Defaults.AreaPathEntries = [];
+                        config.Defaults.AreaPaths = [];
+                        Console.WriteLine("  Sprint: @current");
+                        break;
+                    case "2": // Area paths only — keep auto-detected areas
+                        Console.WriteLine("  Keeping team area paths");
+                        break;
+                    case "3": // Both
+                        config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                        Console.WriteLine("  Sprint: @current");
+                        Console.WriteLine("  Keeping team area paths");
+                        break;
+                    default: // "4" or any other input → Neither (start empty)
+                        config.Defaults.AreaPathEntries = [];
+                        config.Defaults.AreaPaths = [];
+                        Console.WriteLine("  Starting empty \u2014 configure later with workspace commands");
+                        break;
+                }
+            }
+
+            // --sprint flag: the expressions were validated before step 4 (see
+            // the pre-write validation above); apply the parsed entries here.
+            // A non-null list means the flag was supplied; an EMPTY one (e.g.
+            // `--sprint ';'`) still overrides, clearing anything auto-detected.
+            if (preparsedSprints is not null)
+            {
+                config.Workspace.Sprints = preparsedSprints;
+                foreach (var entry in preparsedSprints)
+                    Console.WriteLine($"  Sprint: {entry.Expression}");
+            }
+
+            // --area flag: likewise pre-validated; apply the parsed entries.
+            if (preparsedAreas is not null)
+            {
+                config.Defaults.AreaPathEntries = preparsedAreas;
+                config.Defaults.AreaPaths = preparsedAreas.Select(e => e.Path).ToList();
+                foreach (var entry in preparsedAreas)
+                    Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
+            }
+
+            if (preserveRepoManifest)
+                await config.SaveUserAsync(contextPaths.ConfigPath, ct);
+            else
+                await config.SaveSplitAsync(contextPaths, ct);
+
+            // Initialize SQLite cache in context-specific path and persist process type data
+            using var cacheStore = Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(contextPaths);
+
+            // Fetch state sequences and process configuration for all types
+            Console.WriteLine("Fetching type state sequences...");
+            Console.WriteLine("Fetching process configuration...");
+            var processTypeStore = new Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
+            try
+            {
+                var count = await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore);
+                Console.WriteLine($"  Loaded state sequences for {count} type(s)");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.WriteLine($"  ⚠ Could not fetch type data: {ex.Message}");
+            }
+
+            // DD-08: Fetch field definitions during init for immediate availability
+            var fieldDefStore = new Infrastructure.Persistence.SqliteFieldDefinitionStore(cacheStore);
+            Console.WriteLine("Fetching field definitions...");
+            try
+            {
+                var fieldDefCount = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore, ct);
+                telemetryFieldCount = fieldDefCount;
+                Console.WriteLine($"  Loaded {fieldDefCount} field definition(s)");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.WriteLine($"  ⚠ Could not fetch field definitions: {ex.Message}");
+            }
+
+            // Global profile resolution — apply or merge status-fields from global profile (FR-09: wrapped in try-catch)
+            try
+            {
+                if (_globalProfileStore is not null && template is not null)
+                {
+                    var metadata = await _globalProfileStore.LoadMetadataAsync(effectiveOrg, template, ct);
+                    if (metadata is not null)
+                    {
+                        telemetryHadGlobalProfile = true;
+                        var fieldDefs = await fieldDefStore.GetAllAsync(ct);
+                        if (fieldDefs.Count > 0)
+                        {
+                            var currentHash = FieldDefinitionHasher.ComputeFieldHash(fieldDefs);
+                            var profileContent = await _globalProfileStore.LoadStatusFieldsAsync(effectiveOrg, template, ct);
+                            if (profileContent is not null)
+                            {
+                                if (metadata.FieldDefinitionHash == currentHash)
+                                {
+                                    // Hash match → copy profile status-fields verbatim (DD-05: workspace layer)
+                                    await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, profileContent, ct);
+                                    Console.WriteLine($"✓ Applied existing field configuration for {effectiveOrg}/{template}");
+                                }
+                                else
+                                {
+                                    // Hash mismatch → merge with existing preferences
+                                    var mergedContent = StatusFieldsConfig.Generate(fieldDefs, profileContent);
+                                    await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, mergedContent, ct);
+                                    await _globalProfileStore.SaveStatusFieldsAsync(effectiveOrg, template, mergedContent, ct);
+                                    var updatedMetadata = metadata with
+                                    {
+                                        FieldDefinitionHash = currentHash,
+                                        LastSyncedAt = DateTimeOffset.UtcNow,
+                                        FieldCount = fieldDefs.Count
+                                    };
+                                    await _globalProfileStore.SaveMetadataAsync(effectiveOrg, template, updatedMetadata, ct);
+                                    Console.WriteLine("⚠ Process fields changed — merged with existing preferences");
+                                    Console.WriteLine("Run 'twig config status-fields' to review");
+                                }
+                            }
+                        }
+                    }
+                    // If no profile exists → skip silently (first workspace for this org/process)
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // FR-09: init failures in profile logic must never block init completion
+                Console.WriteLine($"  ⚠ Could not apply global profile: {ex.Message}");
+                Console.WriteLine("Run 'twig config status-fields' to configure manually");
+            }
+
+            // SEC-001: Append .twig/ to .gitignore
+            AppendToGitignore();
+
+            // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
+            // Non-interactive init with no flags starts empty; interactive "Neither" also skips.
+            var hasConfiguredSources = (config.Workspace.Sprints is { Count: > 0 }) ||
+                                       config.Defaults.ResolveAreaPaths() is not null;
+
+            // Inline refresh: populate the cache with sprint items when workspace sources exist
+            if (hasConfiguredSources && _httpClient is not null && _authProvider is not null)
+            {
+                try
+                {
+                    Console.WriteLine("Refreshing sprint items...");
+                    var adoClient = new AdoRestClient(
+                        _httpClient,
+                        _authProvider,
+                        effectiveOrg,
+                        effectiveProject,
+                        new WorkItemMapper(), throttle: _throttle);
+                    var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
+                    var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
+
+                    // Resolve configured sprint expressions to concrete iteration paths
+                    var sprintEntries = config.Workspace.Sprints;
+                    IReadOnlyList<IterationPath> resolvedIterations = [];
+                    if (sprintEntries is { Count: > 0 })
+                    {
+                        var sprintResolver = new SprintIterationResolver(iterationService, workItemRepo);
+                        var expressions = new List<IterationExpression>(sprintEntries.Count);
+                        foreach (var entry in sprintEntries)
+                        {
+                            var parseResult = IterationExpression.Parse(entry.Expression);
+                            if (parseResult.IsSuccess)
+                                expressions.Add(parseResult.Value);
+                        }
+                        if (expressions.Count > 0)
+                            resolvedIterations = await sprintResolver.ResolveAllAsync(expressions, ct);
+                    }
+
+                    // Build WIQL with multi-sprint OR-joined iteration clauses
+                    var wiql = "SELECT [System.Id] FROM WorkItems";
+                    var whereClauses = new List<string>();
+
+                    if (resolvedIterations.Count > 0)
+                    {
+                        var iterationClauses = resolvedIterations
+                            .Select(ip => $"[System.IterationPath] = '{ip.Value.Replace("'", "''")}'");
+                        var joined = string.Join(" OR ", iterationClauses);
+                        whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
+                    }
+
+                    // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths
+                    var areaPathEntries = config.Defaults?.AreaPathEntries;
+                    if (areaPathEntries is { Count: > 0 })
+                    {
+                        var clauses = areaPathEntries
+                            .Select(entry =>
+                            {
+                                var escaped = entry.Path.Replace("'", "''");
+                                var op = entry.IncludeChildren ? "UNDER" : "=";
+                                return $"[System.AreaPath] {op} '{escaped}'";
+                            });
+                        whereClauses.Add(areaPathEntries.Count == 1
+                            ? clauses.First()
+                            : $"({string.Join(" OR ", clauses)})");
+                    }
+                    else
+                    {
+                        var areaPaths = config.Defaults?.AreaPaths;
+                        if (areaPaths is { Count: > 0 })
+                        {
+                            var clauses = areaPaths
+                                .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
+                            whereClauses.Add(areaPaths.Count == 1
+                                ? clauses.First()
+                                : $"({string.Join(" OR ", clauses)})");
+                        }
+                    }
+
+                    if (whereClauses.Count > 0)
+                    {
+                        wiql += " WHERE " + string.Join(" AND ", whereClauses);
+                    }
+                    wiql += " ORDER BY [System.Id]";
+
+                    // Skip query when no WHERE clauses were generated (all expressions failed to resolve)
+                    if (whereClauses.Count == 0)
+                    {
+                        Console.WriteLine("  No iterations or area paths resolved — skipping refresh.");
+                    }
+                    else
+                    {
+                        var ids = await adoClient.QueryByWiqlAsync(wiql);
+                        var realIds = ids.Where(id => id > 0).ToList();
+                        if (realIds.Count > 0)
+                        {
+                            var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
+                            await workItemRepo.SaveBatchAsync(sprintItems);
+                            Console.WriteLine($"  Cached {sprintItems.Count} sprint item(s).");
+                        }
+                        else
+                        {
+                            Console.WriteLine("  No items found in configured iterations.");
+                        }
+
+                        // Set cache freshness timestamp
+                        await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Console.WriteLine($"  \u26a0 Could not refresh sprint items: {ex.Message}");
+                    Console.WriteLine("Run 'twig sync' to populate your workspace.");
+                }
+            }
+
+            // Blank line before success message (human output only)
+            if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine();
+            Console.WriteLine($"Initialized Twig workspace in {twigDir}");
+
+            var hints = _hintEngine.GetHints("init", outputFormat: outputFormat);
+            foreach (var hint in hints)
+            {
+                var formatted = fmt.FormatHint(hint);
+                if (!string.IsNullOrEmpty(formatted))
+                    Console.WriteLine(formatted);
+            }
 
             return (0, telemetryHadGlobalProfile, telemetryFieldCount);
         }

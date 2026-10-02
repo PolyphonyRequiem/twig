@@ -12,8 +12,8 @@ namespace Twig.Infrastructure.Persistence;
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
 /// Unknown <c>layout_meta.version</c> values fail closed with
-/// <c>system-store-schema-mismatch</c>. Only the bounded additive v3/v4→v5
-/// identity migrations are supported; earlier tuple-storage layouts remain
+/// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5→v6
+/// identity/native-migration upgrades are supported; earlier tuple-storage layouts remain
 /// a hard boundary. Existing worktree, claim and credential authority is retained.
 /// </para>
 /// <para>
@@ -37,7 +37,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegi
     // (`primary_scope_kind` column + extended partial unique index).
     // Additive identity migrations: v3→v4 adds AAD bindings; v4→v5 adds
     // method-specific PAT principal evidence without rewriting AAD authority.
-    private const int SchemaVersion = 5;
+    // v5→v6 adds native recoverable connection migration intents, without rewriting existing rows.
+    private const int SchemaVersion = 6;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -830,12 +831,12 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     }
 
     /// <summary>
-    /// Forward-only additive identity migrations from v3/v4 to v5. Existing
+    /// Forward-only additive identity/native-migration upgrades from v3/v4/v5 to v6. Existing
     /// connection/worktree/claim rows and credentials are never rewritten.
     /// </summary>
     private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
     {
-        if (fromVersion is 3 or 4 && toVersion == 5)
+        if (fromVersion is 3 or 4 or 5 && toVersion == 6)
         {
             using var tx = connection.BeginTransaction(deferred: false);
             try
@@ -843,7 +844,7 @@ ON CONFLICT(connection_ref) DO UPDATE SET
                 using (var cmd = connection.CreateCommand())
                 {
                     cmd.Transaction = tx;
-                    cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql;
+                    cmd.CommandText = (fromVersion == 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql) + MigrationSchemaSql;
                     cmd.ExecuteNonQuery();
                 }
                 using (var cmd = connection.CreateCommand())
@@ -1000,7 +1001,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

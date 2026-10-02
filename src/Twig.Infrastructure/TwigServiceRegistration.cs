@@ -30,11 +30,10 @@ namespace Twig.Infrastructure;
 /// include <c>Twig.Tui</c>. An <c>internal</c> class would cause a compilation
 /// error in the TUI project.
 /// <para/>
-/// <b>Storage layout</b>: AB#736 pins one SQLite file per worktree at
-/// <c>.twig/cache/twig.db</c>. Migration from the pre-T1
-/// <c>.twig/{org}/{project}/twig.db</c> nested layout is deliberately not
-/// provided — the clean cutover requires <c>twig init --force</c> in each
-/// affected worktree; there is no in-band bridge.
+/// <b>Storage layout</b>: one disposable mirror and one durable pending store per worktree.
+/// Explicit migration moves supported split legacy mirrors to a native generation-admitted
+/// entry point and seals their old paths after verified host closure. Unsupported legacy
+/// state is preserved for compatible-version recovery, never silently archived or rebuilt.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -84,6 +83,8 @@ public static class TwigServiceRegistration
 
         services.TryAddSingleton<IConnectionBindingService>(_ =>
             new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
+        services.AddSingleton<IConnectionMigrationService>(sp => new ConnectionMigrationService(
+            ConnectionBindingService.ResolveUserHome(), sp.GetRequiredService<IConnectionBindingService>()));
         services.AddSingleton<IIdentityChangeEligibilityService>(sp => new IdentityChangeEligibilityService(
             sp.GetRequiredService<ISystemWorktreeRegistry>(), sp.GetRequiredService<IPrimaryScopeAttachmentStore>(),
             sp.GetRequiredService<IPendingChangeReader>(), sp.GetRequiredService<IWorkItemRepository>(),
@@ -99,7 +100,7 @@ public static class TwigServiceRegistration
                 throw new WorkspaceNotFoundException();
 
             Directory.CreateDirectory(Path.GetDirectoryName(paths.DbPath)!);
-            return new SqliteCacheStore($"Data Source={paths.DbPath}");
+            return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
         services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));

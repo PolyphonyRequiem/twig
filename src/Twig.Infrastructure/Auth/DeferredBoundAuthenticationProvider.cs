@@ -19,11 +19,12 @@ namespace Twig.Infrastructure.Auth;
 /// failure, never a silent swap).
 /// </para>
 /// </summary>
-internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata
+internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IDisposable
 {
     private readonly Func<CancellationToken, Task<IAuthenticationProvider>> _factory;
     private readonly object _sync = new();
     private Task<IAuthenticationProvider>? _resolution;
+    private bool _disposed;
 
     public DeferredBoundAuthenticationProvider(Func<CancellationToken, Task<IAuthenticationProvider>> factory)
     {
@@ -60,11 +61,32 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
         Task<IAuthenticationProvider> task;
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (_resolution is null || _resolution.IsFaulted || _resolution.IsCanceled)
                 _resolution = StartResolutionAsync();
             task = _resolution;
         }
         return task.WaitAsync(ct);
+    }
+
+    public void Dispose()
+    {
+        lock (_sync)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_resolution is { IsCompletedSuccessfully: true })
+            {
+                if (_resolution.Result is IDisposable disposable) disposable.Dispose();
+            }
+            else if (_resolution is not null)
+            {
+                _ = _resolution.ContinueWith(static task =>
+                {
+                    if (task.IsCompletedSuccessfully && task.Result is IDisposable disposable) disposable.Dispose();
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+        }
     }
 
     private Task<IAuthenticationProvider> StartResolutionAsync()

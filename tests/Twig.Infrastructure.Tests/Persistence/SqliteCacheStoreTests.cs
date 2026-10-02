@@ -110,38 +110,27 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void Constructor_RebuildSchema_OnVersionMismatch()
+    public void Constructor_UnsupportedVersion_RefusesWithoutDestroyingWork()
     {
-        // Create a shared in-memory database with a name
-        var connStr = "Data Source=VersionMismatchTest;Mode=Memory;Cache=Shared";
+        var connectionString = $"Data Source=UnsupportedVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        using var source = new SqliteConnection(connectionString);
+        source.Open();
+        using var setup = source.CreateCommand();
+        setup.CommandText = """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', '999');
+            CREATE TABLE work_items (id INTEGER PRIMARY KEY, title TEXT NOT NULL);
+            INSERT INTO work_items VALUES (-1, 'Unpublished draft');
+            """;
+        setup.ExecuteNonQuery();
 
-        // First, create a database with a wrong schema version
-        using (var setupConn = new SqliteConnection(connStr))
-        {
-            setupConn.Open();
-            using var cmd = setupConn.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                INSERT INTO metadata (key, value) VALUES ('schema_version', '999');
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY);
-                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY);
-                CREATE TABLE process_types (type_name TEXT PRIMARY KEY);
-                CREATE TABLE context (key TEXT PRIMARY KEY);
-                """;
-            cmd.ExecuteNonQuery();
+        Should.Throw<InvalidOperationException>(() => new SqliteCacheStore(connectionString));
 
-            // Open the store — it should detect version mismatch and rebuild
-            using var store = new SqliteCacheStore(connStr);
-            store.SchemaWasRebuilt.ShouldBeTrue();
-
-            // Verify the schema version was updated
-            var conn = store.GetConnection();
-            using var verifyCmd = conn.CreateCommand();
-            verifyCmd.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
-            var version = verifyCmd.ExecuteScalar() as string;
-            version.ShouldNotBeNull();
-            int.Parse(version).ShouldBe(SqliteCacheStore.SchemaVersion);
-        }
+        using var retained = source.CreateCommand();
+        retained.CommandText = "SELECT title FROM work_items WHERE id = -1;";
+        retained.ExecuteScalar().ShouldBe("Unpublished draft");
+        retained.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+        retained.ExecuteScalar().ShouldBe("999");
     }
 
     [Fact]
@@ -505,38 +494,28 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void Constructor_NonNumericSchemaVersion_RebuildsFully()
+    public void Constructor_MalformedVersion_RefusesWithoutDestroyingPendingWork()
     {
-        // Schema version is "abc" — not parseable as int
-        var connStr = $"Data Source=NonNumericVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        var connectionString = $"Data Source=MalformedVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        using var source = new SqliteConnection(connectionString);
+        source.Open();
+        using var setup = source.CreateCommand();
+        setup.CommandText = """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', 'abc');
+            CREATE TABLE pending_changes (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO pending_changes VALUES (1, 'Unpublished note');
+            CREATE TABLE work_items (id INTEGER PRIMARY KEY);
+            """;
+        setup.ExecuteNonQuery();
 
-        using var setupConn = new SqliteConnection(connStr);
-        setupConn.Open();
+        Should.Throw<InvalidOperationException>(() => new SqliteCacheStore(connectionString));
 
-        using (var cmd = setupConn.CreateCommand())
-        {
-            cmd.CommandText = """
-                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                INSERT INTO metadata (key, value) VALUES ('schema_version', 'abc');
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY);
-                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY);
-                CREATE TABLE process_types (type_name TEXT PRIMARY KEY);
-                CREATE TABLE context (key TEXT PRIMARY KEY);
-                """;
-            cmd.ExecuteNonQuery();
-        }
-
-        using var store = new SqliteCacheStore(connStr);
-
-        store.SchemaWasRebuilt.ShouldBeTrue();
-
-        var conn = store.GetConnection();
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
-            var version = cmd.ExecuteScalar() as string;
-            int.Parse(version!).ShouldBe(SqliteCacheStore.SchemaVersion);
-        }
+        using var retained = source.CreateCommand();
+        retained.CommandText = "SELECT value FROM pending_changes WHERE id = 1;";
+        retained.ExecuteScalar().ShouldBe("Unpublished note");
+        retained.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+        retained.ExecuteScalar().ShouldBe("abc");
     }
 
     /// <summary>

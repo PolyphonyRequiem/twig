@@ -3,10 +3,9 @@ namespace Twig.Infrastructure.Config;
 /// <summary>
 /// Paths to the .twig directory and its contents.
 /// <para>
-/// AB#736 T1 §4.2.4: the SQLite cache lives at <c>.twig/cache/twig.db</c> —
-/// a single per-worktree DB. The pre-T1 <c>.twig/{org}/{project}/twig.db</c>
-/// nested layout is retired without a compatibility shim; call sites reach
-/// the DB only through <see cref="DbPath"/>.
+/// A worktree has one mirror. Before explicit migration it lives at
+/// <c>.twig/cache/twig.db</c>; afterwards native admission routes its fenced generation.
+/// The legacy nested layout is an explicit migration input, never a runtime fallback.
 /// </para>
 /// </summary>
 public sealed class TwigPaths
@@ -39,7 +38,7 @@ public sealed class TwigPaths
     /// </summary>
     public string RepoRoot { get; }
 
-    /// <summary>Path to the SQLite database — AB#736 §4.2.4: <c>.twig/cache/twig.db</c>.</summary>
+    /// <summary>Path to this worktree's disposable mirror; admitted generation routing is separate from durable storage.</summary>
     public string DbPath { get; }
 
     /// <summary>Home-wide display defaults, shared across Twig workspaces on this machine.</summary>
@@ -103,14 +102,13 @@ public sealed class TwigPaths
     {
         _ = org;
         _ = project;
-        return Path.Combine(twigDir, "cache", "twig.db");
+        return GetCacheDbPath(twigDir);
     }
 
-    /// <summary>The T1 §4.2.4 canonical cache DB path. Prefer this on new
-    /// call sites; <see cref="GetContextDbPath"/> is retained for legacy
-    /// callers that still pass org/project.</summary>
+    /// <summary>Resolves this worktree's single legacy or generation-admitted mirror path.
+    /// Opening an admitted path still requires native capability validation.</summary>
     public static string GetCacheDbPath(string twigDir) =>
-        Path.Combine(twigDir, "cache", "twig.db");
+        Persistence.MirrorAdmission.ResolveMirrorPath(twigDir);
 
     /// <summary>
     /// Creates a <see cref="TwigPaths"/> for the given worktree. The org and
@@ -127,8 +125,8 @@ public sealed class TwigPaths
     /// <summary>
     /// Builds a <see cref="TwigPaths"/> from a <paramref name="twigDir"/>.
     /// <paramref name="config"/> is retained for signature stability but no
-    /// longer selects between layouts — T1 fixes a single per-worktree DB
-    /// path at <c>.twig/cache/twig.db</c>.
+    /// longer selects between endpoints — storage admission owns this worktree's
+    /// single mirror path and never selects an authentication identity.
     /// </summary>
     public static TwigPaths BuildPaths(string twigDir, TwigConfiguration config, string? startDir = null)
     {

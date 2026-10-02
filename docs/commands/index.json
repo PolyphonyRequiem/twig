@@ -888,6 +888,14 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "connection migrate",
+    "group": "system",
+    "summary": "Preview or explicitly apply safe legacy migration with verified principal mapping, actual host/store quiescence and native generation admission; no force or implicit publication.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "changelog",
     "group": "system",
     "summary": "Display recent release notes from GitHub Releases without applying any update.",

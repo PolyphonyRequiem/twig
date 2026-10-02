@@ -97,9 +97,10 @@ var app = ConsoleApp.Create()
         {
             var paths = TwigPaths.BuildPaths(twigDir, config);
 
-            if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
+            if (!(args.Length >= 2 && args[0] == "connection" && args[1] == "migrate")
+                && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
-                using var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}");
+                using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);
                 var processTypeStore = new SqliteProcessTypeStore(cacheStore);
                 var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
                 stateEntries = records.SelectMany(r => r.States).ToList();
@@ -1444,6 +1445,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
+    /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>
+    /// <param name="method">Legacy credential import method: aad or pat. Omit for an already registered identity.</param>
+    /// <param name="confirm">Exact digest from a clean migration preview. Omit to inspect without activating. Reusing it cannot bypass changed sources or host blockers.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection migrate")]
+    public async Task<int> ConnectionMigrate(string? identity = null, string? method = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionMigrateCommand>().ExecuteAsync(identity, method, confirm, output, ct);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1755,6 +1766,7 @@ internal static class GroupedHelp
         "connection list",
         "connection status",
         "connection check",
+        "connection migrate",
         "version",
         "upgrade",
         "changelog",

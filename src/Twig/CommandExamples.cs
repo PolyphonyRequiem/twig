@@ -465,6 +465,11 @@ internal static class CommandExamples
             "twig connection check                 Inspect every native unfinished-work/claim blocker without changing identity",
             "twig connection check --output json   Emit exact blocker identities and observed selection revisions",
         ],
+        ["connection migrate"] =
+        [
+            "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",
+            "twig connection migrate --identity work --method aad --confirm <digest>  Apply the exact eligible preview after explicitly closing legacy hosts",
+        ],
         ["version"] =
         [
             "twig version               Print the installed twig version",

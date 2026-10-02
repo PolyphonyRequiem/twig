@@ -23,7 +23,7 @@ namespace Twig.Infrastructure.Auth;
 /// bootstrap; we never trust az's access tokens. This is what made #164's bug class
 /// structurally impossible.
 /// </summary>
-internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
+internal sealed class AdoAccessTokenProvider : IAuthenticationProvider, IDisposable
 {
     private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(50);
     private static readonly TimeSpan ExpiryBuffer = TimeSpan.FromMinutes(5);
@@ -39,6 +39,7 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
     private readonly Func<string, CancellationToken, Task<string?>> _msalCacheReader;
     private readonly Func<DateTimeOffset> _clock;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly Persistence.LegacyHostCapability _capability;
 
     private string? _cachedToken;
     private DateTimeOffset _cacheExpiry;
@@ -62,6 +63,7 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
         _refresher = refresher ?? new MsalTokenRefresher();
         _fileCache = fileCache ?? new TwigTokenFileCache();
         _refreshStore = refreshStore ?? new TwigRefreshTokenStore();
+        _capability = new Persistence.LegacyHostCapability(Path.GetDirectoryName(Path.GetFullPath(_refreshStore.Path))!, authentication: true);
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
@@ -69,6 +71,7 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
         await _semaphore.WaitAsync(ct);
         try
         {
+            _capability.Validate();
             var now = _clock();
 
             // 1. In-memory cache (already audience-validated when stored)
@@ -279,6 +282,8 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
             return null;
         }
     }
+
+    public void Dispose() => _capability.Dispose();
 
     private static async Task<string?> DefaultMsalCacheReaderAsync(string path, CancellationToken ct)
     {

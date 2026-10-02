@@ -20,6 +20,7 @@ twig connection status [-o <format>]
 twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
 twig connection check [-o <format>]
+twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
 ```
 
 ## Behavior
@@ -66,6 +67,48 @@ not automatic remediation. There is no force bypass.
 This is a prerequisite snapshot, not authorization to switch an identity or proof
 of fresh remote access. An eligible snapshot returns `0`; a blocked snapshot
 returns `1`, retaining its structured evidence.
+
+### Legacy migration administration
+
+`twig connection migrate` previews a versioned import without activating storage.
+Use `--identity` to explicitly map the endpoint and preserved local work to the
+intended principal. For an unregistered identity, `--method aad` imports the
+metadata home's legacy refresh credential; `--method pat` imports a legacy PAT
+from the worktree's local configuration. Missing principal evidence requires
+explicit enrollment. A global login, token audience, display name or last-used
+account never establishes connection intent, and secrets are not accepted in
+migration arguments or included in output.
+
+Apply with the same identity/method arguments and `--confirm <digest>` from a
+clean preview. Source changes, ambiguous mappings, incompatible claims,
+in-flight native publication, unsupported versions and unreadable data refuse
+before activation. Split mirror versions 16 and 17 are supported; earlier
+unsplit/unknown layouts must be preserved and recovered with their compatible
+Twig version. Migration never flushes pending work, publishes proposals,
+rewrites journal states, replaces another default or weakens portable policy.
+
+Activation inventories supported OS hosts and actual provider/store capabilities
+and handles. Explicitly close affected CLI/TUI/MCP/Herdr subprocesses and legacy
+providers/stores, then rerun. An empty lease ledger or an owner assertion is not
+closure evidence. Unavailable/inconclusive inspection refuses; migration does
+not kill processes, restart hosts automatically or offer a force bypass.
+
+A native preparing intent fences interrupted activation. The disposable mirror
+moves to a generation-admitted entry point; legacy SQLite paths are sealed, and
+current opens require native admission rather than a supplied connection string.
+Credentials, staged work, durable `pending.db`, historical proposals/receipts,
+attachment and portable configuration remain preserved. Unprotected read data
+starts cold. Repeating an active migration is idempotent; an interrupted run
+resumes the original identity and native intent, never a replacement generation
+or actor. Resolve its reported blocker and preview/apply again; do not erase the
+intent, delete the durable store or reinitialize admitted storage with legacy
+`init --force`/`--reinitialize`.
+
+This is explicit management administration, not permission to issue normal work
+requests outside a valid attachment. Preview output includes `state`, `digest`,
+`canApply`, source versions, every blocker and separate next steps. Eligible
+previews/active results return `0`; blocked/runtime failures return `1`; invalid
+method arguments return `2`.
 
 ## Exit codes and failure modes
 

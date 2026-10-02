@@ -41,6 +41,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
     private readonly PatPrincipalAttestor _patAttestor;
     private bool _disposed;
 
+    public string RegistryPath => Path.Combine(_userHome, SystemDbFileName);
+
     public ConnectionBindingService(string userHome, ITokenRefresher? refresher = null, TimeProvider? clock = null, HttpClient? patHttpClient = null)
     {
         if (string.IsNullOrWhiteSpace(userHome) || !Path.IsPathFullyQualified(userHome))
@@ -370,6 +372,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
+        var storageAdmission = MirrorAdmission.Acquire(paths, Path.Combine(_userHome, SystemDbFileName));
         var connectionRef = ConnectionRefResolver.Compute(configuration);
 
         // Validate the local attachment before selecting an identity.
@@ -437,7 +440,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
                 configuration.Display.Icons,
                 configuration.Display.IconsOverride is not null ? paths.ConfigPath
                     : GlobalDisplayPreferences.Load(paths.GlobalDisplayPath).Icons is not null
-                        ? paths.GlobalDisplayPath : "built-in-defaults"));
+                        ? paths.GlobalDisplayPath : "built-in-defaults"),
+            StorageGeneration: storageAdmission?.Generation);
     }
     public async Task<IAuthenticationProvider> CreateBootstrapProviderAsync(
         TwigConfiguration configuration,
@@ -475,7 +479,19 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(binding);
         EnsurePatAuthority(binding.Identity, binding.Operation.Organization);
-        return CreateProvider(binding.Identity);
+        return new MigrationBoundAuthenticationProvider(CreateProvider(binding.Identity), binding, Path.Combine(_userHome, SystemDbFileName));
+    }
+
+    public async Task VerifyIdentityCredentialAsync(string identityName, string organization, CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        var lookup = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
+        if (!lookup.IsSuccess || lookup.Value is null)
+            throw new InvalidOperationException("migration-identity-unavailable: enroll the explicit identity before setting up its mapping.");
+        var identity = ToIdentity(lookup.Value);
+        EnsurePatAuthority(identity, organization);
+        var provider = CreateProvider(identity);
+        _ = await provider.GetAccessTokenAsync(ct).ConfigureAwait(false);
     }
 
     private IAuthenticationProvider CreateProvider(AuthenticationIdentity identity)

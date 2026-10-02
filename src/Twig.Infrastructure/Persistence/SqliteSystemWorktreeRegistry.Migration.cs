@@ -1,0 +1,71 @@
+using System.Text.Json;
+using Twig.Domain.Common;
+using Twig.Infrastructure.Serialization;
+
+namespace Twig.Infrastructure.Persistence;
+
+internal sealed record ConnectionMigrationRecord(
+    int Version, string Fingerprint, string WorktreeRoot, string ConnectionRef,
+    string Generation, string State, string IdentityName, string BindingId,
+    string SourceMirror, string SourceDurable, string CurrentMirror,
+    string ConfigurationHash, string AttachmentHash, long AttachmentRevision);
+
+internal sealed partial class SqliteSystemWorktreeRegistry
+{
+    private const string MigrationSchemaSql = """
+        CREATE TABLE IF NOT EXISTS connection_migrations (
+            worktree_fingerprint TEXT PRIMARY KEY,
+            generation TEXT NOT NULL UNIQUE,
+            state TEXT NOT NULL CHECK (state IN ('preparing', 'active')),
+            record_json TEXT NOT NULL
+        );
+        """;
+
+    internal Task<Result<ConnectionMigrationRecord?>> ReadConnectionMigrationAsync(string fingerprint, CancellationToken ct = default)
+        => ExecuteReadAsync<ConnectionMigrationRecord?>(async connection =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT state, generation, record_json FROM connection_migrations WHERE worktree_fingerprint = $fp;";
+            cmd.Parameters.AddWithValue("$fp", fingerprint);
+            using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return Result.Ok<ConnectionMigrationRecord?>(null);
+            var record = JsonSerializer.Deserialize(reader.GetString(2), TwigJsonContext.Default.ConnectionMigrationRecord);
+            if (record is null || record.State != reader.GetString(0) || record.Generation != reader.GetString(1))
+                return Result.Fail<ConnectionMigrationRecord?>("migration-intent-inconsistent: native record disagrees with its admission columns.");
+            return Result.Ok<ConnectionMigrationRecord?>(record);
+        }, ct);
+
+    internal Task<Result> BeginConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO connection_migrations(worktree_fingerprint, generation, state, record_json) VALUES ($fp, $generation, 'preparing', $json) ON CONFLICT(worktree_fingerprint) DO NOTHING;";
+            cmd.Parameters.AddWithValue("$fp", record.Fingerprint);
+            cmd.Parameters.AddWithValue("$generation", record.Generation);
+            cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(record, TwigJsonContext.Default.ConnectionMigrationRecord));
+            return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1
+                ? Result.Ok() : Result.Fail("migration-intent-conflict: resume the existing native intent; no new generation was admitted.");
+        }, ct);
+
+    internal Task<Result> CompleteConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
+        => ExecuteWriteAsync(async (connection, tx) =>
+        {
+            using var cmd = connection.CreateCommand();
+            using (var selection = connection.CreateCommand())
+            {
+                selection.Transaction = tx;
+                selection.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref=$ref;";
+                selection.Parameters.AddWithValue("$ref", record.ConnectionRef);
+                if (!string.Equals(await selection.ExecuteScalarAsync(ct).ConfigureAwait(false) as string, record.BindingId, StringComparison.Ordinal))
+                    return Result.Fail("migration-selection-cas-mismatch: default changed during preparation. Original intent stays fenced; restore its original selection before resuming.");
+            }
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE connection_migrations SET state = 'active', record_json = $json WHERE worktree_fingerprint = $fp AND generation = $generation AND state = 'preparing';";
+            cmd.Parameters.AddWithValue("$fp", record.Fingerprint);
+            cmd.Parameters.AddWithValue("$generation", record.Generation);
+            cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(record with { State = "active" }, TwigJsonContext.Default.ConnectionMigrationRecord));
+            return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1
+                ? Result.Ok() : Result.Fail("migration-intent-conflict: activation CAS refused; retain the original intent and resume.");
+        }, ct);
+}

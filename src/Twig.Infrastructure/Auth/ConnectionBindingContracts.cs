@@ -31,7 +31,8 @@ internal sealed record ResolvedConnectionBinding(
     string WorktreeRoot,
     string SelectionSource,
     long SelectionRevision,
-    ConnectionOperationSnapshot Operation);
+    ConnectionOperationSnapshot Operation,
+    string? StorageGeneration = null);
 
 /// <summary>Frozen endpoint and attachment CAS evidence for operation admission.</summary>
 internal sealed record ConnectionOperationSnapshot(
@@ -58,6 +59,8 @@ internal interface IBoundAuthenticationMetadata
 /// </summary>
 internal interface IConnectionBindingService
 {
+    string RegistryPath { get; }
+
     Task<AuthenticationIdentity> RegisterAadIdentityAsync(
         string name,
         TwigRefreshTokenStoreEntry credential,
@@ -70,6 +73,8 @@ internal interface IConnectionBindingService
         CancellationToken ct = default);
 
     Task ClearIdentityAccessCacheAsync(string name, CancellationToken ct = default);
+
+    Task VerifyIdentityCredentialAsync(string identityName, string organization, CancellationToken ct = default);
 
     Task<IReadOnlyList<AuthenticationIdentity>> ListIdentitiesAsync(CancellationToken ct = default);
 

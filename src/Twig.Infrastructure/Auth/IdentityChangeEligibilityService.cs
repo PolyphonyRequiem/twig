@@ -24,7 +24,11 @@ internal sealed class IdentityChangeEligibilityService(
     IPlanJournalRepository planJournals,
     IConnectionBindingService bindings) : IIdentityChangeEligibilityService
 {
-    public async Task<IdentityChangeEligibility> InspectAsync(TwigConfiguration configuration, TwigPaths paths, CancellationToken ct = default)
+    public Task<IdentityChangeEligibility> InspectAsync(TwigConfiguration configuration, TwigPaths paths, CancellationToken ct = default)
+        => InspectAsync(configuration, paths, null, ct);
+
+    internal async Task<IdentityChangeEligibility> InspectAsync(TwigConfiguration configuration, TwigPaths paths,
+        ResolvedConnectionBinding? frozenSelection, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
@@ -57,7 +61,13 @@ internal sealed class IdentityChangeEligibilityService(
                 guards.Add(new("portable-endpoint-changed", ConnectionRefResolver.Compute(live), connection));
                 return;
             }
-            selection = await bindings.ResolveAsync(live, paths, ct).ConfigureAwait(false);
+            selection = frozenSelection ?? await bindings.ResolveAsync(live, paths, ct).ConfigureAwait(false);
+            if (frozenSelection is not null && (frozenSelection.Binding.ConnectionRef != connection
+                || frozenSelection.Operation.WorktreeFingerprint != fingerprint))
+            {
+                unknown.Add(new("binding.frozen-origin", "Recorded native binding does not match this exact checkout/connection; restore its original recovery context."));
+                selection = null;
+            }
         }).ConfigureAwait(false);
 
         var pending = new List<PendingEditBlocker>();
@@ -86,6 +96,14 @@ internal sealed class IdentityChangeEligibilityService(
         {
             foreach (var intent in await publishIntents.GetOpenIntentsAsync(ct).ConfigureAwait(false))
                 intents.Add(new(intent.Identity.ToString(), intent.Title, intent.TypeName, intent.RecordedAt));
+        }).ConfigureAwait(false);
+        await ReadAsync("remote-write-intents", async () =>
+        {
+            using var native = new SqliteSystemWorktreeRegistry(bindings.RegistryPath, TimeProvider.System);
+            var writes = await native.ReadConnectionRemoteWritesAsync(fingerprint, unsettledOnly: true, ct).ConfigureAwait(false);
+            if (!writes.IsSuccess) throw new InvalidOperationException(writes.Error);
+            foreach (var write in writes.Value)
+                unknown.Add(new("remote-write-outcome", $"Native {write.Intent.Request.EffectKind} intent {write.Intent.IntentId} ({write.Intent.RequestDigest}) has no attributable settled outcome. Inspect/reconcile under its original bound actor; OS lease expiry/process death or pending discard cannot settle it."));
         }).ConfigureAwait(false);
         var journals = new List<UnresolvedJournalBlocker>();
         await ReadAsync("proposal-journals", async () =>
@@ -136,7 +154,7 @@ internal sealed class IdentityChangeEligibilityService(
             var final = await attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
             if (!final.IsSuccess || final.Value.Revision != initial.Value.Revision)
                 unknown.Add(new("attachment.revision", "Attachment changed or became unreadable during inspection; rerun before transition admission."));
-            if (selection is not null)
+            if (selection is not null && frozenSelection is null)
             {
                 var live = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
                 var latest = await bindings.ResolveAsync(live, paths, ct).ConfigureAwait(false);

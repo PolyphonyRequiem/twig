@@ -31,6 +31,7 @@ public sealed class SqliteCacheStore : IDisposable
     private readonly SqliteConnection _connection;
     private readonly MirrorAdmission? _admission;
     private readonly LegacyHostCapability? _legacyCapability;
+    private readonly AsyncLocal<OperationScope?> _operationScope = new();
     private bool _schemaRebuilt;
 
     static SqliteCacheStore()
@@ -73,6 +74,7 @@ public sealed class SqliteCacheStore : IDisposable
 
     internal static SqliteCacheStore OpenWorkspace(Config.TwigPaths paths, string registryPath)
     {
+        using var operation = Auth.ConnectionOperationGate.Acquire(Path.GetDirectoryName(paths.TwigDir)!);
         var admission = MirrorAdmission.Acquire(paths, registryPath);
         return new SqliteCacheStore(new SqliteConnectionStringBuilder { DataSource = paths.DbPath, Pooling = false }.ToString(), admission, false);
     }
@@ -143,10 +145,60 @@ public sealed class SqliteCacheStore : IDisposable
     /// </summary>
     public SqliteConnection GetConnection()
     {
-        _admission?.Validate();
+        if (_operationScope.Value?.Active != true) _admission?.Validate();
         return _connection;
     }
 
+
+    internal IDisposable? AcquireOperation()
+    {
+        if (_admission is null) return null;
+        var prior = _operationScope.Value;
+        if (prior is not null && prior.TryRetain())
+            return new OperationLease(this, prior, null, owner: false);
+        var scope = new OperationScope(_admission.AcquireOperation());
+        _operationScope.Value = scope;
+        return new OperationLease(this, scope, prior, owner: true);
+    }
+
+    private sealed class OperationScope(IDisposable physicalLease)
+    {
+        private bool _active = true;
+        private int _references = 1;
+        internal bool Active => Volatile.Read(ref _active);
+
+        internal bool TryRetain()
+        {
+            lock (this)
+            {
+                if (!_active) return false;
+                _references++;
+                return true;
+            }
+        }
+
+        internal void Release(bool owner)
+        {
+            bool dispose;
+            lock (this)
+            {
+                if (owner) Volatile.Write(ref _active, false);
+                dispose = --_references == 0;
+            }
+            if (dispose) physicalLease.Dispose();
+        }
+    }
+
+    private sealed class OperationLease(SqliteCacheStore store, OperationScope scope, OperationScope? prior, bool owner) : IDisposable
+    {
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            scope.Release(owner);
+            if (owner) store._operationScope.Value = prior;
+        }
+    }
     /// <summary>
     /// The currently active ambient transaction, if any.
     /// Set by <see cref="SqliteUnitOfWork.BeginAsync"/> and cleared on commit, rollback, or dispose.

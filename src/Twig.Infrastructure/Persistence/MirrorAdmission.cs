@@ -22,6 +22,14 @@ internal sealed class MirrorAdmission
     }
 
     internal string Generation => _document.Generation;
+    internal string WorktreeRoot => Path.GetDirectoryName(_twigDir)!;
+
+    internal IDisposable AcquireOperation()
+    {
+        var lease = Auth.ConnectionOperationGate.Acquire(WorktreeRoot);
+        try { Validate(); return lease; }
+        catch { lease.Dispose(); throw; }
+    }
     internal string MirrorPath => Path.Combine(_twigDir, "cache", _document.MirrorFile);
 
     internal static string ResolveMirrorPath(string twigDir)
@@ -68,6 +76,13 @@ internal sealed class MirrorAdmission
         var current = ReadDocument(Path.Combine(_twigDir, "cache", MarkerFile));
         if (current != _document)
             throw new InvalidOperationException("binding-changed: storage admission changed. Explicitly reconnect; the old generation is unavailable.");
+        ValidateNoUnfinishedTransition(_document.RegistryPath, _document.Fingerprint);
+        if (!WorktreeAnchorDetector.TryDetect(WorktreeRoot, out var anchor, out _)
+            || WorktreeFingerprintProvider.CanonicalJson(anchor) != _document.Fingerprint)
+            throw new InvalidOperationException("binding-changed: checkout fingerprint changed. Explicitly reconnect before reading or writing cached data.");
+        var paths = TwigPaths.BuildPaths(_twigDir, new TwigConfiguration(), WorktreeRoot);
+        if (ConnectionRefResolver.Compute(TwigConfiguration.LoadSplit(paths)) != _document.ConnectionRef)
+            throw new InvalidOperationException("binding-changed: declared repository endpoint changed. Explicitly reconnect; cached data remains owned by its original endpoint.");
         var native = ReadNativeState(_document.RegistryPath, _document.Fingerprint);
         if (native is null || native.Version != 1 || native.State != "active"
             || native.Generation != _document.Generation || native.ConnectionRef != _document.ConnectionRef
@@ -91,6 +106,7 @@ internal sealed class MirrorAdmission
 
     internal static ConnectionMigrationRecord? ReadNativeState(string database, string fingerprint)
     {
+        ValidateNoUnfinishedTransition(database, fingerprint);
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = database,
@@ -110,11 +126,41 @@ internal sealed class MirrorAdmission
         if (record.State != reader.GetString(0) || record.Generation != reader.GetString(1))
             throw new InvalidOperationException("migration-intent-inconsistent: native admission metadata disagrees; restore its native record before proceeding.");
         reader.Dispose();
-        command.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref=$connection;";
-        command.Parameters.AddWithValue("$connection", record.ConnectionRef);
-        if (!string.Equals(command.ExecuteScalar() as string, record.BindingId, StringComparison.Ordinal))
-            throw new InvalidOperationException("binding-changed: the native migration generation no longer owns effective selection. Restore/resume its native intent or explicitly reconnect after a guarded transition.");
+        var attachmentPath = Path.Combine(record.WorktreeRoot, ".twig", "attachment.json");
+        var attachment = JsonSerializer.Deserialize(File.ReadAllText(attachmentPath), TwigJsonContext.Default.AttachmentDocument)
+            ?? throw new InvalidOperationException("binding-changed: the admitted attachment cannot be verified. Restore it, then reconnect explicitly.");
+        if (attachment.Schema != AttachmentDocument.CurrentSchema || attachment.Version != AttachmentDocument.CurrentVersion
+            || attachment.Revision < 0 || (attachment.BindingPin is not null && string.IsNullOrWhiteSpace(attachment.BindingPin)))
+            throw new InvalidOperationException("binding-changed: checkout attachment version or binding pin cannot be verified. Repair the attachment, then reconnect explicitly.");
+        if (attachment.ConnectionRef != record.ConnectionRef)
+            throw new InvalidOperationException("binding-changed: checkout endpoint no longer matches its native generation. Reconnect explicitly.");
+        var selected = attachment.BindingPin;
+        if (selected is null)
+        {
+            command.CommandText = "SELECT binding_id FROM connection_defaults WHERE connection_ref=$connection;";
+            command.Parameters.AddWithValue("$connection", record.ConnectionRef);
+            selected = command.ExecuteScalar() as string;
+        }
+        if (!string.Equals(selected, record.BindingId, StringComparison.Ordinal))
+            throw new InvalidOperationException("binding-changed: the native mirror generation no longer owns effective pin/default selection. Explicitly reconnect after completing its guarded transition.");
         return record;
+    }
+
+    internal static void ValidateNoUnfinishedTransition(string database, string fingerprint)
+    {
+        if (!File.Exists(database)) return;
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = database, Mode = SqliteOpenMode.ReadOnly, Pooling = false
+        }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_binding_transitions';";
+        if (command.ExecuteScalar() is null) return;
+        command.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state <> 'completed' LIMIT 1;";
+        command.Parameters.AddWithValue("$fp", fingerprint);
+        if (command.ExecuteScalar() is not null)
+            throw new InvalidOperationException("binding-transition-incomplete: this checkout is fenced by its unfinished native binding intent. Resume the original connection pin/unpin with its confirmed digest, then explicitly reconnect; no read, cache fill or work HTTP is admitted.");
     }
 
     internal static MirrorAdmissionDocument ReadDocument(string path)
@@ -124,7 +170,10 @@ internal sealed class MirrorAdmission
     private static void ValidateDocument(MirrorAdmissionDocument document)
     {
         if (document.Version != 1 || !Guid.TryParseExact(document.Generation, "N", out _)
-            || document.MirrorFile != "admitted-" + document.Generation + ".db"
+            || document.MirrorFile.Length != 44
+            || !document.MirrorFile.StartsWith("admitted-", StringComparison.Ordinal)
+            || !document.MirrorFile.EndsWith(".db", StringComparison.Ordinal)
+            || !Guid.TryParseExact(document.MirrorFile.AsSpan(9, document.MirrorFile.Length - 12), "N", out _)
             || !Path.IsPathFullyQualified(document.RegistryPath))
             throw new InvalidOperationException("migration-version-unsupported: unsupported storage admission. Use the compatible Twig version; do not reset or delete durable data.");
     }

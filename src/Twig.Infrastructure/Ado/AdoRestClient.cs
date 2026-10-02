@@ -70,6 +70,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<WorkItemSnapshot> FetchAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}/revisions/{expectedRevision}?$expand=all&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
@@ -78,6 +79,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
@@ -90,6 +92,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<string?> ReadAssignedUniqueNameAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // Only ask for the identity field — the raw dto carries uniqueName on
         // the identity object even though the AssignedTo projection collapses
         // to the display name.
@@ -101,6 +104,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
@@ -111,6 +115,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // Flat WIQL query returns queryType="flat" with a workItems array
         var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.Parent] = {parentId}";
         var ids = await QueryByWiqlAsync(wiql, ct);
@@ -123,6 +128,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
     public async Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // §8.3 rail 3 runtime backstop — every string field value in
         // the outbound patch is checked for transport provenance
         // before it can reach an ADO field-projection sink.
@@ -138,20 +144,22 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var response = await SendAsync(HttpMethod.Patch, url, content, ifMatch: expectedRevision.ToString(), ct);
+        using var response = await SendAsync(HttpMethod.Patch, url, content, ifMatch: expectedRevision.ToString(), ct, effectKind: "workitem-patch");
         var dto = await DeserializeWorkItemAsync(response, ct);
         return dto.Rev;
     }
 
     public async Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var typeName = Uri.EscapeDataString(request.TypeName);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/${typeName}?api-version={AdoApiVersions.WorkItemTemplate}";
         var patchDoc = AdoResponseMapper.MapSeedToCreatePayload(request, _orgUrl);
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var response = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct);
+        using var response = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct,
+            effectKind: "workitem-create", seedCorrelation: request.SeedCorrelation);
         var dto = await DeserializeWorkItemAsync(response, ct);
         return dto.Id;
     }
@@ -160,6 +168,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         PublishIntent intent,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var title = intent.Title;
         var typeName = intent.TypeName;
         var createdAtOrAfter = intent.RecordedAt;
@@ -167,15 +176,12 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(typeName))
             return null;
 
-        // The constant tag narrows to items twig had in flight; title + type + the creation
-        // fence identify which one. The fence matters: the tag is reused across publishes, so
-        // without it an older item bearing a stale tag could be mistaken for this create.
-        //
-        // WIQL escapes a single quote by doubling it. Titles are user-supplied, so this is not
-        // optional.
+        // The legacy marker/title/time predicate finds candidates only. Authority comes
+        // from the exact opaque native correlation tag, never a similarly titled item.
         var escapedTitle = title.Replace("'", "''");
         var escapedType = typeName.Replace("'", "''");
         var escapedTag = PublishIntent.IntentTag.Replace("'", "''");
+        var correlationTag = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt).Tag;
 
         // Round DOWN to the whole second: the fence is a lower bound, and ADO stores
         // CreatedDate at ~millisecond resolution, so truncating keeps it inclusive of an item
@@ -191,12 +197,29 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         // timePrecision: true — the fence carries a time, which ADO rejects (HTTP 400) unless
         // this is set. Losing it degrades the query to day granularity at best.
-        var ids = await ExecuteWiqlAsync(wiql, top: null, timePrecision: true, ct);
+        var ids = await ExecuteWiqlAsync(wiql + $" AND [System.Tags] CONTAINS '{correlationTag}'",
+            top: null, timePrecision: true, ct).ConfigureAwait(false);
 
-        // More than one match means the duplicate this mechanism exists to prevent already
-        // happened. Return the lowest — the first create — so recovery adopts the original
-        // rather than an accidental copy, and the extras stay visible in ADO for the user.
-        return ids.Count == 0 ? null : ids.Min();
+        if (ids.Count == 0)
+        {
+            var legacyCandidates = await ExecuteWiqlAsync(wiql, top: null, timePrecision: true, ct).ConfigureAwait(false);
+            if (legacyCandidates.Count != 0)
+                throw new InvalidOperationException("seed-recovery-correlation-unsupported: legacy in-flight candidates lack this exact native seed correlation tag. Preserve the seed and journals and reconcile with authoritative creation evidence; no legacy adoption or create retry is admitted.");
+            return null;
+        }
+        int? matched = null;
+        foreach (var id in ids)
+        {
+            var candidate = await FetchAsync(id, ct).ConfigureAwait(false);
+            if (!candidate.Fields.TryGetValue("System.Tags", out var tags)
+                || tags is null || !tags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(correlationTag, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException("seed-recovery-correlation-unsupported: an in-flight candidate has no exact native seed correlation tag. Preserve the seed and journals and reconcile with authoritative creation evidence; no legacy candidate adoption or create retry is admitted.");
+            if (matched is not null)
+                throw new InvalidOperationException("seed-recovery-correlation-ambiguous: more than one item carries this exact native seed correlation. Reconcile the recorded create before publication; no candidate is guessed.");
+            matched = id;
+        }
+        return matched;
     }
 
     /// <summary>
@@ -206,6 +229,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// </summary>
     public async Task ClearIntentTagAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // Read current tags rather than blind-writing: System.Tags is a single delimited string,
         // so a replace would clobber any tag a human added to the item.
         var item = await FetchAsync(id, ct);
@@ -237,11 +261,12 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
+        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct, effectKind: "workitem-patch");
     }
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // §8.3 rail 3 runtime backstop — a transport-origin scalar
         // reaching the ADO comment sink raises
         // `transport-ado-projection-forbidden` (§11).
@@ -251,7 +276,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoCommentRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var _ = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct);
+        using var _ = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct, effectKind: "comment-add");
     }
 
     public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
@@ -271,6 +296,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(
         string wiql, int? top, bool timePrecision, CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var topParam = top.HasValue ? $"&$top={top.Value}" : "";
         var precisionParam = timePrecision ? "&timePrecision=true" : "";
         var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={AdoApiVersions.Wiql}{topParam}{precisionParam}";
@@ -293,6 +319,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// <inheritdoc />
     public async Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // §8.3 rail 3 runtime backstop — link type and comment
         // strings are ADO-projected scalars.
         AdoProjectionGuard.AssertNoTransportOrigin(adoLinkType, "IAdoWorkItemService.AddLinkWithCommentAsync(adoLinkType)");
@@ -326,12 +353,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
+        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct, effectKind: "link-add");
     }
 
     /// <inheritdoc />
     public async Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 1. GET current work item with relations to obtain the Rev (ETag) and relations array.
         var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
@@ -362,12 +390,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var _ = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: dto.Rev.ToString(), ct);
+        using var _ = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: dto.Rev.ToString(), ct, effectKind: "link-remove");
     }
 
     /// <inheritdoc />
     public async Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 1. Fetch current revision for optimistic concurrency
         var workItemUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={AdoApiVersions.WorkItems}";
         using var getResponse = await SendAsync(HttpMethod.Get, workItemUrl, content: null, ifMatch: null, ct);
@@ -406,7 +435,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         try
         {
-            using var _ = await SendAsync(HttpMethod.Patch, workItemUrl, patchContent, ifMatch: dto.Rev.ToString(), ct);
+            using var _ = await SendAsync(HttpMethod.Patch, workItemUrl, patchContent, ifMatch: dto.Rev.ToString(), ct, effectKind: "link-add");
             return false; // newly created
         }
         catch (AdoDuplicateRelationException)
@@ -418,10 +447,11 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// <inheritdoc />
     public async Task DeleteAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
         try
         {
-            using var _ = await SendAsync(HttpMethod.Delete, url, content: null, ifMatch: null, ct);
+            using var _ = await SendAsync(HttpMethod.Delete, url, content: null, ifMatch: null, ct, effectKind: "workitem-delete");
         }
         catch (AdoNotFoundException)
         {
@@ -437,6 +467,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         int expectedRevision,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // Strict CAS variant of AddLinkAsync: no fetch, no ConflictRetryHelper, no rebase.
         // ADO enforces the caller's expected revision through the leading JSON Patch test.
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={AdoApiVersions.WorkItems}";
@@ -457,7 +488,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var response = await SendAsync(HttpMethod.Patch, url, content, ifMatch: expectedRevision.ToString(), ct);
+        using var response = await SendAsync(HttpMethod.Patch, url, content, ifMatch: expectedRevision.ToString(), ct, effectKind: "link-add");
         var dto = await DeserializeWorkItemAsync(response, ct);
         return dto.Rev;
     }
@@ -470,6 +501,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         int expectedRevision,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // JSON Patch remove requires the relation's array index. ADO exposes no
         // find-and-remove primitive, so we GET the relations to compute the index — but the
         // GET is used ONLY for index resolution. If the fetched revision no longer matches
@@ -506,7 +538,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 
-        using var patchResponse = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: expectedRevision.ToString(), ct);
+        using var patchResponse = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: expectedRevision.ToString(), ct, effectKind: "link-remove");
         var patched = await DeserializeWorkItemAsync(patchResponse, ct);
         return patched.Rev;
     }
@@ -514,6 +546,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// <inheritdoc />
     public async Task DeleteAtRevisionAsync(int id, int expectedRevision, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // Strict CAS delete: expected revision as If-Match, no refetch, no retry. Exactly
         // one HTTP DELETE is issued — the auth-retry-on-empty-body branch in SendAsync is
         // suppressed here so a 401/203 challenge surfaces immediately instead of racing a
@@ -524,7 +557,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         {
             using var _ = await SendAsync(
                 HttpMethod.Delete, url, content: null, ifMatch: expectedRevision.ToString(), ct,
-                allowAuthRetry: false);
+                allowAuthRetry: false, effectKind: "workitem-delete");
         }
         catch (AdoNotFoundException)
         {
@@ -544,6 +577,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// </summary>
     public async Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var (items, _) = await FetchBatchWithLinksAsync(ids, ct);
         return items;
     }
@@ -561,6 +595,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         IReadOnlyList<int> ids,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (ids.Count <= MaxBatchSize)
             return await FetchBatchChunkAsync(ids, ct);
 
@@ -585,6 +620,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         IReadOnlyList<int> ids,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var idsCsv = string.Join(',', ids);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems?ids={idsCsv}&$expand=relations&api-version={AdoApiVersions.WorkItems}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
@@ -624,6 +660,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         WorkItemHistoryOptions options,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
 
         // Complete-or-error: any page failure propagates as a typed ADO exception and fails the
         // whole operation. A partial timeline is never reported as success.
@@ -642,6 +679,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// </summary>
     private async Task<List<AdoWorkItemUpdate>> FetchAllUpdatePagesAsync(int id, CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var all = new List<AdoWorkItemUpdate>();
 
         for (var page = 0; page < MaxHistoryPages; page++)
@@ -682,6 +720,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         IReadOnlyList<AdoWorkItemUpdate> updates,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var targetIds = WorkItemHistoryProjector.CollectRelationTargetIds(updates);
         if (targetIds.Count == 0) return null;
 
@@ -749,6 +788,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     /// </summary>
     private async Task<IReadOnlyDictionary<string, FieldDefinition>?> GetFieldDefLookupAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (_fieldDefLookup is not null) return _fieldDefLookup;
         if (_fieldDefStore is null) return null;
 
@@ -769,20 +809,23 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         HttpContent? content,
         string? ifMatch,
         CancellationToken ct,
-        bool allowAuthRetry = true)
+        bool allowAuthRetry = true,
+        string? effectKind = null,
+        SeedPublishCorrelation? seedCorrelation = null)
     {
         try
         {
-            return await SendCoreAsync(method, url, content, ifMatch, ct);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation);
         }
-        catch (Exception ex) when (allowAuthRetry && AdoErrorHandler.IsAuthChallenge(ex))
+        catch (Exception ex) when (allowAuthRetry && AdoErrorHandler.IsAuthChallenge(ex)
+            && (effectKind is null || Twig.Infrastructure.Auth.ConnectionOperationAdmission.CanRenewAfterWriteRejection(ex)))
         {
             _authProvider.InvalidateToken();
             // Only retry when there's no body content — HttpRequestMessage.Dispose()
             // disposes the content, so it can't be re-sent on writes. The invalidation
             // ensures the next call will use a fresh token.
             if (content is not null) throw;
-            return await SendCoreAsync(method, url, content, ifMatch, ct);
+            return await SendCoreAsync(method, url, content, ifMatch, ct, effectKind, seedCorrelation);
         }
     }
 
@@ -791,7 +834,9 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         string url,
         HttpContent? content,
         string? ifMatch,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? effectKind,
+        SeedPublishCorrelation? seedCorrelation)
     {
 
         using var request = new HttpRequestMessage(method, url);
@@ -812,6 +857,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         using var throttleSlot = _throttle is not null
             ? await _throttle.AcquireAsync(budget, ct)
             : null;
+        var writeAdmission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.BeginRemoteWriteAsync(
+            _authProvider, request, effectKind, ct, seedCorrelation).ConfigureAwait(false);
 
         HttpResponseMessage response;
         try
@@ -830,7 +877,15 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
 
         try
         {
+            await Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRemoteWriteResponseAsync(writeAdmission, response,
+                token, request.Headers.Authorization?.Parameter, ct).ConfigureAwait(false);
             await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRejectedWriteAuthException(ex, writeAdmission);
+            response.Dispose();
+            throw;
         }
         catch (AdoRateLimitException ex)
         {

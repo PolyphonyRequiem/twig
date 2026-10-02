@@ -62,7 +62,8 @@ internal sealed record AttachmentDocument(
     long Revision,
     string ConnectionRef,
     AttachmentPrimaryScope? PrimaryScope,
-    AttachmentActiveClaim? ActiveClaim)
+    AttachmentActiveClaim? ActiveClaim,
+    string? BindingPin = null)
 {
     public const string CurrentSchema = "twig-attachment/v1";
     public const int CurrentVersion = 1;

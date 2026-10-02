@@ -50,6 +50,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
             RecordedAt = DateTimeOffset.UtcNow,
         };
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -71,6 +72,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
 
     public async Task CompleteIntentAsync(StagedIdentity identity, int publishedId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var ownedTx = _store.ActiveTransaction is null;
         var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
@@ -135,6 +137,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
 
     public Task<PublishIntent?> GetIntentAsync(StagedIdentity identity, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -151,6 +154,7 @@ public sealed class SqlitePublishIntentRepository : IPublishIntentRepository
 
     public Task<IReadOnlyList<PublishIntent>> GetOpenIntentsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;

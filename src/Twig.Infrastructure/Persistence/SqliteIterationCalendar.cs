@@ -32,6 +32,7 @@ public sealed class SqliteIterationCalendar : IIterationCalendar
     public async Task<IReadOnlyList<IterationPath>> GetCurrentIterationsAsync(CancellationToken ct = default)
     {
         var now = _clock().ToString("O");
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         using var cmd = conn.CreateCommand();
@@ -61,6 +62,7 @@ public sealed class SqliteIterationCalendar : IIterationCalendar
 
     public async Task SaveAsync(IReadOnlyList<TeamIteration> iterations, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         using (var clear = conn.CreateCommand())

@@ -310,6 +310,7 @@ public sealed class InitCommand
                 try
                 {
                     using var probe = Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(contextPaths);
+                    using var operation = probe.AcquireOperation();
                     var conn = probe.GetConnection();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";

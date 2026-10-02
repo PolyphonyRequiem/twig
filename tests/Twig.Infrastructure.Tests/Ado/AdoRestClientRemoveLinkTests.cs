@@ -368,13 +368,6 @@ public sealed class AdoRestClientRemoveLinkTests
         return new AdoRestClient(http, auth, OrgUrl, Project, new WorkItemMapper());
     }
 
-    private sealed class FakeAuthProvider : IAuthenticationProvider
-    {
-        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
-            => Task.FromResult("fake-bearer-token");
-
-        public void InvalidateToken() { }
-    }
 
     /// <summary>
     /// HttpMessageHandler for RemoveLinkAsync tests. Responds to the initial GET

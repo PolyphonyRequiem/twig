@@ -21,6 +21,7 @@ public sealed class WorkItemFetcher(
     /// </summary>
     public async Task<(WorkItem? Item, string? Error)> FetchWithFallbackAsync(int id, CancellationToken ct)
     {
+        using var operation = workItemRepo.AcquireOperation();
         var item = await workItemRepo.GetByIdAsync(id, ct);
         if (item is not null) return (item, null);
 
@@ -41,6 +42,7 @@ public sealed class WorkItemFetcher(
     /// </summary>
     public async Task<IReadOnlyList<WorkItem>> FetchChildrenWithFallbackAsync(int parentId, CancellationToken ct)
     {
+        using var operation = workItemRepo.AcquireOperation();
         var children = await workItemRepo.GetChildrenAsync(parentId, ct);
         if (children.Count > 0) return children;
 

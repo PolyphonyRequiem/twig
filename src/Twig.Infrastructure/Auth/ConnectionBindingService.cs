@@ -396,29 +396,27 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             throw new InvalidOperationException(
                 $"Attached worktree is bound to a different connection (expected {connectionRef}, stored {wt.ConnectionRef}). Refusing to project across connection boundaries.");
 
-        // 2. Default binding must exist. A single binding without a default is
-        //    deliberately ambiguous — the caller must opt in via 'bind --default'
-        //    so an implicit identity never slips in once a second alias lands.
-        var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
-        if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
-        if (defaultRow.Value is not { } d)
+        MirrorAdmission.ValidateNoUnfinishedTransition(RegistryPath, fingerprint);
+        var selectedId = attachment.Value.Attachment.BindingPin;
+        var selectionSource = "checkout-binding-pin";
+        var selectionRevision = attachment.Value.Revision;
+        if (selectedId is null)
         {
-            var bindings = await _registry.ListBindingsForConnectionAsync(connectionRef, ct).ConfigureAwait(false);
-            if (!bindings.IsSuccess) throw new InvalidOperationException($"Registry refused binding list: {bindings.Error}");
-            if (bindings.Value.Count == 0)
-                throw new InvalidOperationException(
-                    $"No identity is bound to {configuration.Organization}/{configuration.Project}. Run 'twig connection bind --identity <name> --default' to bind one.");
-            throw new InvalidOperationException(
-                $"{bindings.Value.Count} identities are bound to {configuration.Organization}/{configuration.Project} but no default is set. Run 'twig connection bind --identity <name> --default' to pick one explicitly.");
+            var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
+            if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
+            if (defaultRow.Value is not { } d)
+                throw new InvalidOperationException($"No explicit default binding is selected for {configuration.Organization}/{configuration.Project}. Set a connection default or explicitly pin this checkout; no account fallback is admitted.");
+            selectedId = d.BindingId;
+            selectionSource = "connection-default-binding";
+            selectionRevision = d.Revision;
         }
 
-        var bindingRes = await _registry.FindBindingByIdAsync(d.BindingId, ct).ConfigureAwait(false);
+        var bindingRes = await _registry.FindBindingByIdAsync(selectedId, ct).ConfigureAwait(false);
         if (!bindingRes.IsSuccess) throw new InvalidOperationException($"Registry refused binding lookup: {bindingRes.Error}");
         if (bindingRes.Value is not { } b)
-            throw new InvalidOperationException(
-                $"Default binding {d.BindingId} references a missing binding row — the identity registry is inconsistent. Rebuild it via 'twig connection bind --identity <name> --default'.");
+            throw new InvalidOperationException($"Selected binding {selectedId} is missing. Repair the explicit pin/default; no account fallback is admitted.");
         if (!string.Equals(b.ConnectionRef, connectionRef, StringComparison.Ordinal))
-            throw new InvalidOperationException("Default binding belongs to another declared connection; refusing account crossover.");
+            throw new InvalidOperationException("Selected binding belongs to another declared connection; refusing account crossover.");
         var identityRes = await _registry.FindIdentityByIdAsync(b.IdentityId, ct).ConfigureAwait(false);
         if (!identityRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error}");
         if (identityRes.Value is not { } idRow)
@@ -430,8 +428,8 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             Binding: ToBinding(b),
             Identity: ToIdentity(idRow),
             WorktreeRoot: anchor.WorktreeRoot,
-            SelectionSource: "connection-default-binding",
-            SelectionRevision: d.Revision,
+            SelectionSource: selectionSource,
+            SelectionRevision: selectionRevision,
             Operation: new ConnectionOperationSnapshot(
                 configuration.Organization, configuration.Project, configuration.Team,
                 fingerprint, attachment.Value.Revision,
@@ -479,7 +477,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(binding);
         EnsurePatAuthority(binding.Identity, binding.Operation.Organization);
-        return new MigrationBoundAuthenticationProvider(CreateProvider(binding.Identity), binding, Path.Combine(_userHome, SystemDbFileName));
+        return new MigrationBoundAuthenticationProvider(CreateProvider(binding.Identity), binding, Path.Combine(_userHome, SystemDbFileName), this);
     }
 
     public async Task VerifyIdentityCredentialAsync(string identityName, string organization, CancellationToken ct = default)

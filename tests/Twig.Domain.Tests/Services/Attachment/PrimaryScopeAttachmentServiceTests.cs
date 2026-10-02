@@ -604,6 +604,8 @@ public sealed class PrimaryScopeAttachmentServiceTests
             _items = items.ToDictionary(i => i.Id);
         }
 
+        public IDisposable? AcquireOperation() => null;
+
         public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
             => Task.FromResult<WorkItem?>(_items.TryGetValue(id, out var item) ? item : null);
 

@@ -23,8 +23,11 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         _mapper = mapper;
     }
 
+    public IDisposable? AcquireOperation() => _store.AcquireOperation();
+
     public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -41,6 +44,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     /// </summary>
     internal Task<WorkItemSnapshot?> GetSnapshotByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -57,6 +61,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (idList.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -75,6 +80,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY CASE WHEN id < 0 THEN 1 ELSE 0 END, CASE WHEN id >= 0 THEN type END, CASE WHEN id >= 0 THEN title END, ABS(id);";
@@ -86,6 +92,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetRootItemsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE parent_id IS NULL AND id > 0 ORDER BY type, title;";
@@ -96,6 +103,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetByIterationAsync(IterationPath iterationPath, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path;";
@@ -110,6 +118,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (iterationPaths.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -128,6 +137,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetByIterationAndAssigneeAsync(IterationPath iterationPath, string assignee, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
@@ -145,6 +155,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
         while (currentId.HasValue)
         {
+            using var bindingOperation = _store.AcquireOperation();
             var conn = _store.GetConnection();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -166,6 +177,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> FindByPatternAsync(string pattern, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE title LIKE '%' || @pattern || '%' COLLATE NOCASE;";
@@ -177,6 +189,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetDirtyItemsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE is_dirty = 1;";
@@ -187,6 +200,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetSeedsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE is_seed = 1;";
@@ -197,6 +211,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<bool> ExistsByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM work_items WHERE id = @id;";
@@ -207,6 +222,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<int>> GetOrphanParentIdsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -228,12 +244,14 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
     }
 
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try
@@ -254,6 +272,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task DeleteByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -265,6 +284,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task RemapParentIdAsync(int oldParentId, int newParentId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -277,6 +297,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         if (keepIds.Count == 0)
@@ -355,6 +376,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<int> ClearPhantomDirtyFlagsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -370,6 +392,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task ClearDirtyFlagAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -384,6 +407,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (entries.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -414,6 +438,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<Domain.ReadModels.CacheStatistics> GetCacheStatisticsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """

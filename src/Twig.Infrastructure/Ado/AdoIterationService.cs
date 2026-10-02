@@ -77,6 +77,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<IterationPath> GetCurrentIterationAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?$timeframe=current&api-version={AdoApiVersions.TeamIterations}";
         using var response = await SendAsync(url, ct);
 
@@ -97,6 +98,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<string?> DetectTemplateNameAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         try
         {
             var apiResult = await DetectTemplateNameByApiAsync(ct);
@@ -114,12 +116,14 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<string?> DetectTemplateNameByApiAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
         return processTemplate?.TemplateName;
     }
 
     private async Task<AdoProcessTemplate?> FetchProcessTemplateAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={AdoApiVersions.Projects}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -129,6 +133,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
@@ -156,6 +161,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<IReadOnlyList<WorkItemTypeAppearance>> GetWorkItemTypeAppearancesAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
@@ -175,6 +181,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<IReadOnlyList<WorkItemTypeWithStates>> GetWorkItemTypesWithStatesAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
@@ -214,11 +221,17 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         return types;
     }
 
-    public Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default) =>
-        _processConfigCache ??= FetchProcessConfigurationAsync(ct);
+    public async Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default)
+    {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        return await (_processConfigCache ??= FetchProcessConfigurationAsync(ct)).ConfigureAwait(false);
+    }
 
-    public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default) =>
-        _fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct);
+    public async Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default)
+    {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        return await (_fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct)).ConfigureAwait(false);
+    }
 
     // Recovery must observe the source, not a cached tolerant fallback from enrichment.
     public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsStrictAsync(CancellationToken ct = default) =>
@@ -227,50 +240,57 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     public Task<ProcessConfigurationData> GetProcessConfigurationStrictAsync(CancellationToken ct = default) =>
         FetchProcessConfigurationAsync(ct, strict: true);
 
-    public Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default) =>
-        _teamIterationsCache ??= FetchTeamIterationsAsync(ct);
+    public async Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default)
+    {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        return await (_teamIterationsCache ??= FetchTeamIterationsAsync(ct)).ConfigureAwait(false);
+    }
 
-    public Task<IReadOnlyList<ProcessRule>> GetRulesAsync(
+    public async Task<IReadOnlyList<ProcessRule>> GetRulesAsync(
         string workItemTypeName,
         CancellationToken ct = default)
     {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (!_processRulesCache.TryGetValue(workItemTypeName, out var rulesTask))
         {
             rulesTask = FetchProcessRulesAsync(workItemTypeName, ct);
             _processRulesCache[workItemTypeName] = rulesTask;
         }
 
-        return rulesTask;
+        return await rulesTask.ConfigureAwait(false);
     }
 
-    public Task<FormLayoutResult> GetFormLayoutAsync(
+    public async Task<FormLayoutResult> GetFormLayoutAsync(
         string workItemTypeName,
         CancellationToken ct = default)
     {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (!_formLayoutCache.TryGetValue(workItemTypeName, out var layoutTask))
         {
             layoutTask = FetchFormLayoutAsync(workItemTypeName, ct);
             _formLayoutCache[workItemTypeName] = layoutTask;
         }
 
-        return layoutTask;
+        return await layoutTask.ConfigureAwait(false);
     }
 
-    public Task<IReadOnlyList<ProcessTypeField>?> GetTypeFieldsAsync(
+    public async Task<IReadOnlyList<ProcessTypeField>?> GetTypeFieldsAsync(
         string workItemTypeName,
         CancellationToken ct = default)
     {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (!_processTypeFieldsCache.TryGetValue(workItemTypeName, out var fieldsTask))
         {
             fieldsTask = FetchProcessTypeFieldsAsync(workItemTypeName, ct);
             _processTypeFieldsCache[workItemTypeName] = fieldsTask;
         }
 
-        return fieldsTask;
+        return await fieldsTask.ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/teamfieldvalues?api-version={AdoApiVersions.TeamFieldValues}";
         using var response = await SendAsync(url, ct);
 
@@ -292,6 +312,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<string?> GetAuthenticatedUserDisplayNameAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         try
         {
             // Use the VSSPS profile endpoint — works reliably with both PAT and az cli tokens
@@ -313,6 +334,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<(string? DisplayName, string? UniqueName)> GetAuthenticatedUserIdentityAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         try
         {
             var url = $"https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version={AdoApiVersions.Profile}";
@@ -382,6 +404,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<AdoWorkItemTypeListResponse?> FetchWorkItemTypesAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes?api-version={AdoApiVersions.WorkItemTypes}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -411,6 +434,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     private async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> FetchWorkItemTypeCategoriesAsync(
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var empty = (IReadOnlyDictionary<string, IReadOnlyList<string>>)
             new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -466,6 +490,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         string workItemTypeName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
         var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
         var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
@@ -555,6 +580,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         string workItemTypeName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
         if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId))
             return new FormLayoutResult.Unavailable();
@@ -648,6 +674,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         string processId,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
             $"/workItemTypes?api-version={AdoApiVersions.ProcessWorkItemTypes}";
 
@@ -748,6 +775,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         string workItemTypeName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
         var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
         var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
@@ -859,6 +887,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct, bool strict = false)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={AdoApiVersions.ProcessConfiguration}";
         try
         {
@@ -889,6 +918,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<IReadOnlyList<FieldDefinition>> FetchFieldDefinitionsAsync(CancellationToken ct, bool strict = false)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={AdoApiVersions.Fields}";
         try
         {
@@ -921,6 +951,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     public async Task<AreaTreeNode> GetAreaTreeAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/classificationnodes/areas?$depth=10&api-version={AdoApiVersions.ClassificationNodes}";
         using var response = await SendAsync(url, ct);
 
@@ -950,6 +981,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<IReadOnlyList<TeamIteration>> FetchTeamIterationsAsync(CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?api-version={AdoApiVersions.TeamIterations}";
         using var response = await SendAsync(url, ct);
 

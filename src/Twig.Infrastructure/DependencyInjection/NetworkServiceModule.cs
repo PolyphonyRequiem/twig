@@ -42,7 +42,7 @@ public static class NetworkServiceModule
             if (intent?.InitializationMetadataOnly == true)
             {
                 return new DeferredBoundAuthenticationProvider(
-                    ct => bindings.CreateBootstrapProviderAsync(cfg, ct));
+                    ct => bindings.CreateBootstrapProviderAsync(cfg, ct), initializationMetadataOnly: true);
             }
 
             // Normal attached-worktree route: ResolveAsync admits the central

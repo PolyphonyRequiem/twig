@@ -22,7 +22,8 @@ namespace Twig.Domain.ValueObjects;
 internal sealed record PrimaryScopeAttachment(
     string ConnectionRef,
     PrimaryScope? PrimaryScope,
-    ActiveClaimReference? ActiveClaim)
+    ActiveClaimReference? ActiveClaim,
+    string? BindingPin = null)
 {
     /// <summary>
     /// Returns an unattached record — no primary scope, no active claim — bound to

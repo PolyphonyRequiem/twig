@@ -470,6 +470,26 @@ internal static class CommandExamples
             "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",
             "twig connection migrate --identity work --method aad --confirm <digest>  Apply the exact eligible preview after explicitly closing legacy hosts",
         ],
+        ["connection pin"] =
+        [
+            "twig connection pin --binding <binding-id> --output json   Preview the checkout pin and exact safety blockers",
+            "twig connection pin --binding <binding-id> --confirm <digest>   Apply or recover the exact guarded transition; reconnect affected hosts explicitly",
+        ],
+        ["connection unpin"] =
+        [
+            "twig connection unpin --output json   Preview returning this checkout to the endpoint's default binding",
+            "twig connection unpin --confirm <digest>   Apply or recover the exact pin removal without publishing or discarding work",
+        ],
+        ["connection writes"] =
+        [
+            "twig connection writes   Inspect native uncertain writes and preserved acknowledgments for this checkout",
+            "twig connection writes --output json   Emit immutable request digests, original identities and exact evidence blockers",
+        ],
+        ["connection reconcile-write"] =
+        [
+            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis>   Prove a CAS-bound outcome through original-actor readback",
+            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> --output json   Emit the native receipt or unresolved evidence blocker; never replay a write",
+        ],
         ["version"] =
         [
             "twig version               Print the installed twig version",

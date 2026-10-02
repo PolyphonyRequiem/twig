@@ -24,12 +24,16 @@ public sealed record CreateWorkItemRequest
     /// organisation's process template, unlike a custom field.
     /// </para>
     /// <para>
-    /// It is a flag rather than a per-create value on purpose: the tag is a single constant, so
-    /// twig adds at most ONE tag to the project's shared vocabulary no matter how many items it
-    /// publishes, and removes it again once the publish is recorded.
+    /// Native staged creates also carry an opaque, stable correlation tag. Recovery must
+    /// observe that exact tag; a shared marker plus title/type/time cannot attribute an
+    /// unknown create or authorize its replay.
     /// </para>
     /// </summary>
     public bool StampIntentTag { get; init; }
+
+    /// <summary>Exact native staged identity/intent time, captured by the publisher before HTTP admission.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SeedPublishCorrelation? SeedCorrelation { get; init; }
 
     public IReadOnlyDictionary<string, string?> Fields { get; init; }
         = new Dictionary<string, string?>();

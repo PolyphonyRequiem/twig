@@ -97,7 +97,7 @@ var app = ConsoleApp.Create()
         {
             var paths = TwigPaths.BuildPaths(twigDir, config);
 
-            if (!(args.Length >= 2 && args[0] == "connection" && args[1] == "migrate")
+            if (!(args.Length >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin")
                 && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
                 using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);
@@ -1455,6 +1455,41 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionMigrateCommand>().ExecuteAsync(identity, method, confirm, output, ct);
 
+    /// <summary>Preview a guarded checkout-local binding pin, or apply the exact preview. Unfinished work and in-flight operations block switching; affected live hosts require explicit reconnect.</summary>
+    /// <param name="binding">Registered binding ID for the declared endpoint; required. Inspect connection list for IDs.</param>
+    /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; reuse the original digest to recover an interrupted native intent.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection pin")]
+    public async Task<int> ConnectionPin(string? binding = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(binding, false, confirm, output, ct);
+
+    /// <summary>Preview removal of this checkout's binding pin, or apply the exact preview to use the declared endpoint's default. No automatic publication, discard or live account swap.</summary>
+    /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; interrupted transitions resume their original native intent.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection unpin")]
+    public async Task<int> ConnectionUnpin(string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(null, true, confirm, output, ct);
+
+    /// <summary>Inspect native remote-write intents, immutable acknowledgments and uncertainty blockers for the attached checkout. Read-only; never replay, expire or discard an unknown write.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection writes")]
+    public async Task<int> ConnectionWrites(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(false, output: output, ct: ct);
+
+    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, replay or inferred outcome.</summary>
+    /// <param name="intent">Opaque native write intent ID from connection writes; required.</param>
+    /// <param name="confirm">Exact immutable request digest from connection writes; required.</param>
+    /// <param name="authorize">Original registered identity ID, not a display name or a replacement actor; required.</param>
+    /// <param name="rationale">Truthful authorization/evidence rationale; required. Rationale alone never settles a write.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection reconcile-write")]
+    public async Task<int> ConnectionReconcileWrite(string? intent = null, string? confirm = null,
+        string? authorize = null, string? rationale = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(true, intent, confirm, authorize, rationale, output, ct);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1767,6 +1802,10 @@ internal static class GroupedHelp
         "connection status",
         "connection check",
         "connection migrate",
+        "connection pin",
+        "connection unpin",
+        "connection writes",
+        "connection reconcile-write",
         "version",
         "upgrade",
         "changelog",

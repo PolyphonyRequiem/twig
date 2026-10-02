@@ -52,6 +52,7 @@ public sealed class SqliteContextStore : IContextStore
 
     private string? GetValue(string key)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT value FROM context WHERE key = @key;";
@@ -62,6 +63,7 @@ public sealed class SqliteContextStore : IContextStore
 
     private void SetValue(string key, string value)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO context (key, value) VALUES (@key, @value);";
@@ -72,6 +74,7 @@ public sealed class SqliteContextStore : IContextStore
 
     private void DeleteKey(string key)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM context WHERE key = @key;";

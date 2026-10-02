@@ -78,11 +78,10 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
     public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
         => MutateAsync(
             expectedRevision: expectedRevision,
-            build: _ => attachment,
+            build: current => attachment with { BindingPin = current.BindingPin },
             scopeCheck: null,
             requireScopeKind: null,
             ct: ct);
-
     public async Task<Result> InitializeAsync(CancellationToken ct = default)
     {
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
@@ -170,6 +169,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
     private async Task<Result<ReadOutcome>> ReadInternalAsync(CancellationToken ct)
     {
+        using var operation = Auth.ConnectionOperationGate.Acquire(Path.GetDirectoryName(_paths.TwigDir)!);
         ct.ThrowIfCancellationRequested();
         if (!WorktreeAnchorDetector.TryDetect(_paths.StartDir ?? _paths.TwigDir, out var anchor, out var anchorFailure))
             return Result.Fail<ReadOutcome>(anchorFailure);
@@ -214,6 +214,8 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         }
         if (doc.Revision < 0) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
+        if (doc.BindingPin is not null && string.IsNullOrWhiteSpace(doc.BindingPin))
+            return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (string.IsNullOrEmpty(doc.ConnectionRef)) return Result.Fail<ReadOutcome>(AttachmentStorageFailure.CheckedInConfigInvalid);
         if (!string.Equals(doc.ConnectionRef, connectionRef, StringComparison.Ordinal))
             return Result.Fail<ReadOutcome>(AttachmentStorageFailure.AttachmentConnectionMismatch);
@@ -243,7 +245,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
         }
 
-        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim), doc));
+        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim, doc.BindingPin), doc));
     }
 
     private async Task<Result> MutateAsync(
@@ -254,6 +256,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var operation = Auth.ConnectionOperationGate.Acquire(Path.GetDirectoryName(_paths.TwigDir)!);
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         FileStream? lockHandle = null;
         try
@@ -261,6 +264,13 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             lockHandle = await AcquireCrossProcessLockAsync(ct).ConfigureAwait(false);
             if (lockHandle is null)
                 return Result.Fail(AttachmentStorageFailure.AttachmentVersionMismatch);
+
+            var markerPath = Path.Combine(_paths.TwigDir, "cache", MirrorAdmission.MarkerFile);
+            if (File.Exists(markerPath))
+            {
+                var admission = MirrorAdmission.ReadDocument(markerPath);
+                MirrorAdmission.ValidateNoUnfinishedTransition(admission.RegistryPath, admission.Fingerprint);
+            }
 
             var readRes = await ReadInternalAsync(ct).ConfigureAwait(false);
             if (!readRes.IsSuccess)
@@ -358,7 +368,8 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
                 : null,
             ActiveClaim: attachment.ActiveClaim is { } claim
                 ? new AttachmentActiveClaim(claim.ClaimId, claim.MintedAt.ToUniversalTime().ToString("o"))
-                : null);
+                : null,
+            BindingPin: attachment.BindingPin);
 
     private async Task EnsureLayoutMarkerAsync(CancellationToken ct)
     {

@@ -24,6 +24,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
     public Task RecordVisitAsync(int workItemId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         // Read cursor
@@ -70,6 +71,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
     public Task<int?> GoBackAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var cursorId = GetCursorId(conn);
         if (cursorId is null)
@@ -94,6 +96,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
     public Task<int?> GoForwardAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var cursorId = GetCursorId(conn);
         if (cursorId is null)
@@ -118,6 +121,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
     public Task<(IReadOnlyList<NavigationHistoryEntry> Entries, int? CursorEntryId)> GetHistoryAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         var entries = new List<NavigationHistoryEntry>();
@@ -141,6 +145,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
     public Task ClearAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         using var deleteCmd = conn.CreateCommand();

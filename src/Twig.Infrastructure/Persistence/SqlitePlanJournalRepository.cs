@@ -47,6 +47,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 return;
 
             _sourcePathComparer = value;
+            using var bindingOperation = _store.AcquireOperation();
             var conn = _store.GetConnection();
             RegisterSourcePathCollation(conn, value);
 
@@ -60,6 +61,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     {
         _store = store;
         _sourcePathComparer = CreateDefaultSourcePathComparer();
+        using var bindingOperation = _store.AcquireOperation();
         RegisterSourcePathCollation(_store.GetConnection(), _sourcePathComparer);
     }
 
@@ -110,6 +112,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // the DB so a rejected import leaves no partial state.
         BindArtifacts(plan, canonicalJson, digest);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var ownedTx = _store.ActiveTransaction is null;
         var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
@@ -410,6 +413,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var header = conn.CreateCommand();
         header.Transaction = _store.ActiveTransaction;
@@ -477,6 +481,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     /// <inheritdoc />
     public Task<PlanLatestResult?> GetLatestUnresolvedAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -521,6 +526,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // Verified in the ledger nor settled by a native receipt. Oldest preview first so a
         // caller walking the list sees the longest-standing orphan work first; digest ties
         // so the order is total across equal timestamps.
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var digests = new List<string>();
         using (var cmd = conn.CreateCommand())
@@ -562,6 +568,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     {
         ArgumentException.ThrowIfNullOrEmpty(sourcePath);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -586,6 +593,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     private IReadOnlyList<PlanJournalOperation> ReadOperations(string digest)
     {
         var receipts = ReadReceipts(digest);
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -626,6 +634,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     {
         ArgumentException.ThrowIfNullOrEmpty(digest);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -664,6 +673,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentNullException.ThrowIfNull(authorization);
         ArgumentException.ThrowIfNullOrEmpty(reviewModelJson);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -724,6 +734,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -798,6 +809,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -849,6 +861,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         ArgumentException.ThrowIfNullOrEmpty(digest);
         ArgumentException.ThrowIfNullOrEmpty(opId);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -897,6 +910,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 $"Error outcome must terminate as Failed or Indeterminate, not {finalState}.");
         }
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -953,6 +967,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 $"Indeterminate), not {finalState}.");
         }
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -1005,6 +1020,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // duplicate insert an INSERT OR IGNORE no-op, so the "one receipt wins" invariant is
         // enforced by the row itself — a losing writer sees changes()=0 the same way it would
         // from a state-fenced CAS.
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var ownedTx = _store.ActiveTransaction is null;
         var tx = _store.ActiveTransaction ?? conn.BeginTransaction();
@@ -1317,6 +1333,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
 
     private IReadOnlyDictionary<string, PlanOutcomeReceipt> ReadReceipts(string digest)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var map = new Dictionary<string, PlanOutcomeReceipt>(StringComparer.Ordinal);
         using var cmd = conn.CreateCommand();

@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Infrastructure.Persistence.SqliteWorkItemRepository.AcquireOperation() -> System.IDisposable?
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.AdoRelationNotFoundException(int sourceId, string! relationType, int targetId, int expectedRevision) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.ExpectedRevision.get -> int

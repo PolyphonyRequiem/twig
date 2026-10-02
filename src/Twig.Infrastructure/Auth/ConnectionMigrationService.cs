@@ -49,6 +49,10 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
             return Report("blocked", "", paths, connectionRef, identityName, method, null, null, null,
                 [$"migration-worktree-required: {failure}; initialize a real repository worktree before migration."]);
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
+        var remoteWrites = await _registry.ReadConnectionRemoteWritesAsync(fingerprint, unsettledOnly: true, ct).ConfigureAwait(false);
+        if (!remoteWrites.IsSuccess) blockers.Add("migration-remote-write-evidence-unavailable: " + remoteWrites.Error);
+        else foreach (var write in remoteWrites.Value)
+            blockers.Add($"migration-remote-write-outcome-unknown: intent {write.Intent.IntentId} ({write.Intent.RequestDigest}) must be reconciled under its original bound actor; process closure or lease expiry is not settled remote evidence.");
         var existing = await _registry.ReadConnectionMigrationAsync(fingerprint, ct).ConfigureAwait(false);
         if (!existing.IsSuccess) throw new InvalidOperationException(existing.Error);
         var record = existing.Value;
@@ -205,6 +209,9 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
         var handles = LegacyHostQuiescence.AcquireExclusiveHandles(ProtectedPaths(paths, configuration, preview.SourceMirror, record));
         try
         {
+            var uncertainWrites = await _registry.ReadConnectionRemoteWritesAsync(fingerprint, unsettledOnly: true, ct).ConfigureAwait(false);
+            if (!uncertainWrites.IsSuccess || uncertainWrites.Value.Count != 0)
+                throw new InvalidOperationException("migration-remote-write-outcome-unknown: original native mutation evidence is unavailable or unsettled; activation did not occur.");
             var hosts = LegacyHostQuiescence.InspectProcesses(_commandLineReader);
             if (hosts.Count > 0) throw new InvalidOperationException(string.Join('\n', hosts));
             if (record is null)
@@ -306,9 +313,15 @@ internal sealed class ConnectionMigrationService : IConnectionMigrationService, 
 
     private static void ValidateRecord(ConnectionMigrationRecord record, TwigPaths paths, string fingerprint, string connectionRef)
     {
+        var mirrorFile = Path.GetFileName(record.CurrentMirror);
+        var activeMirrorFile = mirrorFile.StartsWith("admitted-", StringComparison.Ordinal)
+            && mirrorFile.EndsWith(".db", StringComparison.Ordinal)
+            && Guid.TryParseExact(mirrorFile.AsSpan(9, mirrorFile.Length - 12), "N", out _);
+        var expectedMirrorFile = record.State == "active" && activeMirrorFile
+            ? mirrorFile : "admitted-" + record.Generation + ".db";
         if (record.Version != 1 || record.State is not ("preparing" or "active") || record.Fingerprint != fingerprint
             || record.ConnectionRef != connectionRef || !SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(record.WorktreeRoot), Path.GetFullPath(paths.RepoRoot))
-            || !SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(record.CurrentMirror), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", "admitted-" + record.Generation + ".db")))
+            || !SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(record.CurrentMirror), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", expectedMirrorFile)))
             || !Guid.TryParseExact(record.Generation, "N", out _))
             throw new InvalidOperationException("migration-intent-unsupported: native version/context is inconsistent. Preserve all artifacts and use the compatible Twig version for recovery.");
     }

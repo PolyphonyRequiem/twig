@@ -59,6 +59,7 @@ public sealed class SyncCoordinator
     /// </remarks>
     public async Task<SyncResult> ReadItemAsync(int id, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         var existing = await _workItemRepo.GetByIdAsync(id, ct);
         if (existing is null)
             return new NotCached(id);
@@ -75,6 +76,7 @@ public sealed class SyncCoordinator
     /// </summary>
     public async Task<SyncResult> ReadItemSetAsync(IReadOnlyList<int> ids, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         var realIds = ids.Where(id => id > 0).ToList();
         if (realIds.Count == 0) return new UpToDate();
 
@@ -119,6 +121,7 @@ public sealed class SyncCoordinator
     /// </remarks>
     public async Task<SyncResult> SyncItemAsync(int id, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var fetched = await _adoService.FetchAsync(id, ct);
@@ -147,6 +150,7 @@ public sealed class SyncCoordinator
     public async Task<SyncResult> SyncWorkingSetAsync(
         WorkingSet workingSet, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var candidateIds = workingSet.AllIds
@@ -171,6 +175,7 @@ public sealed class SyncCoordinator
     public async Task<SyncResult> SyncItemSetAsync(
         IReadOnlyList<int> ids, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var candidateIds = ids.Where(id => id > 0).ToList();
@@ -245,6 +250,7 @@ public sealed class SyncCoordinator
     /// </summary>
     public async Task<SyncResult> SyncChildrenAsync(int parentId, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var children = await _adoService.FetchChildrenAsync(parentId, ct);
@@ -267,6 +273,7 @@ public sealed class SyncCoordinator
     /// </summary>
     public async Task<SyncResult> SyncParentChainAsync(int rootId, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var visited = new HashSet<int> { rootId };
@@ -313,6 +320,7 @@ public sealed class SyncCoordinator
     /// </summary>
     public async Task<SyncResult> SyncRootLinksAsync(int rootId, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         try
         {
             var links = await SyncLinksAsync(rootId, ct);
@@ -335,6 +343,7 @@ public sealed class SyncCoordinator
     /// </summary>
     public async Task<IReadOnlyList<WorkItemLink>> SyncLinksAsync(int itemId, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         var (fetched, links) = await _adoService.FetchWithLinksAsync(itemId, ct);
         await _protectedCacheWriter.SaveProtectedAsync(fetched, ct);
         if (_linkRepo is not null)
@@ -361,6 +370,7 @@ public sealed class SyncCoordinator
     /// </remarks>
     public async Task<IReadOnlyList<WorkItemLink>> SyncLinksForSetAsync(IReadOnlyList<int> itemIds, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         ArgumentNullException.ThrowIfNull(itemIds);
 
         if (itemIds.Count == 0)

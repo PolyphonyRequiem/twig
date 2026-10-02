@@ -38,6 +38,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     internal Task<Result> BeginConnectionMigrationAsync(ConnectionMigrationRecord record, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            var remote = await RefuseUnsettledMigrationWritesAsync(connection, tx, record.Fingerprint, ct).ConfigureAwait(false);
+            if (!remote.IsSuccess) return remote;
             using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = "INSERT INTO connection_migrations(worktree_fingerprint, generation, state, record_json) VALUES ($fp, $generation, 'preparing', $json) ON CONFLICT(worktree_fingerprint) DO NOTHING;";
@@ -52,6 +54,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
         => ExecuteWriteAsync(async (connection, tx) =>
         {
             using var cmd = connection.CreateCommand();
+            var remote = await RefuseUnsettledMigrationWritesAsync(connection, tx, record.Fingerprint, ct).ConfigureAwait(false);
+            if (!remote.IsSuccess) return remote;
             using (var selection = connection.CreateCommand())
             {
                 selection.Transaction = tx;
@@ -68,4 +72,15 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1
                 ? Result.Ok() : Result.Fail("migration-intent-conflict: activation CAS refused; retain the original intent and resume.");
         }, ct);
+
+    private static async Task<Result> RefuseUnsettledMigrationWritesAsync(Microsoft.Data.Sqlite.SqliteConnection connection,
+        Microsoft.Data.Sqlite.SqliteTransaction tx, string fingerprint, CancellationToken ct)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
+        cmd.Parameters.AddWithValue("$fp", fingerprint);
+        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null ? Result.Ok()
+            : Result.Fail("migration-remote-write-outcome-unknown: native mutation uncertainty must be reconciled under original authority; lease expiry cannot admit migration.");
+    }
 }

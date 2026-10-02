@@ -222,18 +222,14 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTags(operations, request.StampIntentTag);
+        InjectTags(operations, request.StampIntentTag, request.SeedCorrelation);
 
         return operations;
     }
 
-    // Stamps the constant "twig" provenance marker plus, when the create is being tracked, the
-    // constant in-flight intent tag (wayfinder 0015). Both are constants, so publishing N items
-    // adds at most two entries to the project's shared tag vocabulary — not N.
-    //
-    // A bool rather than the tag string: the tag is fixed by the ticket, so passing it in would
-    // invite a caller to vary something that must not vary.
-    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag = false)
+    // Native correlated creates keep their exact server key alongside provenance and
+    // the in-flight marker. Existing caller tags round-trip; labels never correlate outcomes.
+    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag, SeedPublishCorrelation? correlation)
     {
         const string tagPath = "/fields/System.Tags";
         const string twigTag = "twig";
@@ -248,6 +244,8 @@ internal static class AdoResponseMapper
         var merged = MergeTag(current, twigTag);
         if (stampIntentTag)
             merged = MergeTag(merged, PublishIntent.IntentTag);
+        if (correlation is not null)
+            merged = MergeTag(merged, correlation.Tag);
 
         if (existingIndex >= 0)
         {

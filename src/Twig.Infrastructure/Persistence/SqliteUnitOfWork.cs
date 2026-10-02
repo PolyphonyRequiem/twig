@@ -18,10 +18,15 @@ public sealed class SqliteUnitOfWork : IUnitOfWork
 
     public Task<ITransaction> BeginAsync(CancellationToken ct = default)
     {
-        var conn = _store.GetConnection();
-        var sqlTx = conn.BeginTransaction();
-        _store.ActiveTransaction = sqlTx;
-        return Task.FromResult<ITransaction>(new SqliteTransactionWrapper(sqlTx, _store));
+        var operation = _store.AcquireOperation();
+        try
+        {
+            var conn = _store.GetConnection();
+            var sqlTx = conn.BeginTransaction();
+            _store.ActiveTransaction = sqlTx;
+            return Task.FromResult<ITransaction>(new SqliteTransactionWrapper(sqlTx, _store, operation));
+        }
+        catch { operation?.Dispose(); throw; }
     }
 
     public Task CommitAsync(ITransaction tx, CancellationToken ct = default)
@@ -30,6 +35,7 @@ public sealed class SqliteUnitOfWork : IUnitOfWork
             ?? throw new InvalidOperationException("Expected SqliteTransactionWrapper.");
         wrapper.Transaction.Commit();
         _store.ActiveTransaction = null;
+        wrapper.ReleaseOperation();
         return Task.CompletedTask;
     }
 
@@ -39,6 +45,7 @@ public sealed class SqliteUnitOfWork : IUnitOfWork
             ?? throw new InvalidOperationException("Expected SqliteTransactionWrapper.");
         wrapper.Transaction.Rollback();
         _store.ActiveTransaction = null;
+        wrapper.ReleaseOperation();
         return Task.CompletedTask;
     }
 
@@ -50,17 +57,26 @@ public sealed class SqliteUnitOfWork : IUnitOfWork
     {
         public SqliteTransaction Transaction { get; }
         private readonly SqliteCacheStore _store;
+        private IDisposable? _operation;
 
-        public SqliteTransactionWrapper(SqliteTransaction transaction, SqliteCacheStore store)
+        public SqliteTransactionWrapper(SqliteTransaction transaction, SqliteCacheStore store, IDisposable? operation)
         {
             Transaction = transaction;
             _store = store;
+            _operation = operation;
         }
 
+
+        internal void ReleaseOperation()
+        {
+            _operation?.Dispose();
+            _operation = null;
+        }
         public ValueTask DisposeAsync()
         {
             _store.ActiveTransaction = null;
-            Transaction.Dispose();
+            try { Transaction.Dispose(); }
+            finally { ReleaseOperation(); }
             return ValueTask.CompletedTask;
         }
     }

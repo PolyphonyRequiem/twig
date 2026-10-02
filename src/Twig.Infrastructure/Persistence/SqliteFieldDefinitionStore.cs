@@ -18,6 +18,7 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
 
     public Task<FieldDefinition?> GetByReferenceNameAsync(string referenceName, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -36,6 +37,7 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
 
     public Task<IReadOnlyList<FieldDefinition>> GetAllAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -54,6 +56,7 @@ public sealed class SqliteFieldDefinitionStore : IFieldDefinitionStore
 
     public Task SaveBatchAsync(IReadOnlyList<FieldDefinition> definitions, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try

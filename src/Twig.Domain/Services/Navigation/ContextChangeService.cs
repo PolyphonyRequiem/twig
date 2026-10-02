@@ -23,6 +23,7 @@ public sealed class ContextChangeService(
     /// </summary>
     public async Task ExtendWorkingSetAsync(int itemId, CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         try
         {
             await HydrateParentChainAsync(itemId, ct);

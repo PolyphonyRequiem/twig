@@ -83,8 +83,21 @@ public static class TwigServiceRegistration
 
         services.TryAddSingleton<IConnectionBindingService>(_ =>
             new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
-        services.AddSingleton<IConnectionMigrationService>(sp => new ConnectionMigrationService(
-            ConnectionBindingService.ResolveUserHome(), sp.GetRequiredService<IConnectionBindingService>()));
+        services.AddSingleton<IConnectionMigrationService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionMigrationService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
+        services.AddSingleton<IConnectionBindingTransitionService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionBindingTransitionService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
+        services.AddSingleton<IConnectionRemoteWriteReconciliationService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionRemoteWriteReconciliationService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings, sp.GetService<HttpClient>());
+        });
         services.AddSingleton<IIdentityChangeEligibilityService>(sp => new IdentityChangeEligibilityService(
             sp.GetRequiredService<ISystemWorktreeRegistry>(), sp.GetRequiredService<IPrimaryScopeAttachmentStore>(),
             sp.GetRequiredService<IPendingChangeReader>(), sp.GetRequiredService<IWorkItemRepository>(),

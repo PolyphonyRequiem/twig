@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Domain.Interfaces.IWorkItemRepository.AcquireOperation() -> System.IDisposable?
 static Twig.Domain.Services.Field.CacheAgeFormatter.FormatAge(System.DateTimeOffset? lastSyncedAt, int staleMinutes) -> string?
 *REMOVED*Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int cacheStaleMinutes) -> void
 Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int cacheStaleMinutes, bool evictMissing = true) -> void
@@ -1143,3 +1144,20 @@ static Twig.Domain.Services.Plan.PlanOutcomeReceipt.operator !=(Twig.Domain.Serv
 static Twig.Domain.Services.Plan.PlanOutcomeReceipt.operator ==(Twig.Domain.Services.Plan.PlanOutcomeReceipt? left, Twig.Domain.Services.Plan.PlanOutcomeReceipt? right) -> bool
 static Twig.Domain.Services.Plan.PlanReconciliationResult.operator !=(Twig.Domain.Services.Plan.PlanReconciliationResult? left, Twig.Domain.Services.Plan.PlanReconciliationResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanReconciliationResult.operator ==(Twig.Domain.Services.Plan.PlanReconciliationResult? left, Twig.Domain.Services.Plan.PlanReconciliationResult? right) -> bool
+Twig.Domain.ValueObjects.CreateWorkItemRequest.SeedCorrelation.get -> Twig.Domain.ValueObjects.SeedPublishCorrelation?
+Twig.Domain.ValueObjects.CreateWorkItemRequest.SeedCorrelation.init -> void
+Twig.Domain.ValueObjects.SeedPublishCorrelation
+Twig.Domain.ValueObjects.SeedPublishCorrelation.<Clone>$() -> Twig.Domain.ValueObjects.SeedPublishCorrelation!
+Twig.Domain.ValueObjects.SeedPublishCorrelation.Deconstruct(out Twig.Domain.ValueObjects.StagedIdentity Identity, out System.DateTimeOffset IntentRecordedAt) -> void
+Twig.Domain.ValueObjects.SeedPublishCorrelation.Equals(Twig.Domain.ValueObjects.SeedPublishCorrelation? other) -> bool
+Twig.Domain.ValueObjects.SeedPublishCorrelation.Identity.get -> Twig.Domain.ValueObjects.StagedIdentity
+Twig.Domain.ValueObjects.SeedPublishCorrelation.Identity.init -> void
+Twig.Domain.ValueObjects.SeedPublishCorrelation.IntentRecordedAt.get -> System.DateTimeOffset
+Twig.Domain.ValueObjects.SeedPublishCorrelation.IntentRecordedAt.init -> void
+Twig.Domain.ValueObjects.SeedPublishCorrelation.SeedPublishCorrelation(Twig.Domain.ValueObjects.StagedIdentity Identity, System.DateTimeOffset IntentRecordedAt) -> void
+Twig.Domain.ValueObjects.SeedPublishCorrelation.Tag.get -> string!
+override Twig.Domain.ValueObjects.SeedPublishCorrelation.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.SeedPublishCorrelation.GetHashCode() -> int
+override Twig.Domain.ValueObjects.SeedPublishCorrelation.ToString() -> string!
+static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator !=(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool
+static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator ==(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool

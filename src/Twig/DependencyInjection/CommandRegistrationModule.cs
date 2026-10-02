@@ -117,6 +117,8 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<ConnectionCheckCommand>();
         services.AddSingleton<ConnectionMigrateCommand>();
+        services.AddSingleton<ConnectionPinCommand>();
+        services.AddSingleton<ConnectionWritesCommand>();
         services.AddSingleton<QueryCommand>();
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();

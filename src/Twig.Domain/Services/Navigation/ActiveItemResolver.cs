@@ -29,6 +29,7 @@ public sealed class ActiveItemResolver
     /// </summary>
     public async Task<ActiveItemResult> GetActiveItemAsync(CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
         if (activeId is null)
             return new ActiveNoContext();
@@ -42,6 +43,7 @@ public sealed class ActiveItemResolver
     /// </summary>
     public async Task<ActiveItemResult> ResolveByIdAsync(int id, CancellationToken ct = default)
     {
+        using var operation = _workItemRepo.AcquireOperation();
         var cached = await _workItemRepo.GetByIdAsync(id, ct);
         if (cached is not null)
             return new Found(cached);

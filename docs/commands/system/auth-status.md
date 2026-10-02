@@ -21,12 +21,16 @@ twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
 twig connection check [-o <format>]
 twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
+twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
+twig connection unpin [--confirm <digest>] [-o <format>]
+twig connection writes [-o <format>]
+twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> [-o <format>]
 ```
 
 ## Behavior
 
-Status validates the worktree attachment, declared endpoint and central binding
-default. It reports organization/project/team, method, alias, stable principal
+Status validates the worktree attachment, declared endpoint and effective local
+pin or central binding default. It reports organization/project/team, method, alias, stable principal
 metadata, binding and selection revisions, attachment revision, and configuration
 source paths. `display.icons` reports its winning local/global/default source;
 local preference source is not claimed as the origin of inherited global icons.
@@ -67,6 +71,40 @@ not automatic remediation. There is no force bypass.
 This is a prerequisite snapshot, not authorization to switch an identity or proof
 of fresh remote access. An eligible snapshot returns `0`; a blocked snapshot
 returns `1`, retaining its structured evidence.
+
+### Guarded checkout pin and removal
+
+`twig connection pin --binding <id>` previews a checkout-local pin; `twig
+connection unpin` previews returning to the endpoint's explicit default. Inspect
+binding IDs with `connection list`, then apply the same arguments with
+`--confirm <digest>`. Missing, cross-endpoint or stale selections refuse. Actual
+pin changes require the native migrated layout and fresh operation/attachment
+fences; they never activate migration, publish/discard work, or rewrite holders.
+
+An interrupted transition fences reads, writes and ordinary attachment changes.
+Resume its original arguments and digest after resolving the reported blocker;
+do not delete its native intent or start a replacement. Completion resets only
+the one disposable mirror when the effective binding changes. Credentials,
+portable policy, primary scope and durable pending/proposal history survive.
+Old live runtimes require explicit reconnect; verified same-principal credential
+renewal and an identical pin no-op do not erase data or adopt another actor.
+
+### Native uncertain writes
+
+Mutating requests record immutable native admission before HTTP. Lost responses,
+process death and ambiguous server outcomes remain blockers even after physical
+leases disappear. `connection writes` lists original identities, exact request
+digests, response observations and append-only outcome receipts. Inspection never
+replays a write; clearing a pending note does not settle its unknown remote POST.
+
+`connection reconcile-write` requires the exact digest, original registered
+identity ID and truthful rationale. It performs read-only original-actor evidence
+collection: an exhausted work-item revision test and the exact immutable first
+post-CAS revision can establish the requested effect. A later matching current
+value, matching comment text/actor, an expired lease or rationale alone cannot.
+An unrevisioned lost POST without attributable server evidence remains blocked;
+there is no force, automatic retirement or alternate-account retry. Reconciliation
+returns `0` only with a native outcome receipt; unresolved evidence returns `1`.
 
 ### Legacy migration administration
 

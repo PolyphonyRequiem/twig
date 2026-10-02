@@ -896,6 +896,38 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "connection pin",
+    "group": "system",
+    "summary": "Preview or apply an exact guarded checkout binding pin with native recovery, cold-cache admission and explicit reconnect.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-status.md"
+  },
+  {
+    "command": "connection unpin",
+    "group": "system",
+    "summary": "Preview or apply guarded removal of a checkout binding pin without publishing, discarding or silently replacing a live actor.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-status.md"
+  },
+  {
+    "command": "connection writes",
+    "group": "system",
+    "summary": "Inspect native remote-write uncertainty and immutable original-actor outcome evidence without replay.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "system/auth-status.md"
+  },
+  {
+    "command": "connection reconcile-write",
+    "group": "system",
+    "summary": "Append native original-actor settlement only after exact exhausted-CAS readback proves an uncertain request's effect; never infer or replay it.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "changelog",
     "group": "system",
     "summary": "Display recent release notes from GitHub Releases without applying any update.",

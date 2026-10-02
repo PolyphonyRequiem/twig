@@ -21,6 +21,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task AddChangeAsync(int workItemId, string changeType, string? fieldName, string? oldValue, string? newValue, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -41,6 +42,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
     {
         if (changes.Count == 0) return Task.CompletedTask;
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try
@@ -74,6 +76,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<IReadOnlyList<PendingChangeRecord>> GetChangesAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM pending_changes WHERE work_item_id = @workItemId ORDER BY id;";
@@ -90,6 +93,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task ClearChangesAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM pending_changes WHERE work_item_id = @workItemId;";
@@ -100,6 +104,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task ClearChangesByTypeAsync(int workItemId, string changeType, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM pending_changes WHERE work_item_id = @workItemId AND change_type = @changeType;";
@@ -111,6 +116,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<IReadOnlyList<int>> GetDirtyItemIdsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT DISTINCT work_item_id FROM pending_changes ORDER BY work_item_id;";
@@ -126,6 +132,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task RemapWorkItemIdAsync(int oldId, int newId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         // Enrolled in the ambient transaction: publish remaps inside SqliteUnitOfWork's
@@ -140,6 +147,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<int> ClearAllChangesAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -152,6 +160,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<(int Notes, int FieldEdits)> GetChangeSummaryAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -170,6 +179,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<int> GetTotalPendingChangeCountAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";
@@ -179,6 +189,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
 
     public Task<IReadOnlyList<PendingChangeDetail>> GetAllChangesAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         // A single scan of pending_changes, left-joined against the durable seed tables so a

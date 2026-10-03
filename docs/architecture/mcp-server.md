@@ -1,5 +1,10 @@
 # MCP Server (twig-mcp)
 
+**Withdrawn from delivery (2026-10-03).** MCP requires a separate redesign. The
+server and its tests are excluded from the supported solution, publishing,
+installation and automatic companion downloads. The source and this document
+are retained as historical context, not as a supported integration.
+
 Architecture of the Model Context Protocol server that exposes twig's
 work-item cache and ADO mutation operations to IDE agents.
 

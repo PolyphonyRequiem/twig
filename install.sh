@@ -117,7 +117,7 @@ fi
 mkdir -p "$INSTALL_DIR"
 
 # Extract binary
-if ! tar -xzf "$TEMP_ARCHIVE" -C "$INSTALL_DIR"; then
+if ! tar --exclude='twig-mcp*' --exclude='./twig-mcp*' -xzf "$TEMP_ARCHIVE" -C "$INSTALL_DIR"; then
     echo "Error: Failed to extract archive." >&2
     exit 1
 fi
@@ -133,7 +133,7 @@ fi
 chmod +x "${INSTALL_DIR}/twig"
 
 # Verify companion binaries (warn only — older archives may not include them)
-for companion in twig-mcp twig-tui; do
+for companion in twig-tui; do
     if [ -f "${INSTALL_DIR}/${companion}" ]; then
         chmod +x "${INSTALL_DIR}/${companion}"
         echo "  Found $companion"

@@ -24,10 +24,10 @@
 # run really passed.
 #
 # USAGE
-#     tools/run-tests.sh                 # all four suites, serially
+#     tools/run-tests.sh                 # all three supported suites, serially
 #     tools/run-tests.sh Cli             # one suite by short name
 #     tools/run-tests.sh Cli Domain      # several
-#     tools/run-tests.sh --pre-push      # the four suites, THEN the probe, THEN CI's own commands
+#     tools/run-tests.sh --pre-push      # the three suites, THEN the probe, THEN CI's own commands
 #     tools/run-tests.sh --selftest      # prove the guards can fail AND pass
 #
 # EXIT CODE: 0 only if every suite is a genuine, unaborted pass.
@@ -39,7 +39,7 @@
 #
 # WHY --pre-push EXISTS (AB#248, closing AB#246's admission)
 #
-# The four suites are NECESSARY BUT NOT SUFFICIENT. CI runs SIX assemblies
+# The three suites are NECESSARY BUT NOT SUFFICIENT. CI runs FIVE assemblies
 # unfiltered and compiles the whole solution (including tests/Twig.Benchmarks,
 # which is IsTestProject=false — CI builds it and never tests it). AGENTS.md
 # used to ask a human to run CI's three commands by hand and "read the exit
@@ -110,13 +110,12 @@ suite_project() {
   case "$1" in
     Cli)            echo "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" ;;
     Infrastructure) echo "tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" ;;
-    Mcp)            echo "tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj" ;;
     Domain)         echo "tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" ;;
     *)              echo "" ;;
   esac
 }
 
-ALL_SUITES="Cli Infrastructure Mcp Domain"
+ALL_SUITES="Cli Infrastructure Domain"
 
 PRE_PUSH=0
 SELFTEST=0
@@ -174,7 +173,7 @@ VERDICT_LINES=""
 #
 # `strict` (optional, "1") adds one guard used only by the wide run: a run that
 # produced NO summary line at all is a failure rather than a `PASSED (0 tests)`.
-# It is opt-in so the four-suite path's output stays byte-identical.
+# It is opt-in so the selected-suite path's output stays byte-identical.
 # ----------------------------------------------------------------------------
 reconcile() {
   local log="$1" exit_code="$2" strict="${3:-0}"
@@ -192,7 +191,7 @@ reconcile() {
   #
   # Anchored to vstest's actual shape — an argument that is a path to a .dll —
   # so a test printing the words "argument ... is invalid" in its own output
-  # cannot turn a genuine pass into a FAILED. This guard runs on the four-suite
+  # cannot turn a genuine pass into a FAILED. This guard runs on the selected-suite
   # path too, where such a collision would be a regression rather than a catch.
   #
   # ⚠️ vstest localizes this message, so under a non-English
@@ -204,7 +203,7 @@ reconcile() {
   # One `dotnet test` invocation over the whole solution prints ONE summary line
   # PER ASSEMBLY, so `tail -1` would report the last assembly's count as if it
   # were the run's. Sum them, and count them. A single-project invocation prints
-  # exactly one line, so this is identical to `tail -1` on the four-suite path.
+  # exactly one line, so this is identical to `tail -1` on the selected-suite path.
   assemblies="$(grep -cE 'Passed: +[0-9]+' "$log")"
   passed_count="$(grep -oE 'Passed: +[0-9]+' "$log" | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')"
   passed_count="${passed_count:-0}"
@@ -500,7 +499,7 @@ if [ "$PRE_PUSH" -eq 1 ]; then
   #
   # Run the built DLL rather than `dotnet run`: `dotnet run` re-evaluates the
   # project and can rebuild, and DOTNET_ROLL_FORWARD does not apply to the
-  # launcher's own resolution the same way. The four suites above have already
+  # launcher's own resolution the same way. The selected suites above have already
   # built the solution by this point.
   # --------------------------------------------------------------------------
   probe_log="$LOG_DIR/DetailHostProbe.log"
@@ -562,7 +561,7 @@ if [ "$PRE_PUSH" -eq 1 ]; then
   # invalid-argument marker is the second line of defence for the case where a
   # stale output directory survives a successful build.
   #
-  # 🔴 Serial with respect to the four suites above. Two concurrent `dotnet
+  # 🔴 Serial with respect to the selected suites above. Two concurrent `dotnet
   # test` processes collide over shared build output and produce a bogus
   # SQLitePCL DllNotFoundException. That is why this runs AFTER the loop rather
   # than beside it, despite the wide run being the cheaper of the two.

@@ -307,7 +307,7 @@ dotnet publish src/Twig -r win-x64 -c Release
 - **[Data Layer](docs/architecture/data-layer.md)** — sync mechanics, caching tiers, conflict resolution in depth
 - **[Commands](docs/architecture/commands.md)** — full command catalog, rendering pipeline, telemetry
 - **[ADO Integration](docs/architecture/ado-integration.md)** — REST client, authentication, link management
-- **[MCP Server](docs/architecture/mcp-server.md)** — AI agent integration via the twig-mcp tool server
+- **[MCP history](docs/architecture/mcp-server.md)** — withdrawn from current delivery; retained as redesign context
 - **[Build & Release](docs/architecture/build-and-release.md)** — AOT compilation, versioning, release pipeline
 
 ## License

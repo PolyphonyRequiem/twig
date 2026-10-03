@@ -43,12 +43,9 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_AllCompanionsPresent_NoDownload()
     {
-        // All companion exe files exist
-        _fileSystem.FileExists(Arg.Any<string>()).Returns(callInfo =>
-        {
-            var path = callInfo.Arg<string>();
-            return !path.EndsWith(".twig-version");
-        });
+        // TUI exists while the withdrawn MCP binary does not. No download is needed.
+        var tuiExe = Path.Combine(Dir, CompanionTools.GetExeName("twig-tui"));
+        _fileSystem.FileExists(Arg.Any<string>()).Returns(callInfo => callInfo.Arg<string>() == tuiExe);
 
         var sut = CreateSut();
         await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
@@ -66,7 +63,7 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_VersionMarkerMatchesCurrent_ReturnsWithoutDownload()
     {
-        SetupMissingCompanions("twig-mcp");
+        SetupMissingCompanions("twig-tui");
         SetupVersionFile(CurrentVersion);
 
         var sut = CreateSut();
@@ -79,7 +76,7 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_VersionMarkerOlderVersion_ProceedsToDownload()
     {
-        SetupMissingCompanions("twig-mcp");
+        SetupMissingCompanions("twig-tui");
         SetupVersionFile("1.4.0"); // older version
         SetupSuccessfulDownload();
 
@@ -98,7 +95,7 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_SuccessfulDownload_InstallsCompanions()
     {
-        SetupMissingCompanions("twig-mcp", "twig-tui");
+        SetupMissingCompanions("twig-tui");
         SetupSuccessfulDownload();
 
         var sut = CreateSut();
@@ -107,7 +104,7 @@ public sealed class CompanionFirstRunCheckTests
         await _companionInstaller.Received(1).InstallCompanionsOnlyAsync(
             "https://example.com/twig-test.zip",
             Arg.Any<string>(),
-            Arg.Is<IReadOnlyList<string>>(list => list.Count == 2),
+            Arg.Is<IReadOnlyList<string>>(list => list.Contains(CompanionTools.GetExeName("twig-tui")) && !list.Contains(CompanionTools.GetExeName("twig-mcp"))),
             Dir,
             Arg.Any<CancellationToken>());
         _fileSystem.Received(1).FileCreate(VersionFile);
@@ -118,7 +115,7 @@ public sealed class CompanionFirstRunCheckTests
     [InlineData(false)]
     public async Task EnsureCompanionsAsync_InstallerThrows_WritesVersionMarker(bool cancelled)
     {
-        SetupMissingCompanions("twig-mcp");
+        SetupMissingCompanions("twig-tui");
         SetupRelease();
 
         Exception ex = cancelled
@@ -139,7 +136,7 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_NoReleaseFound_WritesVersionMarker()
     {
-        SetupMissingCompanions("twig-mcp");
+        SetupMissingCompanions("twig-tui");
         _releaseService.GetReleaseByTagAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((GitHubReleaseInfo?)null);
 
@@ -153,11 +150,8 @@ public sealed class CompanionFirstRunCheckTests
     [Fact]
     public async Task EnsureCompanionsAsync_OnlyMissingCompanions_AreRequested()
     {
-        // twig-mcp exists, twig-tui missing
-        var mcpExe = CompanionTools.GetExeName("twig-mcp");
         var tuiExe = CompanionTools.GetExeName("twig-tui");
 
-        _fileSystem.FileExists(Path.Combine(Dir, mcpExe)).Returns(true);
         _fileSystem.FileExists(Path.Combine(Dir, tuiExe)).Returns(false);
         _fileSystem.FileExists(VersionFile).Returns(false);
         _fileSystem.FileCreate(Arg.Any<string>()).Returns(_ => new MemoryStream());
@@ -198,9 +192,9 @@ public sealed class CompanionFirstRunCheckTests
         // marker exists, so on the unfixed code this reaches Phase 3 and calls GitHub with a
         // 60 s budget. Without this guard the test could silently degrade into the Phase 1
         // "all companions present" happy path and prove nothing.
-        SetupMissingCompanions("twig-mcp", "twig-tui");
+        SetupMissingCompanions("twig-tui");
         SetupSuccessfulDownload();
-        _fileSystem.FileExists(Path.Combine(Dir, CompanionTools.GetExeName("twig-mcp")))
+        _fileSystem.FileExists(Path.Combine(Dir, CompanionTools.GetExeName("twig-tui")))
             .ShouldBeFalse("fixture must present a MISSING companion or the slow path never runs");
 
         var sut = CreateSut();
@@ -220,7 +214,7 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_DotnetHostedLaunch_WritesNoMarkerIntoHostDirectory(
         string hostPath)
     {
-        SetupMissingCompanions("twig-mcp", "twig-tui");
+        SetupMissingCompanions("twig-tui");
         SetupSuccessfulDownload();
 
         var sut = CreateSut();
@@ -236,7 +230,7 @@ public sealed class CompanionFirstRunCheckTests
     {
         // Positive control. Without this, the two tests above would still pass if the guard
         // disabled the companion check entirely, which would silently break real upgrades.
-        SetupMissingCompanions("twig-mcp");
+        SetupMissingCompanions("twig-tui");
         SetupSuccessfulDownload();
 
         var sut = CreateSut();

@@ -11,6 +11,11 @@ The product/ownership contract was confirmed by the owner in Grilling #1101 on
 implement it or change the machine's current credentials. Its source baseline is
 `d5bf7e62`; the separate auth-isolation experiment is `06746e13`.
 
+**Current delivery scope (owner decision, 2026-10-03):** MCP is withdrawn pending
+a separate redesign; Task #1112 is canceled rather than completed. Other host
+integration work is parked. The MCP requirements below remain historical design
+context and are not acceptance gates for the current CLI delivery.
+
 ## Problem Statement
 
 Twig currently conflates a valid Azure DevOps token with the account intended for

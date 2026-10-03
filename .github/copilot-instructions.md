@@ -219,32 +219,10 @@ the human confirmed, an authorization bound to that exact digest, and a journal 
 what landed. A direct `twig state Done` has none of those, which is why it is no longer the
 prescribed mechanism.
 
-## MCP Server (twig-mcp)
+## MCP availability
 
-Twig exposes an MCP server (`twig-mcp`) that provides Copilot agents with direct access to
-the local work-item cache and Azure DevOps mutation operations.
-
-### Starting the server
-
-The server is registered in `.vscode/mcp.json` as `"twig-mcp"`. Run `./publish-local.ps1`
-to build and deploy both `twig` and `twig-mcp` binaries to `~/.twig/bin/`.
-
-### Available tools
-
-| Tool | Description |
-|------|-------------|
-| `twig_set` | Set the active work item by ID or title pattern |
-| `twig_status` | Show the active work item status and pending changes |
-| `twig_tree` | Render the focused work item tree (parent chain + children) |
-| `twig_workspace` | Show the full workspace: sprint items, seeds, dirty count |
-| `twig_state` | Change the state of the active work item |
-| `twig_update` | Update a field on the active work item (supports `format: "markdown"` for HTML conversion) |
-| `twig_note` | Add a comment/note to the active work item |
-| `twig_sync` | Flush pending local changes to ADO then refresh the local cache |
-
-### Key behaviours
-
-- All tools operate on the **active work item** (set via `twig_set`)
-- `twig_update` with `format: "markdown"` converts Markdown to HTML (use for `System.Description`)
-- `twig_note` falls back to local staging when ADO is unreachable (`isPending: true` in response)
-- `twig_sync` performs a two-phase push (pending changes) then pull (active context refresh)
+MCP is withdrawn from current delivery pending a separate redesign. Use the
+Twig CLI for agent work-item operations. Preserve the MCP draft as redesign
+context; it is excluded from supported builds, publishing, installation and
+automatic companion downloads. Integration work is parked unless the user
+explicitly resumes it.

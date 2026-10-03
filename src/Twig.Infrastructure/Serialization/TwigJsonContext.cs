@@ -101,6 +101,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
 [JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
 [JsonSerializable(typeof(SeedPublishCorrelation))]
+[JsonSerializable(typeof(ConnectionDefaultTransitionPreview))]
+[JsonSerializable(typeof(ConnectionDefaultTransitionRecord))]
 [JsonSerializable(typeof(AdoProfileResponse))]
 [JsonSerializable(typeof(TypeAppearanceConfig))]
 [JsonSerializable(typeof(List<TypeAppearanceConfig>))]

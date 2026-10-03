@@ -78,8 +78,11 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
+        cmd.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
         cmd.Parameters.AddWithValue("$fp", fingerprint);
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+            return Result.Fail("binding-default-family-incomplete: migration cannot replace or activate a member of an unfinished native default intent.");
+        cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
         return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null ? Result.Ok()
             : Result.Fail("migration-remote-write-outcome-unknown: native mutation uncertainty must be reconciled under original authority; lease expiry cannot admit migration.");
     }

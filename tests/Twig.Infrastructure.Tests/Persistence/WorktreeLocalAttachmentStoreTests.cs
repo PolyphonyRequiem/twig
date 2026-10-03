@@ -166,6 +166,29 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         read.Error.ShouldBe(AttachmentStorageFailure.WorktreeFingerprintDrift);
     }
 
+    [Fact]
+    public async Task Read_refuses_a_linked_checkout_after_its_live_git_anchor_changes()
+    {
+        if (!_gitAvailable) return;
+        await RunGitAsync("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "commit", "--allow-empty", "--quiet", "-m", "Fixture");
+        var linkedRoot = Path.Combine(_workDir, "linked checkout");
+        await RunGitAsync("worktree", "add", "--detach", "--quiet", linkedRoot);
+        await File.WriteAllTextAsync(Path.Combine(linkedRoot, "twig.json"), "{}");
+        var twigDir = Path.Combine(linkedRoot, ".twig");
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"),
+            Path.Combine(twigDir, "twig.db"), linkedRoot);
+        using var store = new WorktreeLocalAttachmentStore(paths, _config, TimeProvider.System);
+        (await store.InitializeAsync()).IsSuccess.ShouldBeTrue();
+        (await store.ReadAsync()).IsSuccess.ShouldBeTrue();
+
+        // Without the linked checkout's Git pointer, Git now resolves the enclosing worktree.
+        File.Delete(Path.Combine(linkedRoot, ".git"));
+        var changed = await store.ReadAsync();
+        changed.IsSuccess.ShouldBeFalse();
+        changed.Error.ShouldBe(AttachmentStorageFailure.WorktreeFingerprintDrift);
+    }
+
     // ── Fail-closed: writes never bootstrap markers ─────────────────────
 
     [Fact]
@@ -424,5 +447,23 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         var store = NewStore();
         var result = await store.InitializeAsync();
         result.IsSuccess.ShouldBeTrue(result.Error);
+    }
+
+    private async Task RunGitAsync(params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = _workDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        process.ExitCode.ShouldBe(0, await error + await output);
     }
 }

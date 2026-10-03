@@ -239,6 +239,31 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         return (Report("preview", record, errors), record);
     }
 
+    internal async Task<(ConnectionBindingTransitionPreview Preview, ConnectionBindingTransitionRecord? Record)> PrepareDefaultMemberAsync(
+        TwigConfiguration configuration, TwigPaths paths, string bindingId, long defaultRevision, CancellationToken ct)
+    {
+        var (preview, record) = await InspectAsync(configuration, paths, bindingId, ct).ConfigureAwait(false);
+        if (!preview.CanApply || record is null) return (preview, null);
+        if (record.OriginalBindingPin is not null)
+            return (Blocked(paths, configuration, "binding-default-member-pinned: this checkout is not affected by the default."), null);
+        record = record with
+        {
+            DesiredBindingPin = null,
+            DesiredAttachment = record.OriginalAttachment,
+            DesiredBinding = record.DesiredBinding with
+            {
+                SelectionSource = "connection-default-binding", SelectionRevision = defaultRevision,
+                Operation = record.OriginalBinding.Operation, StorageGeneration = null
+            },
+            Digest = "", Generation = ""
+        };
+        var digest = Digest(record);
+        var generation = record.ResetRequired ? digest[..32] : record.OriginalMigration.Generation;
+        record = record with { Digest = digest, Generation = generation,
+            DesiredBinding = record.DesiredBinding with { StorageGeneration = generation } };
+        return (Report("preview", record, []), record);
+    }
+
     private async Task CompleteAsync(ConnectionBindingTransitionRecord record, TwigConfiguration configuration, TwigPaths paths, CancellationToken ct)
     {
         var errors = new List<string>();
@@ -296,7 +321,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         }
     }
 
-    private async Task InspectUnfinishedWorkAsync(ConnectionBindingTransitionRecord record, TwigConfiguration configuration,
+    internal async Task InspectUnfinishedWorkAsync(ConnectionBindingTransitionRecord record, TwigConfiguration configuration,
         TwigPaths paths, CancellationToken ct, List<string> blockers)
     {
         try
@@ -349,7 +374,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         { blockers.Add("binding-desired-credential-not-admitted: " + ex.Message + " Repair the selected identity separately; no alternate-account fallback is permitted."); }
     }
 
-    private static void ValidateRecord(ConnectionBindingTransitionRecord record, TwigPaths paths, TwigConfiguration configuration,
+    internal static void ValidateRecord(ConnectionBindingTransitionRecord record, TwigPaths paths, TwigConfiguration configuration,
         string fingerprint, List<string> blockers)
     {
         if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out _)
@@ -373,7 +398,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
             blockers.Add("binding-transition-attachment-cas-mismatch: original/desired revision, pin, scope or claim is inconsistent; restore exact native context.");
     }
 
-    private static void ResetMirror(ConnectionBindingTransitionRecord record)
+    internal static void ResetMirror(ConnectionBindingTransitionRecord record)
     {
         VerifyStorageShape(record.CurrentMirror);
         using var store = SqliteCacheStore.OpenMigrationMirror(record.CurrentMirror);
@@ -397,7 +422,7 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         tx.Commit();
     }
 
-    private static void VerifyMirrorGeneration(ConnectionBindingTransitionRecord record)
+    internal static void VerifyMirrorGeneration(ConnectionBindingTransitionRecord record)
     {
         using var connection = OpenReadOnly(record.CurrentMirror);
         using var cmd = connection.CreateCommand();
@@ -438,11 +463,11 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
         catch { connection.Dispose(); throw; }
     }
 
-    private static AttachmentDocument ReadAttachment(TwigPaths paths)
+    internal static AttachmentDocument ReadAttachment(TwigPaths paths)
         => JsonSerializer.Deserialize(File.ReadAllText(AttachmentPath(paths)), TwigJsonContext.Default.AttachmentDocument)
             ?? throw new InvalidOperationException("binding-attachment-unreadable: restore the original native attachment.");
 
-    private static async Task WriteAtomicAsync(string path, string contents, CancellationToken ct)
+    internal static async Task WriteAtomicAsync(string path, string contents, CancellationToken ct)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -471,18 +496,18 @@ internal sealed class ConnectionBindingTransitionService : IConnectionBindingTra
             Digest = "", State = "preparing", Generation = "", CurrentMirror = record.SourceMirror,
             DesiredBinding = record.DesiredBinding with { StorageGeneration = null }
         }, TwigJsonContext.Default.ConnectionBindingTransitionRecord));
-    private static string ConfigurationHash(TwigPaths paths)
+    internal static string ConfigurationHash(TwigPaths paths)
         => Hash(string.Join('\n', paths.RepoConfigPath, HashFile(paths.RepoConfigPath), paths.ConfigPath, HashFile(paths.ConfigPath),
             paths.GlobalDisplayPath, HashFile(paths.GlobalDisplayPath)));
-    private static string AttachmentPath(TwigPaths paths) => Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
-    private static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
-    private static string HashFile(string path)
+    internal static string AttachmentPath(TwigPaths paths) => Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName);
+    internal static string Hash(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    internal static string HashFile(string path)
     {
         if (!File.Exists(path)) return "absent";
         using var stream = File.OpenRead(path);
         return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
-    private static bool PathsEqual(string left, string right)
+    internal static bool PathsEqual(string left, string right)
         => SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(left), Path.GetFullPath(right));
     private static void Require(Twig.Domain.Common.Result result)
     { if (!result.IsSuccess) throw new InvalidOperationException(result.Error); }

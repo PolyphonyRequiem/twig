@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Twig.Infrastructure.Config;
 
 /// <summary>
-/// The §3.2 anchor tuple resolved once per process. Immutable and canonical:
+/// The §3.2 anchor tuple. Immutable and canonical:
 /// every value is a real-path (symlinks resolved) so byte-equality against
 /// <c>.twig/worktree.json</c> is a valid drift signal (§6.4 step 4).
 /// </summary>
@@ -31,8 +31,8 @@ internal static class WorktreeAnchorDetector
         return TryDetect(startDir, out var anchor, out _) ? anchor : null;
     }
 
-    /// <summary>Attempt to resolve the anchor tuple. Returns <c>true</c> on
-    /// success; on failure the AB#736 §8 identifier is set on
+    /// <summary>Resolve a fresh anchor tuple in one Git invocation, without caching.
+    /// Returns <c>true</c> on success; on failure the AB#736 §8 identifier is set on
     /// <paramref name="failureCode"/> (one of <c>not-a-git-worktree</c> or
     /// <c>bare-repository-not-supported</c>).</summary>
     public static bool TryDetect(string startDir, out WorktreeAnchor anchor, out string failureCode)
@@ -40,28 +40,30 @@ internal static class WorktreeAnchorDetector
         anchor = default;
         failureCode = string.Empty;
 
-        if (!TryRunGit(startDir, "rev-parse --show-toplevel", out var topLevel))
-        {
-            failureCode = "not-a-git-worktree";
-            return false;
-        }
-        if (!TryRunGit(startDir, "rev-parse --is-bare-repository", out var bareRaw)
-            || string.Equals(bareRaw.Trim(), "true", StringComparison.OrdinalIgnoreCase))
-        {
-            failureCode = "bare-repository-not-supported";
-            return false;
-        }
-        if (!TryRunGit(startDir, "rev-parse --git-common-dir", out var commonDir)
-            || !TryRunGit(startDir, "rev-parse --git-dir", out var gitDir))
+        if (!TryRunGit(startDir, "rev-parse --show-toplevel --is-bare-repository --git-common-dir --git-dir", out var raw))
         {
             failureCode = "not-a-git-worktree";
             return false;
         }
 
+        var output = raw.AsSpan().Trim();
+        Span<Range> fields = stackalloc Range[5];
+        if (output.Split(fields, '\n') != 4 || !bool.TryParse(output[fields[1]].Trim(), out var bare)
+            || output[fields[0]].Trim().IsEmpty || output[fields[2]].Trim().IsEmpty || output[fields[3]].Trim().IsEmpty)
+        {
+            failureCode = "not-a-git-worktree";
+            return false;
+        }
+        if (bare)
+        {
+            failureCode = "bare-repository-not-supported";
+            return false;
+        }
+
         anchor = new WorktreeAnchor(
-            WorktreeRoot: CanonicalPath(topLevel.Trim(), startDir),
-            GitCommonDir: CanonicalPath(commonDir.Trim(), startDir),
-            WorktreeGitDir: CanonicalPath(gitDir.Trim(), startDir));
+            WorktreeRoot: CanonicalPath(output[fields[0]].Trim().ToString(), startDir),
+            GitCommonDir: CanonicalPath(output[fields[2]].Trim().ToString(), startDir),
+            WorktreeGitDir: CanonicalPath(output[fields[3]].Trim().ToString(), startDir));
         return true;
     }
 

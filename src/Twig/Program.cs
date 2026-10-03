@@ -97,7 +97,7 @@ var app = ConsoleApp.Create()
         {
             var paths = TwigPaths.BuildPaths(twigDir, config);
 
-            if (!(args.Length >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin")
+            if (!(args.Length >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
                 && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
                 using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);
@@ -1472,6 +1472,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(null, true, confirm, output, ct);
 
+    /// <summary>Preview or apply a guarded central binding default across every affected unpinned worktree; any blocked or unreachable member refuses the whole family.</summary>
+    /// <param name="binding">Registered binding ID for the declared endpoint; required.</param>
+    /// <param name="confirm">Exact eligible family preview digest. Omit for read-only preview; reuse original digest for native crash recovery.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection default")]
+    public async Task<int> ConnectionDefault(string? binding = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionDefaultCommand>().ExecuteAsync(binding, confirm, output, ct);
+
     /// <summary>Inspect native remote-write intents, immutable acknowledgments and uncertainty blockers for the attached checkout. Read-only; never replay, expire or discard an unknown write.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection writes")]
@@ -1804,6 +1813,7 @@ internal static class GroupedHelp
         "connection migrate",
         "connection pin",
         "connection unpin",
+        "connection default",
         "connection writes",
         "connection reconcile-write",
         "version",

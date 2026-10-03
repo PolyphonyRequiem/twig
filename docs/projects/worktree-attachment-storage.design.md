@@ -71,6 +71,11 @@ failure.
 | `gitCommonDir` | Absolute realpath of the shared Git object/ref directory that every linked worktree of the same repository shares. | `git rev-parse --git-common-dir`, realpath-canonicalized. |
 | `worktreeGitDir` | Absolute realpath of the per-worktree Git directory (either `<worktreeRoot>/.git` for the primary worktree or `<gitCommonDir>/worktrees/<name>` for a linked worktree). | `git rev-parse --git-dir`, realpath-canonicalized. |
 
+The detector requests all three paths and the bare-repository flag in one fresh
+`git rev-parse` invocation per lookup. Batching avoids four process launches;
+it does not cache the tuple across lookups or remove admission-time drift checks.
+Incomplete or malformed output is refused before an anchor is returned.
+
 Managed initialization refuses when:
 
 - `git rev-parse` is not available (not on `PATH`, not a Git checkout, or

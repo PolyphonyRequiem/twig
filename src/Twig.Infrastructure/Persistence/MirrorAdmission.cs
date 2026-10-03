@@ -155,6 +155,15 @@ internal sealed class MirrorAdmission
         }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_default_transitions';";
+        if (command.ExecuteScalar() is not null)
+        {
+            command.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
+            command.Parameters.AddWithValue("$fp", fingerprint);
+            if (command.ExecuteScalar() is not null)
+                throw new InvalidOperationException("binding-changed: binding-default-transition-incomplete. This checkout is fenced until every affected worktree completes the original native default intent. Resume connection default with its original binding and confirmed digest, then explicitly reconnect; no partial cache/read/work HTTP is admitted.");
+            command.Parameters.Clear();
+        }
         command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='connection_binding_transitions';";
         if (command.ExecuteScalar() is null) return;
         command.CommandText = "SELECT 1 FROM connection_binding_transitions WHERE worktree_fingerprint=$fp AND state <> 'completed' LIMIT 1;";

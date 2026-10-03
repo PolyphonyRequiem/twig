@@ -130,10 +130,16 @@ internal sealed partial class SqliteSystemWorktreeRegistry
     }
 
     private static async Task<Result> ValidateTransitionAuthorityAsync(SqliteConnection connection, SqliteTransaction tx,
-        ConnectionBindingTransitionRecord record, ConnectionMigrationRecord expectedMigration, CancellationToken ct)
+        ConnectionBindingTransitionRecord record, ConnectionMigrationRecord expectedMigration, CancellationToken ct, string? defaultDigest = null)
     {
         using var cmd = connection.CreateCommand();
         cmd.Transaction = tx;
+        cmd.CommandText = "SELECT 1 FROM connection_default_transitions WHERE connection_ref=$ref AND state<>'completed' AND digest<>$family LIMIT 1;";
+        cmd.Parameters.AddWithValue("$ref", record.ConnectionRef);
+        cmd.Parameters.AddWithValue("$family", defaultDigest ?? "");
+        if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+            return Result.Fail("binding-default-family-incomplete: resume the exact native default family before changing a local selection.");
+        cmd.Parameters.Clear();
         cmd.CommandText = "SELECT 1 FROM worktrees WHERE worktree_fingerprint=$fp AND connection_ref=$ref AND worktree_root=$root AND retired_at IS NULL;";
         cmd.Parameters.AddWithValue("$fp", record.Fingerprint);
         cmd.Parameters.AddWithValue("$ref", record.ConnectionRef);
@@ -168,8 +174,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.RemoveAt("$identity");
             cmd.Parameters.RemoveAt("$revision");
         }
-        cmd.CommandText = "SELECT record_json FROM connection_migrations WHERE worktree_fingerprint=$fp AND state='active' AND generation=$generation;";
+        cmd.CommandText = "SELECT record_json FROM connection_migrations WHERE worktree_fingerprint=$fp AND state=$migrationState AND generation=$generation;";
         cmd.Parameters.AddWithValue("$generation", expectedMigration.Generation);
+        cmd.Parameters.AddWithValue("$migrationState", expectedMigration.State);
         var json = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
         return json == JsonSerializer.Serialize(expectedMigration, TwigJsonContext.Default.ConnectionMigrationRecord) ? Result.Ok()
             : Result.Fail("binding-transition-generation-cas-mismatch: original native generation is not the admitted authority.");

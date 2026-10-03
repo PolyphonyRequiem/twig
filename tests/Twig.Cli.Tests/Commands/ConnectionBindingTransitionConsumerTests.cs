@@ -35,7 +35,7 @@ namespace Twig.Cli.Tests.Commands;
 /// Verified journal history is produced only by authorized lifecycle apply.
 /// </summary>
 [Collection("ConsoleRedirect")]
-public sealed class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
+public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
 {
     private const string Organization = "fixture";
     private const string Project = "Work";
@@ -875,9 +875,9 @@ public sealed class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
         return new TwigPaths(paths.TwigDir, paths.ConfigPath, paths.DbPath, paths.StartDir, Path.Combine(Home, "display.json"));
     }
 
-    private async Task<ServiceProvider> CreateRuntimeAsync()
+    private async Task<ServiceProvider> CreateRuntimeAsync(TwigPaths? pathsOverride = null)
     {
-        var paths = CurrentPaths();
+        var paths = pathsOverride ?? CurrentPaths();
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
         services.AddConnectionServices(_configuration, paths.TwigDir, paths.StartDir);
@@ -1045,6 +1045,8 @@ public sealed class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
         private readonly List<(int Id, int WorkItemId, string Principal, string Text)> _comments = [];
         internal bool LoseNextCommentResponse { get; set; }
         internal bool LoseNextPatchResponse { get; set; }
+        internal bool HideLostPatchReadback { get; set; }
+        private int? _hiddenLostPatchItem;
         internal bool LoseNextCreateResponse { get; set; }
         internal bool HideCorrelatedSeedFromQueries { get; set; }
         internal int CreateCount { get; private set; }
@@ -1161,6 +1163,8 @@ public sealed class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
             if (!int.TryParse(suffix, NumberStyles.Integer, CultureInfo.InvariantCulture, out var workId)
                 || !_items.TryGetValue(workId, out var item) || item.Principal != principal)
                 return Reply(HttpStatusCode.NotFound, new { message = "Not readable under the selected principal" });
+            if (request.Method == HttpMethod.Get && _hiddenLostPatchItem == workId)
+                return Reply(HttpStatusCode.NotFound, new { message = "Accepted write's original readback remains unavailable" });
             var revisionSegment = path.IndexOf("/revisions/", StringComparison.Ordinal);
             if (request.Method == HttpMethod.Get && revisionSegment >= 0)
             {
@@ -1188,6 +1192,7 @@ public sealed class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
                 if (LoseNextPatchResponse)
                 {
                     LoseNextPatchResponse = false;
+                    if (HideLostPatchReadback) _hiddenLostPatchItem = workId;
                     throw new HttpRequestException("Fixture response lost after server applied CAS patch");
                 }
             }

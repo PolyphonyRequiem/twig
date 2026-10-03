@@ -144,12 +144,13 @@ internal static class ConnectionOperationAdmission
 }
 internal static class ConnectionOperationGate
 {
-    private static readonly AsyncLocal<string?> ExclusiveRoot = new();
+    private static readonly AsyncLocal<Lease?> ExclusiveScope = new();
 
     internal static IDisposable Acquire(string worktreeRoot, bool exclusive = false)
     {
         var root = Path.GetFullPath(worktreeRoot);
-        if (SqlitePathComparer.Equals(root, ExclusiveRoot.Value)) return EmptyLease.Instance;
+        for (var owned = ExclusiveScope.Value; owned is not null; owned = owned.Prior)
+            if (owned.IsActive && SqlitePathComparer.Equals(root, owned.Root)) return EmptyLease.Instance;
         var directory = Path.Combine(root, ".twig");
         Directory.CreateDirectory(directory);
         FileStream stream;
@@ -162,25 +163,29 @@ internal static class ConnectionOperationGate
         {
             throw new InvalidOperationException("binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
         }
-        var prior = ExclusiveRoot.Value;
-        if (exclusive) ExclusiveRoot.Value = root;
-        return new Lease(stream, exclusive, prior);
+        var lease = new Lease(stream, exclusive ? root : null, ExclusiveScope.Value);
+        if (exclusive) ExclusiveScope.Value = lease;
+        return lease;
+    }
+    private sealed class Lease(FileStream stream, string? root, Lease? prior) : IDisposable
+    {
+        private int _disposed;
+        internal string? Root { get; } = root;
+        internal Lease? Prior { get; } = prior;
+        internal bool IsActive => Volatile.Read(ref _disposed) == 0;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            stream.Dispose();
+            if (Root is not null && ReferenceEquals(ExclusiveScope.Value, this))
+                ExclusiveScope.Value = Prior;
+        }
     }
 
     private static StringComparer SqlitePathComparer => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-    private sealed class Lease(FileStream stream, bool exclusive, string? prior) : IDisposable
-    {
-        private bool _disposed;
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-            stream.Dispose();
-            if (exclusive) ExclusiveRoot.Value = prior;
-        }
-    }
 
     private sealed class EmptyLease : IDisposable
     {

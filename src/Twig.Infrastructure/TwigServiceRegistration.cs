@@ -93,6 +93,11 @@ public static class TwigServiceRegistration
             var bindings = sp.GetRequiredService<IConnectionBindingService>();
             return new ConnectionBindingTransitionService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
         });
+        services.AddSingleton<IConnectionDefaultTransitionService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionDefaultTransitionService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
         services.AddSingleton<IConnectionRemoteWriteReconciliationService>(sp =>
         {
             var bindings = sp.GetRequiredService<IConnectionBindingService>();

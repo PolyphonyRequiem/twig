@@ -480,6 +480,11 @@ internal static class CommandExamples
             "twig connection unpin --output json   Preview returning this checkout to the endpoint's default binding",
             "twig connection unpin --confirm <digest>   Apply or recover the exact pin removal without publishing or discarding work",
         ],
+        ["connection default"] =
+        [
+            "twig connection default --binding <id> --output json   Preview every affected unpinned attachment and all-member safety blockers",
+            "twig connection default --binding <id> --confirm <digest>   Apply or recover the exact native family; pinned attachments remain unchanged",
+        ],
         ["connection writes"] =
         [
             "twig connection writes   Inspect native uncertain writes and preserved acknowledgments for this checkout",

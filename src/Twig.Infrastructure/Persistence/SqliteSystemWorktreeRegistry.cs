@@ -12,8 +12,8 @@ namespace Twig.Infrastructure.Persistence;
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
 /// Unknown <c>layout_meta.version</c> values fail closed with
-/// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7→v8
-/// identity/native-migration/transition/remote-write upgrades are supported; earlier tuple-storage layouts remain
+/// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7/v8→v9
+/// identity/native-migration/transition/remote-write/default-family upgrades are supported; earlier tuple-storage layouts remain
 /// a hard boundary. Existing worktree, claim and credential authority is retained.
 /// </para>
 /// <para>
@@ -40,7 +40,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegi
     // v5→v6 adds native recoverable connection migration intents, without rewriting existing rows.
     // v6→v7 adds recoverable binding pin/removal authority, retaining all prior ledgers.
     // v7→v8 adds native remote-write admission/observations/receipts; process death cannot erase uncertainty.
-    private const int SchemaVersion = 8;
+    // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
+    private const int SchemaVersion = 9;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -101,6 +102,15 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     public Task<Result> UpsertWorktreeAsync(string worktreeFingerprint, string connectionRef, string worktreeRoot, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            using (var fence = connection.CreateCommand())
+            {
+                fence.Transaction = tx;
+                fence.CommandText = "SELECT 1 FROM connection_default_transitions WHERE state<>'completed' AND (connection_ref=$ref OR connection_ref=(SELECT connection_ref FROM worktrees WHERE worktree_fingerprint=$fp)) LIMIT 1;";
+                fence.Parameters.AddWithValue("$ref", connectionRef);
+                fence.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                if (await fence.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+                    return Result.Fail("binding-default-family-incomplete: registration is frozen until the exact native default intent completes.");
+            }
             var now = _clock.GetUtcNow().ToString("o");
             using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
@@ -125,6 +135,14 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         string primaryScopeKind, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            using (var fence = connection.CreateCommand())
+            {
+                fence.Transaction = tx;
+                fence.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
+                fence.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                if (await fence.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+                    return Result.Fail("binding-default-family-incomplete: no claim can acquire an affected checkout before its whole native family completes.");
+            }
             using (var check = connection.CreateCommand())
             {
                 check.Transaction = tx;
@@ -833,12 +851,12 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     }
 
     /// <summary>
-    /// Forward-only additive native authority upgrades from v3 through v7 to v8. Existing
+    /// Forward-only additive native authority upgrades from v3 through v8 to v9. Existing
     /// connection/worktree/claim rows and credentials are never rewritten.
     /// </summary>
     private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
     {
-        if (fromVersion is 3 or 4 or 5 or 6 or 7 && toVersion == 8)
+        if (fromVersion is 3 or 4 or 5 or 6 or 7 or 8 && toVersion == 9)
         {
             using var tx = connection.BeginTransaction(deferred: false);
             try
@@ -847,7 +865,7 @@ ON CONFLICT(connection_ref) DO UPDATE SET
                 {
                     cmd.Transaction = tx;
                     cmd.CommandText = (fromVersion >= 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql)
-                        + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql;
+                        + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
                     cmd.ExecuteNonQuery();
                 }
                 using (var cmd = connection.CreateCommand())
@@ -1004,7 +1022,7 @@ CREATE TABLE IF NOT EXISTS profile_cache (
         using (var cmd = connection.CreateCommand())
         {
             cmd.Transaction = tx;
-            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

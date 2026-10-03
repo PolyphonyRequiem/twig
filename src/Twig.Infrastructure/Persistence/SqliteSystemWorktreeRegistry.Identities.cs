@@ -237,7 +237,7 @@ SELECT connection_ref, binding_id, revision, updated_at
     /// <paramref name="row"/>.<see cref="DefaultBindingRow.BindingId"/>
     /// surfaces <c>default-binding-exists</c> so the service refuses the
     /// transition; an identical row is a no-op; absence creates the row.
-    /// The guarded switch verb lives in a later ticket.</summary>
+    /// Existing defaults change only through the recoverable all-worktree default authority.</summary>
     public Task<Result> UpsertDefaultBindingAsync(DefaultBindingRow row, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {

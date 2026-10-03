@@ -51,6 +51,9 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             cmd.Parameters.AddWithValue("$identity", intent.Origin.Binding.IdentityId);
             cmd.Parameters.AddWithValue("$revision", intent.Origin.Binding.Revision);
             cmd.Parameters.AddWithValue("$digest", intent.RequestDigest);
+            cmd.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
+            if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+                return Result.Fail("remote-write-default-unfinished: the original default family fences every affected member until all complete.");
             cmd.CommandText = "SELECT 1 FROM worktrees WHERE worktree_fingerprint=$fp AND connection_ref=$ref AND retired_at IS NULL;";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
                 return Result.Fail("remote-write-origin-unavailable: original attached checkout is not registered or is retired.");

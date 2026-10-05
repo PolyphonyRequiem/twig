@@ -27,6 +27,7 @@ HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
 }
 MAX_CLI_CASES = 200
+MAX_HOST_CASES = 10
 MAX_FILTER_LENGTH = 6000  # Leave room in Windows' command-line limit for SDK/artifact paths.
 SESSION_TIMEOUT = 300000
 BAD_OUTPUT = re.compile(
@@ -121,19 +122,20 @@ def partition_cli(cases, host_methods, base_filter):
         for class_name, class_methods in sorted(groups.items()):
             if (class_name in HOST_CLASSES) != host:
                 continue
+            limit = MAX_HOST_CASES if host else MAX_CLI_CASES
             class_rows = Counter()
             for rows in class_methods.values():
                 class_rows.update(rows)
             # Whole-class selectors keep normal partitions compact. Only oversized classes
             # need exact method selectors, and theories remain indivisible discovery units.
-            if sum(class_rows.values()) <= MAX_CLI_CASES:
+            if sum(class_rows.values()) <= limit:
                 units = [(f"FullyQualifiedName~{class_name}.", class_rows)]
             else:
                 units = [(f"FullyQualifiedName={method}", rows) for method, rows in sorted(class_methods.items())]
             for selector, rows in units:
-                require(sum(rows.values()) <= MAX_CLI_CASES, f"one theory exceeds partition bound: {selector}")
+                require(sum(rows.values()) <= limit, f"one theory exceeds partition bound: {selector}")
                 filter_length = sum(len(item) + 1 for item in selectors) + len(selector) + len(base_filter) + 50
-                if batch and (sum(batch.values()) + sum(rows.values()) > MAX_CLI_CASES or filter_length > MAX_FILTER_LENGTH):
+                if batch and (sum(batch.values()) + sum(rows.values()) > limit or filter_length > MAX_FILTER_LENGTH):
                     flush()
                 batch.update(rows)
                 selectors.append(selector)
@@ -323,12 +325,14 @@ class RunnerSelfTests(unittest.TestCase):
     def test_partition_coverage_is_complete_disjoint_and_bounded(self):
         cases = Counter({f"Twig.Cli.Tests.Commands.Ordinary{index // 15}.Case{index}": 1 for index in range(421)})
         cases.update({f"Twig.Cli.Tests.Commands.Oversized.Case{index}": 1 for index in range(250)})
-        cases.update({f"{name}.Migrate(row: {row})": 1 for name in HOST_CLASSES for row in range(3)})
-        host_methods = {f"{name}.Migrate" for name in HOST_CLASSES}
+        cases.update({f"{name}.Migrate{method}(row: {row})": 1 for name in HOST_CLASSES for method in range(4) for row in range(3)})
+        host_methods = {f"{name}.Migrate{method}" for name in HOST_CLASSES for method in range(4)}
         partitions = partition_cli(cases, host_methods, "Category!=Interactive&Category!=Integration")
         reconcile_coverage(cases, [part.cases for part in partitions])
         self.assertTrue(all(0 < sum(part.cases.values()) <= MAX_CLI_CASES for part in partitions))
-        self.assertEqual([part for part in partitions if part.host_inventory], partitions[-2:])
+        inventory = [part for part in partitions if part.host_inventory]
+        self.assertEqual(inventory, partitions[-len(inventory):])
+        self.assertTrue(all(0 < sum(part.cases.values()) <= MAX_HOST_CASES for part in inventory))
         self.assertEqual(partitions, partition_cli(Counter(dict(reversed(list(cases.items())))), host_methods,
                                                  "Category!=Interactive&Category!=Integration"))
         with self.assertRaises(RunFailure):

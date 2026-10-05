@@ -125,7 +125,7 @@ internal sealed class LoopbackPkceFlow
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.Timeout,
-                    "Timed out waiting for the browser to complete the sign-in. Re-run 'twig login' to try again.");
+                    "Timed out waiting for the browser to complete the sign-in. Re-run 'twig auth login --identity <alias>' to try again.");
             }
             catch (OperationCanceledException)
             {

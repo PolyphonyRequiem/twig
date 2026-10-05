@@ -177,8 +177,10 @@ def reconcile_result(output, exit_code, trx, expected):
     outcomes = Counter(result.get("outcome") for result in results)
     require(set(outcomes) <= {"Passed", "NotExecuted"}, f"unsuccessful TRX outcomes: {dict(outcomes)}")
     require(outcomes["Passed"] == passed and outcomes["NotExecuted"] == skipped, "summary and TRX outcomes disagree")
-    require(int(counters.get("passed", "-1")) == passed and int(counters.get("notExecuted", "-1")) == skipped,
-            "TRX counters and results disagree")
+    require(int(counters.get("passed", "-1")) == passed, "TRX passed counter and results disagree")
+    # VSTest's xUnit adapter leaves notExecuted=0 for explicitly skipped rows.
+    # Exact row coverage and the native skipped summary above remain authoritative.
+    require(int(counters.get("notExecuted", "0")) in {0, skipped}, "TRX skipped counter and results disagree")
     for result in results:
         if result.get("outcome") == "NotExecuted":
             print(f"TWIG-SKIPPED {result.get('testName')}")
@@ -375,6 +377,9 @@ class RunnerSelfTests(unittest.TestCase):
             counters = ET.SubElement(summary, "Counters", total="2", passed="1", notExecuted="1")
             ET.ElementTree(root).write(path, encoding="utf-8")
             output = "Passed! - Failed: 0, Passed: 1, Skipped: 1, Total: 2"
+            self.assertEqual(reconcile_result(output, 0, path, expected), (expected, 1, 1))
+            counters.set("notExecuted", "0")
+            ET.ElementTree(root).write(path, encoding="utf-8")
             self.assertEqual(reconcile_result(output, 0, path, expected), (expected, 1, 1))
             with self.assertRaises(RunFailure):
                 reconcile_result("Passed! - Failed: 0, Passed: 1, Skipped: 0, Total: 1", 0, path, expected)

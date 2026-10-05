@@ -117,7 +117,10 @@ internal static class LegacyHostQuiescence
                     {
                         foreach (var fd in Directory.EnumerateFiles(Path.Combine(process, "fd")))
                         {
-                            var target = File.ResolveLinkTarget(fd, false)?.FullName;
+                            string? target;
+                            try { target = File.ResolveLinkTarget(fd, false)?.FullName; }
+                            catch (FileNotFoundException) { continue; } // The descriptor closed after enumeration.
+                            catch (DirectoryNotFoundException) { continue; } // Its process exited during inspection.
                             if (target is not null && affected.Contains(target))
                                 throw new InvalidOperationException($"legacy-store-open: {target}; explicitly close the owning host/store before activation.");
                         }

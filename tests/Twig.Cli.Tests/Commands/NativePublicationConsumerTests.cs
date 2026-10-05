@@ -119,6 +119,9 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     {
         var runtime = await AttachAsync();
         var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
+        await repository.SaveAsync(original);
         var file = await ProposalAsync(runtime, "acknowledged", "attempt", 42, 1, "Committed actor plan");
         var digest = (await lifecycle.PreviewAsync(file)).Digest!;
         _transport.FailReadbackAfterCommit = true;
@@ -133,6 +136,127 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         row.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Readback);
         _transport.TitleOf(42).ShouldBe("Committed actor plan");
         _transport.CommittedWrites.ShouldBe(1);
+        var cached = (await repository.GetByIdAsync(42))!;
+        cached.Title.ShouldBe(original.Title);
+        cached.Revision.ShouldBe(original.Revision);
+        (await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback, Authorize(digest)))
+            .Settled.ShouldBeTrue();
+        (await repository.GetByIdAsync(42))!.Title.ShouldBe(original.Title);
+        _transport.CommittedWrites.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task RejectedReadbackReceiptWithUnattributableRevisionPreservesCleanCachedValues()
+    {
+        var runtime = await AttachAsync();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
+        await repository.SaveAsync(original);
+        original.IsDirty.ShouldBeFalse();
+        original.Revision.ShouldBe(1);
+        original.Title.ShouldBe("Original actor plan");
+
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
+        var file = await ProposalAsync(runtime, "unattributable", "attempt", 42, 1, "Committed actor plan");
+        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
+        _transport.FailReadbackAfterCommit = true;
+        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+            .ShouldBe(PlanOperationState.Indeterminate);
+        var attempted = (await journal.GetAsync(digest))!.Operations.Single();
+        using (var acknowledged = JsonDocument.Parse(attempted.ResultJson!))
+            acknowledged.RootElement.GetProperty("rev").GetInt32().ShouldBe(2);
+
+        // A later edit retained the expected title but is not this attempt's acknowledged revision.
+        _transport.FailReadbackAfterCommit = false;
+        _transport.SetItem(42, "Committed actor plan", 3, Actor);
+        var result = await lifecycle.ReconcileAsync(file, digest, "attempt", PlanOutcomeKind.Readback, Authorize(digest));
+
+        result.Settled.ShouldBeFalse();
+        (await journal.GetAsync(digest))!.Operations.Single().OutcomeReceipt.ShouldBeNull();
+        (await journal.GetUnresolvedAsync()).Select(j => j.Digest).ShouldContain(digest);
+        var cached = (await repository.GetByIdAsync(42))!;
+        cached.Title.ShouldBe(original.Title);
+        cached.Revision.ShouldBe(original.Revision);
+        cached.IsDirty.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerifiedPublicationPreservesLocalWorkCreatedDuringReadback(bool dirtyMirror)
+    {
+        var runtime = await AttachAsync();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        var pending = runtime.GetRequiredService<IPendingChangeStore>();
+        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
+        await repository.SaveAsync(original);
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var file = await ProposalAsync(runtime, "concurrent-local-work", "attempt", 42, 1, "Committed actor plan");
+        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
+        _transport.BeforeReadback = async () =>
+        {
+            if (dirtyMirror)
+            {
+                var editing = (await repository.GetByIdAsync(42))!;
+                editing.UpdateField("System.Description", "Unpublished actor draft");
+                await repository.SaveAsync(editing);
+            }
+            else
+                await pending.AddChangeAsync(42, "note", null, null, "Unpublished actor note");
+        };
+
+        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+            .ShouldBe(PlanOperationState.Verified);
+
+        _transport.TitleOf(42).ShouldBe("Committed actor plan");
+        var cached = (await repository.GetByIdAsync(42))!;
+        cached.Title.ShouldBe(original.Title);
+        cached.Revision.ShouldBe(original.Revision);
+        cached.IsDirty.ShouldBe(dirtyMirror);
+        if (dirtyMirror)
+            cached.Fields["System.Description"].ShouldBe("Unpublished actor draft");
+        else
+            (await pending.GetChangesAsync(42)).ShouldHaveSingleItem().NewValue.ShouldBe("Unpublished actor note");
+    }
+
+    [Fact]
+    public async Task ConcurrentDraftAfterProtectionSnapshotSurvivesVerifiedCacheRefresh()
+    {
+        IWorkItemRepository? competingRepository = null;
+        WorkItem? draft = null;
+        var attempted = false;
+        var blocked = false;
+        var runtime = await AttachAsync(async () =>
+        {
+            if (_transport.CommittedWrites == 0 || attempted) return;
+            attempted = true;
+            try { await competingRepository!.SaveAsync(draft!); }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 5)
+            {
+                // A writer may finish immediately after the readback transaction commits.
+                blocked = true;
+            }
+        });
+        var original = await runtime.GetRequiredService<IAdoWorkItemService>().FetchAsync(42);
+        await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(original);
+        var competing = BuildRuntime(runtime.GetRequiredService<TwigConfiguration>(), runtime.GetRequiredService<TwigPaths>());
+        competing.GetRequiredService<SqliteCacheStore>().GetConnection().DefaultTimeout = 1;
+        competingRepository = competing.GetRequiredService<IWorkItemRepository>();
+        draft = (await competingRepository.GetByIdAsync(42))!;
+        draft.UpdateField("System.Description", "Concurrent unpublished draft");
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>();
+        var file = await ProposalAsync(runtime, "snapshot-race", "attempt", 42, 1, "Committed actor plan");
+        var digest = (await lifecycle.PreviewAsync(file)).Digest!;
+
+        (await lifecycle.ApplyAsync(file, digest, Authorize(digest))).Operations.Single().State
+            .ShouldBe(PlanOperationState.Verified);
+        if (blocked) await competingRepository.SaveAsync(draft);
+
+        var cached = (await competingRepository.GetByIdAsync(42))!;
+        cached.Fields.GetValueOrDefault("System.Description").ShouldBe("Concurrent unpublished draft");
+        cached.IsDirty.ShouldBeTrue();
+        _transport.TitleOf(42).ShouldBe("Committed actor plan");
     }
 
     [Fact]
@@ -170,6 +294,9 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         var replacement = await ProposalAsync(runtime, "replacement", "replacement", 42, 1, "Replacement actor plan");
         var replacementDigest = (await lifecycle.PreviewAsync(replacement)).Digest!;
         (await lifecycle.ApplyAsync(replacement, replacementDigest, Authorize(replacementDigest))).Operations.Single().State.ShouldBe(PlanOperationState.Verified);
+        var cachedReplacement = (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!;
+        cachedReplacement.Title.ShouldBe("Replacement actor plan");
+        cachedReplacement.Revision.ShouldBe(2);
         var writes = _transport.CommittedWrites;
         var settled = await lifecycle.ReconcileAsync(original, digest, "original", PlanOutcomeKind.Superseded, Authorize(digest), replacementDigest, "replacement");
         settled.Settled.ShouldBeTrue(settled.Error);
@@ -233,7 +360,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         _transport.CommittedWrites.ShouldBe(0);
     }
 
-    private async Task<ServiceProvider> AttachAsync()
+    private async Task<ServiceProvider> AttachAsync(Func<Task>? afterPendingRead = null)
     {
         var root = Path.Combine(_temp, "checkout");
         Directory.CreateDirectory(root);
@@ -258,10 +385,10 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         _transport.SetItem(42, "Original actor plan", 1, Actor);
         _transport.SetItem(43, "Another actor plan", 1, Actor);
         _transport.SetItem(44, "Sibling private plan", 1, Sibling);
-        return BuildRuntime(config, paths);
+        return BuildRuntime(config, paths, afterPendingRead);
     }
 
-    private ServiceProvider BuildRuntime(TwigConfiguration config, TwigPaths paths)
+    private ServiceProvider BuildRuntime(TwigConfiguration config, TwigPaths paths, Func<Task>? afterPendingRead = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConnectionBindingService>(_bindings);
@@ -270,9 +397,22 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         services.AddSingleton(_http);
         services.AddTwigNetworkServices(config);
         services.AddTwigRenderingServices();
+        if (afterPendingRead is not null)
+            services.AddSingleton<IPendingChangeReader>(sp => new InterleavedPendingReader(
+                (IPendingChangeReader)sp.GetRequiredService<IPendingChangeStore>(), afterPendingRead));
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         return runtime;
+    }
+
+    private sealed class InterleavedPendingReader(IPendingChangeReader inner, Func<Task> afterRead) : IPendingChangeReader
+    {
+        public async Task<IReadOnlyList<PendingChangeDetail>> GetAllChangesAsync(CancellationToken ct = default)
+        {
+            var snapshot = await inner.GetAllChangesAsync(ct);
+            await afterRead();
+            return snapshot;
+        }
     }
 
     private static async Task<string> ProposalAsync(ServiceProvider runtime, string name, string opId, int itemId, int revision, string title)
@@ -319,6 +459,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
         public int CommittedWrites { get; private set; }
         public bool RejectNextPatch { get; set; }
         public bool FailReadbackAfterCommit { get; set; }
+        public Func<Task>? BeforeReadback { get; set; }
         public string TitleOf(int id) => _items[id].Title;
         public int RevisionOf(int id) => _items[id].Revision;
         public void SetItem(int id, string title, int revision, string principal)
@@ -376,6 +517,11 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
                 var revision = int.Parse(segments[2], CultureInfo.InvariantCulture);
                 if (!_history.TryGetValue((id, revision), out item))
                     return Reply(HttpStatusCode.NotFound, new { message = "No historical revision" });
+            }
+            if (request.Method == HttpMethod.Get && CommittedWrites > 0 && BeforeReadback is { } beforeReadback)
+            {
+                BeforeReadback = null;
+                await beforeReadback();
             }
             return Reply(HttpStatusCode.OK, new
             {

@@ -289,11 +289,11 @@ The aggregate `SHA256SUMS` file on each release lists every asset's hash; `sha25
 
 ## Prerequisites
 
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (for authentication)
+- An Azure DevOps account with access to the target organization and project, explicitly enrolled with [`twig auth login` or `twig auth pat`](docs/commands/system/auth-login.md) and selected through a connection binding. Azure CLI is not required for normal CLI authentication.
 
 ## Build from Source
 
-Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+Requires the SDK pinned in [`global.json`](global.json) (currently a .NET 11 preview).
 
 ```bash
 dotnet build

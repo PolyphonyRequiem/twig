@@ -58,8 +58,7 @@ refuses; safe identity switching is a separate guarded management transition.
 
 `twig connection check` inspects the attached worktree's local prerequisites for
 an identity change without changing its binding, publishing or discarding work,
-releasing claims, or making work-item requests. The MCP equivalent is
-`twig_connection_check`.
+releasing claims, or making work-item requests.
 
 JSON output includes the effective selection and attachment revisions plus exact
 pending edits, local seeds, open publish intents, unresolved journal operations,

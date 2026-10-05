@@ -1161,3 +1161,4 @@ override Twig.Domain.ValueObjects.SeedPublishCorrelation.GetHashCode() -> int
 override Twig.Domain.ValueObjects.SeedPublishCorrelation.ToString() -> string!
 static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator !=(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool
 static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator ==(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool
+static Twig.Domain.Services.Sync.SyncGuard.GetProtectedItemIdsFromJournalAsync(Twig.Domain.Interfaces.IWorkItemRepository! repo, Twig.Domain.Interfaces.IPendingChangeReader! pendingReader, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlySet<int>!>!

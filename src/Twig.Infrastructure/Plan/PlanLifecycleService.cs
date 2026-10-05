@@ -101,11 +101,12 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TwigPaths paths,
         TimeProvider clock,
         ISessionSteeringModeProvider steering,
-        IPlanOriginProvider origin)
+        IPlanOriginProvider origin,
+        IUnitOfWork unitOfWork)
         : this(
             parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
-            config, paths, clock, steering, origin, ruleProvider: null)
+            config, paths, clock, steering, origin, ruleProvider: null, unitOfWork)
     {
     }
 
@@ -133,7 +134,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         TimeProvider clock,
         ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
-        IProcessRuleProvider? ruleProvider)
+        IProcessRuleProvider? ruleProvider,
+        IUnitOfWork unitOfWork)
     {
         _parser = parser;
         _journal = journal;
@@ -151,7 +153,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _clock = clock;
         _executor = new PlanOperationExecutor(
             adoService, revisionBound, fieldDefinitionStore, seedPublish,
-            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent);
+            workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);
         _steering = steering;

@@ -368,10 +368,7 @@ internal static class ExceptionHandler
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoAuthenticationException authEx)
         {
             stderr.WriteLine($"error: {authEx.Message}");
-            if (authEx.Message.Contains("PAT", StringComparison.OrdinalIgnoreCase))
-                stderr.WriteLine("Update PAT in .twig/config or $TWIG_PAT.");
-            else
-                stderr.WriteLine("Run 'az login' to refresh.");
+            stderr.WriteLine("Inspect 'twig auth status'; renew the selected identity with 'twig auth login' (AAD) or 'twig auth pat' (PAT).");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -1327,7 +1324,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, refresh: refresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
 
     /// <summary>Read or set a configuration value.</summary>
-    /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
+    /// <param name="key">Configuration key to read or set (e.g., organization, display.icons). Enroll credentials with auth login or auth pat instead.</param>
     /// <param name="value">Value to set; omit to read the current value.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="global">Read or set the home-wide display.icons preference.</param>

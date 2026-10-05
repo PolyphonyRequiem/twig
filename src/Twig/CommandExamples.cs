@@ -398,8 +398,8 @@ internal static class CommandExamples
         ],
         ["config"] =
         [
-            "twig config pat            Show the configured PAT setting",
-            "twig config pat <token>    Set the PAT to a new value",
+            "twig config organization                 Show the configured organization",
+            "twig config display.icons unicode -o json    Set the workspace icon preference",
         ],
         ["migrate-config"] =
         [

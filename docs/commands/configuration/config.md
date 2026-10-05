@@ -15,6 +15,12 @@ inherit home-wide preferences where available and otherwise use built-in
 defaults. The `--global` option is limited to `display.icons` and stores its
 home-wide value in `~/.twig/display.json`, never credentials or tracker state.
 
+Normal CLI authentication uses an explicit connection binding, not a configuration
+PAT or auth-method selector. Enroll or renew credentials with [`auth login` or
+`auth pat`](../system/auth-login.md); inspect the effective selection with
+[`auth status`](../system/auth-status.md). Legacy auth configuration is migration
+input, not an override for an attached binding.
+
 ## Synopsis
 
 ```

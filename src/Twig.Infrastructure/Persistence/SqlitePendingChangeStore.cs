@@ -192,6 +192,7 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore, IPendingChan
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         // A single scan of pending_changes, left-joined against the durable seed tables so a
         // caller sees the identity behind every row in one round-trip. The joins are gated on
         // the sign of work_item_id: negative alias -> staged_identities, positive ADO id ->

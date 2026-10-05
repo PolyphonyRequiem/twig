@@ -192,6 +192,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "SELECT * FROM work_items WHERE is_dirty = 1;";
 
         var items = ReadAll(cmd);

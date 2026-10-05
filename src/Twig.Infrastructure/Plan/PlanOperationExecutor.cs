@@ -7,6 +7,7 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Ado.Exceptions;
 
 namespace Twig.Infrastructure.Plan;
@@ -33,6 +34,9 @@ internal sealed class PlanOperationExecutor
     private readonly IRevisionBoundAdoWorkItemService _revisionBound;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
+    private readonly IWorkItemRepository? _workItemRepo;
+    private readonly IPendingChangeReader? _pendingReader;
+    private readonly IUnitOfWork? _unitOfWork;
 
     /// <summary>
     /// Production constructor: builds the seed publisher inline over the shared
@@ -47,7 +51,9 @@ internal sealed class PlanOperationExecutor
         ISeedLinkRepository seedLinkRepo,
         IStagedIdentityRegistry stagedRegistry,
         IPublishIdMapRepository publishIdMap,
-        IPublishIntentRepository publishIntent)
+        IPublishIntentRepository publishIntent,
+        IPendingChangeReader pendingReader,
+        IUnitOfWork unitOfWork)
         : this(
             adoService,
             revisionBound,
@@ -61,6 +67,9 @@ internal sealed class PlanOperationExecutor
                 publishIntent,
                 (seedId, ct) => seedPublish.PublishAsync(seedId, force: false, dryRun: false, ct)))
     {
+        _workItemRepo = workItemRepo;
+        _pendingReader = pendingReader;
+        _unitOfWork = unitOfWork;
     }
 
     /// <summary>
@@ -221,16 +230,23 @@ internal sealed class PlanOperationExecutor
     /// reflects the intended state, Failed on a determinate contradiction, Indeterminate
     /// otherwise.
     /// </summary>
-    public async Task<PlanReadbackOutcome> ReadbackAsync(
+    public Task<PlanReadbackOutcome> ReadbackAsync(
         PlanOperationDefinition operation,
         PlanExecutionResult applyResult,
+        CancellationToken ct)
+        => ReadbackCoreAsync(operation, applyResult, refreshCache: true, ct);
+
+    private async Task<PlanReadbackOutcome> ReadbackCoreAsync(
+        PlanOperationDefinition operation,
+        PlanExecutionResult applyResult,
+        bool refreshCache,
         CancellationToken ct)
     {
         try
         {
             return operation switch
             {
-                BatchOperation batch => await ReadbackBatchAsync(batch, applyResult.NewRevision, ct).ConfigureAwait(false),
+                BatchOperation batch => await ReadbackBatchAsync(batch, applyResult.NewRevision, refreshCache, ct).ConfigureAwait(false),
                 AddLinkOperation add => await ReadbackAddLinkAsync(add, ct).ConfigureAwait(false),
                 RemoveLinkOperation remove => await ReadbackRemoveLinkAsync(remove, ct).ConfigureAwait(false),
                 DeleteOperation delete => await ReadbackDeleteAsync(delete, ct).ConfigureAwait(false),
@@ -268,12 +284,12 @@ internal sealed class PlanOperationExecutor
             if (acknowledged.RootElement.TryGetProperty("rev", out var value) && value.TryGetInt32(out var parsed))
                 revision = parsed;
         }
-        return ReadbackAsync(operation,
-            new PlanExecutionResult(PlanExecutionOutcome.Applied, acknowledgedJson, null, null, revision), ct);
+        return ReadbackCoreAsync(operation,
+            new PlanExecutionResult(PlanExecutionOutcome.Applied, acknowledgedJson, null, null, revision), refreshCache: false, ct);
     }
 
     private async Task<PlanReadbackOutcome> ReadbackBatchAsync(
-        BatchOperation batch, int? acknowledgedRevision, CancellationToken ct)
+        BatchOperation batch, int? acknowledgedRevision, bool refreshCache, CancellationToken ct)
     {
         var item = await _adoService.FetchAsync(batch.WorkItemId, ct).ConfigureAwait(false);
         var advanced = item.Revision > batch.ExpectedRevision;
@@ -331,14 +347,30 @@ internal sealed class PlanOperationExecutor
                 + (mismatches.Count > 8 ? "; additional fields are in diagnostics." : "."),
                 resultJson);
         if (normalizations.Count == 0)
+        {
+            if (refreshCache)
+                await SaveVerifiedReadbackAsync(item, ct).ConfigureAwait(false);
             return PlanReadbackOutcome.VerifiedWith(resultJson);
+        }
         if (!ServerGeneratedFieldPolicy.OnlyExplainedDifferencesRemain(batch, normalizations))
             return PlanReadbackOutcome.Indeterminate(
                 "Readback observed differences the normalization policy cannot explain.",
                 SerializeDiagnostics("field-mismatch", batch.ExpectedRevision, item.Revision, fields,
                     acknowledgedRevision: acknowledgedRevision));
+        if (refreshCache)
+            await SaveVerifiedReadbackAsync(item, ct).ConfigureAwait(false);
         return PlanReadbackOutcome.VerifiedWithWarning(
             resultJson, ServerGeneratedFieldPolicy.FormatWarning(normalizations));
+    }
+
+    private async Task SaveVerifiedReadbackAsync(WorkItem item, CancellationToken ct)
+    {
+        if (_workItemRepo is null || _pendingReader is null || _unitOfWork is null) return;
+        await using var transaction = await _unitOfWork.BeginAsync(ct).ConfigureAwait(false);
+        var protectedIds = await SyncGuard.GetProtectedItemIdsFromJournalAsync(_workItemRepo, _pendingReader, ct).ConfigureAwait(false);
+        if (!protectedIds.Contains(item.Id))
+            await _workItemRepo.SaveAsync(item, ct).ConfigureAwait(false);
+        await _unitOfWork.CommitAsync(transaction, ct).ConfigureAwait(false);
     }
 
     private readonly record struct FieldEvidence(

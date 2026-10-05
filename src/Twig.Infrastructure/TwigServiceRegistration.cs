@@ -638,7 +638,8 @@ public static class TwigServiceRegistration
                 // Runtime process-rule gate (AB#673). Optional in the object graph — if the
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.
-                sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>()));
+                sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
+                sp.GetRequiredService<IUnitOfWork>()));
 
         return services;
     }

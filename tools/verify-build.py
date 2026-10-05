@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def worker(binary, directory):
+    directory = directory.resolve()
     workspace, home = directory / 'workspace', directory / 'home'
     (workspace / '.twig').mkdir(parents=True)
     home.mkdir()

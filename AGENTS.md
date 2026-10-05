@@ -6,7 +6,7 @@ For routine implementation and draft PRs, build the supported solution, run a
 focused regression for the changed behavior, then run the offline pre-push smoke:
 
 ```bash
-python tools/run-bounded.py --timeout 120 -- dotnet build -m:1
+python tools/run-bounded.py --timeout 120 -- dotnet build "-m:1"
 python tools/run-bounded.py --timeout 30 -- bash tools/run-tests.sh --pre-push
 ```
 

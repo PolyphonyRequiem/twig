@@ -204,6 +204,37 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stdout.ShouldContain("Initialized Twig workspace");
         File.Exists(contextPaths.DbPath).ShouldBeTrue();
         File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
+
+        // HTTP-boundary proof, not just an auth-wiring assertion: endpoint admission alone
+        // (asserted above) does not prove the INTENDED credential reached the metadata
+        // request — InitAdoServer answers purely from the URL and never checked
+        // Authorization, so this would stay green even with no/garbage credentials sent.
+        // Assert against the actual captured request instead.
+        var projectMetadataRequest = adoServer.Requests.FirstOrDefault(
+            r => r.Path.Contains("/_apis/projects/", StringComparison.OrdinalIgnoreCase));
+        projectMetadataRequest.ShouldNotBeNull(
+            $"init must perform a project-metadata request against the requested endpoint; captured requests: {string.Join(", ", adoServer.Requests.Select(r => r.Path))}");
+        projectMetadataRequest!.Path.ShouldBe($"/_apis/projects/{project}");
+        projectMetadataRequest.Authorization.ShouldBe($"Bearer {token}");
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_MissingDefaultNamesRequestedEndpointBeforeAnyMetadataRequest()
+    {
+        await using var adoServer = InitAdoServer.Start();
+        const string project = "TestProject";
+        await RunGitAsync("init", "--quiet");
+        var contextPaths = TwigPaths.ForContext(
+            Path.Combine(_repoRoot, ".twig"), adoServer.BaseUrl, project, _repoRoot);
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init", "--org", adoServer.BaseUrl, "--project", project);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stderr.ShouldContain($"{adoServer.BaseUrl}/{project}");
+        adoServer.Requests.ShouldBeEmpty("missing selection must refuse before metadata HTTP");
+        File.Exists(contextPaths.RepoConfigPath).ShouldBeFalse();
+        File.Exists(contextPaths.DbPath).ShouldBeFalse();
     }
 
     [Fact]
@@ -431,10 +462,20 @@ public sealed class InitCommandProductionCliTests : IDisposable
         return (process.ExitCode, await stdoutTask, await stderrTask);
     }
 
+    /// <summary>
+    /// One captured inbound request: the path the server was asked for, and the raw
+    /// <c>Authorization</c> header value it carried (or <c>null</c> if none) — this is the
+    /// HTTP-boundary observation point, not an auth-wiring/mock assertion, so it can catch a
+    /// request that reached the server with a missing or wrong outgoing credential.
+    /// </summary>
+    private sealed record CapturedRequest(string Path, string? Authorization);
+
     private sealed class InitAdoServer : IAsyncDisposable
     {
         private readonly HttpListener _listener;
         private readonly Task _serveTask;
+        private readonly List<CapturedRequest> _requests = new();
+        private readonly object _requestsLock = new();
 
         private InitAdoServer(HttpListener listener, string baseUrl)
         {
@@ -444,6 +485,16 @@ public sealed class InitCommandProductionCliTests : IDisposable
         }
 
         internal string BaseUrl { get; }
+
+        /// <summary>
+        /// Snapshot of every request this server has handled so far, in arrival order.
+        /// The serve loop awaits one <c>GetContextAsync</c>/respond cycle at a time, so no
+        /// additional synchronization is needed beyond guarding the list itself.
+        /// </summary>
+        internal IReadOnlyList<CapturedRequest> Requests
+        {
+            get { lock (_requestsLock) { return _requests.ToArray(); } }
+        }
 
         internal static string GetUnusedBaseUrl() => $"http://127.0.0.1:{PickFreePort()}";
 
@@ -480,6 +531,12 @@ public sealed class InitCommandProductionCliTests : IDisposable
             while (_listener.IsListening)
             {
                 var context = await _listener.GetContextAsync();
+                lock (_requestsLock)
+                {
+                    _requests.Add(new CapturedRequest(
+                        context.Request.Url!.AbsolutePath,
+                        context.Request.Headers["Authorization"]));
+                }
                 await WriteResponseAsync(context);
             }
         }

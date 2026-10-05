@@ -21,6 +21,7 @@ def main():
         parser.error('provide a command after --')
 
     # Share the existing cross-platform owned-tree cleanup; do not invent another killer.
+    sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('ci_runner', Path(__file__).with_name('run-ci-tests.py'))
     runner = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = runner

@@ -16,13 +16,16 @@ internal static class CommandExamples
         [
             // Onboarding is four distinct operations, in order: enroll an identity once,
             // bind the endpoint to it, initialize the checkout against that binding, then
-            // verify which identity it resolved to. `init` only performs the third step —
-            // it requires an identity already enrolled and bound (no account fallback).
+            // verify access. `init` only performs the third step — it requires an identity
+            // already enrolled and bound (no account fallback). Verification uses
+            // `process --refresh`, a real read-only ADO metadata request, because
+            // `connection status` only inspects LOCAL saved state and never contacts ADO.
             "twig auth login --identity work                                        1) enroll an identity, once",
             "twig connection bind --org contoso --project Fabrikam --identity work --default   2) bind the endpoint",
             "twig init contoso Fabrikam                                             3) initialize the checkout",
             "twig init --org contoso --project Fabrikam --team \"Team A\"             Initialize with an explicit team",
-            "twig connection status                                                 4) verify the resolved identity",
+            "twig process --refresh                                                 4) verify remote metadata access (refreshes local cache)",
+            "twig connection status                                                 optional: inspect the local binding (no ADO call)",
         ],
         ["set"] =
         [

@@ -119,7 +119,29 @@ jobs:
 
       - run: dotnet build --no-restore
 
-      - run: dotnet test --no-build --settings test.runsettings
+      - name: Full release-candidate validation
+        env:
+          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
+        run: python tools/run-ci-tests.py
+
+      - name: Presenter contract validation
+        if: matrix.rid == 'linux-x64'
+        run: python3 -m unittest discover -s .github/skills/twig-review-presenter/scripts -p 'test_*.py' -v
+
+      - name: Full offline presenter validation
+        if: matrix.rid == 'linux-x64'
+        run: python3 tools/verify-proposal-presenters.py --binary src/Twig/bin/Debug/net11.0/twig.dll --output artifacts/proposal-presenter-smoke
+
+      - name: Preserve full validation evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ matrix.rid }}
+          path: |
+            artifacts/trace-311/
+            artifacts/test-logs/ci/
+            artifacts/proposal-presenter-smoke/
+          if-no-files-found: warn
 
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 

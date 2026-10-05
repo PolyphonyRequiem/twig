@@ -60,38 +60,8 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore
 
-      - name: Host presenter contract tests
-        if: matrix.rid == 'linux-x64'
-        run: python3 -m unittest discover -s .github/skills/twig-review-presenter/scripts -p 'test_*.py' -v
-
-      - name: Offline CLI to host presenter smoke
-        if: matrix.rid == 'linux-x64'
-        run: python3 tools/verify-proposal-presenters.py --binary src/Twig/bin/Debug/net11.0/twig.dll --output artifacts/proposal-presenter-smoke
-
-      # GitHub issue #311 instrumentation.
-      #
-      # #311 was closed on the strength of the ADO #43 BuildFixture fix. That fix is
-      # real and verified, but on 2026-08-14 the stall reproduced HERE, in CI, with
-      # the Cli suite completing normally (3275 tests) and Twig.Tui.Tests stalling at
-      # 9 of 85 — an assembly with no fixtures at all. So the fix addressed one
-      # instance of the class, not the class.
-      #
-      # CI is the only environment with a demonstrated cheap repro rate (1 hit in 2
-      # attempts, against ~1 in 11 under heavy local load and ~1 in 129 idle), so the
-      # trace runs HERE rather than being hunted locally.
-      #
-      # TWIG_TEST_TRACE names a DIRECTORY; each bounded session gets its own
-      # subdirectory and each assembly writes <assembly>.tsv. Sessions are serial,
-      # so host-inventory migration cannot race another test host. The runner
-      # retains the 300000ms watchdog and reconciles every eligible discovered row
-      # with native exit status, abort markers, summary counts and TRX results.
-      #
-      # Cost when the variable is unset is one null check per boundary, so this does
-      # not change what developers pay locally.
-      - name: Test (bounded complete sessions with #311 boundary trace)
-        env:
-          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
-        run: python tools/run-ci-tests.py
+      - name: Fundamental build validation (15-second offline smoke)
+        run: python tools/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --timeout 15
 
       # if:failure() so a captured stall is preserved. The trace is the ONLY artifact
       # that can name the stalling assembly and whether any test was in flight — vstest

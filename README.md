@@ -297,9 +297,16 @@ Requires the SDK pinned in [`global.json`](global.json) (currently a .NET 11 pre
 
 ```bash
 dotnet build
-dotnet test
+python tools/verify-build.py --timeout 15
 dotnet publish src/Twig -r win-x64 -c Release
 ```
+
+The build and validation are separate gates. The offline smoke checks the actual
+CLI's startup/help, source-generated JSON, current store/binding admission,
+proposal preview, and wrong-account refusal with a hard 15-second deadline; it
+never builds or runs test hosts. Use narrowly scoped regression checks for the
+proposed changeset when needed. Routine CI and pre-push use this smoke; complete
+platform validation runs on release candidates before signing or publication.
 
 ## Next Topics
 

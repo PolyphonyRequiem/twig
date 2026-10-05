@@ -36,7 +36,7 @@ if (File.Exists(tempPaths.DbPath))
 {
     try
     {
-        using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore($"Data Source={tempPaths.DbPath}");
+        using var cacheStore = Twig.Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(tempPaths);
         var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
         var records = await processTypeStore.GetAllAsync();
         config.TypeAppearances = records

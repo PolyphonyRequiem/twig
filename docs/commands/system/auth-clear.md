@@ -1,100 +1,52 @@
 ---
 command: auth clear
 group: system
-summary: Wipe the refresh-token store and cached access token, and flush the in-process copy.
+summary: Invalidate selected access/admission proof while preserving credentials and bindings.
 stability: stable
 mutates: local
 ---
 
 # `twig auth clear`
 
-Deletes both `~/.twig/.token-cache` (the short-lived access-token file cache)
-and `~/.twig/.refresh-token` (the bootstrap refresh-token store), and calls
-`IAuthenticationProvider.InvalidateToken()` so the running process cannot
-keep using an in-memory copy. Reach for it after switching identities with
-`az login`, after twig starts returning 403s that `auth status` blames on
-audience or expiry, or when you need to force a fresh bootstrap on the next
-ADO call.
+Clears the current attached binding's access/admission proof, or an explicitly
+named identity's proof before attachment. This is integration-branch behavior,
+not a partial release or global credential deletion.
 
 ## Synopsis
 
+```text
+twig auth clear [--identity <alias>] [-o <format>]
 ```
-twig auth clear [-o <format>]
-```
-
-## Arguments
-
-|Argument|Required|Description|
-|---|---|---|
-| — | — | — |
-
-## Flags
-
-|Flag|Type|Default|Description|
-|---|---|---|---|
-| `-h`, `--help` | flag | — | Show command help and exit. |
-| `--version` | flag | — | Print the twig version and exit. |
-| `-o, --output <format>` | string | `human` | Output format for the outcome records: `human`, `json`, or `minimal`. |
 
 ## Behavior
 
-The command runs three side effects, in order
-(`src/Twig/Commands/AuthClearCommand.cs:27-41`):
+Without `--identity`, the command resolves the current attached binding. With
+`--identity`, it targets that registered identity explicitly and works outside
+attachment. It leaves stored credentials, binding selection, pending work, read
+data, other identities and legacy credentials unchanged.
 
-1. Record whether `~/.twig/.token-cache` currently exists.
-2. Record whether `~/.twig/.refresh-token` currently exists.
-3. Delete both files via `TwigTokenFileCache.TryDelete()` and
-   `TwigRefreshTokenStore.TryDelete()`. Both calls are idempotent — a missing
-   file is not an error.
-4. Call `IAuthenticationProvider.InvalidateToken()` on the current provider.
-   This matters when `twig` is being driven by a long-lived host (for example
-   `twig-mcp`); without it, the host would keep serving requests with the
-   already-loaded token until restart.
+For AAD, clearing removes the selected access cache; the refresh credential remains.
+File-cache deletion uses the existing best-effort store behavior and is not proof
+that a locked file was removed. For PAT, clearing advances only that credential's
+admission-reset stamp; already-open runtimes must re-attest the unchanged PAT before
+their next work request. It does not erase the PAT or select another principal.
 
-For each of the two files the command emits an outcome node in the render
-tree: `tokenCacheCleared` / `tokenCacheAbsent` for the access-token cache,
-and `refreshStoreCleared` / `refreshStoreAbsent` for the refresh-token store
-(`src/Twig/Commands/AuthClearCommand.cs:14-18`). A hint follows: "Next ADO
-call will re-bootstrap from the MSAL cache (run 'az login' first if
-needed)."
+The next work request uses the same registered identity. It does not bootstrap
+from Azure CLI, a machine cache or the last login. Repair with `auth login
+--identity <alias>` for AAD or `auth pat --identity <alias>` for PAT. A wrong
+principal cannot replace the existing credential under the same alias.
 
-`auth clear` never surfaces the token it is deleting. The paths are printed
-so you can confirm the machine is clean; the tokens are not.
-
-## Examples
-
-Clear a fully populated cache and refresh store:
-
-```
-$ twig auth clear
-Cleared cached token at C:\Users\alice\.twig\.token-cache.
-Cleared refresh-token store at C:\Users\alice\.twig\.refresh-token.
-Next ADO call will re-bootstrap from the MSAL cache (run 'az login' first if needed).
-```
-
-Idempotent on a workstation that was never signed in:
-
-```
-$ twig auth clear
-No cached token to clear (no file at C:\Users\alice\.twig\.token-cache).
-No refresh-token store to clear (no file at C:\Users\alice\.twig\.refresh-token).
-Next ADO call will re-bootstrap from the MSAL cache (run 'az login' first if needed).
-```
+Help remains available without attachment. Output reports selected proof/cache
+invalidation without secret contents.
 
 ## Exit codes and failure modes
 
-|Condition|Result|
-|---|---|
-| Either or both files existed and were deleted | `0` |
-| Neither file existed | `0` (idempotent) |
-
-`auth clear` has no failure mode that changes the exit code — deletion is
-best-effort under `TryDelete`. If a file is locked by another process, the
-outcome record still reports the pre-existing state and the file will be
-removed by the next successful attempt.
+Successful invalidation returns `0`, including an absent access-cache file.
+An unnamed clear requires a valid attached selection; a named clear requires a
+registered alias. Resolution or PAT reset-write failures return `1` with formatted
+diagnostics, before any work HTTP. Cancellation is honored before invalidation.
 
 ## See also
 
-* [`auth status`](auth-status.md) — diagnose the token before deciding to clear it.
-* [`auth login`](auth-login.md) — re-bootstrap after a full clear.
-* [System commands group](README.md)
+- [`auth status`](auth-status.md) — inspect the effective attached binding.
+- [`auth login`](auth-login.md) — enroll or renew an explicitly selected identity.

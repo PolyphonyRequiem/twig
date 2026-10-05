@@ -314,6 +314,7 @@ public class PromptStateIntegrationTests : IDisposable
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var iterationService = Substitute.For<IIterationService>();
+                iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         iterationService.GetWorkItemTypeAppearancesAsync(Arg.Any<CancellationToken>())
@@ -329,7 +330,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var refreshSyncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, null, 30, 30);
-        var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+        var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService);
         var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService,
             _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory,
             iterationService,

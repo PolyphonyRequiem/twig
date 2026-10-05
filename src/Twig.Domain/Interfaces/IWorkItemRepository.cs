@@ -9,6 +9,14 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 public interface IWorkItemRepository
 {
+    /// <summary>
+    /// Holds the admitted storage capability across a complete read/fill operation,
+    /// including remote fetches and cache consumption. Dispose before returning to idle.
+    /// Private, in-memory and unmigrated stores without transition capability return null.
+    /// Admission failures propagate before cached or remote values are consumed.
+    /// </summary>
+    IDisposable? AcquireOperation();
+
     Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default);

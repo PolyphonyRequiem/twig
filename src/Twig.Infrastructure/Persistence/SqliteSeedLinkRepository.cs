@@ -19,6 +19,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task AddLinkAsync(SeedLink link, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -36,6 +37,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task RemoveLinkAsync(int sourceId, int targetId, string linkType, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -52,6 +54,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task<IReadOnlyList<SeedLink>> GetLinksForItemAsync(int itemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -65,6 +68,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task<IReadOnlyList<SeedLink>> GetAllSeedLinksAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT source_id, target_id, link_type, created_at FROM seed_links;";
@@ -88,6 +92,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task DeleteLinksForItemAsync(int itemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM seed_links WHERE source_id = @id OR target_id = @id;";
@@ -99,6 +104,7 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
     public Task RemapIdAsync(int oldId, int newId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         using var srcCmd = conn.CreateCommand();

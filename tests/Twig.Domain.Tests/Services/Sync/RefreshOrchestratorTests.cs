@@ -9,6 +9,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
+using Twig.Domain.Tests;
 
 namespace Twig.Domain.Tests.Services.Sync;
 
@@ -36,7 +37,8 @@ public class RefreshOrchestratorTests
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        _iterationService.WithBoundIdentity();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         _trackingService = Substitute.For<ITrackingService>();
 

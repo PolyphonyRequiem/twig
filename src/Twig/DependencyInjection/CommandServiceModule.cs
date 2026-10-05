@@ -4,6 +4,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
@@ -30,14 +31,15 @@ public static class CommandServiceModule
     public static IServiceCollection AddTwigCommandServices(this IServiceCollection services)
     {
         // Hint engine — reads display config at startup, uses process config for dynamic state resolution.
-        // Resolving process configuration creates the SQLite cache. Keep it deferred until
-        // a cache already exists so 'twig init' can recognize and resume partial workspaces.
+        // Init may rebuild an existing mirror. Resolving process configuration here
+        // would retain that mirror's SQLite singleton before init can replace it.
         services.AddSingleton<HintEngine>(sp =>
         {
             var display = sp.GetRequiredService<TwigConfiguration>().Display;
             IProcessConfigurationProvider? provider = null;
             var paths = sp.GetRequiredService<TwigPaths>();
-            if (File.Exists(paths.DbPath))
+            if (sp.GetService<ConnectionBindingOperationIntent>()?.InitializationMetadataOnly != true
+                && File.Exists(paths.DbPath))
             {
                 try
                 {

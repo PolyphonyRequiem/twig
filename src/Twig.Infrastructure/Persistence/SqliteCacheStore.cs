@@ -10,9 +10,9 @@ public sealed class SqliteCacheStore : IDisposable
 {
     /// <summary>
     /// Current schema version compiled into the binary.
-    /// If the DB schema version differs, all tables are dropped and recreated.
+    /// Older incompatible mirrors are rebuilt; version 16 upgrades additively to preserve unfinished work.
     /// </summary>
-    internal const int SchemaVersion = 16;
+    internal const int SchemaVersion = 17;
 
     /// <summary>
     /// Schema version of the durable store (<c>pending.db</c>), versioned independently of
@@ -23,12 +23,15 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 11;
+    internal const int DurableSchemaVersion = 12;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
 
     private readonly SqliteConnection _connection;
+    private readonly MirrorAdmission? _admission;
+    private readonly LegacyHostCapability? _legacyCapability;
+    private readonly AsyncLocal<OperationScope?> _operationScope = new();
     private bool _schemaRebuilt;
 
     static SqliteCacheStore()
@@ -63,9 +66,37 @@ public sealed class SqliteCacheStore : IDisposable
     /// tables as needed. Wraps open in try-catch for corruption detection (FM-008).
     /// </summary>
     /// <param name="connectionString">SQLite connection string (e.g., "Data Source=.twig/twig.db" or "Data Source=:memory:").</param>
-    public SqliteCacheStore(string connectionString)
+    public SqliteCacheStore(string connectionString) : this(connectionString, null, false) { }
+
+    /// <summary>Opens a workspace mirror through its native admitted generation, or the unmigrated legacy layout.</summary>
+    public static SqliteCacheStore OpenWorkspace(Config.TwigPaths paths)
+        => OpenWorkspace(paths, Path.Combine(Auth.ConnectionBindingService.ResolveUserHome(), "system.db"));
+
+    internal static SqliteCacheStore OpenWorkspace(Config.TwigPaths paths, string registryPath)
     {
-        _connection = new SqliteConnection(connectionString);
+        using var operation = Auth.ConnectionOperationGate.Acquire(Path.GetDirectoryName(paths.TwigDir)!);
+        var admission = MirrorAdmission.Acquire(paths, registryPath);
+        return new SqliteCacheStore(new SqliteConnectionStringBuilder { DataSource = paths.DbPath, Pooling = false }.ToString(), admission, false);
+    }
+
+    internal static SqliteCacheStore OpenMigrationMirror(string path)
+        => new(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString(), null, true);
+
+    private SqliteCacheStore(string connectionString, MirrorAdmission? admission, bool migration)
+    {
+        _admission = admission;
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        if (!migration && admission is null && Path.GetFileName(builder.DataSource).StartsWith("admitted-", StringComparison.Ordinal))
+            throw new InvalidOperationException("mirror-capability-required: open the admitted mirror through OpenWorkspace; a connection string cannot adopt its generation.");
+        if (!migration && admission is null && builder.DataSource != ":memory:" && !builder.DataSource.Contains("mode=memory", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Directory.Exists(builder.DataSource))
+                throw new InvalidOperationException("legacy-store-retired: explicitly reconnect through the admitted binding; this SQLite entry point is sealed.");
+            var directory = Path.GetDirectoryName(Path.GetFullPath(builder.DataSource))!;
+            _legacyCapability = new LegacyHostCapability(directory);
+            builder.Pooling = false;
+        }
+        _connection = new SqliteConnection(builder.ToString());
         try
         {
             _connection.Open();
@@ -74,12 +105,22 @@ public sealed class SqliteCacheStore : IDisposable
                 SqlitePlanJournalRepository.CreateDefaultSourcePathComparer());
             EnableWalMode();
             AttachDurableStore();
+            if (ReadDurableSchemaVersion() > DurableSchemaVersion)
+                throw new InvalidOperationException("durable-version-unsupported: open pending.db with its compatible Twig version; no mirror rebuild is permitted.");
             EnsureSchema();
             EnsureDurableSchema();
+            if (_admission is not null)
+            {
+                using var stamp = _connection.CreateCommand();
+                stamp.CommandText = "SELECT value FROM metadata WHERE key='binding_generation';";
+                if (!string.Equals(stamp.ExecuteScalar() as string, _admission.Generation, StringComparison.Ordinal))
+                    throw new InvalidOperationException("mirror-generation-mismatch: native generation does not own the mirror. Resume its original migration before reading data.");
+            }
         }
         catch (SqliteException ex)
         {
             _connection.Dispose();
+            _legacyCapability?.Dispose();
             // I-003: Preserve the original exception chain for debugging.
             // #271: open-time failures include locked, read-only and permission cases that are
             // NOT corruption, so the message is derived from the error code instead of asserting
@@ -91,13 +132,73 @@ public sealed class SqliteCacheStore : IDisposable
                 : $"Failed to open the twig cache: {ex.Message}";
             throw new InvalidOperationException(message, ex);
         }
+        catch
+        {
+            _connection.Dispose();
+            _legacyCapability?.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
     /// Gets the open SQLite connection.
     /// </summary>
-    public SqliteConnection GetConnection() => _connection;
+    public SqliteConnection GetConnection()
+    {
+        if (_operationScope.Value?.Active != true) _admission?.Validate();
+        return _connection;
+    }
 
+
+    internal IDisposable? AcquireOperation()
+    {
+        if (_admission is null) return null;
+        var prior = _operationScope.Value;
+        if (prior is not null && prior.TryRetain())
+            return new OperationLease(this, prior, null, owner: false);
+        var scope = new OperationScope(_admission.AcquireOperation());
+        _operationScope.Value = scope;
+        return new OperationLease(this, scope, prior, owner: true);
+    }
+
+    private sealed class OperationScope(IDisposable physicalLease)
+    {
+        private bool _active = true;
+        private int _references = 1;
+        internal bool Active => Volatile.Read(ref _active);
+
+        internal bool TryRetain()
+        {
+            lock (this)
+            {
+                if (!_active) return false;
+                _references++;
+                return true;
+            }
+        }
+
+        internal void Release(bool owner)
+        {
+            bool dispose;
+            lock (this)
+            {
+                if (owner) Volatile.Write(ref _active, false);
+                dispose = --_references == 0;
+            }
+            if (dispose) physicalLease.Dispose();
+        }
+    }
+
+    private sealed class OperationLease(SqliteCacheStore store, OperationScope scope, OperationScope? prior, bool owner) : IDisposable
+    {
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            scope.Release(owner);
+            if (owner) store._operationScope.Value = prior;
+        }
+    }
     /// <summary>
     /// The currently active ambient transaction, if any.
     /// Set by <see cref="SqliteUnitOfWork.BeginAsync"/> and cleared on commit, rollback, or dispose.
@@ -168,6 +269,26 @@ public sealed class SqliteCacheStore : IDisposable
 
     private void EnsureSchema()
     {
+        if (SchemaExists())
+        {
+            using var version = _connection.CreateCommand();
+            version.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+            var observed = version.ExecuteScalar()?.ToString();
+            if (!int.TryParse(observed, out var existingVersion) || existingVersion > SchemaVersion)
+                throw new InvalidOperationException("mirror-version-unsupported: preserve this cache and its unfinished work; open it with a compatible Twig version instead of rebuilding.");
+            if (existingVersion == 16)
+            {
+                // Identity metadata is nullable until a bound fetch proves it. Never backfill
+                // from display labels, and never drop seeds or pending mirror values here.
+                using var tx = _connection.BeginTransaction();
+                using var upgrade = _connection.CreateCommand();
+                upgrade.Transaction = tx;
+                upgrade.CommandText = "ALTER TABLE work_items ADD COLUMN assigned_to_unique_name TEXT; UPDATE metadata SET value = @version WHERE key = 'schema_version';";
+                upgrade.Parameters.AddWithValue("@version", SchemaVersion.ToString());
+                upgrade.ExecuteNonQuery();
+                tx.Commit();
+            }
+        }
         if (!SchemaExists() || !SchemaVersionMatches())
         {
             GuardLegacyPendingSet();
@@ -244,7 +365,9 @@ public sealed class SqliteCacheStore : IDisposable
     private void EnsureDurableSchema()
     {
         var from = ReadDurableSchemaVersion();
-        if (from >= DurableSchemaVersion)
+        if (from > DurableSchemaVersion)
+            throw new InvalidOperationException("durable-version-unsupported: this pending.db was written by a newer Twig. Use the compatible version; it is never reset or rebuilt.");
+        if (from == DurableSchemaVersion)
             return;
 
         using var tx = _connection.BeginTransaction();
@@ -638,6 +761,32 @@ public sealed class SqliteCacheStore : IDisposable
                 WHERE state <> 'Verified';
             """,
 
+        // Native-origin + outcome-receipt ledger. The journal gains an immutable first-preview
+        // origin column (nullable: unknown-legacy rows stay unknown — never backfilled). A new
+        // table carries append-only outcome receipts, keyed (digest, op_id) so exactly one
+        // settlement per operation can land. receipt_json is the TwigJsonContext payload — a
+        // full PlanOutcomeReceipt — and the two publish-* columns are an index-friendly
+        // projection used by the open-intent exclusion query, filled only on receipts that
+        // explicitly bind an identity to a recorded_at.
+        [12] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN origin_json TEXT;
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.proposal_receipts (
+                digest TEXT NOT NULL,
+                op_id TEXT NOT NULL,
+                receipt_id TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                publish_identity TEXT,
+                publish_intent_recorded_at TEXT,
+                receipt_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (digest, op_id)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_proposal_receipts_publish
+                ON proposal_receipts(publish_identity, publish_intent_recorded_at)
+                WHERE publish_identity IS NOT NULL;
+            """,
+
     };
 
     private bool SchemaExists()
@@ -710,6 +859,7 @@ public sealed class SqliteCacheStore : IDisposable
             state TEXT NOT NULL,
             parent_id INTEGER,
             assigned_to TEXT,
+            assigned_to_unique_name TEXT,
             iteration_path TEXT,
             area_path TEXT,
             revision INTEGER NOT NULL,
@@ -809,5 +959,6 @@ public sealed class SqliteCacheStore : IDisposable
     public void Dispose()
     {
         _connection.Dispose();
+        _legacyCapability?.Dispose();
     }
 }

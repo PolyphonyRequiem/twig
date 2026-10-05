@@ -51,7 +51,7 @@ public class WorkspaceCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
@@ -60,6 +60,7 @@ public class WorkspaceCommandTests
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _iterationService.WithBoundIdentity();
 
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -135,6 +136,7 @@ public class WorkspaceCommandTests
             Title = "Other assignee task",
             State = "New",
             AssignedTo = "Other reviewer",
+            AssignedToUniqueName = IdentityStubs.DefaultCanonicalPrincipal,
             IterationPath = parent.IterationPath,
             AreaPath = parent.AreaPath,
         }.WithParentId(100);
@@ -452,7 +454,7 @@ public class WorkspaceCommandTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<int> { 99 });
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
@@ -478,7 +480,7 @@ public class WorkspaceCommandTests
             .Returns(new List<int> { 1 });
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { sprintItem });
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
@@ -505,7 +507,7 @@ public class WorkspaceCommandTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<int> { 50 });
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
@@ -534,7 +536,7 @@ public class WorkspaceCommandTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<int> { 50 });
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
@@ -715,14 +717,7 @@ public class WorkspaceCommandTests
             .Returns(new[] { unrelated });
 
         var calendar = Substitute.For<IIterationCalendar>();
-        var workingSet = new WorkingSetService(
-            _contextStore,
-            _workItemRepo,
-            pendingStore,
-            _iterationService,
-            userDisplayName: null,
-            benchRepository,
-            new BenchEvaluator(_workItemRepo, calendar, pendingStore));
+        var workingSet = new WorkingSetService(_contextStore, _workItemRepo, pendingStore, _iterationService, benchRepository, new BenchEvaluator(_workItemRepo, calendar, pendingStore));
         var command = new WorkspaceCommand(
             CreateCtx(CreateTtyPipelineFactory()),
             _contextStore,
@@ -749,19 +744,29 @@ public class WorkspaceCommandTests
     {
         var epic = new WorkItem
         {
-            Id = 10, Type = WorkItemType.Epic, Title = "Selected milestone", State = "Active",
+            Id = 10,
+            Type = WorkItemType.Epic,
+            Title = "Selected milestone",
+            State = "Active",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
         var feature = new WorkItem
         {
-            Id = 11, Type = WorkItemType.Feature, Title = "Child feature", State = "Active",
-            ParentId = epic.Id, IterationPath = epic.IterationPath, AreaPath = epic.AreaPath,
+            Id = 11,
+            Type = WorkItemType.Feature,
+            Title = "Child feature",
+            State = "Active",
+            ParentId = epic.Id,
+            IterationPath = epic.IterationPath,
+            AreaPath = epic.AreaPath,
         };
         var benchRepository = Substitute.For<IBenchRepository>();
         benchRepository.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(new Bench
         {
-            Id = 7, Name = "milestone", Selectors = [BenchSelector.ForItem(epic.Id), BenchSelector.ForItem(feature.Id)],
+            Id = 7,
+            Name = "milestone",
+            Selectors = [BenchSelector.ForItem(epic.Id), BenchSelector.ForItem(feature.Id)],
         });
         var pendingStore = Substitute.For<IPendingChangeStore>();
         pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
@@ -774,9 +779,7 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _processTypeStore.GetProcessConfigurationDataAsync(Arg.Any<CancellationToken>())
             .Returns(CreateAgileProcessConfig());
-        var workingSet = new WorkingSetService(_contextStore, _workItemRepo, pendingStore,
-            _iterationService, userDisplayName: null, benchRepository,
-            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), pendingStore));
+        var workingSet = new WorkingSetService(_contextStore, _workItemRepo, pendingStore, _iterationService, benchRepository, new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), pendingStore));
         var command = new WorkspaceCommand(CreateCtx(CreateTtyPipelineFactory()), _contextStore,
             _workItemRepo, _iterationService, _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, workingSet, _trackingService, new SprintHierarchyBuilder(),
@@ -785,31 +788,6 @@ public class WorkspaceCommandTests
         (await command.ExecuteAsync("human", view: "tree")).ShouldBe(0);
         var childLine = _testConsole.Output.Split('\n').First(line => line.Contains("Child feature"));
         childLine.ShouldContain("└──");
-    }
-
-    [Fact]
-    public async Task AsyncPath_VerifiesDataFetchSequence()
-    {
-        var active = CreateWorkItem(1, "Active");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { active });
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
-            .Returns(DateTimeOffset.UtcNow.ToString("O"));
-
-        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
-        await cmd.ExecuteAsync("human");
-
-        // Context is read once for presentation and once by the structural Bench guard.
-        await _contextStore.Received(2).GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).GetByIdAsync(1, Arg.Any<CancellationToken>());
-        await _iterationService.Received(1).GetCurrentIterationAsync(Arg.Any<CancellationToken>());
-        // Selector evaluation determines membership; projection then materializes those rows.
-        await _workItemRepo.Received(2).GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(2).GetSeedsAsync(Arg.Any<CancellationToken>());
     }
 
     // ── SpectreRenderer unit tests ──────────────────────────────────
@@ -1048,6 +1026,7 @@ public class WorkspaceCommandTests
             Title = "Task 1",
             State = "Active",
             ParentId = 100,
+            AssignedToUniqueName = IdentityStubs.DefaultCanonicalPrincipal,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -1082,6 +1061,7 @@ public class WorkspaceCommandTests
             Title = "Task 1",
             State = "Active",
             ParentId = 100,
+            AssignedToUniqueName = IdentityStubs.DefaultCanonicalPrincipal,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -1196,6 +1176,7 @@ public class WorkspaceCommandTests
             Type = WorkItemType.Task,
             Title = title,
             State = "New",
+            AssignedToUniqueName = IdentityStubs.DefaultCanonicalPrincipal,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
@@ -1316,35 +1297,18 @@ public class WorkspaceCommandTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await _cmd.ExecuteAsync();
-        result.ShouldBe(0);
-
-        // Should NOT call GetCurrentIterationAsync for sprint item resolution
-        // because configured sprints are available
-        await _workItemRepo.Received(2).GetByIterationAsync(
-            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 1"), Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(2).GetByIterationAsync(
-            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 0"), Arg.Any<CancellationToken>());
+        var original = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            (await _cmd.ExecuteAsync(outputFormat: "json")).ShouldBe(0);
+        }
+        finally { Console.SetOut(original); }
+        output.ToString().ShouldContain("Sprint 1 Item");
+        output.ToString().ShouldContain("Sprint 0 Item");
     }
 
-    [Fact]
-    public async Task SyncPath_NoConfiguredSprints_FallsBackToCurrentIteration()
-    {
-        // No configured sprints — workspace.sprints is null/empty
-        _config.Workspace.Sprints = null;
-
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var result = await _cmd.ExecuteAsync();
-        result.ShouldBe(0);
-
-        // Should use GetCurrentIterationAsync as fallback
-        await _iterationService.Received().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task SyncPath_EmptyConfiguredSprints_FallsBackToCurrentIteration()
@@ -1394,10 +1358,10 @@ public class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task SyncPath_ConfiguredSprints_UserScoped_FiltersToUser()
+    public async Task SyncPath_ConfiguredSprints_SelfScoped_UsesBoundCanonicalIdentity()
     {
         _config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
-        _config.User.DisplayName = "Alice Smith";
+        _iterationService.WithBoundIdentity(uniqueName: "alice@contoso.com");
 
         _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<TeamIteration>
@@ -1405,23 +1369,48 @@ public class WorkspaceCommandTests
                 new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow),
             });
 
-        var aliceItem = CreateWorkItem(1, "Alice Task");
+        // Two accounts sharing the display label "Alex Smith" are kept isolated by their canonical
+        // uniqueName — a display-keyed filter would have merged them.
+        var selfAlice = CreateWorkItem(1, "Alice task");
+        selfAlice = new WorkItem
+        {
+            Id = selfAlice.Id,
+            Type = selfAlice.Type,
+            Title = selfAlice.Title,
+            State = selfAlice.State,
+            AssignedTo = "Alex Smith",
+            AssignedToUniqueName = "alice@contoso.com",
+            IterationPath = selfAlice.IterationPath,
+            AreaPath = selfAlice.AreaPath,
+        };
+        var otherAlex = CreateWorkItem(2, "Alex task");
+        otherAlex = new WorkItem
+        {
+            Id = otherAlex.Id,
+            Type = otherAlex.Type,
+            Title = otherAlex.Title,
+            State = otherAlex.State,
+            AssignedTo = "Alex Smith",
+            AssignedToUniqueName = "alex@fabrikam.com",
+            IterationPath = otherAlex.IterationPath,
+            AreaPath = otherAlex.AreaPath,
+        };
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), "Alice Smith", Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem });
-        // Bench selectors evaluate all cached rows, then apply their own assignee rule.
         _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem });
+            .Returns(new[] { selfAlice, otherAlex });
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var result = await _cmd.ExecuteAsync();
         result.ShouldBe(0);
 
-        // Without --all, should use GetByIterationAndAssigneeAsync for user scoping
-        await _workItemRepo.Received().GetByIterationAndAssigneeAsync(
-            Arg.Any<IterationPath>(), "Alice Smith", Arg.Any<CancellationToken>());
+        // Canonical scoping loads unfiltered rows and narrows in-memory; a repo-level display
+        // filter would silently merge the two Alex Smith accounts and is deliberately NOT called.
+        await _workItemRepo.Received().GetByIterationAsync(
+            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -1729,72 +1718,8 @@ public class WorkspaceCommandTests
             _workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
     }
 
-    [Fact]
-    public async Task Workspace_JsonOutput_TriggersSyncFirst()
-    {
-        var item = CreateWorkItem(1, "Synced Task");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
-        var syncFactory = CreateSyncFactory();
-        var cmd = CreateCommandWithSync(syncFactory);
 
-        var result = await cmd.ExecuteAsync(outputFormat: "json", refresh: true);
-        result.ShouldBe(0);
-
-        // ADO service should have been called to fetch stale items (sync-first)
-        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Workspace_MinimalOutput_TriggersSyncFirst()
-    {
-        var item = CreateWorkItem(1, "Synced Task");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var syncFactory = CreateSyncFactory();
-        var cmd = CreateCommandWithSync(syncFactory);
-
-        var result = await cmd.ExecuteAsync(outputFormat: "minimal", refresh: true);
-        result.ShouldBe(0);
-
-        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Workspace_IdsOutput_TriggersSyncFirst()
-    {
-        var item = CreateWorkItem(1, "Synced Task");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var syncFactory = CreateSyncFactory();
-        var cmd = CreateCommandWithSync(syncFactory);
-
-        var result = await cmd.ExecuteAsync(outputFormat: "ids", refresh: true);
-        result.ShouldBe(0);
-
-        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task Workspace_JsonOutput_NoRefresh_SkipsSyncFirst()

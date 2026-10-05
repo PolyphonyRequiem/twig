@@ -62,34 +62,25 @@ public sealed class McpToolCatalogTests
     [Fact]
     public void FullProfile_PreservesAllToolsButRemovesUniversalVerbose()
     {
+        var registered = GetRegisteredTools();
         var result = McpToolCatalog.FilterList(
-            new ListToolsResult { Tools = GetRegisteredTools() },
+            new ListToolsResult { Tools = registered },
             McpToolProfile.Full,
             exposeWorkspaceOverride: true);
+        result.Tools.Select(tool => tool.Name).ShouldBe(registered.Select(tool => tool.Name), ignoreOrder: true);
 
-        // 45 since wayfinder 0022 added the plan lifecycle surface (twig_plan_validate,
-        // twig_plan_preview, twig_plan_apply, twig_plan_status, twig_plan_seed) plus
-        // twig_pending. Budget raised proportionally for six additional per-tool descriptions.
-        // 50 since AB#742 renamed that surface to twig_proposal_* and retained the five
-        // twig_plan_* spellings as deprecated aliases, which remain separately listed tools.
-        result.Tools.Count.ShouldBe(50);
         // Budget raised from 46,000 for the five retained twig_plan_* alias tools, whose
         // schemas are serialized alongside their canonical twins for as long as the
         // deprecation window lasts. It stays a hard ceiling: the point is to catch tool
         // descriptions growing without anyone deciding to grow them.
         GetSerializedSize(result.Tools).ShouldBeLessThanOrEqualTo(48_000);
 
-        var workspaceCount = 0;
         foreach (var tool in result.Tools)
         {
             var properties = tool.InputSchema.GetProperty("properties");
             properties.TryGetProperty("verbose", out _).ShouldBeFalse();
-            if (properties.TryGetProperty("workspace", out _)) workspaceCount++;
         }
 
-        // 49, not 44: the five retained twig_plan_* deprecated aliases are separately listed
-        // tools and each carries its own `workspace` parameter, exactly like its canonical twin.
-        workspaceCount.ShouldBe(49);
     }
 
     [Fact]

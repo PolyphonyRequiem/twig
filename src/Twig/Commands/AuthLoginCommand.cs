@@ -2,16 +2,30 @@ using Spectre.Console;
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
+using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig login</c>: launches an interactive AAD sign-in (loopback PKCE by
-/// default, device-code with <c>--device-code</c>) and writes the resulting refresh token
-/// to <c>~/.twig/.refresh-token</c>. After this completes, <c>twig</c> never needs to
-/// read the MSAL cache or shell out to <c>az</c> again.
+/// Implements <c>twig auth login</c>: launches an interactive AAD sign-in and routes the
+/// resulting refresh token through <see cref="IConnectionBindingService.RegisterAadIdentityAsync"/>.
+///
+/// <para>
+/// <c>--identity &lt;alias&gt;</c> names the identity to register (or re-enroll). Without
+/// <c>--identity</c>, the command asks <see cref="IConnectionBindingService.ResolveAsync"/>
+/// which identity the current attached binding points at, and re-enrolls that one; if no
+/// attached binding resolves, the command refuses with setup guidance rather than silently
+/// writing an unbound credential. The pre-#1104 global <c>~/.twig/.refresh-token</c>
+/// side-effect is gone: a login never writes ambient credentials.
+/// </para>
+///
+/// <para>
+/// Both PKCE (loopback, default) and device-code (<c>--device-code</c>) flows are preserved
+/// unchanged; the service enforces the principal guard (minted-token stamping, no silent
+/// overwrite of a different identity under the same alias).
+/// </para>
 /// </summary>
-public sealed class AuthLoginCommand
+internal sealed class AuthLoginCommand
 {
     /// <summary>
     /// Azure CLI's well-known public client ID (multi-tenant native client). We piggy-back
@@ -22,10 +36,21 @@ public sealed class AuthLoginCommand
 
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly Rendering.RendererFactory _rendererFactory;
+    private readonly IConnectionBindingService _bindingService;
+    private readonly TwigConfiguration _config;
+    private readonly TwigPaths _paths;
 
-    public AuthLoginCommand(OutputFormatterFactory formatterFactory, Rendering.RendererFactory? rendererFactory = null)
+    public AuthLoginCommand(
+        OutputFormatterFactory formatterFactory,
+        IConnectionBindingService bindingService,
+        TwigConfiguration config,
+        TwigPaths paths,
+        Rendering.RendererFactory? rendererFactory = null)
     {
         _formatterFactory = formatterFactory;
+        _bindingService = bindingService;
+        _config = config;
+        _paths = paths;
         _rendererFactory = rendererFactory ?? new Rendering.RendererFactory();
     }
 
@@ -33,11 +58,34 @@ public sealed class AuthLoginCommand
         bool useDeviceCode,
         string? tenant,
         bool noBrowser,
+        string? identity,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var resolvedTenant = string.IsNullOrWhiteSpace(tenant) ? AuthorizeRequestBuilder.DefaultTenant : tenant;
+
+        string alias;
+        if (!string.IsNullOrWhiteSpace(identity))
+        {
+            alias = identity!.Trim();
+        }
+        else
+        {
+            // No alias: an attached binding must already name the identity. We never write
+            // an ambient/global credential — the service refuses, and so do we.
+            try
+            {
+                var resolved = await _bindingService.ResolveAsync(_config, _paths, ct);
+                alias = resolved.Identity.Name;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Cannot infer which identity to log in as: {ex.Message}"));
+                Console.Error.WriteLine("Pass '--identity <alias>' to register a new one, then bind it with 'twig connection bind --org <org> --project <project> --identity <alias> --default'.");
+                return 1;
+            }
+        }
 
         InteractiveAuthResult result;
         if (useDeviceCode)
@@ -55,59 +103,45 @@ public sealed class AuthLoginCommand
             Console.Error.WriteLine(fmt.FormatError($"Sign-in failed: {result.ErrorMessage}"));
             if (result.ErrorKind == InteractiveAuthErrorKind.PolicyBlocked && useDeviceCode)
             {
-                Console.Error.WriteLine("Your tenant blocks the device code grant. Try 'twig login' (loopback PKCE) instead.");
+                Console.Error.WriteLine("Your tenant blocks the device code grant. Try 'twig auth login --identity " + alias + "' (loopback PKCE) instead.");
             }
             else if (result.ErrorKind == InteractiveAuthErrorKind.LoopbackUnavailable)
             {
-                Console.Error.WriteLine("Could not bind a loopback listener. Try 'twig login --device-code'.");
+                Console.Error.WriteLine("Could not bind a loopback listener. Try 'twig auth login --identity " + alias + " --device-code'.");
             }
             return 1;
         }
 
-        var store = new TwigRefreshTokenStore();
         try
         {
-            store.TryWrite(result.Entry);
+            var stamped = await _bindingService.RegisterAadIdentityAsync(alias, result.Entry, ct);
+            RenderIdentityRegistered(stamped, outputFormat);
+            return 0;
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Sign-in succeeded but the refresh token could not be written to {store.Path}: {ex.Message}"));
+            Console.Error.WriteLine(fmt.FormatError($"Could not register identity '{alias}': {ex.Message}"));
             return 1;
         }
-
-        // Wipe the old in-process access-token file cache so the next ADO call mints a
-        // fresh access token from the new refresh token (and doesn't reuse a wrong-audience
-        // token from a previous identity).
-        new TwigTokenFileCache().TryDelete();
-
-        RenderSignedIn(result.Entry.UserPrincipalName ?? "(unknown)", result.Entry.TenantId ?? "(unknown)", result.Entry.Source?.ToString() ?? "(unknown)", store.Path, outputFormat);
-        return 0;
     }
 
-    private void RenderSignedIn(string user, string tenantId, string source, string storePath, string outputFormat)
+    private void RenderIdentityRegistered(AuthenticationIdentity identity, string outputFormat)
     {
-        var message = $"Signed in as {user}";
-        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
-        RenderTree.RenderNode node = lower switch
-        {
-            "minimal" => new RenderTree.RenderNode.Text(message),
-            "json" or "json-full" or "json-compact" or "ids" =>
-                new RenderTree.RenderNode.Record("signedIn", new Dictionary<string, RenderTree.RenderCell>(StringComparer.Ordinal)
-                {
-                    ["message"] = RenderTree.RenderCell.String(message),
-                    ["user"] = RenderTree.RenderCell.String(user),
-                    ["tenant"] = RenderTree.RenderCell.String(tenantId),
-                    ["source"] = RenderTree.RenderCell.String(source),
-                    ["storedAt"] = RenderTree.RenderCell.String(storePath),
-                }),
-            _ => new RenderTree.RenderNode.Section($"{message}", new RenderTree.RenderNode[]
+        var message = $"Registered identity '{identity.Name}'";
+        RenderTree.RenderNode node = ConnectionRenderHelpers.IsHumanFormat(outputFormat)
+            ? new RenderTree.RenderNode.Section(message, new RenderTree.RenderNode[]
             {
-                new RenderTree.RenderNode.Text($"  tenant:    {tenantId}"),
-                new RenderTree.RenderNode.Text($"  source:    {source}"),
-                new RenderTree.RenderNode.Text($"  stored at: {storePath}"),
-                new RenderTree.RenderNode.Hint("Run 'twig auth status' to verify, or any twig command to mint your first ADO access token."),
-            }),
-        };
+                new RenderTree.RenderNode.Text($"  identityId:    {identity.IdentityId}"),
+                new RenderTree.RenderNode.Text($"  tenant:        {identity.TenantId}"),
+                new RenderTree.RenderNode.Text($"  objectId:      {identity.ObjectId}"),
+                new RenderTree.RenderNode.Text($"  issuer:        {identity.Issuer}"),
+                new RenderTree.RenderNode.Text($"  authorityHost: {identity.AuthorityHost}"),
+                new RenderTree.RenderNode.Text($"  account:       {identity.AccountName ?? "(unknown)"}"),
+                new RenderTree.RenderNode.Hint($"Bind it to a project with 'twig connection bind --org <org> --project <project> --identity {identity.Name} --default'."),
+            })
+            : (outputFormat ?? string.Empty).Equals("minimal", StringComparison.OrdinalIgnoreCase)
+                ? new RenderTree.RenderNode.Text(message)
+                : ConnectionRenderHelpers.IdentityRecord("identityRegistered", identity, message);
         _rendererFactory.GetRenderer(outputFormat).Render(new global::Twig.RenderTree.RenderTree(new[] { node }));
     }
 

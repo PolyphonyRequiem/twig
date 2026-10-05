@@ -39,6 +39,7 @@ public sealed class RefreshOrchestrator(
     /// </summary>
     public async Task RefreshIterationCalendarAsync(CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         if (iterationCalendar is null)
             return;
 
@@ -70,6 +71,7 @@ public sealed class RefreshOrchestrator(
     public async Task<RefreshFetchResult> FetchItemsAsync(
         string wiql, CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         var ids = await adoService.QueryByWiqlAsync(wiql, ct);
         if (ids.Count == 0)
             return new RefreshFetchResult { ItemCount = 0 };
@@ -238,6 +240,7 @@ public sealed class RefreshOrchestrator(
     /// </remarks>
     public async Task HydrateAncestorsAsync(CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         var seen = new HashSet<int>();
 
         for (var level = 0; level < 5; level++)
@@ -263,6 +266,7 @@ public sealed class RefreshOrchestrator(
     /// </summary>
     public async Task<int> SyncTrackedTreesAsync(CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         if (trackingService is null)
             return 0;
 
@@ -277,6 +281,7 @@ public sealed class RefreshOrchestrator(
     /// </summary>
     public async Task<int> ApplyCleanupPolicyAsync(TrackingCleanupPolicy policy, CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         if (trackingService is null || policy == TrackingCleanupPolicy.None)
             return 0;
 
@@ -287,6 +292,7 @@ public sealed class RefreshOrchestrator(
     /// <summary>Syncs the working set after refresh (no eviction per FR-013).</summary>
     public async Task SyncWorkingSetAsync(IterationPath iteration, CancellationToken ct = default)
     {
+        using var operation = workItemRepo.AcquireOperation();
         var workingSet = await workingSetService.ComputeAsync([iteration], ct);
         await syncCoordinatorFactory.ReadWrite.SyncWorkingSetAsync(workingSet, ct);
     }

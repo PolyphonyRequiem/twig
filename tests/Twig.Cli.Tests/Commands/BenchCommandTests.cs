@@ -11,6 +11,7 @@ using Twig.Formatters;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
 using Xunit;
+using Twig.Cli.Tests.TestSupport;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -40,7 +41,7 @@ public sealed class BenchCommandTests : IDisposable
             .Returns(Array.Empty<TrackedItem>());
 
         var repo = new SqliteBenchRepository(_benchStore);
-        var selectors = new DefaultBenchSelectors(null);
+        var selectors = new DefaultBenchSelectors(IdentityStubs.NewBound());
         var workflow = new BenchWorkflow(repo, selectors, new CurrentBenchResolver(repo, selectors));
 
         return new BenchCommand(workflow, _formatterFactory);
@@ -331,7 +332,7 @@ public sealed class BenchCommandTests : IDisposable
     private async Task PinAsync(int workItemId)
     {
         var repo = new SqliteBenchRepository(_benchStore);
-        var selectors = new DefaultBenchSelectors(userDisplayName: null);
+        var selectors = new DefaultBenchSelectors(IdentityStubs.NewBound());
         var pin = new PinWorkflow(repo, selectors,
             new CurrentBenchResolver(repo, selectors));
         await pin.PinAsync(workItemId, includeSubtree: false);

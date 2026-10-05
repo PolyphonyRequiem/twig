@@ -7,11 +7,11 @@ namespace Twig.Infrastructure.GitHub;
 internal static class CompanionTools
 {
     /// <summary>All companion binary base names (without platform extension).</summary>
-    internal static readonly string[] All = ["twig-mcp", "twig-tui"];
+    internal static readonly string[] All = ["twig-tui"];
 
     /// <summary>
     /// Returns the platform-specific executable name for a companion tool
-    /// (e.g., <c>twig-mcp.exe</c> on Windows, <c>twig-mcp</c> on Unix).
+    /// (e.g., <c>twig-tui.exe</c> on Windows, <c>twig-tui</c> on Unix).
     /// </summary>
     internal static string GetExeName(string name) =>
         OperatingSystem.IsWindows() ? $"{name}.exe" : name;

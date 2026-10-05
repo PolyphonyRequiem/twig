@@ -95,7 +95,13 @@ The command delegates to `WorkspaceCommand.ExecuteAsync`
   falls back to the cached rows rather than blanking the view
   (`src/Twig/Commands/WorkspaceCommand.cs:149-207`).
 - The `--all` / sprint-layout branch forces the "team by assignee" grouping;
-  otherwise the view is filtered to `Config.User.DisplayName`.
+  otherwise the default self rule uses the bound account's canonical ADO identity,
+  not `Config.User.DisplayName`. Published rows need server-provided canonical
+  assignee metadata; display names, even ones resembling an email, cannot prove a
+  self match. Older rows without that metadata need a refresh. Missing bound-user
+  metadata refuses the self view rather than silently widening to the team.
+  `--all` explicitly bypasses self lookup. Existing default Bench sprint rules
+  are normalized without losing pins; explicit custom Bench rules remain unchanged.
 
 Side effects are limited to the local workspace: the SQLite cache under
 `.twig/{org}/{project}/twig.db` and the `context.last_refreshed_at` key. No

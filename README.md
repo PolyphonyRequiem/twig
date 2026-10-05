@@ -289,17 +289,24 @@ The aggregate `SHA256SUMS` file on each release lists every asset's hash; `sha25
 
 ## Prerequisites
 
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (for authentication)
+- An Azure DevOps account with access to the target organization and project, explicitly enrolled with [`twig auth login` or `twig auth pat`](docs/commands/system/auth-login.md) and selected through a connection binding. Azure CLI is not required for normal CLI authentication.
 
 ## Build from Source
 
-Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+Requires the SDK pinned in [`global.json`](global.json) (currently a .NET 11 preview).
 
 ```bash
 dotnet build
-dotnet test
+python tools/verify-build.py --timeout 15
 dotnet publish src/Twig -r win-x64 -c Release
 ```
+
+The build and validation are separate gates. The offline smoke checks the actual
+CLI's startup/help, source-generated JSON, current store/binding admission,
+proposal preview, and wrong-account refusal with a hard 15-second deadline; it
+never builds or runs test hosts. Use narrowly scoped regression checks for the
+proposed changeset when needed. Routine CI and pre-push use this smoke; complete
+platform validation runs on release candidates before signing or publication.
 
 ## Next Topics
 
@@ -307,7 +314,7 @@ dotnet publish src/Twig -r win-x64 -c Release
 - **[Data Layer](docs/architecture/data-layer.md)** — sync mechanics, caching tiers, conflict resolution in depth
 - **[Commands](docs/architecture/commands.md)** — full command catalog, rendering pipeline, telemetry
 - **[ADO Integration](docs/architecture/ado-integration.md)** — REST client, authentication, link management
-- **[MCP Server](docs/architecture/mcp-server.md)** — AI agent integration via the twig-mcp tool server
+- **[MCP history](docs/architecture/mcp-server.md)** — withdrawn from current delivery; retained as redesign context
 - **[Build & Release](docs/architecture/build-and-release.md)** — AOT compilation, versioning, release pipeline
 
 ## License

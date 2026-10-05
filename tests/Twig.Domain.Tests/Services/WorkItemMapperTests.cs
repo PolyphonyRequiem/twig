@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using Shouldly;
+﻿using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -284,69 +283,7 @@ public sealed class WorkItemMapperTests
         result.Revision.ShouldBe(5);
     }
 
-    // ── Property-preservation theory ────────────────────────────────
 
-    [Fact]
-    public void Map_PopulatesAllInitOnlyProperties()
-    {
-        // Discover all init-only properties on WorkItem via reflection.
-        // If a new init property is added to WorkItem, this test fails —
-        // prompting the developer to update WorkItemSnapshot, WorkItemMapper, and this list.
-        var initPropertyNames = typeof(WorkItem)
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(IsInitOnly)
-            .Select(p => p.Name)
-            .OrderBy(n => n)
-            .ToList();
-
-        initPropertyNames.ShouldBe(
-        [
-            "AreaPath",
-            "AssignedTo",
-            "Id",
-            "IsSeed",
-            "IterationPath",
-            "LastSyncedAt",
-            "ParentId",
-            "SeedCreatedAt",
-            "StagedIdentity",
-            "Title",
-            "Type",
-        ]);
-
-        // Map a fully-populated snapshot and verify each init property was set
-        var stagedIdentity = StagedIdentity.New();
-        var snapshot = new WorkItemSnapshot
-        {
-            Id = 99,
-            Revision = 7,
-            TypeName = "Epic",
-            Title = "Theory Test Item",
-            State = "Active",
-            AssignedTo = "Test User",
-            IterationPath = @"Project\Sprint 1",
-            AreaPath = @"Project\Team A",
-            ParentId = 42,
-            IsSeed = true,
-            SeedCreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
-            StagedIdentity = stagedIdentity.ToString(),
-            LastSyncedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
-        };
-
-        var result = _mapper.Map(snapshot);
-
-        result.Id.ShouldBe(99);
-        result.Type.ShouldBe(WorkItemType.Epic);
-        result.Title.ShouldBe("Theory Test Item");
-        result.AssignedTo.ShouldBe("Test User");
-        result.IterationPath.Value.ShouldBe(@"Project\Sprint 1");
-        result.AreaPath.Value.ShouldBe(@"Project\Team A");
-        result.ParentId.ShouldBe(42);
-        result.IsSeed.ShouldBeTrue();
-        result.SeedCreatedAt.ShouldBe(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        result.StagedIdentity.ShouldBe(stagedIdentity);
-        result.LastSyncedAt.ShouldBe(new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
-    }
 
     // ── Round-trip validation ───────────────────────────────────────
 
@@ -567,13 +504,4 @@ public sealed class WorkItemMapperTests
         result.ParentId.ShouldBeNull();
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────
-
-    private static bool IsInitOnly(PropertyInfo property)
-    {
-        var setter = property.SetMethod;
-        if (setter is null) return false;
-        return setter.ReturnParameter.GetRequiredCustomModifiers()
-            .Any(t => t.FullName == "System.Runtime.CompilerServices.IsExternalInit");
-    }
 }

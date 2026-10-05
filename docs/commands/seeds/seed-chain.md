@@ -45,6 +45,7 @@ twig seed chain [<comma-separated-titles>] [--parent <id>] [--type <type>] [-o|-
 - Between seeds `n-1` and `n`, a `successor` link row is added: `previous.Id → new.Id` (`src/Twig/Commands/SeedChainCommand.cs:135-140`).
 - Human output streams a `#<id> <title>` line per created seed then a final `Created N seeds: #-42 → #-43 → #-44` summary; machine formats emit a `seedChainCreated` document with a `seeds` Table plus `count` and `chain` fields (`src/Twig/Commands/SeedChainCommand.cs:142-198`).
 - An empty run (no titles entered) is a no-op with a `seedChainEmpty` record and exit `0` (`src/Twig/Commands/SeedChainCommand.cs:147-162`).
+- Before the first draft is minted, resolves the bound account's canonical ADO assignee once for the whole chain. Missing identity metadata refuses without creating part of a chain. The lookup can contact ADO; the drafts and their links remain local until publication.
 
 > Note: bare `twig seed chain` with no argument and no active parent is the same failure mode as running any command that needs an active item — use `--parent <id>` or `twig set <id>` first.
 

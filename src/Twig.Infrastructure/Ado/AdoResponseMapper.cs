@@ -78,6 +78,7 @@ internal static class AdoResponseMapper
         Title = GetStringField(fields, "System.Title") ?? string.Empty,
         State = GetStringField(fields, "System.State") ?? string.Empty,
         AssignedTo = ParseAssignedTo(fields),
+        AssignedToUniqueName = ExtractAssignedUniqueName(fields),
         IterationPath = GetStringField(fields, "System.IterationPath"),
         AreaPath = GetStringField(fields, "System.AreaPath"),
         ParentId = ExtractParentId(dto.Relations),
@@ -221,18 +222,14 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTags(operations, request.StampIntentTag);
+        InjectTags(operations, request.StampIntentTag, request.SeedCorrelation);
 
         return operations;
     }
 
-    // Stamps the constant "twig" provenance marker plus, when the create is being tracked, the
-    // constant in-flight intent tag (wayfinder 0015). Both are constants, so publishing N items
-    // adds at most two entries to the project's shared tag vocabulary — not N.
-    //
-    // A bool rather than the tag string: the tag is fixed by the ticket, so passing it in would
-    // invite a caller to vary something that must not vary.
-    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag = false)
+    // Native correlated creates keep their exact server key alongside provenance and
+    // the in-flight marker. Existing caller tags round-trip; labels never correlate outcomes.
+    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag, SeedPublishCorrelation? correlation)
     {
         const string tagPath = "/fields/System.Tags";
         const string twigTag = "twig";
@@ -247,6 +244,8 @@ internal static class AdoResponseMapper
         var merged = MergeTag(current, twigTag);
         if (stampIntentTag)
             merged = MergeTag(merged, PublishIntent.IntentTag);
+        if (correlation is not null)
+            merged = MergeTag(merged, correlation.Tag);
 
         if (existingIndex >= 0)
         {
@@ -399,11 +398,9 @@ internal static class AdoResponseMapper
 
     /// <summary>
     /// Parses the <c>System.AssignedTo</c> projection as a DISPLAY NAME only.
-    /// The stable identity (<c>uniqueName</c>) does not travel through this
-    /// projection — surfaces that need it MUST read the raw identity via
-    /// <see cref="IAdoAssignedIdentityReader"/>. This split preserves the
-    /// display-name user-facing semantics AB#728 pinned while giving
-    /// AB#739's claim projection an exact-UPN read seam.
+    /// Stable assignee evidence is carried separately in <c>AssignedToUniqueName</c>;
+    /// display-name user-facing semantics remain unchanged. Claim verification still
+    /// uses <see cref="IAdoAssignedIdentityReader"/> for a fresh authoritative read.
     /// </summary>
     private static string? ParseAssignedTo(Dictionary<string, object?> fields)
     {

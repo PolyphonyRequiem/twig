@@ -34,6 +34,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
             return existing;
         }
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var createdAt = DateTimeOffset.UtcNow.ToString("O");
 
@@ -67,6 +68,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
         // The uniqueness decision is the TABLE's, not a read-then-write here: a check followed by
         // an insert can be raced, and the case-insensitive UNIQUE index is the only place that
         // cannot be. DO NOTHING makes a taken name return no row, which the caller reports.
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         long? benchId;
@@ -90,6 +92,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
 
     public async Task<IReadOnlyList<Bench>> GetAllAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var benches = new List<Bench>();
 
@@ -128,6 +131,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
     /// </summary>
     public async Task<Bench?> GetCurrentAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -141,6 +145,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
 
     public async Task SetCurrentAsync(long benchId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -159,6 +164,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
 
     public async Task AddSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -179,6 +185,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
 
     public async Task RemoveSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -214,6 +221,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
     /// </remarks>
     public async Task DeleteAsync(long benchId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -228,6 +236,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
 
     private async Task<Bench?> LoadAsync(string where, long? id, CancellationToken ct, string? name = null)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         Bench? bench = null;
 
@@ -262,6 +271,7 @@ public sealed class SqliteBenchRepository : IBenchRepository
     /// </summary>
     private async Task<IReadOnlyCollection<BenchSelector>> LoadSelectorsAsync(long benchId, CancellationToken ct)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;

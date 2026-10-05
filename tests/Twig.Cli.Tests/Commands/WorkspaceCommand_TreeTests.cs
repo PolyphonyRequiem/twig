@@ -46,13 +46,14 @@ public sealed class WorkspaceCommand_TreeTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _iterationService = Substitute.For<IIterationService>();
+                _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());

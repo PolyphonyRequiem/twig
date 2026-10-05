@@ -77,6 +77,9 @@ internal interface ISystemWorktreeRegistry
     /// authorizes anything. Returned rows are unordered.</summary>
     Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForTupleAsync(string connectionRef, string primaryScopeKind, int workItemId, CancellationToken ct = default);
 
+    /// <summary>Every claim row attached to a worktree fingerprint, including unlinked reservations and terminal history.</summary>
+    Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForWorktreeAsync(string worktreeFingerprint, CancellationToken ct = default);
+
     /// <summary>Atomic supersession: within one storage transaction,
     /// CAS-rewrites <paramref name="predecessorClaimId"/> from
     /// <c>active</c>→<c>superseded</c> (matching

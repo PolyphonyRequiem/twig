@@ -76,7 +76,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (!TryParseWorkItemId(input.PrimaryScopeId, out var workItemId))
             return new ClaimMintOutcome.InvalidRequest("primaryScopeId must be a positive integer.");
 
-        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, ct).ConfigureAwait(false);
+        var holderResult = await ResolveHolderAsync(input.HolderIdentity, ct).ConfigureAwait(false);
         if (!holderResult.IsSuccess)
             return new ClaimMintOutcome.HolderUnavailable(holderResult.Error);
         var holder = holderResult.Value;
@@ -251,7 +251,7 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (!TryParseWorkItemId(input.PrimaryScopeId, out var workItemId))
             return new ClaimReclaimOutcome.InvalidRequest("primaryScopeId must be a positive integer.");
 
-        var holderResult = await ResolveHolderAsync(input.HolderIdentity, input.HolderDisplay, ct).ConfigureAwait(false);
+        var holderResult = await ResolveHolderAsync(input.HolderIdentity, ct).ConfigureAwait(false);
         if (!holderResult.IsSuccess)
             return new ClaimReclaimOutcome.HolderUnavailable(holderResult.Error);
         var holder = holderResult.Value;
@@ -431,6 +431,10 @@ internal sealed class LocalClaimService : ILocalClaimService
         if (claim is null)
             return new ClaimReleaseOutcome.SchemaDrift(driftVersion);
         var current = ProjectClaim(doc!, row.CasToken);
+        var holder = await ResolveHolderAsync(current.HolderIdentity, ct).ConfigureAwait(false);
+        if (!holder.IsSuccess)
+            return new ClaimReleaseOutcome.InvalidRequest(holder.Error);
+
 
         var attachmentRes = await _attachment.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!attachmentRes.IsSuccess)
@@ -702,11 +706,17 @@ internal sealed class LocalClaimService : ILocalClaimService
         return Result.Fail($"converge-not-stable:last-epoch={lastObservedEpoch},last-winner={lastObservedWinner ?? "<none>"}");
     }
 
-    private async Task<Result<ClaimHolderDescriptor>> ResolveHolderAsync(string? callerIdentity, string? callerDisplay, CancellationToken ct)
+    private async Task<Result<ClaimHolderDescriptor>> ResolveHolderAsync(string? callerIdentity, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(callerIdentity))
-            return Result.Ok(new ClaimHolderDescriptor(callerIdentity!, callerDisplay));
-        return await _holderResolver.ResolveAsync(ct).ConfigureAwait(false);
+        var resolved = await _holderResolver.ResolveAsync(ct).ConfigureAwait(false);
+        if (!resolved.IsSuccess)
+            return resolved;
+        // A supplied holder is an expectation, never an alternate actor. In particular,
+        // identical display names do not let a caller mint for another bound account.
+        if (!string.IsNullOrWhiteSpace(callerIdentity)
+            && !string.Equals(callerIdentity.Trim(), resolved.Value.Identity, StringComparison.OrdinalIgnoreCase))
+            return Result.Fail<ClaimHolderDescriptor>("holder-resolver-principal-mismatch");
+        return resolved;
     }
 
     private static int TryParseInt(string value)

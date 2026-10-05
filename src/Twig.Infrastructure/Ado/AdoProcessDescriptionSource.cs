@@ -63,12 +63,14 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
     private readonly string _project;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     public AdoProcessDescriptionSource(
         HttpClient httpClient,
         IAuthenticationProvider authProvider,
         string orgUrl,
-        string project)
+        string project,
+        AdoConcurrencyThrottle? throttle = null)
     {
         if (string.IsNullOrWhiteSpace(orgUrl))
             throw new InvalidOperationException("Organization is not configured. Run 'twig init --org <org> --project <project>' first.");
@@ -78,6 +80,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         _http = httpClient;
         _authProvider = authProvider;
         _orgUrl = AdoRestClient.NormalizeOrgUrl(orgUrl);
+        _throttle = throttle;
         _project = project;
     }
 
@@ -138,6 +141,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
     public async Task<ProcessIdentity?> GetProcessIdentityAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 🔴 project -> processTemplate id. Never a lookup by process NAME.
         var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}" +
             $"?includeCapabilities=true&api-version={AdoApiVersions.Projects}";
@@ -169,6 +173,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
     public async Task<IReadOnlyList<ProcessTypeSummary>?> GetTypesAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var identity = await GetProcessIdentityAsync(ct);
         if (identity is null)
             return null;
@@ -226,6 +231,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string? inheritsFrom = null,
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(typeReferenceName))
             return null;
 
@@ -332,6 +338,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string typeReferenceName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
             $"/workItemTypesBehaviors/{Uri.EscapeDataString(typeReferenceName)}" +
             $"/behaviors?api-version={AdoApiVersions.ProcessTypeBehaviors}";
@@ -385,6 +392,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     public async Task<IReadOnlyList<ProcessBehaviourSummary>?> GetBehaviourCatalogueAsync(
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var identity = await GetProcessIdentityAsync(ct);
         if (identity is null)
             return null;
@@ -464,6 +472,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string typeReferenceName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
             $"/workItemTypes/{Uri.EscapeDataString(typeReferenceName)}" +
             $"/layout?api-version={AdoApiVersions.ProcessLayout}";
@@ -585,6 +594,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string typeReferenceName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
             $"/workItemTypes/{Uri.EscapeDataString(typeReferenceName)}" +
             $"/rules?api-version={AdoApiVersions.ProcessRules}";
@@ -666,6 +676,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     public async Task<IReadOnlyDictionary<string, FieldValueConstraint>?> GetFieldValueConstraintsAsync(
         CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 🔴 GA 7.1 and org-scoped. Read for `isPicklist`/`picklistId` ONLY — this list is
         // identical for every work item type and must never be presented as a type's fields.
         var url = $"{_orgUrl}/_apis/wit/fields?api-version={AdoApiVersions.Fields}";
@@ -839,6 +850,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
     /// </remarks>
     private async Task<AdoPicklistResponse?> FetchPicklistAsync(string listId, CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/work/processes/lists/{Uri.EscapeDataString(listId)}" +
             $"?api-version={AdoApiVersions.ProcessLists}";
 
@@ -870,6 +882,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string typeReferenceName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 🔴 preview.2 buys required, defaultValue and customization. The same URL at
         // preview.1 returns a disjoint attribute set carrying none of the three, with
         // IDENTICAL counts — so a version slip is invisible in the row count and shows up
@@ -921,6 +934,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         string typeReferenceName,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         // 🔴 GA 7.1 here, NOT preview.2 — the server rejects preview.2 on this route with
         // VssVersionOutOfRangeException. See AdoApiVersions.ProcessWorkItemTypeStates.
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processId)}" +
@@ -988,6 +1002,7 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
         IReadOnlyList<ProcessTypeState>? ownStates,
         CancellationToken ct)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes" +
             $"?$expand=all&api-version={AdoApiVersions.ProjectWorkItemTypesExpanded}";
 
@@ -1092,6 +1107,8 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
+        using var throttleSlot = _throttle is not null ? await _throttle.AcquireAsync(budget, ct) : null;
 
         HttpResponseMessage response;
         try
@@ -1109,7 +1126,13 @@ internal sealed class AdoProcessDescriptionSource : IProcessDescriptionSource
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (AdoRateLimitException ex)
+        {
+            response.Dispose();
+            _throttle?.SetPause(budget, ex.RetryAfter);
+            throw;
         }
         catch
         {

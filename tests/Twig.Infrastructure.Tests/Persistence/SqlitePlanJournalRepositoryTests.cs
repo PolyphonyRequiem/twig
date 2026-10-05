@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
@@ -1409,6 +1410,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals RENAME TO plan_journals;
@@ -1604,6 +1607,8 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                 using (var rollback = conn.CreateCommand())
                 {
                     rollback.CommandText = """
+                        DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorization_mode;
@@ -2022,6 +2027,342 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
         var emptyRepo = new SqlitePlanJournalRepository(emptyStore);
         (await emptyRepo.GetLatestUnresolvedAsync()).ShouldBeNull();
     }
+
+
+    [Fact]
+    public async Task Import_RecordsOriginOnFirstInsert_NeverPromotesLegacyUnknown()
+    {
+        // First import carries native authority; second import of the same digest with a
+        // different (or null) origin cannot overwrite it — immutability of first-preview
+        // authority is the receipt system's identity invariant.
+        var plan = BuildTwoOpPlan();
+        var now = Now();
+        var originA = NewOrigin("binding-A");
+        var originB = NewOrigin("binding-B");
+
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/x.json", now, origin: originA);
+        (await _repo.GetAsync(plan.Digest))!.Origin.ShouldBe(originA);
+
+        // Re-preview with a different origin is a silent no-op on origin_json.
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/x.json", now.AddSeconds(1), origin: originB);
+        (await _repo.GetAsync(plan.Digest))!.Origin.ShouldBe(originA);
+
+        // And re-preview with null does not clobber the captured origin.
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/x.json", now.AddSeconds(2));
+        (await _repo.GetAsync(plan.Digest))!.Origin.ShouldBe(originA);
+    }
+
+    [Fact]
+    public async Task Import_LegacyUnknownOrigin_StaysUnknown()
+    {
+        var plan = BuildTwoOpPlan();
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/x.json", Now());
+        (await _repo.GetAsync(plan.Digest))!.Origin.ShouldBeNull();
+
+        // A later import with an origin cannot promote the unknown-legacy row.
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/x.json", Now().AddSeconds(1), origin: NewOrigin("late"));
+        (await _repo.GetAsync(plan.Digest))!.Origin.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task TryAppendReceipt_Retired_SettlesPlannedOp_FencesConfirmedToApplying()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("binding-R");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/r.json", Now(), origin: origin);
+        var op = plan.Plan.Operations[0];
+        var request = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id).RequestJson;
+
+        var receipt = NewRetiredReceipt(plan.Digest, op.Id, request, origin);
+        (await _repo.TryAppendReceiptAsync(receipt, PlanOperationState.Planned, expectedResultJson: null))
+            .ShouldBeTrue();
+
+        // Receipt projects on the operation.
+        var reloaded = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id);
+        reloaded.OutcomeReceipt.ShouldNotBeNull();
+        reloaded.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Retired);
+        reloaded.State.ShouldBe(PlanOperationState.Planned);  // execution state never rewritten
+
+        // ConfirmAsync is fenced: a receipt against any op in this journal blocks admission.
+        await _repo.ConfirmAsync(plan.Digest, Now(), default);
+        (await _repo.GetAsync(plan.Digest))!.State.ShouldBe(PlanOperationState.Planned);
+
+        // Second settlement attempt loses — single-winner.
+        (await _repo.TryAppendReceiptAsync(receipt, PlanOperationState.Planned, expectedResultJson: null))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TryAppendReceipt_Retired_RejectsStartedRow()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("binding-S");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/s.json", Now(), origin: origin);
+        await _repo.ConfirmAsync(plan.Digest, Now());
+        var op = plan.Plan.Operations[0];
+        (await _repo.TryTransitionOperationAsync(plan.Digest, op.Id,
+            PlanOperationState.Planned, PlanOperationState.Applying, Now())).ShouldBeTrue();
+
+        var request = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id).RequestJson;
+        var receipt = NewRetiredReceipt(plan.Digest, op.Id, request, origin);
+
+        // Retired is only valid against a pristine Planned/Confirmed row — Applying blocks it.
+        (await _repo.TryAppendReceiptAsync(receipt, PlanOperationState.Applying, expectedResultJson: null))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TryAppendReceipt_Retired_RejectsMismatchedOrigin()
+    {
+        var plan = BuildTwoOpPlan();
+        var captured = NewOrigin("captured");
+        var different = NewOrigin("different");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/o.json", Now(), origin: captured);
+        var op = plan.Plan.Operations[0];
+        var request = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id).RequestJson;
+
+        var receipt = NewRetiredReceipt(plan.Digest, op.Id, request, different);
+        (await _repo.TryAppendReceiptAsync(receipt, PlanOperationState.Planned, expectedResultJson: null))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TryAppendReceipt_Readback_RejectsUnprovedHistoricalOutcomes()
+    {
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("rb");
+        await _repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/rb.json", Now(), origin: origin);
+        await _repo.ConfirmAsync(plan.Digest, Now());
+        var op = plan.Plan.Operations[0];
+        (await _repo.TryTransitionOperationAsync(plan.Digest, op.Id,
+            PlanOperationState.Planned, PlanOperationState.Applying, Now())).ShouldBeTrue();
+        await _repo.SaveOperationErrorAsync(plan.Digest, op.Id,
+            "network blew up", PlanOperationState.Indeterminate, Now());
+
+        var reloaded = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id);
+        var receipt = NewReadbackReceipt(plan.Digest, op.Id, reloaded.RequestJson, origin);
+        (await _repo.TryAppendReceiptAsync(receipt, PlanOperationState.Indeterminate, reloaded.ResultJson))
+            .ShouldBeFalse("an Indeterminate state plus an empty readback is not proof");
+
+        // Receipt against Confirmed/Applying/Applied/Verified would be rejected.
+        var otherOp = plan.Plan.Operations[1];
+        var otherRequest = (await _repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == otherOp.Id).RequestJson;
+        var bad = NewReadbackReceipt(plan.Digest, otherOp.Id, otherRequest, origin);
+        (await _repo.TryAppendReceiptAsync(bad, PlanOperationState.Confirmed, expectedResultJson: null))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetUnresolved_SkipsSettledOps_RetainsUnrelatedUnknown()
+    {
+        // Two journals: journal A is single-op, settled by a Retired receipt. Journal B is a
+        // legacy-origin two-op plan with no receipts. B must remain in the unresolved set; A
+        // must drop out — and GetLatestUnresolvedAsync must agree.
+        var planA = BuildLinkPlan();
+        var planB = BuildTwoOpPlan();
+        var originA = NewOrigin("A");
+        await _repo.ImportAsync(planA, planA.CanonicalJson, planA.Digest, "/plans/a.json", Now().AddMinutes(-10), origin: originA);
+        await _repo.ImportAsync(planB, planB.CanonicalJson, planB.Digest, "/plans/b.json", Now().AddMinutes(-5));
+
+        var opA = planA.Plan.Operations[0];
+        var requestA = (await _repo.GetAsync(planA.Digest))!.Operations.Single(o => o.OpId == opA.Id).RequestJson;
+        var receiptA = NewRetiredReceipt(planA.Digest, opA.Id, requestA, originA);
+        (await _repo.TryAppendReceiptAsync(receiptA, PlanOperationState.Planned, expectedResultJson: null))
+            .ShouldBeTrue();
+
+        var unresolved = await _repo.GetUnresolvedAsync();
+        unresolved.Select(j => j.Digest).ShouldBe(new[] { planB.Digest });
+
+        (await _repo.GetLatestUnresolvedAsync())!.Digest.ShouldBe(planB.Digest);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TwoStoreRace_RetirementVsAdmission_ExactlyOneWins(bool retirementFirst)
+    {
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-receipt-race-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+        var plan = BuildTwoOpPlan();
+        var origin = NewOrigin("race");
+        try
+        {
+            using (var warmup = new SqliteCacheStore($"Data Source={dbPath}"))
+                await new SqlitePlanJournalRepository(warmup).ImportAsync(
+                    plan, plan.CanonicalJson, plan.Digest, "/plans/race.json", Now(), origin: origin);
+            using var storeA = new SqliteCacheStore($"Data Source={dbPath}");
+            using var storeB = new SqliteCacheStore($"Data Source={dbPath}");
+            var repoA = new SqlitePlanJournalRepository(storeA);
+            var repoB = new SqlitePlanJournalRepository(storeB);
+            var opId = plan.Plan.Operations[0].Id;
+            await repoA.TryTransitionOperationAsync(plan.Digest, opId,
+                PlanOperationState.Planned, PlanOperationState.Confirmed, Now());
+            var request = (await repoA.GetAsync(plan.Digest))!.Operations.Single(op => op.OpId == opId).RequestJson;
+            var receipt = NewRetiredReceipt(plan.Digest, opId, request, origin);
+            var uow = new SqliteUnitOfWork(storeA);
+            await using var transaction = await uow.BeginAsync();
+            var winner = retirementFirst
+                ? await repoA.TryAppendReceiptAsync(receipt, PlanOperationState.Confirmed, null)
+                : await repoA.TryTransitionOperationAsync(plan.Digest, opId,
+                    PlanOperationState.Confirmed, PlanOperationState.Applying, Now());
+            winner.ShouldBeTrue();
+            using var entered = new ManualResetEventSlim();
+            var loser = Task.Run(async () =>
+            {
+                entered.Set();
+                return retirementFirst
+                    ? await repoB.TryTransitionOperationAsync(plan.Digest, opId,
+                        PlanOperationState.Confirmed, PlanOperationState.Applying, Now())
+                    : await repoB.TryAppendReceiptAsync(receipt, PlanOperationState.Confirmed, null);
+            });
+            try
+            {
+                entered.Wait(TimeSpan.FromSeconds(5)).ShouldBeTrue();
+                (await Task.WhenAny(loser, Task.Delay(200))).ShouldNotBe(loser,
+                    "the second store must contend while the first outcome is uncommitted");
+                await uow.CommitAsync(transaction);
+                (await loser.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeFalse();
+                var final = (await repoB.GetAsync(plan.Digest))!.Operations.Single(op => op.OpId == opId);
+                final.State.ShouldBe(retirementFirst ? PlanOperationState.Confirmed : PlanOperationState.Applying);
+                (final.OutcomeReceipt is not null).ShouldBe(retirementFirst);
+            }
+            finally
+            {
+                await transaction.DisposeAsync();
+                await loser.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Receipt_SurvivesReopen_AndMirrorRebuild()
+    {
+        var dir = Path.Combine(Path.GetFullPath(Path.GetTempPath()), $"twig-receipt-reopen-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "twig.db");
+        var plan = BuildPublishSeedPlan();
+        var origin = NewOrigin("reopen");
+        DateTimeOffset recordedAt = default;
+        StagedIdentity identity = default;
+        StagedIdentity.TryParse("01947f00-0000-7000-8000-000000000001", out identity).ShouldBeTrue();
+
+        try
+        {
+            using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                var repo = new SqlitePlanJournalRepository(store);
+                await repo.ImportAsync(plan, plan.CanonicalJson, plan.Digest, "/plans/reopen.json", Now(), origin: origin);
+                var op = plan.Plan.Operations[0];
+                var intents = new SqlitePublishIntentRepository(store);
+                recordedAt = (await intents.RecordIntentAsync(identity, "Published seed", "Task")).RecordedAt;
+                await new SqlitePublishIdMapRepository(store, new SqliteStagedIdentityRegistry(store))
+                    .RecordMappingAsync(identity, 42);
+                await repo.TryTransitionOperationAsync(plan.Digest, op.Id,
+                    PlanOperationState.Planned, PlanOperationState.Applying, Now());
+                await repo.SaveOperationErrorAsync(plan.Digest, op.Id, "unknown response", PlanOperationState.Indeterminate, Now());
+                var request = (await repo.GetAsync(plan.Digest))!.Operations.Single(o => o.OpId == op.Id).RequestJson;
+                var receipt = NewReadbackReceipt(plan.Digest, op.Id, request, origin) with
+                {
+                    PublishIdentity = identity,
+                    PublishIntentRecordedAt = recordedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+                    EvidenceJson = JsonSerializer.Serialize(new { verifiedReadback = new { identity = identity.ToString(), publishedId = 42 } }),
+                };
+                (await repo.TryAppendReceiptAsync(receipt, PlanOperationState.Indeterminate, expectedResultJson: null))
+                    .ShouldBeTrue();
+
+                // Force the disposable mirror to rebuild on next open.
+                using var bump = store.GetConnection().CreateCommand();
+                bump.CommandText = "UPDATE metadata SET value = '0' WHERE key = 'schema_version';";
+                bump.ExecuteNonQuery();
+            }
+
+            using (var reopened = new SqliteCacheStore($"Data Source={dbPath}"))
+            {
+                reopened.SchemaWasRebuilt.ShouldBeTrue();
+                var repo = new SqlitePlanJournalRepository(reopened);
+                var reloaded = (await repo.GetAsync(plan.Digest))!.Operations[0];
+                reloaded.OutcomeReceipt.ShouldNotBeNull();
+                reloaded.OutcomeReceipt!.Kind.ShouldBe(PlanOutcomeKind.Readback);
+                reloaded.OutcomeReceipt.PublishIdentity.ShouldBe(identity);
+                reloaded.OutcomeReceipt.PublishIntentRecordedAt
+                    .ShouldBe(recordedAt.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+                (await new SqlitePublishIntentRepository(reopened).GetOpenIntentsAsync()).ShouldBeEmpty();
+                (await new SqlitePublishIntentRepository(reopened).GetIntentAsync(identity))!.IsOpen.ShouldBeTrue();
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+    private static PlanOrigin NewOrigin(string bindingSuffix) => new(
+        WorktreeRoot: "/wt",
+        WorktreeFingerprint: "wt-fp",
+        AttachmentRevision: 1,
+        ConnectionRef: "cn",
+        BindingId: $"binding-{bindingSuffix}",
+        BindingRevision: 1,
+        SelectionSource: "explicit",
+        SelectionRevision: 1,
+        IdentityId: "ident",
+        Method: "pat",
+        CredentialRef: "cr",
+        TenantId: "tid",
+        ObjectId: "oid",
+        Issuer: "iss",
+        Authority: "auth",
+        AdoPrincipalId: null);
+
+    private static ProposalAuthorization NewAuthorization(string digest) => new()
+    {
+        Digest = digest,
+        Mode = ProposalAuthorizationMode.Human,
+        AuthorizerIdentity = "Fixture scope owner",
+        Rationale = "Prove native receipt invariants in isolated durable stores",
+        AuthorizedAt = Now(),
+    };
+
+    private static PlanOutcomeReceipt NewRetiredReceipt(string digest, string opId, string requestJson, PlanOrigin origin) =>
+        new()
+        {
+            ReceiptId = Guid.NewGuid().ToString("N"),
+            Digest = digest,
+            OpId = opId,
+            Kind = PlanOutcomeKind.Retired,
+            RequestJson = requestJson,
+            Origin = origin,
+            AuthorizingOrigin = origin,
+            Authorization = NewAuthorization(digest),
+            EvidenceJson = "{\"neverAdmitted\":true,\"mutationIssued\":false}",
+            ReplacementDigest = null,
+            ReplacementOpId = null,
+            PublishIdentity = null,
+            PublishIntentRecordedAt = null,
+        };
+
+    private static PlanOutcomeReceipt NewReadbackReceipt(string digest, string opId, string requestJson, PlanOrigin origin) =>
+        new()
+        {
+            ReceiptId = Guid.NewGuid().ToString("N"),
+            Digest = digest,
+            OpId = opId,
+            Kind = PlanOutcomeKind.Readback,
+            RequestJson = requestJson,
+            Origin = origin,
+            AuthorizingOrigin = origin,
+            Authorization = NewAuthorization(digest),
+            EvidenceJson = "{\"verifiedReadback\":{}}",
+            ReplacementDigest = null,
+            ReplacementOpId = null,
+            PublishIdentity = null,
+            PublishIntentRecordedAt = null,
+        };
 
     private static PlanFixture BuildTwoOpPlan()
     {

@@ -99,11 +99,15 @@ public sealed class SprintIterationResolver(
 
     /// <summary>
     /// Fetches work items across all resolved iterations, deduplicated by work item ID.
-    /// When <paramref name="allUsers"/> is <c>false</c>, items are scoped to <paramref name="userDisplayName"/>.
+    /// When <paramref name="allUsers"/> is <c>false</c> and <paramref name="assignee"/> is
+    /// non-empty, items are scoped to that assignee at the repository seam. The caller supplies
+    /// the exact string the repository is to match against — a canonical identity for self views
+    /// (ADO #1106) or a hand-authored display label for explicit selectors; this method is a
+    /// shared consumer API, not an auth seam, and does not interpret the string.
     /// </summary>
     public async Task<IReadOnlyList<WorkItem>> GetSprintItemsAsync(
         IReadOnlyList<IterationExpression> expressions,
-        string? userDisplayName,
+        string? assignee,
         bool allUsers,
         CancellationToken ct = default)
     {
@@ -117,9 +121,9 @@ public sealed class SprintIterationResolver(
 
         foreach (var path in resolvedPaths)
         {
-            var items = allUsers || string.IsNullOrEmpty(userDisplayName)
+            var items = allUsers || string.IsNullOrEmpty(assignee)
                 ? await workItemRepo.GetByIterationAsync(path, ct)
-                : await workItemRepo.GetByIterationAndAssigneeAsync(path, userDisplayName, ct);
+                : await workItemRepo.GetByIterationAndAssigneeAsync(path, assignee, ct);
 
             foreach (var item in items)
             {

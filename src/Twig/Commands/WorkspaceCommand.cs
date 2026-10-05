@@ -99,6 +99,22 @@ public sealed class WorkspaceCommand(
         }
     }
 
+    /// <summary>
+    /// Resolves the authenticated bound principal (ADO #1106, Spec #1103) for self-scoped read
+    /// paths. A connection whose identity carries no canonical <c>uniqueName</c> is refused with
+    /// an actionable error — self views never widen to the whole team and never silently fall
+    /// back to the display rendering. The error text matches
+    /// <see cref="DefaultBenchSelectors.MissingBoundIdentityMessage"/> so the surface report
+    /// stays identical whether the gap surfaces here or downstream.
+    /// </summary>
+    private async Task<(string? Principal, string? Error)> ResolveSelfPrincipalAsync(CancellationToken ct)
+    {
+        var (_, uniqueName) = await iterationService.GetAuthenticatedUserIdentityAsync(ct);
+        return string.IsNullOrWhiteSpace(uniqueName)
+            ? (null, DefaultBenchSelectors.MissingBoundIdentityMessage)
+            : (uniqueName, null);
+    }
+
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null)
     {
         if (!TryResolveWorkspaceViewMode(view, all, sprintLayout, tree, flat, out var viewMode, out var viewError))
@@ -107,8 +123,24 @@ public sealed class WorkspaceCommand(
             return 1;
         }
 
+        // Resolve the authenticated bound principal up front for every self-scoped path (ADO #1106).
+        // --all / sprint-layout explicitly opt out of the self filter, so the lookup is skipped and
+        // a connection without a canonical identity does NOT block the team view. Self consumers
+        // refuse rather than fall back to display or widen to the whole team.
+        string? selfPrincipal = null;
+        if (!all && !sprintLayout)
+        {
+            var (principal, error) = await ResolveSelfPrincipalAsync(ct);
+            if (error is not null)
+            {
+                Console.Error.WriteLine(error);
+                return 1;
+            }
+            selfPrincipal = principal;
+        }
+
         if (tree)
-            return await ExecuteTreeModeAsync(outputFormat, all, noLive, refresh, ct);
+            return await ExecuteTreeModeAsync(outputFormat, all, noLive, refresh, selfPrincipal, ct);
 
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
         ProcessConfigurationData? processConfig = renderer is SpectreRenderer || viewMode == WorkspaceViewMode.Tree
@@ -182,7 +214,7 @@ public sealed class WorkspaceCommand(
 
                 var benchView = await workingSetService.ComputeAsync(benchIterations, ct);
                 sprintItems = await LoadQueryMatchesInOrderAsync(
-                    benchView.SprintItemIds, benchIterations, ctx.Config.User.DisplayName, ct);
+                    benchView.SprintItemIds, benchIterations, selfPrincipal, ct);
                 var sprintIds = new HashSet<int>(benchView.SprintItemIds);
                 manualItems = await LoadItemsInOrderAsync(
                     benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray(), ct);
@@ -223,7 +255,7 @@ public sealed class WorkspaceCommand(
 
                             var freshBenchView = await workingSetService.ComputeAsync(freshBenchIterations, ct);
                             refreshedSprintItems = await LoadQueryMatchesInOrderAsync(
-                                freshBenchView.SprintItemIds, freshBenchIterations, ctx.Config.User.DisplayName, ct);
+                                freshBenchView.SprintItemIds, freshBenchIterations, selfPrincipal, ct);
                             var refreshedSprintIds = new HashSet<int>(freshBenchView.SprintItemIds);
                             refreshedManualItems = await LoadItemsInOrderAsync(
                                 freshBenchView.TrackedItemIds.Where(id => !refreshedSprintIds.Contains(id)).ToArray(), ct);
@@ -283,7 +315,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, outputFormat, all, refresh, sprintLayout, flat, viewMode);
+        return await ExecuteSyncAsync(fmt, outputFormat, all, selfPrincipal, refresh, sprintLayout, flat, viewMode);
     }
 
     /// <summary>
@@ -291,7 +323,7 @@ public sealed class WorkspaceCommand(
     /// expanded to the configured depth. Delegates to <see cref="TreeRenderingService"/>
     /// for per-item rendering so all output formats (human, json, minimal) work consistently.
     /// </summary>
-    private async Task<int> ExecuteTreeModeAsync(string outputFormat, bool all, bool noLive, bool refresh, CancellationToken ct)
+    private async Task<int> ExecuteTreeModeAsync(string outputFormat, bool all, bool noLive, bool refresh, string? selfPrincipal, CancellationToken ct)
     {
         if (treeRenderingService is null)
         {
@@ -299,23 +331,22 @@ public sealed class WorkspaceCommand(
             return 1;
         }
 
-        // Gather sprint items using the same logic as the sync path
+        // Gather sprint items using the same logic as the sync path. The sprint rule is bound to
+        // the authenticated canonical principal (ADO #1106) when self-scoped; --all explicitly
+        // bypasses the filter.
         var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
-        var userDisplayName = ctx.Config.User.DisplayName;
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
 
         if (resolvedIterations.Count > 0)
         {
             sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
-                resolvedIterations, userDisplayName, allUsers: all, ct);
+                resolvedIterations, selfPrincipal, allUsers: all, ct);
         }
         else
         {
             var iteration = await iterationService.GetCurrentIterationAsync(ct);
-            if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
-                sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
-            else
-                sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
+            sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                [iteration], selfPrincipal, allUsers: all, ct);
         }
 
         if (sprintItems.Count == 0)
@@ -338,7 +369,7 @@ public sealed class WorkspaceCommand(
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool refresh = false, bool sprintLayout = false, bool flat = false, WorkspaceViewMode viewMode = WorkspaceViewMode.Auto)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, string? selfPrincipal, bool refresh = false, bool sprintLayout = false, bool flat = false, WorkspaceViewMode viewMode = WorkspaceViewMode.Auto)
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
@@ -381,26 +412,24 @@ public sealed class WorkspaceCommand(
 
             benchView = await workingSetService.ComputeAsync(benchIterations);
             sprintItems = await LoadQueryMatchesInOrderAsync(
-                benchView.SprintItemIds, benchIterations, ctx.Config.User.DisplayName);
+                benchView.SprintItemIds, benchIterations, selfPrincipal);
             var sprintIds = new HashSet<int>(benchView.SprintItemIds);
             manualItems = await LoadItemsInOrderAsync(
                 benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray());
         }
         else
         {
-            var userDisplayName = ctx.Config.User.DisplayName;
+            // Explicit team / sprint-layout path: ADO #1106 keeps this strictly off the self
+            // filter, so a connection without a bound principal does NOT block --all.
             if (resolvedIterations.Count > 0)
             {
                 sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
-                    resolvedIterations, userDisplayName, allUsers: all);
+                    resolvedIterations, canonicalPrincipal: null, allUsers: true);
             }
             else
             {
                 var iteration = await iterationService.GetCurrentIterationAsync();
-                if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
-                    sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
-                else
-                    sprintItems = await workItemRepo.GetByIterationAsync(iteration);
+                sprintItems = await workItemRepo.GetByIterationAsync(iteration);
             }
         }
 
@@ -583,14 +612,18 @@ public sealed class WorkspaceCommand(
     private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> LoadQueryMatchesInOrderAsync(
         IReadOnlyList<int> selectedIds,
         IReadOnlyList<IterationPath> iterations,
-        string? userDisplayName,
+        string? canonicalPrincipal,
         CancellationToken ct = default)
     {
         if (selectedIds.Count == 0)
             return Array.Empty<Domain.Aggregates.WorkItem>();
 
+        // Self-scoped Bench query: load unfiltered iteration rows, then narrow in-memory by the
+        // bound canonical identity (ADO #1106). Loading unfiltered matches the Bench evaluator's
+        // own path, so the intersection with the evaluator's deterministic ID list reflects what
+        // the Bench actually said — never a repo-level display filter the evaluator would reject.
         var candidates = await GetSprintItemsFromResolvedIterationsAsync(
-            iterations, userDisplayName, allUsers: false, ct);
+            iterations, canonicalPrincipal, allUsers: false, ct);
         var byId = candidates.ToDictionary(item => item.Id);
         var ordered = new List<Domain.Aggregates.WorkItem>(selectedIds.Count);
         foreach (var id in selectedIds)
@@ -830,26 +863,37 @@ public sealed class WorkspaceCommand(
 
     /// <summary>
     /// Fetches work items across all resolved iterations, deduplicated by work item ID.
-    /// When <paramref name="allUsers"/> is <c>false</c> and a display name is available,
-    /// items are scoped to the configured user.
+    /// When <paramref name="allUsers"/> is <c>false</c> and <paramref name="canonicalPrincipal"/>
+    /// is non-empty, items are narrowed in-memory by the bound canonical identity (ADO #1106):
+    /// the row's <see cref="Domain.Aggregates.WorkItem.AssignedToUniqueName"/> is matched first,
+    /// then — only when the row carries no canonical column — the authored
+    /// <see cref="Domain.Aggregates.WorkItem.AssignedTo"/> string is matched exactly. The filter
+    /// is NEVER widened to the display label because two accounts can share a display and that is
+    /// the merge canonical scoping exists to prevent.
     /// </summary>
     private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> GetSprintItemsFromResolvedIterationsAsync(
         IReadOnlyList<IterationPath> resolvedIterations,
-        string? userDisplayName,
+        string? canonicalPrincipal,
         bool allUsers,
         CancellationToken ct = default)
     {
         var seenIds = new HashSet<int>();
         var result = new List<Domain.Aggregates.WorkItem>();
+        var narrowToSelf = !allUsers && !string.IsNullOrWhiteSpace(canonicalPrincipal);
 
         foreach (var path in resolvedIterations)
         {
-            var items = allUsers || string.IsNullOrWhiteSpace(userDisplayName)
-                ? await workItemRepo.GetByIterationAsync(path, ct)
-                : await workItemRepo.GetByIterationAndAssigneeAsync(path, userDisplayName, ct);
+            // Load unfiltered: a repo-level filter can only key off the display rendering, and
+            // narrowing by canonical identity has to happen on the loaded row.
+            var items = await workItemRepo.GetByIterationAsync(path, ct);
 
             foreach (var item in items)
             {
+                if (narrowToSelf)
+                {
+                    if (!item.IsAssignedToIdentity(canonicalPrincipal))
+                        continue;
+                }
                 if (seenIds.Add(item.Id))
                     result.Add(item);
             }

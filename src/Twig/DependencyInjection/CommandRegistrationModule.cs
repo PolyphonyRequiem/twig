@@ -44,7 +44,8 @@ public static class CommandRegistrationModule
             sp.GetService<ITelemetryClient>(),
             sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(),
             sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
-            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>()));
+            sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>(),
+            sp.GetRequiredService<Twig.Infrastructure.Ado.AdoConcurrencyThrottle>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),
@@ -107,9 +108,18 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
-        services.AddSingleton<AuthStatusCommand>();
         services.AddSingleton<AuthClearCommand>();
         services.AddSingleton<AuthLoginCommand>();
+        services.AddSingleton<AuthIdentitiesCommand>();
+        services.AddSingleton<AuthPatCommand>();
+        services.AddSingleton<ConnectionBindCommand>();
+        services.AddSingleton<ConnectionListCommand>();
+        services.AddSingleton<ConnectionStatusCommand>();
+        services.AddSingleton<ConnectionCheckCommand>();
+        services.AddSingleton<ConnectionMigrateCommand>();
+        services.AddSingleton<ConnectionPinCommand>();
+        services.AddSingleton<ConnectionWritesCommand>();
+        services.AddSingleton<ConnectionDefaultCommand>();
         services.AddSingleton<QueryCommand>();
         services.AddSingleton<HistoryCommand>();
         services.AddSingleton<ProcessCommand>();

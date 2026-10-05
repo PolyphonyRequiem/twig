@@ -19,6 +19,7 @@ public sealed class SqliteStagedIdentityRegistry : IStagedIdentityRegistry
 
     public Task<StagedSeedIdentity> MintAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var identity = StagedIdentity.New();
 
@@ -49,6 +50,7 @@ public sealed class SqliteStagedIdentityRegistry : IStagedIdentityRegistry
 
     public Task RetireAsync(StagedIdentity identity, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -66,6 +68,7 @@ public sealed class SqliteStagedIdentityRegistry : IStagedIdentityRegistry
 
     public Task<StagedIdentity?> FindByAliasAsync(StagedAlias alias, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT staged_identity FROM staged_identities WHERE alias = @alias;";
@@ -80,6 +83,7 @@ public sealed class SqliteStagedIdentityRegistry : IStagedIdentityRegistry
 
     public Task<StagedAlias?> FindAliasAsync(StagedIdentity identity, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT alias FROM staged_identities WHERE staged_identity = @identity;";

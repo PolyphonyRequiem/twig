@@ -259,6 +259,40 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
     }
 
     [Fact]
+    public async Task Pat_migration_preserves_existing_binding_authority_and_worktree_claim()
+    {
+        var dbPath = Path.Combine(_dir, "system.db");
+        var now = DateTimeOffset.UtcNow;
+        (await _registry.UpsertConnectionAsync("ref-m", "org-m", "proj-m", team: null)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertWorktreeAsync("fp-m", "ref-m", "/wt-m")).IsSuccess.ShouldBeTrue();
+        (await _registry.InsertClaimAsync("claim-m", "ref-m", "fp-m", Kind, 42, "active", "cas-m", "{}")).IsSuccess.ShouldBeTrue();
+        var aad = new IdentityRow("id-m", "aad-m", "tenant-m", "object-m", "issuer-m", "authority-m", "cred-m", null, now, now);
+        (await _registry.InsertIdentityAsync(aad)).IsSuccess.ShouldBeTrue();
+        var binding = new BindingRow("binding-m", "ref-m", "id-m", 1, now, now);
+        (await _registry.InsertOrGetBindingAsync(binding)).IsSuccess.ShouldBeTrue();
+        (await _registry.UpsertDefaultBindingAsync(new DefaultBindingRow("ref-m", "binding-m", 1, now))).IsSuccess.ShouldBeTrue();
+        _registry.Dispose();
+
+        // Representative pre-PAT registry: AAD tables exist, but no PAT principal table.
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE pat_principals; UPDATE layout_meta SET version = 4 WHERE id = 1;";
+            command.ExecuteNonQuery();
+        }
+        using var reopened = new SqliteSystemWorktreeRegistry(dbPath, TimeProvider.System);
+        (await reopened.FindIdentityByNameAsync("aad-m")).Value.ShouldBe(aad);
+        (await reopened.FindBindingByIdAsync("binding-m")).Value.ShouldBe(binding);
+        (await reopened.FindDefaultBindingAsync("ref-m")).Value!.BindingId.ShouldBe("binding-m");
+        (await reopened.FindClaimAsync("claim-m")).Value!.CasToken.ShouldBe("cas-m");
+        var pat = new IdentityRow("id-p", "pat-p", "", "", "", "", "cred-p", null, now, now,
+            Method: "pat", AdoPrincipalId: "principal-p", AdoAuthority: "https://dev.azure.com/org-m");
+        (await reopened.InsertIdentityAsync(pat)).IsSuccess.ShouldBeTrue();
+        (await reopened.FindIdentityByNameAsync("pat-p")).Value.ShouldBe(pat);
+    }
+
+    [Fact]
     public async Task Existing_db_missing_layout_meta_fails_closed()
     {
         var dbPath = Path.Combine(_dir, "system.db");

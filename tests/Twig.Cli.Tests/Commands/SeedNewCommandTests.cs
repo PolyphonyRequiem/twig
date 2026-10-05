@@ -26,6 +26,7 @@ public class SeedNewCommandTests
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
     private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IIterationService _iterationService;
     private readonly ActiveItemResolver _resolver;
     private readonly SeedNewCommand _cmd;
 
@@ -38,6 +39,9 @@ public class SeedNewCommandTests
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _iterationService = Substitute.For<IIterationService>();
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(("Test User", "test.user@example.com"));
 
         _processConfigProvider.GetConfiguration()
             .Returns(ProcessConfigBuilder.Agile());
@@ -514,7 +518,7 @@ public class SeedNewCommandTests
         return new SeedNewCommand(
             _resolver, _workItemRepo, processConfigProvider,
             _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
-            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo, _iterationService);
     }
 
     // --field / --description: non-interactive seed authoring. Before this, the only

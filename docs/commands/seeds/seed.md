@@ -10,9 +10,10 @@ mutates: local
 
 Bare `twig seed "<title>"` is a **hidden** backward-compatibility shortcut for
 [`twig seed new`](./seed-new.md). It routes into the same `SeedNewCommand` with the
-same flags, so it creates a local seed under the active parent without touching
-Azure DevOps. It stays in the surface so old scripts and finger memory keep working;
-new work should call `seed new` explicitly.
+same flags, so it creates a local seed under the active parent without publishing
+to Azure DevOps. Like `seed new`, its default-assignee lookup uses the bound
+account and can contact ADO. It stays in the surface so old scripts and finger
+memory keep working; new work should call `seed new` explicitly.
 
 The shortcut is `[Hidden]` in `Program.cs`, which excludes it from
 `twig --help` output but still routes at the CLI parser (`src/Twig/Program.cs:807-810`).

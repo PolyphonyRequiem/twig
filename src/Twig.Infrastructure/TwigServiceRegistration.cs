@@ -10,6 +10,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
@@ -29,11 +30,10 @@ namespace Twig.Infrastructure;
 /// include <c>Twig.Tui</c>. An <c>internal</c> class would cause a compilation
 /// error in the TUI project.
 /// <para/>
-/// <b>Storage layout</b>: AB#736 pins one SQLite file per worktree at
-/// <c>.twig/cache/twig.db</c>. Migration from the pre-T1
-/// <c>.twig/{org}/{project}/twig.db</c> nested layout is deliberately not
-/// provided — the clean cutover requires <c>twig init --force</c> in each
-/// affected worktree; there is no in-band bridge.
+/// <b>Storage layout</b>: one disposable mirror and one durable pending store per worktree.
+/// Explicit migration moves supported split legacy mirrors to a native generation-admitted
+/// entry point and seals their old paths after verified host closure. Unsupported legacy
+/// state is preserved for compatible-version recovery, never silently archived or rebuilt.
 /// </remarks>
 public static class TwigServiceRegistration
 {
@@ -81,6 +81,34 @@ public static class TwigServiceRegistration
             return TwigPaths.BuildPaths(resolvedTwigDir, config, startDir);
         });
 
+        services.TryAddSingleton<IConnectionBindingService>(_ =>
+            new ConnectionBindingService(ConnectionBindingService.ResolveUserHome()));
+        services.AddSingleton<IConnectionMigrationService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionMigrationService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
+        services.AddSingleton<IConnectionBindingTransitionService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionBindingTransitionService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
+        services.AddSingleton<IConnectionDefaultTransitionService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionDefaultTransitionService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings);
+        });
+        services.AddSingleton<IConnectionRemoteWriteReconciliationService>(sp =>
+        {
+            var bindings = sp.GetRequiredService<IConnectionBindingService>();
+            return new ConnectionRemoteWriteReconciliationService(Path.GetDirectoryName(bindings.RegistryPath)!, bindings, sp.GetService<HttpClient>());
+        });
+        services.AddSingleton<IIdentityChangeEligibilityService>(sp => new IdentityChangeEligibilityService(
+            sp.GetRequiredService<ISystemWorktreeRegistry>(), sp.GetRequiredService<IPrimaryScopeAttachmentStore>(),
+            sp.GetRequiredService<IPendingChangeReader>(), sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPublishIntentRepository>(), sp.GetRequiredService<IPlanJournalRepository>(),
+            sp.GetRequiredService<IConnectionBindingService>()));
+
         // SQLite persistence — registered unconditionally. SqliteCacheStore is
         // created lazily (on first resolution) for any discovered workspace.
         services.AddSingleton(sp =>
@@ -90,7 +118,7 @@ public static class TwigServiceRegistration
                 throw new WorkspaceNotFoundException();
 
             Directory.CreateDirectory(Path.GetDirectoryName(paths.DbPath)!);
-            return new SqliteCacheStore($"Data Source={paths.DbPath}");
+            return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
         services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));
@@ -176,7 +204,7 @@ public static class TwigServiceRegistration
             // tmp/ to be present. The registry opens system.db and creates
             // the file lazily; layout.json + tmp/ are materialized here so
             // the tier is complete even before the first registry call.
-            var systemRoot = Twig.Infrastructure.Config.WorkspaceDiscovery.GlobalHomePath;
+            var systemRoot = ConnectionBindingService.ResolveUserHome();
             Twig.Infrastructure.Persistence.SystemStoreLayout.EnsureRoot(systemRoot, TimeProvider.System);
             return new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(
                 Path.Combine(systemRoot, "system.db"),
@@ -417,7 +445,7 @@ public static class TwigServiceRegistration
         // is the sprint rule alone — seeding from the tracking file would resurrect the second pin
         // store the wipe removed.
         services.TryAddSingleton<DefaultBenchSelectors>(sp => new DefaultBenchSelectors(
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+            sp.GetRequiredService<IIterationService>()));
 
         // ADO #149: ONE answer to "which Bench am I standing on". Shared by the view, the pin
         // workflow and the Bench workflow — a second copy is how one surface gets left reading the
@@ -460,13 +488,11 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<DefaultBenchSelectors>(),
             sp.GetRequiredService<CurrentBenchResolver>()));
 
-        // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<BenchEvaluator>()));
 
@@ -586,6 +612,10 @@ public static class TwigServiceRegistration
         // nothing about who is allowed to authorize a mutation from it.
         services.AddSingleton<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider,
             Twig.Domain.Services.ChangeProposals.UnresolvedSessionSteeringModeProvider>();
+        services.TryAddSingleton<IPlanOriginProvider>(sp => new BoundPlanOriginProvider(
+            sp.GetRequiredService<IConnectionBindingService>(),
+            sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(),
+            sp.GetRequiredService<IAuthenticationProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
             new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
@@ -604,10 +634,12 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
+                sp.GetRequiredService<IPlanOriginProvider>(),
                 // Runtime process-rule gate (AB#673). Optional in the object graph — if the
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.
-                sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>()));
+                sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
+                sp.GetRequiredService<IUnitOfWork>()));
 
         return services;
     }

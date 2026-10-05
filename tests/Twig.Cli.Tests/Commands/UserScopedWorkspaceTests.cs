@@ -17,6 +17,16 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
+/// <summary>
+/// Workspace self-view contracts after ADO #1106 / Spec #1103.
+/// <para>
+/// 🔴 The self default view is bound to the authenticated connection's canonical
+/// <c>uniqueName</c>, never to the ambient display name. A connection without a bound principal
+/// REFUSES rather than widening to the whole team or falling back to display. <c>--all</c> is the
+/// explicit team view and does not consult the bound principal, so a missing identity does not
+/// block it.
+/// </para>
+/// </summary>
 public class UserScopedWorkspaceTests
 {
     private readonly IContextStore _contextStore;
@@ -42,7 +52,7 @@ public class UserScopedWorkspaceTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
@@ -61,176 +71,125 @@ public class UserScopedWorkspaceTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
-    private CommandContext CreateCtx(TwigConfiguration config) =>
+    private CommandContext CreateCtx() =>
         new(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory,
             _hintEngine,
-            config);
+            new TwigConfiguration());
 
-    private WorkspaceCommand CreateCommand(TwigConfiguration config) =>
-        new(CreateCtx(config), _contextStore, _workItemRepo, _iterationService,
+    private WorkspaceCommand CreateCommand() =>
+        new(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
             new SprintIterationResolver(_iterationService, _workItemRepo));
 
     [Fact]
-    public async Task Ws_DefaultMode_FiltersToUserWhenConfigured()
+    public async Task Self_DefaultView_BindsToCanonicalPrincipal_NotDisplayName()
     {
-        var config = new TwigConfiguration();
-        config.User.DisplayName = "Alice Smith";
+        _iterationService.WithBoundIdentity(uniqueName: "alice@contoso.com");
 
-        var aliceItem = CreateWorkItem(1, "Task A", "Alice Smith");
-        var bobItem = CreateWorkItem(2, "Task B", "Bob Jones");
+        // Two accounts share the display label "Alex Smith" but carry different canonical identities.
+        var selfAlice = CreateWorkItem(1, "Alice's task",
+            assignedToDisplay: "Alex Smith", assignedToUniqueName: "alice@contoso.com");
+        var otherAlex = CreateWorkItem(2, "Alex's task",
+            assignedToDisplay: "Alex Smith", assignedToUniqueName: "alex@fabrikam.com");
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { selfAlice, otherAlex });
 
-        _workItemRepo.GetByIterationAndAssigneeAsync(
-            Arg.Any<IterationPath>(), Arg.Is("Alice Smith"), Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem });
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem, bobItem });
-
-        var cmd = CreateCommand(config);
-
-        var result = await cmd.ExecuteAsync();
+        var result = await CreateCommand().ExecuteAsync();
 
         result.ShouldBe(0);
-        // Should call the assignee-scoped method for sprint items
-        await _workItemRepo.Received(1).GetByIterationAndAssigneeAsync(
-            Arg.Any<IterationPath>(), Arg.Is("Alice Smith"), Arg.Any<CancellationToken>());
-        // WorkingSetService.ComputeAsync also calls GetByIterationAsync (dirty orphan computation)
+        // The repo is READ unfiltered — a server-side display filter would silently merge the two.
+        await _workItemRepo.Received().GetByIterationAsync(
+            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        // A display-name filter would call this; the canonical filter does not.
+        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Ws_AllFlag_ShowsAllTeamItems()
+    public async Task All_ExplicitlyBypassesSelfFilter()
     {
-        var config = new TwigConfiguration();
-        config.User.DisplayName = "Alice Smith";
+        _iterationService.WithBoundIdentity();
 
-        var aliceItem = CreateWorkItem(1, "Task A", "Alice Smith");
-        var bobItem = CreateWorkItem(2, "Task B", "Bob Jones");
-
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+        var aliceItem = CreateWorkItem(1, "Task A",
+            assignedToDisplay: "Alice", assignedToUniqueName: IdentityStubs.DefaultCanonicalPrincipal);
+        var bobItem = CreateWorkItem(2, "Task B",
+            assignedToDisplay: "Bob", assignedToUniqueName: "bob@contoso.com");
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem, bobItem });
 
-        var cmd = CreateCommand(config);
-
-        var result = await cmd.ExecuteAsync(all: true);
+        var result = await CreateCommand().ExecuteAsync(all: true);
 
         result.ShouldBe(0);
-        // Should call the full iteration method, not the assignee-scoped one
-        await _workItemRepo.Received(1).GetByIterationAsync(
+        await _workItemRepo.Received().GetByIterationAsync(
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
             Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Ws_NoUserConfigured_FallsBackToAllItems()
+    public async Task All_StillWorks_WhenConnectionCannotProveCanonicalIdentity()
     {
-        var config = new TwigConfiguration(); // No user configured
+        // Explicit team view does NOT consult the bound principal, so a connection whose identity
+        // is unresolved does not block --all. The self fail-closed path never runs here.
+        _iterationService.WithoutBoundIdentity();
 
-        var aliceItem = CreateWorkItem(1, "Task A", "Alice Smith");
-        var bobItem = CreateWorkItem(2, "Task B", "Bob Jones");
+        var items = new[]
+        {
+            CreateWorkItem(1, "Team A", "Alice", "alice@contoso.com"),
+            CreateWorkItem(2, "Team B", "Bob", "bob@contoso.com"),
+        };
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(items);
 
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem, bobItem });
-
-        var cmd = CreateCommand(config);
-
-        var result = await cmd.ExecuteAsync();
+        var result = await CreateCommand().ExecuteAsync(all: true);
 
         result.ShouldBe(0);
-        // Should fall back to full iteration method (called by command + WorkingSetService)
-        await _workItemRepo.Received().GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Sprint_Command_ShowsAllItems_GroupedByAssignee()
+    public async Task Self_WithoutBoundIdentity_RefusesInsteadOfWideningToTeam()
     {
-        var config = new TwigConfiguration();
-        config.User.DisplayName = "Alice Smith";
+        _iterationService.WithoutBoundIdentity();
 
-        var aliceItem = CreateWorkItem(1, "Task A", "Alice Smith");
-        var bobItem = CreateWorkItem(2, "Task B", "Bob Jones");
+        var items = new[]
+        {
+            CreateWorkItem(1, "Team A", "Alice", "alice@contoso.com"),
+        };
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(items);
 
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { aliceItem, bobItem });
-
-        var cmd = CreateCommand(config);
-
-        // Use StringWriter to capture output without modifying global Console.Out.
-        // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
-        var formatter = (HumanOutputFormatter)_formatterFactory.GetFormatter("human");
-        var workspace = Domain.ReadModels.Workspace.Build(null, new[] { aliceItem, bobItem }, Array.Empty<Domain.Aggregates.WorkItem>());
-        var output = formatter.FormatSprintView(workspace, config.Seed.StaleDays);
-
-        // Verify sprint view format is used — it groups by assignee
-        output.ShouldContain("Sprint");
-        output.ShouldNotContain("Workspace");
-
-        // Verify both assignee group headers are present (the key discriminator for grouped output)
-        output.ShouldContain("Alice Smith");
-        output.ShouldContain("Bob Jones");
-
-        // Also verify the command routes correctly via --all
-        var result = await cmd.ExecuteAsync(all: true);
-        result.ShouldBe(0);
-        await _workItemRepo.Received(1).GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        var stderr = new StringWriter();
+        var original = Console.Error;
+        Console.SetError(stderr);
+        try
+        {
+            var result = await CreateCommand().ExecuteAsync();
+            // Non-zero exit: the view REFUSES; it does not widen to the whole team.
+            result.ShouldBe(1);
+            stderr.ToString().ShouldContain(DefaultBenchSelectors.MissingBoundIdentityMessage);
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
     }
 
-    [Fact]
-    public async Task Ws_EmptyUserDisplayName_FallsBackToAllItems()
-    {
-        var config = new TwigConfiguration();
-        config.User.DisplayName = "   "; // Whitespace only
 
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var cmd = CreateCommand(config);
-
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        await _workItemRepo.Received().GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Ws_WithActiveContext_ShowsContextInBothModes()
-    {
-        var config = new TwigConfiguration();
-        config.User.DisplayName = "Alice Smith";
-
-        var contextItem = CreateWorkItem(10, "My Active Item", "Alice Smith");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(contextItem);
-        _workItemRepo.GetByIterationAndAssigneeAsync(
-            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { contextItem });
-
-        var cmd = CreateCommand(config);
-
-        var result = await cmd.ExecuteAsync();
-        result.ShouldBe(0);
-    }
-
-    private static WorkItem CreateWorkItem(int id, string title, string? assignedTo = null)
-    {
-        return new WorkItem
+    private static WorkItem CreateWorkItem(
+        int id,
+        string title,
+        string? assignedToDisplay = null,
+        string? assignedToUniqueName = null)
+        => new()
         {
             Id = id,
             Type = WorkItemType.Task,
             Title = title,
             State = "Active",
-            AssignedTo = assignedTo,
+            AssignedTo = assignedToDisplay,
+            AssignedToUniqueName = assignedToUniqueName,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
-    }
 }

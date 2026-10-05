@@ -9,12 +9,13 @@ namespace Twig.Infrastructure.Auth;
 /// Precedence: <c>$TWIG_PAT</c> environment variable → <c>.twig/config</c> <c>auth.pat</c> field.
 /// Returns a Basic auth header value.
 /// </summary>
-internal sealed class PatAuthProvider : IAuthenticationProvider
+internal sealed class PatAuthProvider : IAuthenticationProvider, IDisposable
 {
     private const string EnvVarName = "TWIG_PAT";
 
     private readonly Func<string, string?> _envVarReader;
     private readonly Func<string?> _configPatReader;
+    private readonly Persistence.LegacyHostCapability _capability;
 
     /// <summary>
     /// Creates a PatAuthProvider with default environment and config readers.
@@ -27,10 +28,11 @@ internal sealed class PatAuthProvider : IAuthenticationProvider
     /// <summary>
     /// Creates a PatAuthProvider with injectable readers (for testing).
     /// </summary>
-    internal PatAuthProvider(Func<string, string?> envVarReader, Func<string?> configPatReader)
+    internal PatAuthProvider(Func<string, string?> envVarReader, Func<string?> configPatReader, string? legacyHome = null)
     {
         _envVarReader = envVarReader;
         _configPatReader = configPatReader;
+        _capability = new Persistence.LegacyHostCapability(legacyHome ?? ConnectionBindingService.ResolveUserHome(), authentication: true);
     }
 
     /// <inheritdoc />
@@ -39,6 +41,7 @@ internal sealed class PatAuthProvider : IAuthenticationProvider
 
     public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {
+        _capability.Validate();
         // Priority 1: environment variable
         var pat = _envVarReader(EnvVarName);
         if (!string.IsNullOrWhiteSpace(pat))
@@ -52,6 +55,8 @@ internal sealed class PatAuthProvider : IAuthenticationProvider
         return Task.FromException<string>(new AdoAuthenticationException(
             $"No PAT found. Set the {EnvVarName} environment variable or configure 'auth.pat' in .twig/config."));
     }
+
+    public void Dispose() => _capability.Dispose();
 
     /// <summary>
     /// Formats a PAT as a Basic auth header value: <c>Basic base64(:PAT)</c>.

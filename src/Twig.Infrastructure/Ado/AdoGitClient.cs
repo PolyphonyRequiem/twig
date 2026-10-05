@@ -24,6 +24,7 @@ internal sealed class AdoGitClient : IAdoGitService
     private readonly string _project;
     private readonly string _backlogProject;
     private readonly string? _repository;
+    private readonly AdoConcurrencyThrottle? _throttle;
 
     public AdoGitClient(
         HttpClient httpClient,
@@ -31,7 +32,8 @@ internal sealed class AdoGitClient : IAdoGitService
         string orgUrl,
         string project,
         string? repository = null,
-        string? backlogProject = null)
+        string? backlogProject = null,
+        AdoConcurrencyThrottle? throttle = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(authProvider);
@@ -46,10 +48,12 @@ internal sealed class AdoGitClient : IAdoGitService
         _project = project;
         _backlogProject = string.IsNullOrWhiteSpace(backlogProject) ? project : backlogProject;
         _repository = string.IsNullOrWhiteSpace(repository) ? null : repository;
+        _throttle = throttle;
     }
 
     public async Task<IReadOnlyList<PullRequestInfo>> GetPullRequestsForBranchAsync(string branchName, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(_repository))
             throw new InvalidOperationException("Git repository is not configured. Cannot query pull requests without a repository.");
 
@@ -75,6 +79,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<PullRequestInfo> CreatePullRequestAsync(PullRequestCreate request, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(_repository))
             throw new InvalidOperationException("Git repository is not configured. Cannot create pull requests without a repository.");
 
@@ -101,7 +106,7 @@ internal sealed class AdoGitClient : IAdoGitService
         var json = JsonSerializer.Serialize(body, TwigJsonContext.Default.AdoCreatePullRequestRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var response = await SendAsync(HttpMethod.Post, url, content, ct);
+        using var response = await SendAsync(HttpMethod.Post, url, content, ct, effectKind: "git-pr-create");
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var pr = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoPullRequestResponse, ct)
             ?? throw new AdoException("Failed to deserialize PR creation response.");
@@ -111,6 +116,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<string?> GetRepositoryIdAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(_repository))
             return null;
 
@@ -119,6 +125,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<string?> GetRepositoryIdByNameAsync(string repoName, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var encodedRepo = Uri.EscapeDataString(repoName);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}?api-version={AdoApiVersions.GitRepositories}";
 
@@ -137,6 +144,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<string?> GetProjectIdAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?api-version={AdoApiVersions.Projects}";
 
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ct);
@@ -147,6 +155,7 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, string? name = null, CancellationToken ct = default)
     {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_backlogProject)}/_apis/wit/workitems/{workItemId}?api-version={AdoApiVersions.WorkItems}";
         var relationValue = JsonSerializer.SerializeToNode(
             new AdoArtifactLinkRelation
@@ -171,7 +180,7 @@ internal sealed class AdoGitClient : IAdoGitService
         var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
 
         using var response = await SendAsync(HttpMethod.Patch, url, content, ct,
-            req => req.Headers.TryAddWithoutValidation("If-Match", revision.ToString()));
+            req => req.Headers.TryAddWithoutValidation("If-Match", revision.ToString()), effectKind: "link-add");
     }
 
     // ── HTTP plumbing ───────────────────────────────────────────────
@@ -181,17 +190,19 @@ internal sealed class AdoGitClient : IAdoGitService
         string url,
         HttpContent? content,
         CancellationToken ct,
-        Action<HttpRequestMessage>? configureRequest = null)
+        Action<HttpRequestMessage>? configureRequest = null,
+        string? effectKind = null)
     {
         try
         {
-            return await SendCoreAsync(method, url, content, ct, configureRequest);
+            return await SendCoreAsync(method, url, content, ct, configureRequest, effectKind);
         }
-        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex)
+            && (effectKind is null || Twig.Infrastructure.Auth.ConnectionOperationAdmission.CanRenewAfterWriteRejection(ex)))
         {
             _authProvider.InvalidateToken();
             if (content is not null) throw;
-            return await SendCoreAsync(method, url, content, ct, configureRequest);
+            return await SendCoreAsync(method, url, content, ct, configureRequest, effectKind);
         }
     }
 
@@ -200,7 +211,8 @@ internal sealed class AdoGitClient : IAdoGitService
         string url,
         HttpContent? content,
         CancellationToken ct,
-        Action<HttpRequestMessage>? configureRequest = null)
+        Action<HttpRequestMessage>? configureRequest,
+        string? effectKind)
     {
         using var request = new HttpRequestMessage(method, url);
         request.Content = content;
@@ -208,6 +220,10 @@ internal sealed class AdoGitClient : IAdoGitService
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
         configureRequest?.Invoke(request);
+        var budget = await AdoRateLimitBudget.FromProviderAsync(_authProvider, _orgUrl, ct).ConfigureAwait(false);
+        using var throttleSlot = _throttle is not null ? await _throttle.AcquireAsync(budget, ct) : null;
+        var writeAdmission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.BeginRemoteWriteAsync(
+            _authProvider, request, effectKind, ct).ConfigureAwait(false);
 
         HttpResponseMessage response;
         try
@@ -225,7 +241,21 @@ internal sealed class AdoGitClient : IAdoGitService
 
         try
         {
-            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+            await Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRemoteWriteResponseAsync(writeAdmission, response,
+                token, request.Headers.Authorization?.Parameter, ct).ConfigureAwait(false);
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct, budget, token);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            Twig.Infrastructure.Auth.ConnectionOperationAdmission.RecordRejectedWriteAuthException(ex, writeAdmission);
+            response.Dispose();
+            throw;
+        }
+        catch (AdoRateLimitException ex)
+        {
+            response.Dispose();
+            _throttle?.SetPause(budget, ex.RetryAfter);
+            throw;
         }
         catch
         {

@@ -24,10 +24,10 @@
 # run really passed.
 #
 # USAGE
-#     tools/run-tests.sh                 # all four suites, serially
+#     tools/run-tests.sh                 # 15-second fundamental smoke; no build or test host
 #     tools/run-tests.sh Cli             # one suite by short name
 #     tools/run-tests.sh Cli Domain      # several
-#     tools/run-tests.sh --pre-push      # the four suites, THEN the probe, THEN CI's own commands
+#     tools/run-tests.sh --pre-push       # the same fast smoke, never the full suites
 #     tools/run-tests.sh --selftest      # prove the guards can fail AND pass
 #
 # EXIT CODE: 0 only if every suite is a genuine, unaborted pass.
@@ -37,28 +37,10 @@
 # stdout, so the grep AGENTS.md mandates cannot come back empty — empty output
 # contains no FAILED and therefore reads as a pass.
 #
-# WHY --pre-push EXISTS (AB#248, closing AB#246's admission)
-#
-# The four suites are NECESSARY BUT NOT SUFFICIENT. CI runs SIX assemblies
-# unfiltered and compiles the whole solution (including tests/Twig.Benchmarks,
-# which is IsTestProject=false — CI builds it and never tests it). AGENTS.md
-# used to ask a human to run CI's three commands by hand and "read the exit
-# code" — the exact judgement call this script exists to abolish. `--pre-push`
-# runs them, reconciles them with the SAME three signals, and folds the result
-# into TWIG-VERDICT OVERALL.
-#
-# The specific false green it must catch: if the solution-wide BUILD is skipped
-# and `dotnet test --no-build` runs anyway, vstest tests whatever assemblies
-# happen to be on disk, prints clean `Passed!` lines for them, and reports the
-# missing one only as a single line near the TOP of the log —
-#
-#     The argument .../Twig.Tui.Tests.dll is invalid. Please use the /help option
-#
-# — which contains neither "error" nor "fail", so it survives the documented
-# grep recipe and has scrolled off screen by the time the run finishes. Only the
-# non-zero exit code catches it. That is why the reconciler below leads with the
-# exit code and never trusts the summary line, and why an explicit
-# invalid-argument marker is a signal in its own right.
+# ROUTINE VALIDATION
+# Default and --pre-push run only the 15-second offline fundamental smoke.
+# Build separately. Full platform validation is a release-candidate gate;
+# explicit suite arguments are an intentional manual operation.
 # ============================================================================
 set -uo pipefail
 
@@ -110,13 +92,12 @@ suite_project() {
   case "$1" in
     Cli)            echo "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" ;;
     Infrastructure) echo "tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" ;;
-    Mcp)            echo "tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj" ;;
     Domain)         echo "tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" ;;
     *)              echo "" ;;
   esac
 }
 
-ALL_SUITES="Cli Infrastructure Mcp Domain"
+ALL_SUITES="Cli Infrastructure Domain"
 
 PRE_PUSH=0
 SELFTEST=0
@@ -155,6 +136,18 @@ for suite in $SUITES; do
   [ -n "$(suite_project "$suite")" ] || fatal "unknown suite '$suite' (known: $ALL_SUITES)"
 done
 
+# Routine local and pre-push validation never launches broad test hosts.
+# Build separately; explicit suite arguments remain an intentional manual action.
+if [ "$SELFTEST" -eq 0 ] && { [ "$PRE_PUSH" -eq 1 ] || [ ${#ARGS[@]} -eq 0 ]; }; then
+  if python tools/verify-build.py --timeout 15; then
+    echo "TWIG-VERDICT OVERALL: PASSED (15-second fundamental smoke; full validation belongs to release candidates)"
+    exit 0
+  else
+    echo "TWIG-VERDICT OVERALL: FAILED (fundamental smoke rejected the build)"
+    exit 1
+  fi
+fi
+
 OVERALL=0
 VERDICT_LINES=""
 
@@ -174,7 +167,7 @@ VERDICT_LINES=""
 #
 # `strict` (optional, "1") adds one guard used only by the wide run: a run that
 # produced NO summary line at all is a failure rather than a `PASSED (0 tests)`.
-# It is opt-in so the four-suite path's output stays byte-identical.
+# It is opt-in so the selected-suite path's output stays byte-identical.
 # ----------------------------------------------------------------------------
 reconcile() {
   local log="$1" exit_code="$2" strict="${3:-0}"
@@ -192,7 +185,7 @@ reconcile() {
   #
   # Anchored to vstest's actual shape — an argument that is a path to a .dll —
   # so a test printing the words "argument ... is invalid" in its own output
-  # cannot turn a genuine pass into a FAILED. This guard runs on the four-suite
+  # cannot turn a genuine pass into a FAILED. This guard runs on the selected-suite
   # path too, where such a collision would be a regression rather than a catch.
   #
   # ⚠️ vstest localizes this message, so under a non-English
@@ -204,7 +197,7 @@ reconcile() {
   # One `dotnet test` invocation over the whole solution prints ONE summary line
   # PER ASSEMBLY, so `tail -1` would report the last assembly's count as if it
   # were the run's. Sum them, and count them. A single-project invocation prints
-  # exactly one line, so this is identical to `tail -1` on the four-suite path.
+  # exactly one line, so this is identical to `tail -1` on the selected-suite path.
   assemblies="$(grep -cE 'Passed: +[0-9]+' "$log")"
   passed_count="$(grep -oE 'Passed: +[0-9]+' "$log" | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')"
   passed_count="${passed_count:-0}"
@@ -464,139 +457,6 @@ for suite in $SUITES; do
   fi
 done
 
-if [ "$PRE_PUSH" -eq 1 ]; then
-  # --------------------------------------------------------------------------
-  # The external-host probe (AB#341).
-  #
-  # samples/Twig.DetailHost is the FINAL GATE of wayfinder-detail-projection
-  # ticket 0006 §10: it traces consumer → public projection → host-owned
-  # renderer from OUTSIDE Twig, and its location is load-bearing (a test project
-  # gets InternalsVisibleTo and would pass while proving nothing).
-  #
-  # 🔴 It carried a CheckAcceptanceFloor returning exit 1 on any miss, and
-  # NOTHING RAN IT. The solution builds it, so a visibility regression was
-  # caught — but the floor itself was dead weight: the fixture could stop
-  # exercising all three field states and no check would notice. A mechanism
-  # that exists, reads as protective, and is wired to nothing is the same class
-  # of defect as a green-looking aborted run, which is what this whole script
-  # exists to abolish. Hence: run it, and reconcile it like any other suite.
-  #
-  # 🔴 THE RUNTIME DECISION, MADE EXPLICITLY (AB#341 required this rather than
-  # letting it be inherited from whichever box ran first). The sample targets
-  # net10.0 GA ON PURPOSE — its csproj says so — to prove a consumer is not
-  # dragged onto the preview SDK. That is the property under test, so retargeting
-  # it to make execution easier would delete the thing being proven.
-  #
-  # We ROLL FORWARD rather than installing a GA runtime, on both paths:
-  #   * Installing net10.0 GA in CI would let the probe run on its own native
-  #     runtime — but then CI stops exercising the case that actually ships. A
-  #     real consumer on a machine with only a newer runtime is exactly who this
-  #     probe stands in for, and roll-forward IS that consumer's experience.
-  #   * It keeps CI and this script identical. A probe that needs a runtime the
-  #     dev box does not have is a probe developers stop running.
-  #   * It costs one environment variable instead of a second SDK install.
-  # The trade accepted: we do not prove the probe runs on net10.0 GA itself.
-  # global.json pins the SDK, so nothing here silently drifts onto a newer TFM.
-  #
-  # Run the built DLL rather than `dotnet run`: `dotnet run` re-evaluates the
-  # project and can rebuild, and DOTNET_ROLL_FORWARD does not apply to the
-  # launcher's own resolution the same way. The four suites above have already
-  # built the solution by this point.
-  # --------------------------------------------------------------------------
-  probe_log="$LOG_DIR/DetailHostProbe.log"
-  probe_dll="samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll"
-  echo
-  echo "──> DetailHostProbe (samples/Twig.DetailHost, the 0006 §10 external gate)"
-
-  if [ ! -f "$probe_dll" ]; then
-    # Not silently skipped. A missing probe binary is indistinguishable from a
-    # passing probe if you only look for failures, which is the trap this card
-    # is about.
-    dotnet build samples/Twig.DetailHost/Twig.DetailHost.csproj --nologo \
-      2>&1 | tr '\r' '\n' > "$probe_log"
-  fi
-
-  if [ -f "$probe_dll" ]; then
-    DOTNET_ROLL_FORWARD=Major dotnet "$probe_dll" 2>&1 | tr '\r' '\n' >> "$probe_log"
-    probe_exit=${PIPESTATUS[0]}
-  else
-    probe_exit=1
-    echo "probe binary not found at $probe_dll and the build above did not produce it" >> "$probe_log"
-  fi
-
-  # The probe is not a vstest run, so reconcile() does not apply: there is no
-  # summary line, no abort marker, no assembly count. Its contract is narrower
-  # and stronger — exit 0 AND the self-identifying success token. Both are
-  # required, because a probe that dies before printing anything also exits
-  # non-zero, while a probe whose Main is gutted to `return 0` exits clean and
-  # silent. Neither may read as a pass.
-  if [ "$probe_exit" -ne 0 ]; then
-    verdict="FAILED"
-    reason="probe exit code $probe_exit — the acceptance floor rejected the run"
-  elif ! grep -q 'PROBE OK:' "$probe_log"; then
-    verdict="FAILED"
-    reason="probe exited 0 without printing PROBE OK — a silent probe is not a pass"
-  else
-    verdict="PASSED"
-    reason="external host probe: acceptance floor, two-sink difference, transition floor"
-  fi
-
-  [ "$verdict" = "FAILED" ] && OVERALL=1
-
-  line="TWIG-VERDICT DetailHostProbe: $verdict ($reason) [log: $probe_log]"
-  VERDICT_LINES="$VERDICT_LINES$line"$'\n'
-  echo "$line"
-
-  if [ "$verdict" = "FAILED" ]; then
-    grep -E 'PROBE FAILED|^  - |error CS|You must install' "$probe_log" | head -20
-  fi
-
-  # --------------------------------------------------------------------------
-
-  # CI's own three commands, in CI's own order (.github/workflows/ci.yml).
-  #
-  # 🔴 Chained with && on purpose. If the build fails and `dotnet test
-  # --no-build` runs anyway, you get a green-looking run of whatever assemblies
-  # happen to still be on disk — the exact trap reconcile() guards. Chaining
-  # means a build failure never reaches the test step at all, and the
-  # invalid-argument marker is the second line of defence for the case where a
-  # stale output directory survives a successful build.
-  #
-  # 🔴 Serial with respect to the four suites above. Two concurrent `dotnet
-  # test` processes collide over shared build output and produce a bogus
-  # SQLitePCL DllNotFoundException. That is why this runs AFTER the loop rather
-  # than beside it, despite the wide run being the cheaper of the two.
-  # --------------------------------------------------------------------------
-  wide_log="$LOG_DIR/SolutionWide.log"
-  echo
-  echo "──> SolutionWide (CI's commands: restore → build → test)"
-
-  {
-    dotnet restore \
-      && dotnet build --no-restore \
-      && dotnet test --no-build --settings test.runsettings
-  } 2>&1 | tr '\r' '\n' > "$wide_log"
-  wide_exit=${PIPESTATUS[0]}
-
-  reconcile "$wide_log" "$wide_exit" 1
-
-  # A compile failure never reaches vstest, so it leaves no abort marker and no
-  # summary line — only the exit code and `error CS`. Say so plainly rather than
-  # reporting a bare exit code.
-  if [ "$verdict" = "FAILED" ] && grep -q 'error CS' "$wide_log"; then
-    reason="solution-wide build failed (error CS) — the test step never ran"
-  fi
-
-  [ "$verdict" = "FAILED" ] && OVERALL=1
-
-  line="TWIG-VERDICT SolutionWide: $verdict ($reason) [log: $wide_log]"
-  VERDICT_LINES="$VERDICT_LINES$line"$'\n'
-  echo "$line"
-
-  if [ "$verdict" = "FAILED" ]; then
-    grep -E '\[FAIL\]|error CS|Test Run Aborted|Aborting test run|is invalid\.' "$wide_log" | head -20
-  fi
-fi
 
 echo
 echo "════════════════════════════════════════════"

@@ -36,9 +36,9 @@ public sealed class DynamicProcessConfigProvider : IProcessConfigurationProvider
         if (records.Count == 0)
             throw new InvalidOperationException(
                 "Process configuration not available. The process_types table is empty — " +
-                "this usually means 'twig sync' has not been run in this workspace, or " +
-                "ADO authentication has expired. Try: twig sync (to refresh from ADO), " +
-                "or: az login / set TWIG_PAT (to fix auth).");
+                "this usually means 'twig sync --pull-only' has not been run in this workspace, or " +
+                "ADO authentication has expired. Inspect 'twig auth status', renew the selected " +
+                "identity with 'twig auth login' or 'twig auth pat', then run 'twig sync --pull-only'.");
 
         var processConfigurationData = _processTypeStore.GetProcessConfigurationDataAsync()
             .GetAwaiter().GetResult();

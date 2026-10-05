@@ -8,6 +8,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
+using Twig.Domain.Tests;
 
 namespace Twig.Domain.Tests.Services.Sync;
 
@@ -39,8 +40,8 @@ public class RefreshOrchestratorLinkPersistenceTests
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var workingSetService = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        _iterationService.WithBoundIdentity();
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, _linkRepo, 30, 30);
 

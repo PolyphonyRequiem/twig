@@ -6,6 +6,7 @@ using Twig.Formatters;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
@@ -80,6 +81,14 @@ var app = ConsoleApp.Create()
             (gitProject, repository) = gitDetectTask.GetAwaiter().GetResult();
         }
 
+        // ADO #1104: tell the network factory whether this invocation is the explicit
+        // `twig init` metadata path. Only `init` is allowed to resolve an auth provider via
+        // CreateBootstrapProviderAsync (no attachment required); every normal command path
+        // resolves identity through ResolveAsync + CreateAuthenticationProvider, which
+        // enforces the current attached-worktree binding.
+        services.AddSingleton(new ConnectionBindingOperationIntent(
+            args.Length > 0 && args[0] == "init"));
+
         services.AddTwigNetworkServices(config, gitProject, repository);
 
         // Pre-compute state entries for SpectreTheme (avoids sync-over-async in DI factory)
@@ -88,9 +97,10 @@ var app = ConsoleApp.Create()
         {
             var paths = TwigPaths.BuildPaths(twigDir, config);
 
-            if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
+            if (!(args.Length >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
+                && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
             {
-                using var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}");
+                using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);
                 var processTypeStore = new SqliteProcessTypeStore(cacheStore);
                 var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
                 stateEntries = records.SelectMany(r => r.States).ToList();
@@ -358,10 +368,7 @@ internal static class ExceptionHandler
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoAuthenticationException authEx)
         {
             stderr.WriteLine($"error: {authEx.Message}");
-            if (authEx.Message.Contains("PAT", StringComparison.OrdinalIgnoreCase))
-                stderr.WriteLine("Update PAT in .twig/config or $TWIG_PAT.");
-            else
-                stderr.WriteLine("Run 'az login' to refresh.");
+            stderr.WriteLine("Inspect 'twig auth status'; renew the selected identity with 'twig auth login' (AAD) or 'twig auth pat' (PAT).");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -1317,7 +1324,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, refresh: refresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
 
     /// <summary>Read or set a configuration value.</summary>
-    /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
+    /// <param name="key">Configuration key to read or set (e.g., organization, display.icons). Enroll credentials with auth login or auth pat instead.</param>
     /// <param name="value">Value to set; omit to read the current value.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="global">Read or set the home-wide display.icons preference.</param>
@@ -1350,27 +1357,144 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth status")]
     public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AuthStatusCommand>().ExecuteAsync(output, ct);
+        => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
 
-    /// <summary>Wipe the cached ADO access token. Use after auth changes or to recover from a poisoned cache.</summary>
+    /// <summary>Clear the selected admission proof. Without --identity, invalidates the attached binding's cached access token (unchanged pre-#1105 behavior). With --identity, clears the named identity's cached admission proof via the shared binding service; stored credentials are untouched.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="identity">Alias of a registered identity whose cached admission proof should be cleared. Omit to clear the attached binding's cached access token.</param>
     [Command("auth clear")]
-    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
+    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? identity = null)
+        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(identity, output, ct);
 
-    /// <summary>Sign in to Azure DevOps interactively and store a refresh token. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
+    /// <summary>Sign in to Azure DevOps interactively and enroll the credential against a named identity. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
     /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
     /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
     /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
+    /// <param name="identity">Alias of the identity to register or re-enroll. Required unless an attached binding already names one; a named login never clobbers an existing global/sibling account.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("auth login")]
     public async Task<int> AuthLogin(
         bool deviceCode = false,
         string? tenant = null,
         bool noBrowser = false,
+        string? identity = null,
         string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
-        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, output, ct);
+        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, identity, output, ct);
+
+    /// <summary>List every registered identity (AAD and PAT) with safe principal metadata. Credential blobs are never surfaced; AAD rows show tenant/objectId/authorityHost, PAT rows show adoPrincipalId/adoAuthority.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("auth identities")]
+    public async Task<int> AuthIdentities(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AuthIdentitiesCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Enroll or renew a Personal Access Token identity. The PAT is read from a non-echoing Spectre prompt on a TTY, or from stdin when --stdin is set or stdin is redirected; it is never accepted as an argument. The service performs authoritative read-only principal attestation before touching any stored credential.</summary>
+    /// <param name="identity">Alias of the PAT identity to register or renew. Required outside an attached workspace; defaults to the attached binding's identity (and refuses when its method is AAD).</param>
+    /// <param name="org">Azure DevOps organization name or HTTPS endpoint. Omit to use the named identity's registered PAT authority; a new alias can use the attached organization. Required for new enrollment outside attachment.</param>
+    /// <param name="stdin">Read the PAT from standard input instead of prompting. Automatic when stdin is redirected (e.g. piped).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("auth pat")]
+    public async Task<int> AuthPat(
+        string? identity = null,
+        string? org = null,
+        bool stdin = false,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<AuthPatCommand>().ExecuteAsync(identity, org, stdin, output, ct);
+
+    /// <summary>Bind an endpoint (org/project) to a registered identity. Use --default to request this as the initial default; the service refuses to switch an existing different default.</summary>
+    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
+    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
+    /// <param name="identity">Alias of a registered identity (see 'twig auth identities'). Required.</param>
+    /// <param name="default">Request this binding as the initial default for the endpoint. Refused when a different default is already set.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection bind")]
+    public async Task<int> ConnectionBind(
+        string? identity = null,
+        string? org = null,
+        string? project = null,
+        bool @default = false,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionBindCommand>().ExecuteAsync(org, project, identity, @default, output, ct);
+
+    /// <summary>List bindings for an endpoint (org/project). Falls back to the workspace's checked-in coordinates when both --org and --project are omitted.</summary>
+    /// <param name="org">Azure DevOps organization. Falls back to the workspace's checked-in Organization when omitted together with --project.</param>
+    /// <param name="project">Azure DevOps project. Falls back to the workspace's checked-in Project when omitted together with --org.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection list")]
+    public async Task<int> ConnectionList(
+        string? org = null,
+        string? project = null,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionListCommand>().ExecuteAsync(org, project, output, ct);
+
+    /// <summary>Show the identity + binding the current attached worktree resolves to. Fails with setup guidance when there is no attachment or the binding is ambiguous; no fallback.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection status")]
+    public async Task<int> ConnectionStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionStatusCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Inspect all unfinished-work and claim prerequisites for a later binding transition. Read-only; no publication, discard, release, switch or force bypass. Eligible exits 0; blocked or unreadable inspection exits 1.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection check")]
+    public async Task<int> ConnectionCheck(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionCheckCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Preview or apply a versioned legacy migration. Activation requires explicit identity mapping, verified principal evidence and actual legacy host/store closure. No force, publish, discard or process-kill path.</summary>
+    /// <param name="identity">Explicit registered identity alias, or alias to enroll from the chosen legacy method. Never inferred from global login.</param>
+    /// <param name="method">Legacy credential import method: aad or pat. Omit for an already registered identity.</param>
+    /// <param name="confirm">Exact digest from a clean migration preview. Omit to inspect without activating. Reusing it cannot bypass changed sources or host blockers.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection migrate")]
+    public async Task<int> ConnectionMigrate(string? identity = null, string? method = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionMigrateCommand>().ExecuteAsync(identity, method, confirm, output, ct);
+
+    /// <summary>Preview a guarded checkout-local binding pin, or apply the exact preview. Unfinished work and in-flight operations block switching; affected live hosts require explicit reconnect.</summary>
+    /// <param name="binding">Registered binding ID for the declared endpoint; required. Inspect connection list for IDs.</param>
+    /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; reuse the original digest to recover an interrupted native intent.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection pin")]
+    public async Task<int> ConnectionPin(string? binding = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(binding, false, confirm, output, ct);
+
+    /// <summary>Preview removal of this checkout's binding pin, or apply the exact preview to use the declared endpoint's default. No automatic publication, discard or live account swap.</summary>
+    /// <param name="confirm">Exact eligible preview digest. Omit for read-only preview; interrupted transitions resume their original native intent.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection unpin")]
+    public async Task<int> ConnectionUnpin(string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionPinCommand>().ExecuteAsync(null, true, confirm, output, ct);
+
+    /// <summary>Preview or apply a guarded central binding default across every affected unpinned worktree; any blocked or unreachable member refuses the whole family.</summary>
+    /// <param name="binding">Registered binding ID for the declared endpoint; required.</param>
+    /// <param name="confirm">Exact eligible family preview digest. Omit for read-only preview; reuse original digest for native crash recovery.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection default")]
+    public async Task<int> ConnectionDefault(string? binding = null, string? confirm = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionDefaultCommand>().ExecuteAsync(binding, confirm, output, ct);
+
+    /// <summary>Inspect native remote-write intents, immutable acknowledgments and uncertainty blockers for the attached checkout. Read-only; never replay, expire or discard an unknown write.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection writes")]
+    public async Task<int> ConnectionWrites(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(false, output: output, ct: ct);
+
+    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, replay or inferred outcome.</summary>
+    /// <param name="intent">Opaque native write intent ID from connection writes; required.</param>
+    /// <param name="confirm">Exact immutable request digest from connection writes; required.</param>
+    /// <param name="authorize">Original registered identity ID, not a display name or a replacement actor; required.</param>
+    /// <param name="rationale">Truthful authorization/evidence rationale; required. Rationale alone never settles a write.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("connection reconcile-write")]
+    public async Task<int> ConnectionReconcileWrite(string? intent = null, string? confirm = null,
+        string? authorize = null, string? rationale = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(true, intent, confirm, authorize, rationale, output, ct);
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
@@ -1461,6 +1585,32 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     [Command("proposal seed|plan seed")]
     public async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PlanCommand>().DescribeSeedAsync(id, output, ct);
+
+    /// <summary>Settle a never-admitted operation as retired, by fresh readback, or as superseded by a Verified replacement. Append-only native receipt; never masquerades as apply success.</summary>
+    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the original canonical proposal bytes the receipt is bound to. Must match the journalled digest exactly.</param>
+    /// <param name="operation">Op id of the original journalled operation being settled.</param>
+    /// <param name="outcome">Outcome kind: retire | readback | supersede.</param>
+    /// <param name="authorize">Identity authorizing this settlement, recorded in the receipt.</param>
+    /// <param name="rationale">Why the outcome is being settled. Required — a receipt without a reason is refused.</param>
+    /// <param name="replacementDigest">For --outcome supersede only: canonical digest of the replacement proposal.</param>
+    /// <param name="replacementOperation">For --outcome supersede only: op id of the Verified replacement operation.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    [Command("proposal reconcile")]
+    public async Task<int> PlanReconcile(
+        string? file = null,
+        string? confirm = null,
+        string? operation = null,
+        string? outcome = null,
+        string? authorize = null,
+        string? rationale = null,
+        string? replacementDigest = null,
+        string? replacementOperation = null,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<PlanCommand>().ReconcileAsync(
+            file, confirm, operation, outcome, authorize, rationale,
+            replacementDigest, replacementOperation, output, ct);
 
     /// <summary>List raw staged pending changes in exact staging order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1650,6 +1800,19 @@ internal static class GroupedHelp
         "auth status",
         "auth clear",
         "auth login",
+        "auth identities",
+        "auth pat",
+        "connection",
+        "connection bind",
+        "connection list",
+        "connection status",
+        "connection check",
+        "connection migrate",
+        "connection pin",
+        "connection unpin",
+        "connection default",
+        "connection writes",
+        "connection reconcile-write",
         "version",
         "upgrade",
         "changelog",
@@ -1696,6 +1859,7 @@ internal static class GroupedHelp
         "proposal apply",
         "proposal status",
         "proposal seed",
+        "proposal reconcile",
         "plan",
         "plan validate",
         "plan preview",

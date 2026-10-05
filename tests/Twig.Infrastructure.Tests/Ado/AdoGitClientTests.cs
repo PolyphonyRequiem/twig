@@ -490,13 +490,6 @@ public class AdoGitClientTests
     private static AdoGitClient CreateClient(FakeHandler handler) =>
         new(new HttpClient(handler), new FakeAuthProvider(), OrgUrl, GitProject, Repository);
 
-    private sealed class FakeAuthProvider : IAuthenticationProvider
-    {
-        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
-            => Task.FromResult("fake-bearer-token");
-
-        public void InvalidateToken() { }
-    }
 
     /// <summary>
     /// HttpMessageHandler that returns pre-queued responses and records request details.

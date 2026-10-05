@@ -47,13 +47,14 @@ public sealed class WorkspaceSectionsWiringTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _workItemRepo.BridgeBatchIterationReads();
         _iterationService = Substitute.For<IIterationService>();
+        _iterationService.WithBoundIdentity();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService);
         _trackingService = Substitute.For<ITrackingService>();
         _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<TrackedItem>());
@@ -329,6 +330,7 @@ public sealed class WorkspaceSectionsWiringTests
             Type = WorkItemType.Task,
             Title = title,
             State = "New",
+            AssignedToUniqueName = IdentityStubs.DefaultCanonicalPrincipal,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };

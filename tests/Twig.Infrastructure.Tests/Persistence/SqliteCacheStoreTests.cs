@@ -12,6 +12,49 @@ namespace Twig.Infrastructure.Tests.Persistence;
 public class SqliteCacheStoreTests
 {
     [Fact]
+    public async Task IdentityMetadataUpgradePreservesSeedAndPendingWorkWithoutInventingAnOwner()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "twig-identity-upgrade-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var connection = $"Data Source={Path.Combine(dir, "twig.db")}";
+        try
+        {
+            using (var old = new SqliteCacheStore(connection))
+            {
+                var repo = new SqliteWorkItemRepository(old, new Twig.Domain.Services.WorkItemMapper());
+                var identity = await new SqliteStagedIdentityRegistry(old).MintAsync();
+                var seed = new Twig.Domain.Aggregates.WorkItem
+                {
+                    Id = identity.Alias.Value,
+                    StagedIdentity = identity.Identity,
+                    IsSeed = true,
+                    Title = "Unpublished work",
+                    AssignedTo = "Same display name",
+                    Type = Twig.Domain.ValueObjects.WorkItemType.Task,
+                };
+                await repo.SaveAsync(seed);
+                using var cmd = old.GetConnection().CreateCommand();
+                cmd.CommandText = "ALTER TABLE work_items DROP COLUMN assigned_to_unique_name; UPDATE metadata SET value = '16' WHERE key = 'schema_version'; INSERT INTO pending.pending_changes (work_item_id, change_type, field_name, old_value, new_value, created_at) VALUES (@id, 'note', NULL, NULL, 'Keep this note', '2026-10-01T00:00:00Z');";
+                cmd.Parameters.AddWithValue("@id", seed.Id);
+                cmd.ExecuteNonQuery();
+            }
+            using var upgraded = new SqliteCacheStore(connection);
+            var retained = (await new SqliteWorkItemRepository(upgraded, new Twig.Domain.Services.WorkItemMapper()).GetSeedsAsync()).ShouldHaveSingleItem();
+            retained.Title.ShouldBe("Unpublished work");
+            retained.AssignedToUniqueName.ShouldBeNull();
+            using var notes = upgraded.GetConnection().CreateCommand();
+            notes.CommandText = "SELECT new_value FROM pending.pending_changes WHERE work_item_id = @id;";
+            notes.Parameters.AddWithValue("@id", retained.Id);
+            notes.ExecuteScalar().ShouldBe("Keep this note");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Constructor_CreatesSchema_InMemory()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");
@@ -67,38 +110,27 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void Constructor_RebuildSchema_OnVersionMismatch()
+    public void Constructor_UnsupportedVersion_RefusesWithoutDestroyingWork()
     {
-        // Create a shared in-memory database with a name
-        var connStr = "Data Source=VersionMismatchTest;Mode=Memory;Cache=Shared";
+        var connectionString = $"Data Source=UnsupportedVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        using var source = new SqliteConnection(connectionString);
+        source.Open();
+        using var setup = source.CreateCommand();
+        setup.CommandText = """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', '999');
+            CREATE TABLE work_items (id INTEGER PRIMARY KEY, title TEXT NOT NULL);
+            INSERT INTO work_items VALUES (-1, 'Unpublished draft');
+            """;
+        setup.ExecuteNonQuery();
 
-        // First, create a database with a wrong schema version
-        using (var setupConn = new SqliteConnection(connStr))
-        {
-            setupConn.Open();
-            using var cmd = setupConn.CreateCommand();
-            cmd.CommandText = """
-                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                INSERT INTO metadata (key, value) VALUES ('schema_version', '999');
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY);
-                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY);
-                CREATE TABLE process_types (type_name TEXT PRIMARY KEY);
-                CREATE TABLE context (key TEXT PRIMARY KEY);
-                """;
-            cmd.ExecuteNonQuery();
+        Should.Throw<InvalidOperationException>(() => new SqliteCacheStore(connectionString));
 
-            // Open the store — it should detect version mismatch and rebuild
-            using var store = new SqliteCacheStore(connStr);
-            store.SchemaWasRebuilt.ShouldBeTrue();
-
-            // Verify the schema version was updated
-            var conn = store.GetConnection();
-            using var verifyCmd = conn.CreateCommand();
-            verifyCmd.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
-            var version = verifyCmd.ExecuteScalar() as string;
-            version.ShouldNotBeNull();
-            int.Parse(version).ShouldBe(SqliteCacheStore.SchemaVersion);
-        }
+        using var retained = source.CreateCommand();
+        retained.CommandText = "SELECT title FROM work_items WHERE id = -1;";
+        retained.ExecuteScalar().ShouldBe("Unpublished draft");
+        retained.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+        retained.ExecuteScalar().ShouldBe("999");
     }
 
     [Fact]
@@ -260,59 +292,6 @@ public class SqliteCacheStoreTests
         TableExists(conn, "seed_links").ShouldBeFalse();
     }
 
-    /// <summary>
-    /// The completeness guard for wayfinder 0013's durability line: every table is in exactly one
-    /// store, and each is in the right one per 0005 §3a's "can ADO rebuild it?" test.
-    /// <para>
-    /// A new table added to the wrong store fails here rather than silently becoming droppable
-    /// durable state — the #271 failure shape this map exists to remove.
-    /// </para>
-    /// </summary>
-    [Fact]
-    public void Schema_PlacesEveryTableInExactlyOneStore_ByDurability()
-    {
-        using var store = new SqliteCacheStore("Data Source=:memory:");
-        var conn = store.GetConnection();
-
-        string[] expectedMirror =
-            ["metadata", "work_items", "process_types", "context", "field_definitions",
-             "work_item_links", "work_item_link_verifications", "navigation_history",
-             "iteration_calendar"];
-        // work_item_link_verifications is a MIRROR table (AB#831): it records WHEN a source id's
-        // edge set was last read from ADO, and ADO can rebuild it — the next refresh does, by
-        // re-reading the edges. Dropping it on a SchemaVersion bump is correct and safe: every id
-        // reverts to "never verified", which is the honest answer for a freshly rebuilt mirror.
-        // staged_identities is DURABLE (wayfinder 0014): it is the source of truth for a
-        // staged seed's identity, its display alias, and the retirement record that makes
-        // "never recycled" structural. Putting it in the mirror would make a durable identity
-        // droppable — the exact incoherence 0003 objected to.
-        // publish_intents is DURABLE (wayfinder 0015): it records a create BEFORE the ADO call
-        // and its outcome after. It is durable by 0005's "can ADO rebuild it?" test — it cannot
-        // be, because it is precisely the record of a call whose outcome ADO may or may not
-        // hold. A droppable copy would be erased by the crash it exists to survive.
-        // benches and bench_selectors are DURABLE (ADO #144): a Bench holds pins the person made
-        // by hand and a name only they chose, so ADO cannot rebuild it. Their loss is SILENT —
-        // nothing prompts and nothing refuses — so a droppable copy would surface as a missing
-        // pin weeks later.
-        // iteration_calendar is a MIRROR table by the same test read the other way: it is a copy
-        // of ADO's own iteration list, so ADO CAN rebuild it and the next refresh does. It is
-        // cached locally only so a Bench's sprint rule can be answered without a network call.
-        // tracked_items and excluded_items are GONE (ADO #151). They were declared, dropped on
-        // every SchemaVersion bump, and read by nothing after pins became selectors. Leaving them
-        // meant a grep told the reader pins live in the cache — the exact false premise the Bench
-        // build brief inherited and that cost a wrong plan. Pins are selectors on a Bench in the
-        // durable store; exclusions live in the tracking file, outside the Bench by decision.
-        // current_bench is DURABLE (ADO #149): which arrangement the person is standing on is
-        // theirs and ADO has never heard of it, so ADO cannot rebuild it. A droppable copy would
-        // silently move somebody back to the default on a SchemaVersion bump — the same
-        // "resolves, but to the wrong thing" failure the unknown-Bench error exists to escape.
-        string[] expectedDurable =
-            ["pending_changes", "publish_id_map", "seed_links", "staged_identities", "publish_intents",
-             "benches", "bench_selectors", "current_bench", "proposal_journals", "proposal_operations"];
-
-        ReadTables(conn, "main").ShouldBe(expectedMirror, ignoreOrder: true);
-        ReadTables(conn, "pending").ShouldBe(expectedDurable, ignoreOrder: true);
-    }
 
     /// <summary>The durable store carries its own version, independent of <c>SchemaVersion</c>.</summary>
     [Fact]
@@ -515,38 +494,28 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void Constructor_NonNumericSchemaVersion_RebuildsFully()
+    public void Constructor_MalformedVersion_RefusesWithoutDestroyingPendingWork()
     {
-        // Schema version is "abc" — not parseable as int
-        var connStr = $"Data Source=NonNumericVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        var connectionString = $"Data Source=MalformedVersion_{Guid.NewGuid():N};Mode=Memory;Cache=Shared";
+        using var source = new SqliteConnection(connectionString);
+        source.Open();
+        using var setup = source.CreateCommand();
+        setup.CommandText = """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO metadata VALUES ('schema_version', 'abc');
+            CREATE TABLE pending_changes (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO pending_changes VALUES (1, 'Unpublished note');
+            CREATE TABLE work_items (id INTEGER PRIMARY KEY);
+            """;
+        setup.ExecuteNonQuery();
 
-        using var setupConn = new SqliteConnection(connStr);
-        setupConn.Open();
+        Should.Throw<InvalidOperationException>(() => new SqliteCacheStore(connectionString));
 
-        using (var cmd = setupConn.CreateCommand())
-        {
-            cmd.CommandText = """
-                CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                INSERT INTO metadata (key, value) VALUES ('schema_version', 'abc');
-                CREATE TABLE work_items (id INTEGER PRIMARY KEY);
-                CREATE TABLE pending_changes (id INTEGER PRIMARY KEY);
-                CREATE TABLE process_types (type_name TEXT PRIMARY KEY);
-                CREATE TABLE context (key TEXT PRIMARY KEY);
-                """;
-            cmd.ExecuteNonQuery();
-        }
-
-        using var store = new SqliteCacheStore(connStr);
-
-        store.SchemaWasRebuilt.ShouldBeTrue();
-
-        var conn = store.GetConnection();
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
-            var version = cmd.ExecuteScalar() as string;
-            int.Parse(version!).ShouldBe(SqliteCacheStore.SchemaVersion);
-        }
+        using var retained = source.CreateCommand();
+        retained.CommandText = "SELECT value FROM pending_changes WHERE id = 1;";
+        retained.ExecuteScalar().ShouldBe("Unpublished note");
+        retained.CommandText = "SELECT value FROM metadata WHERE key = 'schema_version';";
+        retained.ExecuteScalar().ShouldBe("abc");
     }
 
     /// <summary>

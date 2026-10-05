@@ -5,6 +5,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Auth;
 using Twig.RenderTree;
 using Twig.Rendering;
 
@@ -37,6 +38,7 @@ public sealed class SeedChainCommand(
     HintEngine hintEngine,
     SeedFactory seedFactory,
     IStagedIdentityRegistry stagedIdentityRegistry,
+    IIterationService iterationService,
     RendererFactory? rendererFactory = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
@@ -103,11 +105,22 @@ public sealed class SeedChainCommand(
                 yield return line;
             }
         }
+        string? assignedTo = null;
 
         foreach (var title in GetTitleSource())
         {
+            if (assignedTo is null)
+            {
+                var identity = await BoundAssigneeResolver.ResolveAsync(iterationService, ct);
+                if (identity.ErrorMessage is not null)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(identity.ErrorMessage));
+                    return 1;
+                }
+                assignedTo = identity.UniqueName;
+            }
             var seedResult = seedFactory.Create(
-                title, parent, processConfig, await stagedIdentityRegistry.MintAsync(ct), typeOverride);
+                title, parent, processConfig, await stagedIdentityRegistry.MintAsync(ct), typeOverride, assignedTo);
             if (!seedResult.IsSuccess)
             {
                 if (createdSeeds.Count > 0)

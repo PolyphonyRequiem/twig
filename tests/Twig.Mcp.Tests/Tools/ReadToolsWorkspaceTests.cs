@@ -29,6 +29,11 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(_currentIteration);
+        // ADO #1106: self-scoped reads bind to the authenticated connection's canonical identity.
+        // "Test User" is used as the canonical UPN so legacy fixture items whose only assignee
+        // signal is the authored display string still fall through the canonical narrowing.
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -44,8 +49,8 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(contextItem);
 
         var sprintItem = new WorkItemBuilder(100, "Sprint Item").AsTask()
-            .InState("Active").AssignedTo("Test User").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .InState("Active").AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([sprintItem]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -63,11 +68,11 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         // "twig_workspace reports the workspace associated with the active context item"
         root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
 
-        // Verify it called the assignee-filtered method
-        await _workItemRepo.Received(1)
-            .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive()
-            .GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        // The self scoping now loads unfiltered rows via GetByIterationsAsync and narrows in
+        // memory by the bound canonical identity.
+        await _workItemRepo.Received().GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -112,7 +117,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -125,11 +130,11 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Null display name and all=false — falls back to all items
+    //  Self with no bound canonical identity — refuses rather than widening
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Workspace_NullDisplayNameAllFalse_FallsBackToAllItems()
+    public async Task Workspace_WithoutBoundCanonicalIdentity_RefusesSelfView()
     {
         _config = new TwigConfiguration
         {
@@ -138,26 +143,23 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
             User = new UserConfig { DisplayName = null },
         };
 
-        SetupIteration();
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(_currentIteration);
+        // No canonical identity: the connection resolves (display, null).
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", null)));
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var item = new WorkItemBuilder(50, "Team Item").AsTask().InState("Active").Build();
-        _workItemRepo.GetByIterationAsync(_currentIteration, Arg.Any<CancellationToken>())
-            .Returns([item]);
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
         var result = await CreateSut(_config).Workspace(all: false);
 
-        result.IsError.ShouldBeNull();
-        var root = ParseResult(result);
-        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
-
-        // Should have used unfiltered method since display name is null
-        await _workItemRepo.Received(1)
-            .GetByIterationAsync(_currentIteration, Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive()
-            .GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // The self view refuses with the standard refusal message; it does NOT widen to the team.
+        result.IsError.ShouldBe(true);
+        var envelope = ParseEnvelope(result);
+        envelope.GetProperty("error").GetProperty("message").GetString()
+            .ShouldBe(Twig.Domain.Services.Workspace.DefaultBenchSelectors.MissingBoundIdentityMessage);
+        // The sprint-items path is never reached when the self principal is unresolved.
+        await _workItemRepo.DidNotReceive().GetByIterationsAsync(
+            Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -169,7 +171,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var seed1 = new WorkItemBuilder(200, "Seed A").AsTask().AsSeed().Build();
@@ -196,9 +198,11 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var clean = new WorkItemBuilder(10, "Clean").AsTask().InState("Active").Build();
-        var dirty = new WorkItemBuilder(11, "Dirty").AsTask().InState("Active").Dirty().Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        var clean = new WorkItemBuilder(10, "Clean").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        var dirty = new WorkItemBuilder(11, "Dirty").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Dirty().Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([clean, dirty]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -219,7 +223,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var staleSeed = new WorkItemBuilder(300, "Old Seed").AsTask().AsSeed(daysOld: 30).Build();
@@ -247,7 +251,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -273,7 +277,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var dirtySeed = new WorkItemBuilder(500, "Dirty Seed").AsTask().AsSeed().Dirty().Build();
@@ -300,12 +304,15 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
 
         var item = new WorkItemBuilder(42, "My Bug").AsBug().InState("Resolved")
             .AssignedTo("Alice").WithParent(10).Dirty().Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([item]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut(_config).Workspace();
+        // Rendering-only shape check: the fixture item is authored to a different principal,
+        // and the all=true request opts out of the self narrowing so the serialization path is
+        // the thing under test (not the bench filter).
+        var result = await CreateSut(_config).Workspace(all: true);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -330,7 +337,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         // Build a seed manually without SeedCreatedAt (isSeed=true but no date)
@@ -366,7 +373,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var contextItem = new WorkItemBuilder(7, "Root Item").AsEpic().InState("Active").Build();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(7);
         _workItemRepo.GetByIdAsync(7, Arg.Any<CancellationToken>()).Returns(contextItem);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -390,7 +397,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -425,7 +432,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -461,7 +468,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -488,7 +495,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -538,14 +545,18 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
             });
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(sprint2);
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
 
-        // Items in sprint 1 (previous) and sprint 2 (current)
-        var item1 = new WorkItemBuilder(10, "Old Sprint Item").AsTask().InState("Closed").AssignedTo("Test User").Build();
-        var item2 = new WorkItemBuilder(20, "Current Sprint Item").AsTask().InState("Active").AssignedTo("Test User").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(sprint1, "Test User", Arg.Any<CancellationToken>())
-            .Returns([item1]);
-        _workItemRepo.GetByIterationAndAssigneeAsync(sprint2, "Test User", Arg.Any<CancellationToken>())
-            .Returns([item2]);
+        // Items in sprint 1 (previous) and sprint 2 (current). Both carry the canonical identity
+        // through the `AssignedToUniqueName ?? AssignedTo` fallback — the row's authored assignee
+        // matches the bound principal exactly.
+        var item1 = new WorkItemBuilder(10, "Old Sprint Item").AsTask().InState("Closed")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        var item2 = new WorkItemBuilder(20, "Current Sprint Item").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item1, item2 });
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
@@ -556,10 +567,9 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(2);
 
-        // Should NOT have called GetCurrentIterationAsync for the fallback path
-        // (it may be called by the resolver internally, but not by the old single-iteration path)
-        await _workItemRepo.DidNotReceive()
-            .GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        // Canonical scoping NEVER delegates to the display-name repo filter.
+        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -622,8 +632,9 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var item = new WorkItemBuilder(50, "Fallback Item").AsTask().InState("Active").AssignedTo("Test User").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        var item = new WorkItemBuilder(50, "Fallback Item").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([item]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
@@ -634,8 +645,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
 
         // Verify fallback path used current iteration
-        await _workItemRepo.Received(1)
-            .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -652,8 +662,9 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var item = new WorkItemBuilder(51, "Fallback Item 2").AsTask().InState("Active").AssignedTo("Test User").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        var item = new WorkItemBuilder(51, "Fallback Item 2").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([item]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
@@ -663,8 +674,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
 
-        await _workItemRepo.Received(1)
-            .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -691,9 +701,12 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
             });
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(sprint1);
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
 
-        var item = new WorkItemBuilder(10, "Good Item").AsTask().InState("Active").AssignedTo("Test User").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(sprint1, "Test User", Arg.Any<CancellationToken>())
+        var item = new WorkItemBuilder(10, "Good Item").AsTask().InState("Active")
+            .AssignedTo("Test User").AssignedToUniqueName("Test User").Build();
+        _workItemRepo.GetByIterationAsync(sprint1, Arg.Any<CancellationToken>())
             .Returns([item]);
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
@@ -729,6 +742,8 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
             });
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
 
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
@@ -754,7 +769,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
 
         var epic = new WorkItemBuilder(100, "Epic A").AsEpic().InState("Active").Build();
         var child = new WorkItemBuilder(101, "Issue A").AsIssue().InState("Active").WithParent(100).Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([epic]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -769,7 +784,10 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         _adoService.FetchChildrenAsync(101, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut(_config).Workspace(tree: true);
+        // Tree-shape proof: the sprint item carries no explicit canonical assignee and the
+        // self narrowing would hide it. `all: true` opts into the team view so the parent/child
+        // assertions below exercise the tree builder, not the Bench filter.
+        var result = await CreateSut(_config).Workspace(all: true, tree: true);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -797,7 +815,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -822,7 +840,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
         var seed = new WorkItemBuilder(200, "Seed A").AsTask().AsSeed().Build();
@@ -847,7 +865,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -875,7 +893,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
 
         var item1 = new WorkItemBuilder(10, "Epic A").AsEpic().InState("Active").Build();
         var item2 = new WorkItemBuilder(20, "Epic B").AsEpic().InState("Active").Build();
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([item1, item2]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -886,7 +904,10 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut(_config).Workspace(tree: true);
+        // Tree-shape proof: the roots are unassigned epics and the self narrowing would hide
+        // them. `all: true` requests the explicit team view so the multiple-roots assertion
+        // measures the tree builder, not the Bench filter.
+        var result = await CreateSut(_config).Workspace(all: true, tree: true);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -918,7 +939,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var grandchild = new WorkItemBuilder(53, "Subtask A").AsTask().InState("New")
             .WithParent(51).Build();
 
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns([story]);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
@@ -941,7 +962,10 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         _adoService.FetchChildrenAsync(53, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut(_config).Workspace(tree: true);
+        // Tree-shape proof: the story and its hierarchy are unassigned and the self narrowing
+        // would hide the sprint item. `all: true` opts into the team view so the parent/child
+        // assertions below exercise the tree builder.
+        var result = await CreateSut(_config).Workspace(all: true, tree: true);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -1025,7 +1049,7 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     {
         SetupIteration();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());

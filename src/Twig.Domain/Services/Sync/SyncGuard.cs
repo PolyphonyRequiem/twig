@@ -19,9 +19,22 @@ public static class SyncGuard
         var dirtyItems = await repo.GetDirtyItemsAsync(ct);
         var pendingIds = await pendingStore.GetDirtyItemIdsAsync(ct);
 
-        var result = new HashSet<int>();
-        foreach (var item in dirtyItems) result.Add(item.Id);
-        foreach (var id in pendingIds) result.Add(id);
+        return ProtectedIds(dirtyItems.Select(item => item.Id), pendingIds);
+    }
+
+    /// <summary>Uses the segregated read-only journal for native publication readback.</summary>
+    public static async Task<IReadOnlySet<int>> GetProtectedItemIdsFromJournalAsync(
+        IWorkItemRepository repo, IPendingChangeReader pendingReader, CancellationToken ct = default)
+    {
+        var dirtyItems = await repo.GetDirtyItemsAsync(ct);
+        var pending = await pendingReader.GetAllChangesAsync(ct);
+        return ProtectedIds(dirtyItems.Select(item => item.Id), pending.Select(change => change.WorkItemId));
+    }
+
+    private static IReadOnlySet<int> ProtectedIds(IEnumerable<int> dirty, IEnumerable<int> pending)
+    {
+        var result = new HashSet<int>(dirty);
+        result.UnionWith(pending);
         return result;
     }
 }

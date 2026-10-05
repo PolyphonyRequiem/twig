@@ -48,6 +48,8 @@ internal sealed class ToolDispatcher(
 
         return toolName switch
         {
+            "twig_connection_check" => adminTools.ConnectionCheck(workspace, verbose: false, ct),
+
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "id"),
@@ -287,6 +289,19 @@ internal sealed class ToolDispatcher(
                 GetString(args, "authorizationDigest") ?? string.Empty,
                 GetString(args, "authorizationRationale"),
                 workspace, verbose: false, ct: ct),
+
+            "twig_proposal_reconcile" => planTools.PlanReconcile(
+                GetRequiredString(args, "file"),
+                GetStrictBool(args, "confirmed"),
+                GetString(args, "confirmedDigest") ?? string.Empty,
+                GetString(args, "operationId") ?? string.Empty,
+                GetString(args, "outcome") ?? string.Empty,
+                GetString(args, "authorizerIdentity") ?? string.Empty,
+                GetString(args, "authorizationDigest") ?? string.Empty,
+                GetString(args, "rationale") ?? string.Empty,
+                GetString(args, "replacementDigest"),
+                GetString(args, "replacementOperationId"),
+                workspace, verbose: false, ct),
 
             "twig_plan_status" or "twig_proposal_status" => planTools.PlanStatus(
                 GetRequiredString(args, "file"),

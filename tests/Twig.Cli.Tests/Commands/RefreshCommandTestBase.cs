@@ -50,13 +50,14 @@ public abstract class RefreshCommandTestBase : IDisposable
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _iterationService = Substitute.For<IIterationService>();
+                _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(("Test User", "Test User")));
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService);
         _trackingService = Substitute.For<ITrackingService>();
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,

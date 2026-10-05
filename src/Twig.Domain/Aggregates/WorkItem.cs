@@ -15,6 +15,7 @@ public sealed class WorkItem
     private readonly List<PendingNote> _pendingNotes = new();
     private readonly ReadOnlyDictionary<string, string?> _fieldsView;
     private readonly ReadOnlyCollection<PendingNote> _pendingNotesView;
+    private string? _assignedToUniqueName;
 
     public WorkItem()
     {
@@ -28,10 +29,18 @@ public sealed class WorkItem
     public string Title { get; init; } = string.Empty;
     public string State { get; internal set; } = string.Empty;
     public string? AssignedTo { get; init; }
+    /// <summary>ADO's canonical assignee, separate from its display rendering. Null means unproved.</summary>
+    public string? AssignedToUniqueName { get => _assignedToUniqueName; init => _assignedToUniqueName = value; }
     public IterationPath IterationPath { get; init; }
     public AreaPath AreaPath { get; init; }
     public int? ParentId { get; init; }
     public int Revision { get; private set; }
+
+    /// <summary>Matches proved ADO assignee metadata, or a local draft's authored identity.</summary>
+    internal bool IsAssignedToIdentity(string? uniqueName) =>
+        !string.IsNullOrWhiteSpace(uniqueName)
+        && string.Equals(AssignedToUniqueName ?? (IsSeed ? AssignedTo : null),
+            uniqueName, StringComparison.OrdinalIgnoreCase);
 
     // ── Dirty tracking ──────────────────────────────────────────────
     public bool IsDirty { get; private set; }
@@ -67,7 +76,12 @@ public sealed class WorkItem
 
     // ── Internal mutators for commands (same assembly) ──────────────
 
-    internal void SetField(string fieldName, string? value) => _fields[fieldName] = value;
+    internal void SetField(string fieldName, string? value)
+    {
+        _fields[fieldName] = value;
+        if (string.Equals(fieldName, "System.AssignedTo", StringComparison.OrdinalIgnoreCase))
+            _assignedToUniqueName = null;
+    }
 
     /// <summary>
     /// Bulk-imports fields without setting the dirty flag.

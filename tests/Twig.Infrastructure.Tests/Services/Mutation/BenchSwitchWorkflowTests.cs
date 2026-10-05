@@ -58,7 +58,7 @@ public sealed class BenchSwitchWorkflowTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private DefaultBenchSelectors Selectors => new(userDisplayName: null);
+    private DefaultBenchSelectors Selectors => new(IdentityStubs.NewBound());
     private CurrentBenchResolver Resolver => new(_benchRepo, Selectors);
     private BenchWorkflow CreateSut() => new(_benchRepo, Selectors, Resolver);
     private PinWorkflow CreatePin() => new(_benchRepo, Selectors, Resolver);

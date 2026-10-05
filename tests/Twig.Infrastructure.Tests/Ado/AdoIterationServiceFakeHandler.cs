@@ -2,15 +2,31 @@ using System.Net;
 using System.Text;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Auth;
 
 namespace Twig.Infrastructure.Tests.Ado;
 
-internal sealed class FakeAuthProvider : IAuthenticationProvider
+// Transport-contract tests substitute native admission; real native outcome proof lives in CLI consumer tests.
+internal sealed class FakeAuthProvider : IAuthenticationProvider, IConnectionRemoteWriteGuard
 {
     public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
         => Task.FromResult("fake-bearer-token");
 
     public void InvalidateToken() { }
+
+    public Task<IConnectionRemoteWriteAdmission> BeginRemoteWriteAsync(ConnectionRemoteWriteRequest request, CancellationToken ct = default)
+        => Task.FromResult<IConnectionRemoteWriteAdmission>(new FakeWriteAdmission());
+
+    private sealed class FakeWriteAdmission : IConnectionRemoteWriteAdmission
+    {
+        public bool IsDefinitivelyRejected { get; private set; }
+
+        public Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default)
+        {
+            IsDefinitivelyRejected = response.StatusCode is 401 or 403;
+            return Task.CompletedTask;
+        }
+    }
 }
 
 /// <summary>

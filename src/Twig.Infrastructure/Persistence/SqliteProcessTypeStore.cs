@@ -21,6 +21,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
 
     public Task<ProcessTypeRecord?> GetByNameAsync(string typeName, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -40,6 +41,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
 
     public Task<IReadOnlyList<ProcessTypeRecord>> GetAllAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -59,6 +61,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
 
     public Task SaveAsync(ProcessTypeRecord record, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -148,6 +151,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
     {
         var json = JsonSerializer.Serialize(config, TwigJsonContext.Default.ProcessConfigurationData);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -163,6 +167,7 @@ public sealed class SqliteProcessTypeStore : IProcessTypeStore
 
     public Task<ProcessConfigurationData?> GetProcessConfigurationDataAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT value FROM metadata WHERE key = @key";

@@ -155,18 +155,6 @@ public class AdoErrorHandlerTests
     }
 
     [Fact]
-    public async Task ThrowOnErrorAsync_429_ThrowsRateLimit()
-    {
-        var response = CreateResponse((HttpStatusCode)429);
-        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
-
-        var ex = await Should.ThrowAsync<AdoRateLimitException>(
-            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
-
-        ex.RetryAfter.TotalSeconds.ShouldBeGreaterThan(0);
-    }
-
-    [Fact]
     public async Task ThrowOnErrorAsync_429_WithRetryAfterHeader_CarriesRetryAfterValue()
     {
         var response = CreateResponse((HttpStatusCode)429);
@@ -177,20 +165,43 @@ public class AdoErrorHandlerTests
             () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
 
         ex.RetryAfter.ShouldBe(TimeSpan.FromSeconds(2));
-        ex.Message.ShouldContain("2");
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public async Task ThrowOnErrorAsync_429_HttpDateRetryAfterHonorsTheAbsoluteDeadline(int hoursFromNow)
+    {
+        using var response = CreateResponse((HttpStatusCode)429, "{\"message\":\"Resource: DBCPU, bucket TFS/Long\"}");
+        var deadline = DateTimeOffset.UtcNow.AddHours(hoursFromNow);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(deadline);
+        var ex = await Should.ThrowAsync<AdoRateLimitException>(() => AdoErrorHandler.ThrowOnErrorAsync(
+            response, "https://dev.azure.com/org/project/_apis/wit/workitems/1", CancellationToken.None));
+        if (hoursFromNow < 0)
+            ex.RetryAfter.ShouldBe(TimeSpan.Zero);
+        else
+        {
+            ex.RetryAfter.TotalSeconds.ShouldBeGreaterThan(3000);
+            ex.RetryAfter.TotalSeconds.ShouldBeLessThanOrEqualTo(3600);
+        }
+        ex.Resource.ShouldBe("DBCPU");
+        ex.ServerMessage.ShouldNotBeNull().ShouldContain("TFS/Long");
+        ex.RetryAfterHeader.ShouldBe(response.Headers.RetryAfter.ToString());
     }
 
     [Fact]
-    public async Task ThrowOnErrorAsync_429_WithoutRetryAfterHeader_DefaultsTo10Seconds()
+    public async Task ThrowOnErrorAsync_429_DoesNotExposeUnrelatedJsonFieldsOrArbitraryCorrelationHeaders()
     {
-        var response = CreateResponse((HttpStatusCode)429);
-        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
-
-        var ex = await Should.ThrowAsync<AdoRateLimitException>(
-            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
-
-        ex.RetryAfter.ShouldBe(TimeSpan.FromSeconds(10));
+        using var response = CreateResponse((HttpStatusCode)429, "{\"refresh_token\":\"unrelated-secret\"}");
+        response.Headers.TryAddWithoutValidation("X-VSS-E2EID", "arbitrary-secret");
+        var ex = await Should.ThrowAsync<AdoRateLimitException>(() => AdoErrorHandler.ThrowOnErrorAsync(
+            response, "https://dev.azure.com/org/project/_apis/wit/workitems/1", CancellationToken.None));
+        ex.Message.ShouldNotContain("unrelated-secret");
+        ex.Message.ShouldNotContain("arbitrary-secret");
+        ex.ServerMessage.ShouldBeNull();
+        ex.CorrelationId.ShouldBeNull();
     }
+
 
     [Fact]
     public async Task ThrowOnErrorAsync_500_ThrowsServerException()

@@ -5,6 +5,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Xunit;
+using Twig.Domain.Tests;
 
 namespace Twig.Domain.Tests.Services.Workspace;
 
@@ -55,6 +56,7 @@ public sealed class WorkingSetFollowsCurrentBenchTests
         _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>()).Returns(Sprint);
+        _iterationService.WithBoundIdentity();
         _calendar.GetCurrentIterationsAsync(Arg.Any<CancellationToken>()).Returns(new[] { Sprint });
         _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<TrackedItem>());
 
@@ -65,7 +67,6 @@ public sealed class WorkingSetFollowsCurrentBenchTests
 
     private WorkingSetService CreateSut() => new(
         _contextStore, _workItemRepo, _pendingStore, _iterationService,
-        userDisplayName: null,
         _benchRepo,
         new BenchEvaluator(_workItemRepo, _calendar, _pendingStore));
 

@@ -36,6 +36,21 @@ public abstract class ReadToolsTestBase
     protected readonly ISeedPublishRulesProvider _seedPublishRulesProvider = Substitute.For<ISeedPublishRulesProvider>();
     protected readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
+    protected ReadToolsTestBase()
+    {
+        // ADO #1106: ReadTools now loads sprint rows via GetByIterationsAsync and narrows in
+        // memory. NSubstitute does not run the real repository's batch implementation, so bridge
+        // the plural call back to the per-iteration arrangements the fixtures still set up.
+        _workItemRepo.BridgeBatchIterationReads();
+
+        // ADO #1106: fixtures default to a bound canonical identity so the self-view path has a
+        // principal to narrow against. Tests that need the fail-closed refusal (null uniqueName)
+        // override this call directly; the last .Returns() wins.
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string? DisplayName, string? UniqueName)>(
+                ("Test User", "Test User")));
+    }
+
     protected static readonly Connection TestConnection = new("testorg", "testproject");
 
     protected static readonly TwigConfiguration DefaultConfig = new()

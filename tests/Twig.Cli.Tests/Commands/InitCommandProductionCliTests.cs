@@ -2,6 +2,10 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
+using NSubstitute;
+using Twig.Cli.Tests.TestSupport;
+using Twig.Infrastructure.Auth;
 using Shouldly;
 using Twig.Infrastructure.Config;
 using Xunit;
@@ -10,8 +14,7 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed class InitCommandProductionCliTests : IDisposable
 {
-    private readonly string _repoRoot =
-        Path.Combine(Path.GetTempPath(), $"twig-init-cli-test-{Guid.NewGuid():N}");
+    private readonly string _repoRoot = CanonicalTempRoot.Create("twig-init-cli-test-");
 
     public void Dispose()
     {
@@ -35,7 +38,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
         {
             Organization = adoServer.BaseUrl,
             Project = project,
-            Auth = new AuthConfig { Method = "pat" },
+            Auth = new AuthConfig { Method = "aad" },
             // AB#728 §6.3: managed init requires a checked-in Policy with a
             // fully populated SelectedProfile + non-empty PrimaryScopeTypes.
             // Otherwise the initializer surfaces
@@ -61,6 +64,35 @@ public sealed class InitCommandProductionCliTests : IDisposable
         await RunGitAsync("add", "--", WorkspaceDiscovery.RepoManifestFileName);
         await RunGitAsync("commit", "--quiet", "-m", "Seed tracked manifest");
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
+        var tenant = "11111111-1111-1111-1111-111111111111";
+        var principal = "22222222-2222-2222-2222-222222222222";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["aud"] = JwtAccessTokenInspector.AdoResourceId,
+            ["tid"] = tenant,
+            ["oid"] = principal,
+            ["iss"] = "https://sts.windows.net/" + tenant + "/",
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds()
+        });
+        var token = "eyJhbGciOiJub25lIn0." + Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)).TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".fixture";
+        var home = Path.Combine(_repoRoot, ".test-system");
+        var refresher = Substitute.For<ITokenRefresher>();
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((token, (string?)null, false));
+        using (var bindings = new ConnectionBindingService(home, refresher))
+        {
+            var identity = await bindings.RegisterAadIdentityAsync("fixture", new TwigRefreshTokenStoreEntry
+            {
+                RefreshToken = "fixture-refresh",
+                ClientId = "fixture-client",
+                TenantId = tenant,
+                ObjectId = principal,
+                AuthorityHost = "login.microsoftonline.com"
+            });
+            await bindings.CreateBindingAsync(adoServer.BaseUrl, project, "fixture", makeDefault: true);
+            new TwigTokenFileCache(Path.Combine(home, "credentials", identity.CredentialRef + ".token-cache"))
+                .TryWrite(token, DateTimeOffset.UtcNow.AddHours(1));
+        }
 
         var (exitCode, stdout, stderr) = await RunTwigAsync(
             "init",
@@ -271,7 +303,8 @@ public sealed class InitCommandProductionCliTests : IDisposable
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
 
-        startInfo.Environment["TWIG_PAT"] = "test-pat";
+        startInfo.Environment["TWIG_USER_HOME"] = Path.Combine(_repoRoot, ".test-system");
+        startInfo.Environment.Remove("TWIG_PAT");
         const string blockedProxy = "http://127.0.0.1:1";
         const string loopbackNoProxy = "127.0.0.1,localhost";
         startInfo.Environment["HTTP_PROXY"] = blockedProxy;

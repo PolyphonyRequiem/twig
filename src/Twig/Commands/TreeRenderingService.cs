@@ -144,6 +144,11 @@ public sealed class TreeRenderingService(
                         },
                         ct);
                 }
+                catch (BoundIdentityUnavailableException ex)
+                {
+                    CommandError.Write(rendererFactory, Console.Error, outputFormat, ex.Message);
+                    return 1;
+                }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception)
                 {
@@ -163,9 +168,17 @@ public sealed class TreeRenderingService(
 
         if (refresh)
         {
-            var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
-            await RefreshTreeAsync(item, workingSet, ct);
-            item = await workItemRepo.GetByIdAsync(item.Id, ct) ?? item;
+            try
+            {
+                var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
+                await RefreshTreeAsync(item, workingSet, ct);
+                item = await workItemRepo.GetByIdAsync(item.Id, ct) ?? item;
+            }
+            catch (BoundIdentityUnavailableException ex)
+            {
+                CommandError.Write(rendererFactory, Console.Error, outputFormat, ex.Message);
+                return 1;
+            }
         }
 
         var parentChain = item.ParentId.HasValue

@@ -253,7 +253,11 @@ public sealed class SeedPublishOrchestrator
 
             newId = alreadyLanded
                 ?? await _adoService.CreateAsync(
-                    seed.ToCreateRequest() with { StampIntentTag = true },
+                    seed.ToCreateRequest() with
+                    {
+                        StampIntentTag = true,
+                        SeedCorrelation = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt)
+                    },
                     ct);
 
             // Record the outcome immediately, still outside the transaction. From here on the

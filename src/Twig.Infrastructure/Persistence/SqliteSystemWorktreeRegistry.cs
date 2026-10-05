@@ -11,13 +11,10 @@ namespace Twig.Infrastructure.Persistence;
 /// Stores the AB#736 §4.3 <c>system.db</c> at <c>~/.twig/system.db</c>.
 /// WAL mode + <c>BEGIN IMMEDIATE</c> transactions per §6.2.
 /// <para>
-/// Schema is at <see cref="SchemaVersion"/> 2 (AB#739 tuple storage bump —
-/// the <c>primary_scope_kind</c> column and the extended partial-unique
-/// index it participates in). A file whose <c>layout_meta.version</c>
-/// disagrees with <see cref="SchemaVersion"/> fails closed with
-/// <c>system-store-schema-mismatch</c>; no silent migration adopts an
-/// older shape and then trips on the missing column. AB#739's tuple
-/// storage bump is a hard bump: the T2 §Schema clause names it.
+/// Unknown <c>layout_meta.version</c> values fail closed with
+/// <c>system-store-schema-mismatch</c>. Only bounded additive v3/v4/v5/v6/v7/v8→v9
+/// identity/native-migration/transition/remote-write/default-family upgrades are supported; earlier tuple-storage layouts remain
+/// a hard boundary. Existing worktree, claim and credential authority is retained.
 /// </para>
 /// <para>
 /// <b>Concurrent open safety.</b> Initialization is serialized across
@@ -34,11 +31,17 @@ namespace Twig.Infrastructure.Persistence;
 /// path doesn't already give.
 /// </para>
 /// </summary>
-internal sealed class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
+internal sealed partial class SqliteSystemWorktreeRegistry : ISystemWorktreeRegistry, IDisposable
 {
     // AB#739 bump from 1 → 2 for the tuple-storage schema change
     // (`primary_scope_kind` column + extended partial unique index).
-    private const int SchemaVersion = 3;
+    // Additive identity migrations: v3→v4 adds AAD bindings; v4→v5 adds
+    // method-specific PAT principal evidence without rewriting AAD authority.
+    // v5→v6 adds native recoverable connection migration intents, without rewriting existing rows.
+    // v6→v7 adds recoverable binding pin/removal authority, retaining all prior ledgers.
+    // v7→v8 adds native remote-write admission/observations/receipts; process death cannot erase uncertainty.
+    // v8→v9 adds all-worktree default families; unfinished families fence every affected generation.
+    private const int SchemaVersion = 9;
     private const int OpenValidationRetryCount = 40;
     private const int OpenValidationRetryDelayMs = 25;
 
@@ -99,6 +102,15 @@ ON CONFLICT(connection_ref) DO UPDATE SET
     public Task<Result> UpsertWorktreeAsync(string worktreeFingerprint, string connectionRef, string worktreeRoot, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            using (var fence = connection.CreateCommand())
+            {
+                fence.Transaction = tx;
+                fence.CommandText = "SELECT 1 FROM connection_default_transitions WHERE state<>'completed' AND (connection_ref=$ref OR connection_ref=(SELECT connection_ref FROM worktrees WHERE worktree_fingerprint=$fp)) LIMIT 1;";
+                fence.Parameters.AddWithValue("$ref", connectionRef);
+                fence.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                if (await fence.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+                    return Result.Fail("binding-default-family-incomplete: registration is frozen until the exact native default intent completes.");
+            }
             var now = _clock.GetUtcNow().ToString("o");
             using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
@@ -123,6 +135,14 @@ ON CONFLICT(worktree_fingerprint) DO UPDATE SET
         string primaryScopeKind, int workItemId, string state, string casToken, string recordJson, CancellationToken ct = default)
         => ExecuteWriteAsync(async (connection, tx) =>
         {
+            using (var fence = connection.CreateCommand())
+            {
+                fence.Transaction = tx;
+                fence.CommandText = "SELECT 1 FROM connection_default_transition_members m JOIN connection_default_transitions f ON f.digest=m.digest WHERE m.worktree_fingerprint=$fp AND f.state<>'completed' LIMIT 1;";
+                fence.Parameters.AddWithValue("$fp", worktreeFingerprint);
+                if (await fence.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)
+                    return Result.Fail("binding-default-family-incomplete: no claim can acquire an affected checkout before its whole native family completes.");
+            }
             using (var check = connection.CreateCommand())
             {
                 check.Transaction = tx;
@@ -258,6 +278,24 @@ SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind, work_
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 rows.Add(ReadClaimRow(reader));
+            return Result.Ok<IReadOnlyList<SystemClaimRow>>(rows);
+        }, ct);
+
+    public Task<Result<IReadOnlyList<SystemClaimRow>>> FindClaimsForWorktreeAsync(
+        string worktreeFingerprint, CancellationToken ct = default)
+        => ExecuteReadAsync<IReadOnlyList<SystemClaimRow>>(async connection =>
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT claim_id, connection_ref, worktree_fingerprint, primary_scope_kind,
+                       work_item_id, state, cas_token, minted_at, ended_at, record_json
+                FROM claims WHERE worktree_fingerprint = $fingerprint
+                ORDER BY minted_at, claim_id;
+                """;
+            cmd.Parameters.AddWithValue("$fingerprint", worktreeFingerprint);
+            var rows = new List<SystemClaimRow>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false)) rows.Add(ReadClaimRow(reader));
             return Result.Ok<IReadOnlyList<SystemClaimRow>>(rows);
         }, ct);
 
@@ -743,12 +781,24 @@ ON CONFLICT(connection_ref) DO UPDATE SET
                 else
                 {
                     // Existing DB — could be another peer's in-flight init.
-                    // Wait for a committed layout_meta then compare version.
-                    if (!WaitForCommittedSchema(newConnection))
+                    // Wait for a committed layout_meta row, then either accept
+                    // the current version, run a bounded additive migration
+                    // from the previous version, or fail closed.
+                    var (present, committedVersion) = WaitForCommittedSchemaVersion(newConnection);
+                    if (!present)
                     {
                         _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
                         newConnection.Dispose();
                         connection = null; failure = _openFailure; return false;
+                    }
+                    if (committedVersion != SchemaVersion)
+                    {
+                        if (!TryAdditiveMigrate(newConnection, committedVersion, SchemaVersion))
+                        {
+                            _openFailure = AttachmentStorageFailure.SystemStoreSchemaMismatch;
+                            newConnection.Dispose();
+                            connection = null; failure = _openFailure; return false;
+                        }
                     }
                 }
             }
@@ -788,17 +838,101 @@ ON CONFLICT(connection_ref) DO UPDATE SET
         if (last is not null) throw last;
     }
 
-    private static bool WaitForCommittedSchema(SqliteConnection connection)
+    private static (bool present, int version) WaitForCommittedSchemaVersion(SqliteConnection connection)
     {
         for (var attempt = 0; attempt < OpenValidationRetryCount; attempt++)
         {
             var (present, version) = ProbeLayoutMeta(connection);
             if (present)
-                return version == SchemaVersion;
+                return (true, version);
             Thread.Sleep(OpenValidationRetryDelayMs);
+        }
+        return (false, 0);
+    }
+
+    /// <summary>
+    /// Forward-only additive native authority upgrades from v3 through v8 to v9. Existing
+    /// connection/worktree/claim rows and credentials are never rewritten.
+    /// </summary>
+    private bool TryAdditiveMigrate(SqliteConnection connection, int fromVersion, int toVersion)
+    {
+        if (fromVersion is 3 or 4 or 5 or 6 or 7 or 8 && toVersion == 9)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            try
+            {
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = (fromVersion >= 5 ? string.Empty : IdentitySchemaSql + PatPrincipalSchemaSql)
+                        + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
+                    cmd.ExecuteNonQuery();
+                }
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = "UPDATE layout_meta SET version = $version WHERE id = 1;";
+                    cmd.Parameters.AddWithValue("$version", toVersion);
+                    cmd.ExecuteNonQuery();
+                }
+                tx.Commit();
+                return true;
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { /* best effort */ }
+                return false;
+            }
         }
         return false;
     }
+
+    /// <summary>
+    /// Shared DDL for the Task #1104 identity surface, used both by the
+    /// initial-provision path in <see cref="EnsureSchema"/> and by the
+    /// additive identity migrator. Pure <c>CREATE TABLE IF NOT EXISTS</c> and
+    /// <c>CREATE INDEX IF NOT EXISTS</c> so running it against an
+    /// already-migrated DB is a no-op.
+    /// </summary>
+    private const string IdentitySchemaSql = @"
+CREATE TABLE IF NOT EXISTS identities (
+    identity_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    object_id TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    authority_host TEXT NOT NULL,
+    credential_ref TEXT NOT NULL,
+    account_name TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_name ON identities(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identities_credential_ref ON identities(credential_ref);
+CREATE TABLE IF NOT EXISTS connection_bindings (
+    binding_id TEXT PRIMARY KEY,
+    connection_ref TEXT NOT NULL,
+    identity_id TEXT NOT NULL REFERENCES identities(identity_id) ON DELETE RESTRICT,
+    revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(connection_ref, identity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bindings_connection_ref ON connection_bindings(connection_ref);
+CREATE TABLE IF NOT EXISTS connection_defaults (
+    connection_ref TEXT PRIMARY KEY,
+    binding_id TEXT NOT NULL REFERENCES connection_bindings(binding_id) ON DELETE RESTRICT,
+    revision INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);";
+
+    private const string PatPrincipalSchemaSql = """
+        CREATE TABLE IF NOT EXISTS pat_principals (
+            identity_id TEXT PRIMARY KEY REFERENCES identities(identity_id) ON DELETE RESTRICT,
+            authority TEXT NOT NULL,
+            principal_id TEXT NOT NULL
+        );
+        """;
 
     private static (bool present, int version) ProbeLayoutMeta(SqliteConnection connection)
     {
@@ -882,6 +1016,13 @@ CREATE TABLE IF NOT EXISTS profile_cache (
     payload TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );";
+            cmd.ExecuteNonQuery();
+        }
+        // Fresh provisioning and additive migration share the same identity DDL.
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = IdentitySchemaSql + PatPrincipalSchemaSql + MigrationSchemaSql + BindingTransitionSchemaSql + RemoteWriteSchemaSql + DefaultTransitionSchemaSql;
             cmd.ExecuteNonQuery();
         }
         using (var cmd = connection.CreateCommand())

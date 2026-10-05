@@ -50,6 +50,9 @@ public sealed record PlanJournalOperation
     /// </summary>
     public string? Warning { get; init; }
 
+    /// <summary>Native settled outcome, distinct from the immutable execution state.</summary>
+    public PlanOutcomeReceipt? OutcomeReceipt { get; init; }
+
     /// <summary>
     /// Concise, trustworthy per-operation diagnostics projected from the journal row
     /// (AB#881). Computed on every access — never cached — so a record-with-mutation

@@ -62,14 +62,19 @@ if (-not (Test-Path $installDir)) {
 }
 
 # Extract twig.exe
+$stagingDir = Join-Path ([System.IO.Path]::GetTempPath()) ("twig-install-" + [guid]::NewGuid().ToString('N'))
 try {
-    Expand-Archive -Path $tempZip -DestinationPath $installDir -Force
+    Expand-Archive -Path $tempZip -DestinationPath $stagingDir -Force
+    Get-ChildItem -Path $stagingDir -Force |
+        Where-Object { $_.Name -notlike 'twig-mcp*' } |
+        Copy-Item -Destination $installDir -Force -Recurse
 } catch {
     Write-Host "Error: Failed to extract archive." -ForegroundColor Red
     Write-Host "  $_" -ForegroundColor Red
     exit 1
 } finally {
     Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Verify primary binary exists
@@ -80,7 +85,7 @@ if (-not (Test-Path $twigExe)) {
 }
 
 # Verify companion binaries (warn only — older archives may not include them)
-foreach ($companion in @("twig-mcp.exe", "twig-tui.exe")) {
+foreach ($companion in @("twig-tui.exe")) {
     if (Test-Path (Join-Path $installDir $companion)) {
         Write-Host "  Found $companion" -ForegroundColor Green
     } else {

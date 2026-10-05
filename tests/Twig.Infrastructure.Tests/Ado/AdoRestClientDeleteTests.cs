@@ -272,13 +272,6 @@ public sealed class AdoRestClientDeleteTests
         return new AdoRestClient(http, auth, OrgUrl, Project, new WorkItemMapper());
     }
 
-    private sealed class FakeAuthProvider : IAuthenticationProvider
-    {
-        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
-            => Task.FromResult("fake-bearer-token");
-
-        public void InvalidateToken() { }
-    }
 
     /// <summary>
     /// HttpMessageHandler that returns a fixed status code and captures request details.

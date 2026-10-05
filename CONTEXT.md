@@ -272,3 +272,43 @@ For structural discussion — module, interface, depth, seam, adapter, leverage,
 uses the deep-module vocabulary rather than "component / service / API / boundary". Definitions
 live with the design skill, not here; this file names the **domain**, that one names the
 **structure**.
+
+## 11. Connection authentication vocabulary
+
+Approved domain vocabulary for Epic #1100 and Grilling #1101. These definitions
+describe the agreed contract, not a claim that its implementation has shipped.
+
+**Authentication identity**:
+A registered principal whose authority is distinguished by stable principal
+identifiers, not by its display name or the account most recently logged in.
+_Avoid_: auth profile, current account, display-name identity.
+
+**Identity binding**:
+A user-owned association between a Connection, an authentication identity and a
+credential reference. Several identity bindings may belong to the same Connection;
+a binding does not grant permissions.
+
+**Credential reference**:
+An opaque reference to credential material used by an identity binding, not the
+secret itself.
+
+**Binding default**:
+The user's saved identity-binding choice for a Connection, used by an attached
+worktree that has no binding pin.
+
+**Binding pin**:
+An untracked, worktree-local choice of identity binding for the worktree's declared
+Connection. It is not a Bench pin or a reference-profile pin.
+
+**Effective binding**:
+The identity binding selected for an attached worktree from its binding pin or
+binding default. A missing or ambiguous selection is not an effective binding.
+
+**Worktree attachment**:
+A worktree's established association with its portable Connection declaration and
+local work state. Central identity management does not replace this association.
+
+**Outcome receipt**:
+An immutable, evidence-backed record relating a preserved publishing attempt to
+an established outcome or verified replacement. It is not a rewritten journal
+state or permission to replay the attempt.

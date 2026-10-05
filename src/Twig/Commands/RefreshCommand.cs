@@ -50,7 +50,15 @@ public sealed class RefreshCommand(
         int exitCode;
         int itemCount;
         bool hashChanged;
-        (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, ct);
+        try
+        {
+            (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, ct);
+        }
+        catch (BoundIdentityUnavailableException ex)
+        {
+            CommandError.Write(_rendererFactory, _stderr, outputFormat, ex.Message);
+            (exitCode, itemCount, hashChanged) = (1, 0, false);
+        }
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "refresh", outputFormat, exitCode, startTimestamp,
             extraProperties: new Dictionary<string, string> { ["hash_changed"] = hashChanged.ToString() },
             extraMetrics: new Dictionary<string, double> { ["item_count"] = itemCount });

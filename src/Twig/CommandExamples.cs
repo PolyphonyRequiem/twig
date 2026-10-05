@@ -398,8 +398,8 @@ internal static class CommandExamples
         ],
         ["config"] =
         [
-            "twig config pat            Show the configured PAT setting",
-            "twig config pat <token>    Set the PAT to a new value",
+            "twig config organization                 Show the configured organization",
+            "twig config display.icons unicode -o json    Set the workspace icon preference",
         ],
         ["migrate-config"] =
         [
@@ -418,15 +418,82 @@ internal static class CommandExamples
         ],
         ["auth clear"] =
         [
-            "twig auth clear                Wipe refresh-token store and cached access token",
-            "twig auth clear                Use after 'az login' to re-bootstrap, or to recover from a poisoned cache",
+            "twig auth clear                               Invalidate the attached binding's access/admission proof",
+            "twig auth clear --identity work               Clear only the 'work' identity's cached admission proof (stored credentials unchanged)",
+            "twig auth clear --identity work --output json  Emit the clear result as JSON for scripts",
         ],
         ["auth login"] =
         [
-            "twig auth login                          Sign in interactively (opens a browser, loopback PKCE)",
-            "twig auth login --device-code            Use device code grant (for headless boxes; often blocked by tenant policy)",
-            "twig auth login --tenant <tenant-id>     Sign in to a specific AAD tenant",
-            "twig auth login --no-browser             Print the authorize URL instead of launching the browser",
+            "twig auth login --identity work                   Enroll (or re-enroll) the 'work' identity via loopback PKCE",
+            "twig auth login --identity personal --tenant <tenant-id>   Enroll against a specific AAD tenant",
+            "twig auth login --identity work --device-code     Device-code grant (headless boxes; often blocked by tenant policy)",
+            "twig auth login --identity work --no-browser      Print the authorize URL instead of launching the browser",
+            "twig auth login                                   Renew the identity named by the current attached binding",
+        ],
+        ["auth identities"] =
+        [
+            "twig auth identities                   List registered AAD and PAT identities with safe principal metadata",
+            "twig auth identities --output json     Emit the identity list as JSON for scripts",
+        ],
+        ["auth pat"] =
+        [
+            "twig auth pat                                  Renew the attached PAT binding; prompts for the token with input hidden",
+            "twig auth pat --identity work --org contoso    Enroll (or renew) 'work' at https://dev.azure.com/contoso",
+            "twig auth pat --stdin --identity work --org contoso  Read a token from stdin (e.g. a pipe), never argv",
+            "twig auth pat --identity work --output json           Renew a registered identity at its saved authority",
+        ],
+        ["connection bind"] =
+        [
+            "twig connection bind --identity work                             Bind the current workspace endpoint to 'work'",
+            "twig connection bind --identity work --default                   Also request it as the initial default (refuses to replace a different one)",
+            "twig connection bind --org contoso --project web --identity work  Bind an explicit endpoint",
+            "twig connection bind --org contoso --project web --identity work --default --output json   Bind and emit the resulting record as JSON",
+        ],
+        ["connection list"] =
+        [
+            "twig connection list                                 List bindings for the current workspace endpoint",
+            "twig connection list --org contoso --project web     List bindings for an explicit endpoint",
+            "twig connection list --output json                   Emit bindings as JSON for scripts",
+        ],
+        ["connection status"] =
+        [
+            "twig connection status                 Show the identity + binding this worktree resolves to",
+            "twig connection status --output json   Emit the resolved binding and principal metadata as JSON",
+        ],
+        ["connection check"] =
+        [
+            "twig connection check                 Inspect every native unfinished-work/claim blocker without changing identity",
+            "twig connection check --output json   Emit exact blocker identities and observed selection revisions",
+        ],
+        ["connection migrate"] =
+        [
+            "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",
+            "twig connection migrate --identity work --method aad --confirm <digest>  Apply the exact eligible preview after explicitly closing legacy hosts",
+        ],
+        ["connection pin"] =
+        [
+            "twig connection pin --binding <binding-id> --output json   Preview the checkout pin and exact safety blockers",
+            "twig connection pin --binding <binding-id> --confirm <digest>   Apply or recover the exact guarded transition; reconnect affected hosts explicitly",
+        ],
+        ["connection unpin"] =
+        [
+            "twig connection unpin --output json   Preview returning this checkout to the endpoint's default binding",
+            "twig connection unpin --confirm <digest>   Apply or recover the exact pin removal without publishing or discarding work",
+        ],
+        ["connection default"] =
+        [
+            "twig connection default --binding <id> --output json   Preview every affected unpinned attachment and all-member safety blockers",
+            "twig connection default --binding <id> --confirm <digest>   Apply or recover the exact native family; pinned attachments remain unchanged",
+        ],
+        ["connection writes"] =
+        [
+            "twig connection writes   Inspect native uncertain writes and preserved acknowledgments for this checkout",
+            "twig connection writes --output json   Emit immutable request digests, original identities and exact evidence blockers",
+        ],
+        ["connection reconcile-write"] =
+        [
+            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis>   Prove a CAS-bound outcome through original-actor readback",
+            "twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> --output json   Emit the native receipt or unresolved evidence blocker; never replay a write",
         ],
         ["version"] =
         [
@@ -490,6 +557,13 @@ internal static class CommandExamples
         [
             "twig proposal seed --id -42                    Describe staged seed -42 (identity + fingerprint) for proposal authoring.",
             "twig proposal seed --id -42 --output json      Emit descriptor as JSON to paste into a proposal file.",
+        ],
+        ["proposal reconcile"] =
+        [
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\"    Append a Retired receipt; the authored mutation is NOT applied.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome readback --authorize <identity> --rationale \"...\"    Establish outcome by fresh ADO readback.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2> --authorize <identity> --rationale \"...\"    Map the exact effect to a Verified replacement.",
+            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --authorize <identity> --rationale \"...\" --output json    Emit the full receipt (origins, authorization, evidence) as JSON.",
         ],
         ["pending"] =
         [

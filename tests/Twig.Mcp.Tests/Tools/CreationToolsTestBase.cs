@@ -17,6 +17,13 @@ public abstract class CreationToolsTestBase : MutationToolsTestBase
         var defaultConfig = BuildProcessConfigWithTypes(
             WorkItemType.Epic, WorkItemType.Issue, WorkItemType.Task, WorkItemType.Bug);
         _processConfigProvider.GetConfiguration().Returns(defaultConfig);
+
+        // AFK Task #1106: creation surfaces default the assignee from the bound ADO
+        // principal's canonical uniqueName. The real connection resolves this through
+        // IIterationService; tests stub it here so creation does not spuriously refuse
+        // before mint when a test exercises the default assignee path.
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(("Test User", "test.user@example.com"));
     }
 
     protected CreationTools CreateCreationSut()

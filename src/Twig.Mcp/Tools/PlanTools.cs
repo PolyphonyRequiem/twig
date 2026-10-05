@@ -37,18 +37,16 @@ public sealed class PlanTools(ConnectionResolver resolver)
     internal const string DigestPattern = "^[0-9a-f]{64}$";
 
     private const string AuthorizerIdentityDescription =
-        "Who authorizes this apply; recorded in the audit trail.";
+        "Authorizer for the native audit.";
 
     private const string AuthorizationDigestDescription =
-        "Digest the authorization is bound to; MUST equal confirmedDigest.";
+        "Must equal confirmedDigest.";
 
     private const string AuthorizationRationaleDescription =
-        "Optional reason, recorded with the authorization.";
+        "Optional audit rationale.";
 
     private const string PlanFileDescription =
-        "Path to a plan v1 JSON file. May be absolute or relative to the current working " +
-        "directory; the lifecycle resolves it to an absolute path and refuses paths outside " +
-        "the current workspace root.";
+        "Immutable v1 file: absolute/CWD-relative, inside this worktree.";
 
     // ── twig_proposal_validate (alias: twig_plan_validate) ──────────
 
@@ -83,8 +81,7 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
     /// <summary>Legacy alias for <c>twig_proposal_validate</c>. Kept for backward compatibility.</summary>
     [McpServerTool(Name = "twig_plan_validate"), Description(
-        "DEPRECATED alias for twig_proposal_validate. Prefer twig_proposal_validate; " +
-        "this name is retained for backward compatibility only.")]
+        "Deprecated alias; use twig_proposal_validate.")]
     public Task<CallToolResult> PlanValidateAlias(
         [Description(PlanFileDescription)] string file,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
@@ -143,8 +140,7 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
     /// <summary>Legacy alias for <c>twig_proposal_preview</c>. Kept for backward compatibility.</summary>
     [McpServerTool(Name = "twig_plan_preview"), Description(
-        "DEPRECATED alias for twig_proposal_preview. Prefer twig_proposal_preview; " +
-        "this name is retained for backward compatibility only.")]
+        "Deprecated alias; use twig_proposal_preview.")]
     public Task<CallToolResult> PlanPreviewAlias(
         [Description(PlanFileDescription)] string file,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
@@ -160,12 +156,10 @@ public sealed class PlanTools(ConnectionResolver resolver)
     public async Task<CallToolResult> PlanApply(
         [Description(PlanFileDescription)] string file,
         [Description(
-            "Strict boolean confirmation. MUST be exactly true; false or absent refuses.")]
+            "Must be exactly true.")]
             bool confirmed,
         [Description(
-            "Canonical plan digest the caller is committing to. MUST equal the digest of the " +
-            "file at call time; a mismatch refuses without touching ADO. Lowercase 64-character " +
-            "hex string.")]
+            "Confirmed SHA-256 of current proposal bytes: 64 lowercase hex characters.")]
             string confirmedDigest,
         [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
         [Description(AuthorizationDigestDescription)] string authorizationDigest,
@@ -261,17 +255,14 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
     /// <summary>Legacy alias for <c>twig_proposal_apply</c>. Kept for backward compatibility.</summary>
     [McpServerTool(Name = "twig_plan_apply"), Description(
-        "DEPRECATED alias for twig_proposal_apply. Prefer twig_proposal_apply; " +
-        "this name is retained for backward compatibility only.")]
+        "Deprecated alias; use twig_proposal_apply.")]
     public Task<CallToolResult> PlanApplyAlias(
         [Description(PlanFileDescription)] string file,
         [Description(
-            "Strict boolean confirmation. MUST be exactly true; false or absent refuses.")]
+            "Must be exactly true.")]
             bool confirmed,
         [Description(
-            "Canonical proposal digest the caller is committing to. MUST equal the digest of " +
-            "the file at call time; a mismatch refuses without touching ADO. Lowercase " +
-            "64-character hex string.")]
+            "Confirmed SHA-256 of current proposal bytes: 64 lowercase hex characters.")]
             string confirmedDigest,
         [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
         [Description(AuthorizationDigestDescription)] string authorizationDigest,
@@ -336,6 +327,9 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
             PlanJsonWriter.WriteIssues(writer, status.Issues);
             PlanJsonWriter.WriteJournalOperations(writer, status.Operations);
+            // First-preview native authority; null is unknown legacy, never silently
+            // stamped with the current actor.
+            PlanJsonWriter.WriteOrigin(writer, "origin", status.Origin);
 
             // AB#832: always emitted so a consumer can read it without probing for the key.
             // Null means this file is still the one that produced its journal; non-null means
@@ -368,8 +362,7 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
     /// <summary>Legacy alias for <c>twig_proposal_status</c>. Kept for backward compatibility.</summary>
     [McpServerTool(Name = "twig_plan_status"), Description(
-        "DEPRECATED alias for twig_proposal_status. Prefer twig_proposal_status; " +
-        "this name is retained for backward compatibility only.")]
+        "Deprecated alias; use twig_proposal_status.")]
     public Task<CallToolResult> PlanStatusAlias(
         [Description(PlanFileDescription)] string file,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
@@ -430,8 +423,7 @@ public sealed class PlanTools(ConnectionResolver resolver)
 
     /// <summary>Legacy alias for <c>twig_proposal_seed</c>. Kept for backward compatibility.</summary>
     [McpServerTool(Name = "twig_plan_seed"), Description(
-        "DEPRECATED alias for twig_proposal_seed. Prefer twig_proposal_seed; " +
-        "this name is retained for backward compatibility only.")]
+        "Deprecated alias; use twig_proposal_seed.")]
     public Task<CallToolResult> PlanSeedAlias(
         [Description(
             "Negative display alias of a currently-staged seed. Positive ids are rejected " +
@@ -441,6 +433,165 @@ public sealed class PlanTools(ConnectionResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
         => PlanSeed(id, workspace, verbose, ct);
+
+    // ── twig_proposal_reconcile ─────────────────────────────────────
+
+    [McpServerTool(Name = "twig_proposal_reconcile"), Description(
+        "Append a native retirement, attributable readback or Verified replacement receipt. Preserves original states/files; never replays or reports retirement as apply success.")]
+    public async Task<CallToolResult> PlanReconcile(
+        [Description(PlanFileDescription)] string file,
+        [Description("Must be exactly true.")]
+            bool confirmed,
+        [Description(
+            "Original journaled proposal SHA-256: 64 lowercase hex characters.")]
+            string confirmedDigest,
+        [Description("Original journaled operation id.")]
+            string operationId,
+        [Description(
+            "retire: never-admitted intent; readback: proven outcome; supersede: Verified replacement of the original effect.")]
+            string outcome,
+        [Description(AuthorizerIdentityDescription)] string authorizerIdentity,
+        [Description(AuthorizationDigestDescription)] string authorizationDigest,
+        [Description("Required settlement rationale, recorded in the receipt.")]
+            string rationale,
+        [Description("Verified replacement SHA-256; supersede only.")]
+            string? replacementDigest = null,
+        [Description("Verified replacement operation id; supersede only.")]
+            string? replacementOperationId = null,
+        [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(file))
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "The 'file' parameter is required.");
+
+        if (!confirmed)
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.ConfirmationRequired,
+                "Reconcile refuses without 'confirmed:true'. Pass exactly confirmed:true together "
+                + "with the original proposal digest to confirm.");
+        }
+
+        if (!IsCanonicalDigest(confirmedDigest))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'confirmedDigest' parameter must be exactly 64 lowercase hex characters "
+                + "(SHA-256 in canonical form).");
+        }
+        if (!IsCanonicalDigest(authorizationDigest))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'authorizationDigest' parameter must be exactly 64 lowercase hex characters "
+                + "(SHA-256 in canonical form).");
+        }
+        if (string.IsNullOrWhiteSpace(authorizerIdentity))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'authorizerIdentity' parameter is required. A reconcile receipt names who is "
+                + "answerable for the settlement.");
+        }
+        if (string.IsNullOrWhiteSpace(operationId))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'operationId' parameter is required and must name the original journalled operation.");
+        }
+        if (string.IsNullOrWhiteSpace(rationale))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'rationale' parameter is required. An append-only receipt without a reason "
+                + "is refused.");
+        }
+        if (!TryParseOutcome(outcome, out var kind))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "The 'outcome' parameter must be exactly one of: retire, readback, supersede.");
+        }
+        if (kind == PlanOutcomeKind.Superseded)
+        {
+            if (string.IsNullOrWhiteSpace(replacementDigest) || !IsCanonicalDigest(replacementDigest))
+            {
+                return EnvelopeBuilder.Error(
+                    McpErrorCode.InvalidInput,
+                    "outcome=supersede requires 'replacementDigest' as 64 lowercase hex characters.");
+            }
+            if (string.IsNullOrWhiteSpace(replacementOperationId))
+            {
+                return EnvelopeBuilder.Error(
+                    McpErrorCode.InvalidInput,
+                    "outcome=supersede requires 'replacementOperationId' naming the Verified replacement operation.");
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(replacementDigest)
+                 || !string.IsNullOrWhiteSpace(replacementOperationId))
+        {
+            return EnvelopeBuilder.Error(
+                McpErrorCode.InvalidInput,
+                "'replacementDigest' and 'replacementOperationId' are only valid when outcome=supersede.");
+        }
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var authorization = new ProposalAuthorization
+        {
+            Digest = authorizationDigest,
+            Mode = ProposalAuthorizationGate.RequiredMode(ctx.Get<ISessionSteeringModeProvider>().Resolve()),
+            AuthorizerIdentity = authorizerIdentity,
+            Rationale = rationale,
+            AuthorizedAt = ctx.Get<TimeProvider>().GetUtcNow(),
+        };
+
+        var result = await InvokeLifecycleAsync(
+            ctx,
+            ct,
+            static (svc, args, token) => svc.ReconcileAsync(
+                args.File, args.Digest, args.OpId, args.Kind, args.Authorization,
+                args.ReplacementDigest, args.ReplacementOpId, token),
+            (File: file, Digest: confirmedDigest, OpId: operationId, Kind: kind,
+             Authorization: (ProposalAuthorization?)authorization,
+             ReplacementDigest: string.IsNullOrWhiteSpace(replacementDigest) ? null : replacementDigest,
+             ReplacementOpId: string.IsNullOrWhiteSpace(replacementOperationId) ? null : replacementOperationId));
+        if (result.Error is { } error) return await error.Materialize(ctx, ct);
+
+        var reconciliation = result.Value!;
+        // 🔴 Settled=false stays a payload response (not a transport error) so the caller can
+        // inspect the reason the gate refused. A thrown lifecycle exception is still error.
+        return await EnvelopeBuilder.PayloadAsync(ctx, writer =>
+        {
+            writer.WriteBoolean("settled", reconciliation.Settled);
+            PlanJsonWriter.WriteOutcomeReceipt(writer, "receipt", reconciliation.Receipt);
+            if (reconciliation.Error is not null) writer.WriteString("error", reconciliation.Error);
+            else writer.WriteNull("error");
+        }, verbose, isError: !reconciliation.Settled, ct);
+    }
+
+    private static bool TryParseOutcome(string value, out PlanOutcomeKind kind)
+    {
+        switch (value.Trim().ToLowerInvariant())
+        {
+            case "retire":
+            case "retired":
+                kind = PlanOutcomeKind.Retired;
+                return true;
+            case "readback":
+                kind = PlanOutcomeKind.Readback;
+                return true;
+            case "supersede":
+            case "superseded":
+                kind = PlanOutcomeKind.Superseded;
+                return true;
+            default:
+                kind = default;
+                return false;
+        }
+    }
 
     // ── twig_pending ────────────────────────────────────────────────
 

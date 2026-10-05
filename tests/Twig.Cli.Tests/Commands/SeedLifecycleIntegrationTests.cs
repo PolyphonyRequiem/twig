@@ -37,6 +37,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
     private readonly IPublishIdMapRepository _publishIdMapRepo;
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IIterationService _iterationService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly TextWriter _originalOut;
@@ -64,6 +65,9 @@ public class SeedLifecycleIntegrationTests : IDisposable
         _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
         _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
         _unitOfWork = Substitute.For<IUnitOfWork>();
+        _iterationService = Substitute.For<IIterationService>();
+        _iterationService.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(("Test User", "test.user@example.com"));
 
         _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
         _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(DefaultFieldDefs);
@@ -109,7 +113,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo, _iterationService);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("My Lifecycle Seed");
@@ -218,7 +222,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(), stagedIdentityRegistry2, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry2, _seedLinkRepo, _iterationService);
 
         Console.SetOut(new StringWriter());
         await Should.ThrowAsync<InvalidOperationException>(
@@ -285,7 +289,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
             _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo);
+            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo, _iterationService);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("Publishable Seed");

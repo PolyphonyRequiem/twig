@@ -86,6 +86,23 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoClassificationNodeResponse))]
 [JsonSerializable(typeof(List<AdoClassificationNodeResponse>))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
+[JsonSerializable(typeof(PatCredentialEntry))]
+[JsonSerializable(typeof(ConnectionMigrationRecord))]
+[JsonSerializable(typeof(MirrorAdmissionDocument))]
+[JsonSerializable(typeof(ConnectionMigrationPreview))]
+[JsonSerializable(typeof(ConnectionBindingTransitionPreview))]
+[JsonSerializable(typeof(ConnectionBindingTransitionRecord))]
+[JsonSerializable(typeof(ConnectionRemoteWriteRequest))]
+[JsonSerializable(typeof(ConnectionRemoteWriteResponse))]
+[JsonSerializable(typeof(ConnectionRemoteWriteIntent))]
+[JsonSerializable(typeof(ConnectionRemoteWriteObservation))]
+[JsonSerializable(typeof(ConnectionRemoteWriteReceipt))]
+[JsonSerializable(typeof(ConnectionRemoteWriteHistory))]
+[JsonSerializable(typeof(ConnectionRemoteWriteInspection))]
+[JsonSerializable(typeof(ConnectionRemoteWriteInspection[]))]
+[JsonSerializable(typeof(SeedPublishCorrelation))]
+[JsonSerializable(typeof(ConnectionDefaultTransitionPreview))]
+[JsonSerializable(typeof(ConnectionDefaultTransitionRecord))]
 [JsonSerializable(typeof(AdoProfileResponse))]
 [JsonSerializable(typeof(TypeAppearanceConfig))]
 [JsonSerializable(typeof(List<TypeAppearanceConfig>))]
@@ -200,8 +217,12 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAgentDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    Converters = [typeof(StagedIdentityJsonConverter)],
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 

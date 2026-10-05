@@ -31,6 +31,7 @@ public sealed class SqlitePublishIdMapRepository : IPublishIdMapRepository
         // written here can always be rendered as the number the user saw while staging.
         var alias = await _registry.FindAliasAsync(identity, ct);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -51,6 +52,7 @@ public sealed class SqlitePublishIdMapRepository : IPublishIdMapRepository
 
     public Task<int?> GetNewIdAsync(StagedIdentity identity, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT new_id FROM publish_id_map WHERE staged_identity = @identity;";
@@ -75,6 +77,7 @@ public sealed class SqlitePublishIdMapRepository : IPublishIdMapRepository
 
     public Task<IReadOnlyList<PublishMapping>> GetAllMappingsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """

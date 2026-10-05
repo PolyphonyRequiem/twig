@@ -15,6 +15,7 @@ public sealed class WorkItemBuilder
     private string _state = "New";
     private int? _parentId;
     private string? _assignedTo;
+    private string? _assignedToUniqueName;
     private IterationPath _iterationPath;
     private AreaPath _areaPath;
     private bool _isSeed;
@@ -43,6 +44,7 @@ public sealed class WorkItemBuilder
     public WorkItemBuilder InState(string state) { _state = state; return this; }
     public WorkItemBuilder WithParent(int parentId) { _parentId = parentId; return this; }
     public WorkItemBuilder AssignedTo(string? assignee) { _assignedTo = assignee; return this; }
+    public WorkItemBuilder AssignedToUniqueName(string? uniqueName) { _assignedToUniqueName = uniqueName; return this; }
     public WorkItemBuilder WithIterationPath(string path) { _iterationPath = IterationPath.Parse(path).Value; return this; }
     public WorkItemBuilder WithAreaPath(string path) { _areaPath = AreaPath.Parse(path).Value; return this; }
     /// <summary>
@@ -84,6 +86,7 @@ public sealed class WorkItemBuilder
             State = _state,
             ParentId = _parentId,
             AssignedTo = _assignedTo,
+            AssignedToUniqueName = _assignedToUniqueName,
             IterationPath = _iterationPath,
             AreaPath = _areaPath,
             IsSeed = _isSeed,

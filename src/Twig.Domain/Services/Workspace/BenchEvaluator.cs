@@ -168,6 +168,7 @@ public sealed class BenchEvaluator
                 "a new rule is added beside this one rather than expressed within it.");
 
         var assignedTo = selector.QueryAssignedTo;
+        var assignedToUniqueName = selector.QueryAssignedToUniqueName;
 
         // The sprint rule is "the iteration whose date range covers now". Which iteration that is
         // comes from the locally cached calendar and the local clock — never a network call, so a
@@ -180,8 +181,20 @@ public sealed class BenchEvaluator
 
         var items = await _workItemRepo.GetByIterationsAsync(iterations, ct);
 
-        if (assignedTo is not null && items.Count > 0)
+        if (items.Count == 0)
+            return (items, iterations);
+
+        if (assignedToUniqueName is not null)
         {
+            items = items
+                .Where(w => w.IsAssignedToIdentity(assignedToUniqueName))
+                .ToList();
+        }
+        else if (assignedTo is not null)
+        {
+            // Explicit saved-Bench display label (noncanonical, user-authored rule): matches ADO's
+            // display rendering exactly. Preserved for Benches saved before the canonical slot
+            // existed and for explicit team-member filters a user wrote by hand.
             items = items
                 .Where(w => string.Equals(w.AssignedTo, assignedTo, StringComparison.OrdinalIgnoreCase))
                 .ToList();

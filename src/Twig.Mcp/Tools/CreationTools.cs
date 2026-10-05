@@ -5,6 +5,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Mutation;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Auth;
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -33,7 +34,7 @@ public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedF
         [Description("Title for the new work item")] string title,
         [Description("Parent work item ID (optional — used for path inheritance and child type validation)")] int? parentId = null,
         [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
-        [Description("Assignee display name (optional)")] string? assignedTo = null,
+        [Description("Explicit assignee; defaults to bound canonical identity.")] string? assignedTo = null,
         [Description(McpToolDescriptions.WorkspaceOverride)] string? workspace = null,
         [Description("When true and parentId is provided, skips the duplicate title+type check. Default is false (dedup enabled).")] bool skipDuplicateCheck = false,
         [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
@@ -83,6 +84,13 @@ public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedF
         // No parent — use workspace defaults for area/iteration paths
         var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
         var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
+        if (string.IsNullOrWhiteSpace(assignedTo))
+        {
+            var identity = await BoundAssigneeResolver.ResolveAsync(ctx.Get<IIterationService>(), ct);
+            if (identity.ErrorMessage is not null)
+                return await EnvelopeBuilder.ErrorAsync(identity.IsUnavailable ? McpErrorCode.AdoUnreachable : McpErrorCode.InvalidInput, identity.ErrorMessage, ctx, ct);
+            assignedTo = identity.UniqueName;
+        }
 
         var unparentedResult = seedFactory.CreateUnparented(
             title,
@@ -276,6 +284,13 @@ public sealed class CreationTools(ConnectionResolver resolver, SeedFactory seedF
 
         var (parent, fetchErr) = await ctx.Get<WorkItemFetcher>().FetchWithFallbackAsync(parentId, ct);
         if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
+        if (string.IsNullOrWhiteSpace(assignedTo))
+        {
+            var identity = await BoundAssigneeResolver.ResolveAsync(ctx.Get<IIterationService>(), ct);
+            if (identity.ErrorMessage is not null)
+                return await EnvelopeBuilder.ErrorAsync(identity.IsUnavailable ? McpErrorCode.AdoUnreachable : McpErrorCode.InvalidInput, identity.ErrorMessage, ctx, ct);
+            assignedTo = identity.UniqueName;
+        }
 
         var seedResult = seedFactory.Create(
             title, parent!, processConfig, await ctx.Get<IStagedIdentityRegistry>().MintAsync(ct), parsedType, assignedTo);

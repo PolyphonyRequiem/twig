@@ -413,32 +413,6 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  twig_track — tracking repo null returns error
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Track_TrackingRepoNull_ReturnsError()
-    {
-        // Build a resolver with no tracking repo
-        var config = new TwigConfiguration
-        {
-            Display = new DisplayConfig { CacheStaleMinutes = 5 },
-        };
-        var res = BuildResolver(config);
-
-        // We need a workspace context without TrackingRepo.
-        // The base class's BuildResolver includes _trackingRepo, which is non-null.
-        // Instead, test through the null-check by using a separate approach:
-        // The standard BuildResolver always injects _trackingRepo, so this scenario
-        // would require a custom resolver. For now, verify the happy path works
-        // since TrackingRepo is always injected in tests.
-        // This test validates that the error message is correct when the check fires.
-        var sut = new TrackingTools(res);
-        var result = await sut.Track("42");
-        result.IsError.ShouldBeNull(); // Tracking repo exists in test harness
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  twig_tracking_status — returns tracked items with work item details
     // ═══════════════════════════════════════════════════════════════
 

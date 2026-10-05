@@ -7,6 +7,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
+using Twig.Domain.Tests;
 
 namespace Twig.Domain.Tests.Services.Sync;
 
@@ -53,9 +54,9 @@ public class RefreshWriteBypassTests
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _iterationService.WithBoundIdentity();
 
-        var workingSetService = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
 

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -18,7 +19,8 @@ internal static partial class AdoErrorHandler
     /// <param name="response">The HTTP response to inspect.</param>
     /// <param name="requestUrl">The request URL (used to extract work item ID for 404).</param>
     /// <param name="ct">Cancellation token.</param>
-    public static async Task ThrowOnErrorAsync(HttpResponseMessage response, string requestUrl, CancellationToken ct)
+    public static async Task ThrowOnErrorAsync(HttpResponseMessage response, string requestUrl, CancellationToken ct,
+        AdoRateLimitBudget? budget = null, string? credential = null)
     {
         if (response.IsSuccessStatusCode)
         {
@@ -89,10 +91,19 @@ internal static partial class AdoErrorHandler
                 throw new AdoConflictException(serverRev, conflictBody);
 
             case (HttpStatusCode)429:
-                var retryAfter = TimeSpan.FromSeconds(10); // default
-                if (response.Headers.RetryAfter?.Delta is { } delta)
-                    retryAfter = delta;
-                throw new AdoRateLimitException(retryAfter);
+                var retryHeader = response.Headers.RetryAfter;
+                var retryAfter = retryHeader?.Delta
+                    ?? (retryHeader?.Date is { } date ? date - DateTimeOffset.UtcNow : TimeSpan.FromSeconds(10));
+                if (retryAfter < TimeSpan.Zero) retryAfter = TimeSpan.Zero;
+                var serverMessage = SafeThrottleText(await TryReadThrottleMessageAsync(response, ct), credential);
+                var resource = serverMessage is null ? null : ResourceRegex().Match(serverMessage);
+                throw new AdoRateLimitException(retryAfter, serverMessage,
+                    resource?.Success == true ? resource.Groups[1].Value : null,
+                    retryHeader?.ToString(), budget?.Authority, budget?.Principal,
+                    ReadCorrelation(response, "X-VSS-E2EID", credential)
+                        ?? ReadCorrelation(response, "X-MS-Correlation-Request-Id", credential),
+                    ReadCorrelation(response, "ActivityId", credential)
+                        ?? ReadCorrelation(response, "X-TFS-Session", credential));
 
             default:
                 if (statusCode >= 500)
@@ -118,11 +129,83 @@ internal static partial class AdoErrorHandler
             var error = JsonSerializer.Deserialize(body, TwigJsonContext.Default.AdoErrorResponse);
             return error?.Message ?? body;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception)
         {
             return null;
         }
     }
+
+    private static async Task<string?> TryReadThrottleMessageAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (response.Content.Headers.ContentType?.MediaType?.Equals("text/plain", StringComparison.OrdinalIgnoreCase) == true)
+                return body;
+            // Do not surface an arbitrary JSON object/HTML body that could carry unrelated secrets.
+            return JsonSerializer.Deserialize(body, TwigJsonContext.Default.AdoErrorResponse)?.Message;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (JsonException) { return null; }
+    }
+
+    private static string? ReadCorrelation(HttpResponseMessage response, string header, string? credential)
+    {
+        if (!response.Headers.TryGetValues(header, out var values)) return null;
+        foreach (var value in values)
+            if (Guid.TryParse(value, out var id))
+                return SafeThrottleText(id.ToString("D", CultureInfo.InvariantCulture), credential);
+        return null;
+    }
+
+    private static string? SafeThrottleText(string? text, string? credential)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        // Redact before bounding length: a truncated credential is still secret material.
+        if (!string.IsNullOrEmpty(credential))
+        {
+            text = text.Replace(credential, "[redacted]", StringComparison.Ordinal);
+            if (credential.StartsWith("Basic ", StringComparison.Ordinal))
+            {
+                var encoded = credential[6..];
+                text = text.Replace(encoded, "[redacted]", StringComparison.Ordinal);
+                try
+                {
+                    var decoded = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+                    var colon = decoded.IndexOf(':');
+                    if (colon >= 0 && colon < decoded.Length - 1)
+                    {
+                        var secret = decoded[(colon + 1)..];
+                        text = text.Replace(secret, "[redacted]", StringComparison.Ordinal)
+                            .Replace(Uri.EscapeDataString(secret), "[redacted]", StringComparison.Ordinal)
+                            .Replace(WebUtility.HtmlEncode(secret), "[redacted]", StringComparison.Ordinal);
+                    }
+                }
+                catch (FormatException) { }
+            }
+        }
+        text = AuthorizationRegex().Replace(text, "[redacted]");
+        text = TokenRegex().Replace(text, "[redacted]");
+        text = SecretFieldRegex().Replace(text, "$1=[redacted]");
+        text = ControlRegex().Replace(text, " ");
+        return text.Length > 2048 ? text[..2048] : text;
+    }
+
+    [GeneratedRegex("(?i)resource\\s*[:=]?\\s*[\\\"']?([a-z0-9._/-]{1,64})")]
+    private static partial Regex ResourceRegex();
+
+    [GeneratedRegex(@"(?i)\b(?:Bearer|Basic)\s+[a-z0-9+/_=.-]+")]
+    private static partial Regex AuthorizationRegex();
+
+    [GeneratedRegex(@"\beyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+")]
+    private static partial Regex TokenRegex();
+
+    [GeneratedRegex(@"(?i)\b(access_token|refresh_token|pat|authorization)\s*[:=]\s*[^\s,;]+")]
+    private static partial Regex SecretFieldRegex();
+
+    [GeneratedRegex(@"[\p{Cc}\p{Cf}]")]
+    private static partial Regex ControlRegex();
 
     /// <summary>
     /// Attempts to extract a work item ID from a URL like

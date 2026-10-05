@@ -10,8 +10,8 @@ and local development workflow.
 ### Configuration
 
 All publishable projects target `net10.0` (set in `Directory.Build.props`).
-The two main binaries — `twig` and `twig-mcp` — are AOT-compiled, with
-AOT properties set in their respective `.csproj` files:
+The `twig` CLI is AOT-compiled, with AOT properties set in its `.csproj` file.
+MCP is withdrawn from delivery pending redesign; its source is retained only as context.
 
 | Property | Value | Purpose |
 |----------|-------|---------|
@@ -57,7 +57,7 @@ AOT (see §4).
 Version numbers are derived from Git tags via **MinVer 7.0.0**.
 
 ```xml
-<!-- src/Twig/Twig.csproj and src/Twig.Mcp/Twig.Mcp.csproj -->
+<!-- src/Twig/Twig.csproj -->
 <MinVerTagPrefix>v</MinVerTagPrefix>
 ```
 
@@ -123,11 +123,10 @@ and exits with an explanation instead of 404ing on a missing asset. Restore the
 matrix leg, the `Create GitHub Release` asset lines, and remove the `install.sh`
 guard once a newer preview links it.
 
-Each platform builds three artifacts:
+Each platform builds two artifacts:
 
 1. **twig** (CLI, AOT) — `dotnet publish src/Twig/Twig.csproj -c Release -r {RID} --self-contained true`
-2. **twig-mcp** (MCP server, AOT) — same flags
-3. **twig-tui** (TUI, non-AOT) — adds `/p:PublishTrimmed=false /p:PublishAot=false`
+2. **twig-tui** (TUI, non-AOT) — adds `/p:PublishTrimmed=false /p:PublishAot=false`
 
 Build steps:
 
@@ -163,10 +162,8 @@ Runs on `ubuntu-latest` after all platform builds succeed:
 graph TD
     Domain["Twig.Domain (lib)"] --> Infra["Twig.Infrastructure (lib)<br/>Markdig, Microsoft.Data.Sqlite<br/>InternalsVisibleTo: all consumers + test projects"]
     Domain --> CLI["Twig (exe) — CLI — AOT<br/>ConsoleAppFramework, Spectre.Console"]
-    Domain --> McpExe["Twig.Mcp (exe) — MCP server — AOT<br/>ModelContextProtocol, Microsoft.Extensions.Hosting"]
     Domain --> Tui["Twig.Tui (exe) — TUI — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
     Infra --> CLI
-    Infra --> McpExe
     Infra --> Tui
 ```
 
@@ -177,12 +174,11 @@ graph TD
 - Framework: ConsoleAppFramework (source-gen command routing)
 - Rendering: Spectre.Console (rich terminal output)
 
-### twig-mcp (MCP server)
+### MCP (withdrawn)
 
-- Assembly name: `twig-mcp`
-- Output: `twig-mcp.exe` / `twig-mcp` (native AOT binary)
-- Transport: stdio (JSON-RPC over stdin/stdout)
-- Registered in `.vscode/mcp.json` for IDE integration
+MCP is excluded from supported builds, release archives, local publishing,
+installation and automatic companion downloads. Its source remains available
+for a separate redesign; current delivery does not expose an MCP server.
 
 ### twig-tui (Terminal UI)
 
@@ -229,7 +225,7 @@ directory for rapid iteration without touching the release installation.
 #### What it does
 
 1. Creates `.local/bin/` in the repo root.
-2. Publishes `twig`, `twig-mcp`, and `twig-tui` to `.local/bin/`.
+2. Publishes `twig` and `twig-tui` to `.local/bin/`; retires any old repo-local MCP launcher.
 3. Installs **shim scripts** in `~/.twig/bin/` that redirect to the local
    build when run from within the repo.
 

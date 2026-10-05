@@ -23,8 +23,11 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         _mapper = mapper;
     }
 
+    public IDisposable? AcquireOperation() => _store.AcquireOperation();
+
     public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -41,6 +44,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     /// </summary>
     internal Task<WorkItemSnapshot?> GetSnapshotByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -57,6 +61,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (idList.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -75,6 +80,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY CASE WHEN id < 0 THEN 1 ELSE 0 END, CASE WHEN id >= 0 THEN type END, CASE WHEN id >= 0 THEN title END, ABS(id);";
@@ -86,6 +92,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetRootItemsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE parent_id IS NULL AND id > 0 ORDER BY type, title;";
@@ -96,6 +103,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetByIterationAsync(IterationPath iterationPath, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path;";
@@ -110,6 +118,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (iterationPaths.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -128,9 +137,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetByIterationAndAssigneeAsync(IterationPath iterationPath, string assignee, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND assigned_to = @assignee COLLATE NOCASE;";
+        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
         cmd.Parameters.AddWithValue("@assignee", assignee);
 
@@ -145,6 +155,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
         while (currentId.HasValue)
         {
+            using var bindingOperation = _store.AcquireOperation();
             var conn = _store.GetConnection();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
@@ -166,6 +177,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> FindByPatternAsync(string pattern, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE title LIKE '%' || @pattern || '%' COLLATE NOCASE;";
@@ -177,8 +189,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetDirtyItemsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "SELECT * FROM work_items WHERE is_dirty = 1;";
 
         var items = ReadAll(cmd);
@@ -187,6 +201,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<WorkItem>> GetSeedsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT * FROM work_items WHERE is_seed = 1;";
@@ -197,6 +212,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<bool> ExistsByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM work_items WHERE id = @id;";
@@ -207,6 +223,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<IReadOnlyList<int>> GetOrphanParentIdsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -228,12 +245,14 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
     }
 
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try
@@ -254,6 +273,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task DeleteByIdAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -265,6 +285,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task RemapParentIdAsync(int oldParentId, int newParentId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -277,6 +298,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
 
         if (keepIds.Count == 0)
@@ -355,6 +377,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<int> ClearPhantomDirtyFlagsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -370,6 +393,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task ClearDirtyFlagAsync(int id, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = _store.ActiveTransaction;
@@ -384,6 +408,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         if (entries.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -414,6 +439,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task<Domain.ReadModels.CacheStatistics> GetCacheStatisticsAsync(CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -446,10 +472,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT OR REPLACE INTO work_items
-                (id, type, title, state, parent_id, assigned_to, iteration_path, area_path,
+                (id, type, title, state, parent_id, assigned_to, assigned_to_unique_name, iteration_path, area_path,
                  revision, is_seed, seed_created_at, staged_identity, fields_json, is_dirty, last_synced_at)
             VALUES
-                (@id, @type, @title, @state, @parentId, @assignedTo, @iterationPath, @areaPath,
+                (@id, @type, @title, @state, @parentId, @assignedTo, @assignedToUniqueName, @iterationPath, @areaPath,
                  @revision, @isSeed, @seedCreatedAt, @stagedIdentity, @fieldsJson, @isDirty, @lastSyncedAt);
             """;
 
@@ -458,7 +484,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Parameters.AddWithValue("@title", item.Title);
         cmd.Parameters.AddWithValue("@state", item.State);
         cmd.Parameters.AddWithValue("@parentId", (object?)item.ParentId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@assignedTo", (object?)item.AssignedTo ?? DBNull.Value);
+        var assignedTo = item.Fields.TryGetValue("System.AssignedTo", out var authoredAssignee)
+            ? authoredAssignee : item.AssignedTo;
+        cmd.Parameters.AddWithValue("@assignedTo", (object?)assignedTo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@assignedToUniqueName", (object?)item.AssignedToUniqueName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@iterationPath", (object?)item.IterationPath.Value ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@areaPath", (object?)item.AreaPath.Value ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@revision", item.Revision);
@@ -521,6 +550,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             AssignedTo = reader.IsDBNull(reader.GetOrdinal("assigned_to"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("assigned_to")),
+            AssignedToUniqueName = reader.IsDBNull(reader.GetOrdinal("assigned_to_unique_name"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("assigned_to_unique_name")),
             IterationPath = reader.IsDBNull(reader.GetOrdinal("iteration_path"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("iteration_path")),

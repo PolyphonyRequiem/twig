@@ -64,11 +64,36 @@ public sealed class AdoConflictException : AdoException
 public sealed class AdoRateLimitException : AdoException
 {
     public TimeSpan RetryAfter { get; }
+    public string? ServerMessage { get; }
+    public string? Resource { get; }
+    public string? RetryAfterHeader { get; }
+    public string? Authority { get; }
+    public string? Principal { get; }
+    public string? CorrelationId { get; }
+    public string? ActivityId { get; }
 
     public AdoRateLimitException(TimeSpan retryAfter)
-        : base($"Rate limited. Retry after {retryAfter.TotalSeconds:F0}s.")
+        : this(retryAfter, null, null, null, null, null, null, null) { }
+
+    internal AdoRateLimitException(TimeSpan retryAfter, string? serverMessage, string? resource,
+        string? retryAfterHeader, string? authority, string? principal, string? correlationId, string? activityId)
+        : base($"Rate limited (HTTP 429). Retry after {retryAfter.TotalSeconds:F0}s."
+            + (serverMessage is null ? string.Empty : $" Server: {serverMessage}")
+            + (resource is null ? string.Empty : $" Resource: {resource}.")
+            + (authority is null ? string.Empty : $" Authority: {authority}.")
+            + (principal is null ? string.Empty : $" Bound principal: {principal}.")
+            + (retryAfterHeader is null ? string.Empty : $" Retry-After: {retryAfterHeader}.")
+            + (correlationId is null ? string.Empty : $" Correlation: {correlationId}.")
+            + (activityId is null ? string.Empty : $" Activity: {activityId}."))
     {
         RetryAfter = retryAfter;
+        ServerMessage = serverMessage;
+        Resource = resource;
+        RetryAfterHeader = retryAfterHeader;
+        Authority = authority;
+        Principal = principal;
+        CorrelationId = correlationId;
+        ActivityId = activityId;
     }
 }
 

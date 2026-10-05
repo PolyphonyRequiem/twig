@@ -20,6 +20,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
 
     public Task<IReadOnlyList<WorkItemLink>> GetLinksAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT source_id, target_id, link_type FROM work_item_links WHERE source_id = @sourceId;";
@@ -50,6 +51,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
         if (distinctIds.Count == 0)
             return Task.FromResult<IReadOnlyList<WorkItemLink>>(Array.Empty<WorkItemLink>());
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -76,6 +78,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
     /// <inheritdoc />
     public Task<DateTimeOffset?> GetLinksVerifiedAtAsync(int workItemId, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT verified_at FROM work_item_link_verifications WHERE source_id = @sourceId;";
@@ -95,6 +98,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
         if (distinctIds.Count == 0)
             return Task.FromResult<IReadOnlyDictionary<int, DateTimeOffset>>(EmptyVerifications);
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
 
@@ -119,6 +123,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
     /// <inheritdoc />
     public Task SaveLinksAsync(int workItemId, IReadOnlyList<WorkItemLink> links, CancellationToken ct = default)
     {
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try
@@ -145,6 +150,7 @@ public sealed class SqliteWorkItemLinkRepository : IWorkItemLinkRepository
         if (linksBySource.Count == 0)
             return Task.CompletedTask;
 
+        using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
         try

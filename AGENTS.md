@@ -1,306 +1,61 @@
 # Repository guidance
 
-## Build & test
+## Build & verification
 
-`global.json` pins SDK **11.0.100-preview.5.26302.115** with `rollForward: latestFeature`.
-
-That SDK **is** installed system-wide here (`C:\Program Files\dotnet`), so plain `dotnet`
-on the PATH works. No exports are needed for a normal build:
+For routine implementation and draft PRs, build the supported solution, run a
+focused regression for the changed behavior, then run the offline pre-push smoke:
 
 ```bash
-dotnet build src/Twig/Twig.csproj -m:1
+python tools/run-bounded.py --timeout 120 -- dotnet build -m:1
+python tools/run-bounded.py --timeout 30 -- bash tools/run-tests.sh --pre-push
 ```
 
-### History: the old preview.3 pin (#333)
-
-The repo used to pin **11.0.100-preview.3.26207.106** with `rollForward: disable`, because
-`src/Twig.Domain/Common/CompilerPolyfill.cs` declared `UnionAttribute` / `IUnion` into
-`System.Runtime.CompilerServices` — and from preview.5 the runtime ships those types itself,
-producing `error CS0433: The type 'IUnion' exists in both 'Twig.Domain' and 'System.Runtime'`.
-
-That is now resolved by scoping the shim to `net10.0` only (`Twig.Domain.csproj` removes it
-from the compile for every other TFM), so the pin no longer needs to hold newer SDKs back.
-The shim still exists and is still required for the `net10.0` target, whose ref pack does not
-carry the types — do not delete it until `net10.0` is dropped.
-
-**If you have a stale `DOTNET_ROOT` exported** (e.g. `$HOME/.dotnet-p3` from the old
-instructions), test hosts fail with *"You must install or update .NET to run this
-application"* listing only preview.3. `unset DOTNET_ROOT`.
-
-### Canonical test command
-
-**Use `tools/run-tests.sh`.** It runs the four suites serially with the right
-filters and prints a single reconciled verdict per suite:
-
-```bash
-tools/run-tests.sh              # all four
-tools/run-tests.sh Cli Domain   # a subset
-```
-
-It exits non-zero unless every suite is a genuine, unaborted pass. Grep its
-output for `TWIG-VERDICT` — never for `Passed!` (see "Reading test results").
-
-🔴 **A green `TWIG-VERDICT OVERALL` is necessary but NOT sufficient before you push.** This
-script runs four suites; CI runs six and compiles the whole solution. `--pre-push` adds
-CI's own commands and folds them into the verdict:
-
-```bash
-tools/run-tests.sh --pre-push
-```
-
-Why, what it catches, and the incident that forced it: see "Before you push: the script's
-verdict is not CI's verdict" below.
-
-The underlying commands, if you need to run one by hand. `dotnet test` accepts
-only **one** project per invocation, and two concurrent runs collide over shared
-build output (producing a bogus `SQLitePCL DllNotFoundException`). Run them
-**serially**:
-
-```bash
-dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --nologo --filter "FullyQualifiedName!~BinaryLauncher"
-dotnet test tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj --nologo
-dotnet test tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj --nologo
-dotnet test tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj --nologo
-```
-
-`BinaryLauncherTests` is excluded because it spawns a child binary that cannot
-resolve the SQLite native lib under a user-local SDK, killing the test host
-mid-run. It is environmental, not a repo defect, and passes in CI — note that
-these by-hand commands inherit that exclusion too, so they are no closer to CI's
-verdict than the script is.
-
-Building the whole solution works as of #342. `tests/Twig.Benchmarks` used to fail
-with a `CS0433 ILoggingBuilder` ambiguity — BenchmarkDotNet pulls
-`Microsoft.Extensions.Logging` **2.1.1** transitively (via
-`Microsoft.Diagnostics.NETCore.Client`), whose `netstandard2.0` assembly defines
-`ILoggingBuilder` alongside the one in the shared framework. A direct pinned
-`PackageReference` in that csproj now wins over the transitive version.
-
-This was tolerable while it was local-only, but the preview.5 SDK move (#338) made
-CI run a bare `dotnet build` over everything, turning it into a red check on every
-PR. If it returns, check for a transitive `Microsoft.Extensions.Logging` below 10.x:
-
-```bash
-dotnet list tests/Twig.Benchmarks/Twig.Benchmarks.csproj package --include-transitive | grep Logging
-```
-
-### Reading test results
-
-**Trust the process exit code, not the summary line.** An aborted run still prints
-a clean-looking `Passed! - Failed: 0` with a smaller total, and a TRX report's
-counters only describe the portion completed before the host died.
-
-`tools/run-tests.sh` exists precisely so this is not a judgement call. It
-reconciles the exit code, the abort markers, and the test total, and emits one
-verdict line that cannot grep as a pass unless the run really passed:
-
-```bash
-tools/run-tests.sh Cli | grep TWIG-VERDICT
-# TWIG-VERDICT Cli: PASSED (2941 tests) [log: artifacts/test-logs/Cli.log]
-# TWIG-VERDICT OVERALL: PASSED
-```
-
-(Counts in this file are snapshots from whenever the surrounding note was written —
-2941 here, 3018 in the #311 sections, 3191 in the next section — and the suite grows.
-Treat the *shape* of each line as the guidance, never the number.)
-
-🔴 **A usage error is a verdict too, and that is what makes the grep safe (AB#352).**
-The script used to hard-exit on an unrecognised option or a mistyped suite name
-*without printing any verdict at all*, so the mandated grep came back **empty** — and
-empty output contains no `FAILED`, so a caller asking "did anything fail?" the
-documented way saw nothing wrong. The rule pointed at the one hole in the instrument
-built to close it. Every early exit now emits, on **stdout**:
-
-```bash
-tools/run-tests.sh Domian | grep TWIG-VERDICT
-# TWIG-VERDICT OVERALL: FAILED (unknown suite 'Domian' (known: Cli Infrastructure Mcp Domain) — nothing ran)
-```
-
-`nothing ran` is deliberate: it distinguishes a usage error from a broken test, so
-nobody goes hunting for a failure that does not exist. The diagnostic still goes to
-stderr as well; the verdict is on stdout because that is all the documented grep sees.
-
-If you must invoke `dotnet test` directly, capture the exit code and include
-`Aborted` in the grep — `grep -E "Passed!|Failed!"` alone matches the false-green
-summary line an aborted run prints:
-
-```bash
-dotnet test ... > log 2>&1; echo "EXIT=$?"
-grep -E "Passed!|Failed!|Aborted|\[FAIL\]" log
-```
-
-Reporting "suite green" from a summary grep while the process exits non-zero has
-already cost one bogus issue report (#257, closed as invalid), and the underlying
-hang that produced those aborted runs was #311.
-
-### Before you push: the script's verdict is not CI's verdict
-
-🔴 **A green `TWIG-VERDICT OVERALL` is necessary but not sufficient.** `tools/run-tests.sh`
-is the right instrument for "did the tests I care about pass" — it reconciles an abort into
-an honest verdict, which a raw `dotnet test` will not do for you. It is **not** a prediction
-of CI, because it runs a deliberately narrower set:
-
-| | `tools/run-tests.sh` | CI (`.github/workflows/ci.yml`) |
-|---|---|---|
-| Assemblies | **four** — Cli, Infrastructure, Mcp, Domain | **six** — those four plus `Twig.RenderTree.Tests` and `Twig.Tui.Tests` |
-| Cli filter | `FullyQualifiedName!~BinaryLauncher` | none — `BinaryLauncherTests` runs |
-| Compiles | only the four suites and what they reference | the **whole solution**, including `tests/Twig.Benchmarks` |
-| External host probe | **only under `--pre-push`** (`TWIG-VERDICT DetailHostProbe`) | always, as its own step |
-
-### The external host probe runs now (AB#341)
-
-`samples/Twig.DetailHost` is the final gate of wayfinder-detail-projection ticket 0006 §10 —
-consumer → public projection → host-owned renderer, from **outside** Twig. Its location is
-load-bearing: `Twig.Domain` grants `InternalsVisibleTo` to every first-party test assembly, so
-a test project would pass while proving nothing about an external consumer.
-
-🔴 **It carried an acceptance floor returning exit 1 on any miss, and until AB#341 nothing
-ran it.** The solution *builds* it, so a visibility regression was still caught — but the
-floor itself was dead weight: the fixture could have stopped exercising all three field states
-and no check would have noticed. A mechanism that exists, reads as protective, and is wired to
-nothing is the same defect class as a green-looking aborted run, which is the thing this whole
-script exists to abolish. **`--pre-push` now runs it and reconciles it into the verdict**, and
-CI runs it as its own step.
-
-**Two independent guards, because exit 0 alone is not enough.** A probe that dies before
-printing anything exits non-zero; a probe gutted to `return 0` exits *clean and silent*.
-Both are checked, and each fails with its own wording:
-
-```
-TWIG-VERDICT DetailHostProbe: FAILED (probe exit code 1 — the acceptance floor rejected the run)
-TWIG-VERDICT DetailHostProbe: FAILED (probe exited 0 without printing PROBE OK — a silent probe is not a pass)
-```
-
-Both were proven by mutation: breaking the fixture produced the first, renaming the success
-token produced the second, and the restored tree goes green — so neither guard is
-always-FAILED. Note what the failing run looks like: **the other suites stay green**. It is the
-AB#350 shape again, so read `OVERALL` or read every line.
-
-🔴 **The runtime decision is explicit, not inherited: we ROLL FORWARD, we do not install a GA
-runtime.** The sample targets `net10.0` GA *on purpose* — its csproj says so — to prove a
-consumer is not dragged onto the preview SDK. That is the property under test, so **do not
-retarget it** to make execution easier; doing so deletes the thing it proves. Installing
-net10.0 GA in CI would let it run on its native runtime, but CI would then stop exercising the
-case that actually ships: a real consumer on a machine with only a newer runtime. Roll-forward
-*is* that consumer's experience, it keeps CI and the script identical, and it costs one
-environment variable instead of a second SDK install. The accepted trade: we do not prove the
-probe runs on net10.0 GA itself. `global.json` pins the SDK, so nothing drifts silently.
-
-To run it by hand:
-
-```bash
-DOTNET_ROLL_FORWARD=Major dotnet samples/Twig.DetailHost/bin/Debug/net10.0/Twig.DetailHost.dll
-```
-
-A bare `dotnet run` fails with *"You must install or update .NET to run this application"* on a
-box with only the preview SDK. That is environmental, not a defect.
-
-
-`test.runsettings` is **not** a difference: `Directory.Build.props` sets
-`RunSettingsFilePath`, so both paths pick it up. CI's `--settings` is CI being explicit.
-
-That third row is a compile-time gap, not a test gap, and it has bitten before: the
-`Twig.Benchmarks` `CS0433 ILoggingBuilder` break under "Build & test" above was invisible
-locally for exactly this reason. `Twig.Benchmarks` is `IsTestProject=false` — CI **builds**
-it and never tests it, and the script does neither.
-
-Measured on this tree (`origin/main` @ `33e0f368`, clean, one run each):
-
-```
-tools/run-tests.sh          →  7913 tests  (Cli 3191, Infrastructure 1487, Mcp 1297, Domain 1938)
-dotnet test --settings ...  →  8063 tests  (the same four with Cli 3193, + RenderTree 81, + Tui 67)
-```
-
-Note the Cli number **moves**, 3191 → 3193. `BinaryLauncherTests` is one `[Theory]` with two
-`[InlineData]` rows, and those two tests live in a suite the script *does* run. That is the
-cleanest available proof that the script's verdict and CI's verdict are different verdicts,
-not the same one measured twice. (Re-measure rather than quoting these figures — they drift
-with every card.)
-
-**So run CI's own commands before pushing, in addition to the script.** `--pre-push` does
-exactly that, and reconciles the result for you:
-
-```bash
-tools/run-tests.sh --pre-push
-```
-
-It runs the four suites as usual, then — **serially, never concurrently** — CI's own three
-steps from `.github/workflows/ci.yml`:
-
-```bash
-dotnet restore \
-  && dotnet build --no-restore \
-  && dotnet test --no-build --settings test.runsettings
-```
-
-The wide run gets its own reconciled verdict line, and `OVERALL` covers both:
-
-```
-TWIG-VERDICT SolutionWide: PASSED (8082 tests across 6 assemblies) [log: artifacts/test-logs/SolutionWide.log]
-TWIG-VERDICT OVERALL: PASSED
-```
-
-(As ever, the *shape* of that line is the guidance, never the number. The assembly count is
-in the verdict deliberately, but read it as *evidence*, not as a guard: nothing asserts it
-equals six, because hardcoding a total is how this file's counts go stale. The guards that
-actually fail a narrowed run are the exit code and the invalid-argument marker.)
-
-🔴 **The `&&` chaining is load-bearing, and `--pre-push` preserves it.** If the build fails
-and `dotnet test --no-build` runs anyway, you get the trap two paragraphs down — a
-green-looking run of whatever assemblies happen to still be on disk. Chaining means the test
-step is never reached; the reconciler's invalid-argument marker is the second line of defence
-for when a stale output directory survives a *successful* build.
-
-The 300 s `TestSessionTimeout` in `test.runsettings` applies to the wide run too
-(`Directory.Build.props` sets `RunSettingsFilePath`, so both paths pick it up), so an aborted
-six-assembly run prints the same false-green `Passed!` described above — `--pre-push` runs it
-through the same abort-marker check as every other suite, so you no longer reconcile it by
-hand.
-
-If you run the wide command by hand instead, you are back to judging it by its exit code, and
-`grep -E "Passed!|Failed!|Aborted|\[FAIL\]"` **does not save you**: measured on a real broken
-run it returned five matches, every one of them a green `Passed!` line, and nothing else.
-It does not come back empty — it comes back *green*, which is worse. Prefer the flag.
-
-The script's own guards are self-tested — negative and positive arms on both the log
-reconciler and the usage-error exits, so neither an always-FAILED guard nor an
-always-PASSED one could get through:
-
-```bash
-tools/run-tests.sh --selftest
-```
-
-(Add `-m:1` to the build if a parallel MSBuild is contending with another worktree. That is a
-local convenience; CI builds without it.)
-
-🔴 **The solution-wide build is not optional, and skipping it fails in a way that survives
-every check except the exit code.** Verified here by moving one assembly's output aside and
-re-running: the run reports `Passed!` for the other five, the **tail of the log is five clean
-green lines**, and the only sign anything is wrong is a single line near the *top* —
-
-```
-The argument .../Twig.Tui.Tests.dll is invalid. Please use the /help option ...
-```
-
-— which contains neither `error` nor `fail`, so it survives the grep recipe above, and is
-scrolled off by the time the run finishes. Only the non-zero exit code catches it. The one
-command whose job is to be wider than the script silently becomes narrower than it, and looks
-green while doing it.
-
-**Cost, measured warm on this tree (both after a completed build, two runs each):**
-`dotnet test --no-build --settings test.runsettings` took **74-76 s**; `tools/run-tests.sh`
-took **92-99 s**. The wide command is the *cheaper* of the two despite running two more
-assemblies, because it runs the six in **parallel** in one invocation while the script runs
-four **serially** in four. Both are dominated by the Cli suite (~71 s of either). So
-`--pre-push`, which runs both, roughly **doubles** the cost rather than multiplying it —
-measured at ~2m50s warm on this tree.
-
-🔴 **That parallelism is not a licence to run the two commands at the same time.** One
-`dotnet test` parallelising across assemblies it owns is fine; two separate `dotnet test`
-processes collide over shared build output and produce a bogus
-`SQLitePCL DllNotFoundException` (see "Canonical test command"). Run the script and the wide
-command one after the other — which is exactly what `--pre-push` does, and why it runs the
-wide command *after* the four-suite loop rather than beside it.
+`global.json` selects the SDK; use the system `dotnet`. On this Windows workstation,
+invoke `C:\Program Files\Git\bin\bash.exe` for the script, not WSL's `bash`:
+the Windows-built binary and Windows Python/.NET must run in the same environment.
+An unavailable interpreter is a failed invocation, not permission to install or
+repair machine-wide tools.
+
+The smoke validates an already-built CLI offline with a hard **15-second** deadline.
+It does not build, start test hosts, publish work items, or perform work HTTP.
+The current script and `.github/workflows/ci.yml` define the checks actually run;
+`README.md` describes the routine versus release-candidate validation split.
+Complete platform suites are a **release-candidate** gate, not a routine pre-push
+or draft-PR requirement. Explicit suite arguments are for deliberately requested
+broad validation, not an automatic response to a focused fix or smoke failure.
+
+### Tight feedback and deadlines
+
+- Prove a bug regression red on unfixed production composition and green after
+  the fix. Mock only external boundaries; keep the real failing path in the loop.
+  Run focused commands through `python tools/run-bounded.py --timeout 60 -- <command>`.
+- Run builds and test commands serially; concurrent invocations collide over
+  shared output. Use a **120-second** external deadline for routine builds and
+  **60 seconds** for focused regression commands, including child processes.
+- On a deadline or failure, terminate and reap that command's owned process tree,
+  preserve output and the native exit code, and report the failed check. Diagnose
+  with a smaller deterministic reproducer; a longer deadline is not a correction.
+  Keep the repository's existing test watchdog unchanged. Extended runsettings
+  and whole-suite retries require a separate, explicit user request.
+- Capture each native child exit before any pipeline or later command replaces
+  it. A `Passed!` summary from an aborted host is not a pass. Report the reconciled
+  `TWIG-VERDICT` and every failed child; an optional broad failure remains visible
+  even when routine gates pass.
+- Launch supervised coding workers through `tools/run-bounded.py` with a finite
+  task-local deadline (at most 600 seconds), independent of their model instructions
+  and tool wait windows. When it expires, its owned tree is stopped and exit 124
+  preserves the failure. Keep the saved session for bounded recovery; resume that
+  session rather than starting a duplicate writer.
+
+Completion means the changed behavior and current required gates have actually
+passed, or the exact blocker is reported. No timeout expansion, narrowed claim,
+environment repair, or green-looking partial summary substitutes for that proof.
+
+### Historical broad-suite investigations
+
+The following incident notes are diagnostic reference, not current validation
+instructions. Their old suite lists, timings, commands, and CI descriptions do
+not override the routine workflow above or the current scripts.
 
 ### How the AB#350 gap bit: three suites green while one would not COMPILE
 

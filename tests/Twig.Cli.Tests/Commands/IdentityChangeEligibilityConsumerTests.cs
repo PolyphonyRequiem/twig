@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
@@ -51,8 +52,7 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
     private const string Organization = "fixture";
     private const string Project = "Work";
 
-    private readonly string _temp = Path.Combine(Path.GetTempPath(),
-        "twig-eligibility-consumer-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-eligibility-consumer-");
     private readonly PrincipalTransport _transport = new();
     private readonly List<ServiceProvider> _runtimes = [];
     private HttpClient _http = null!;
@@ -62,7 +62,6 @@ public sealed class IdentityChangeEligibilityConsumerTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        Directory.CreateDirectory(_temp);
         _http = new HttpClient(_transport);
         _bindings = new ConnectionBindingService(Home, patHttpClient: _http);
         return Task.CompletedTask;

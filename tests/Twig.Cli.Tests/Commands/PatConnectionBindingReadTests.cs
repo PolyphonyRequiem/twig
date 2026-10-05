@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
@@ -40,7 +41,7 @@ public sealed class PatConnectionBindingReadTests : IAsyncLifetime
     private const string CorporateDisplayName = "Alex Reader";
     private const string PersonalDisplayName = "Alex Reader"; // same display name, different principal.
 
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-pat-binding-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-pat-binding-");
     private IdentityAwarePatTransport _transport = null!;
     private HttpClient _workHttpClient = null!;
     private HttpClient _patHttpClient = null!;
@@ -51,7 +52,6 @@ public sealed class PatConnectionBindingReadTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        Directory.CreateDirectory(_temp);
         var repo = Path.Combine(_temp, "repo");
         Directory.CreateDirectory(repo);
         InitCommandTestFixture.InitTempWorktree(repo).ShouldBeTrue();

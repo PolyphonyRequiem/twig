@@ -912,6 +912,14 @@
     "path": "system/auth-status.md"
   },
   {
+    "command": "connection default",
+    "group": "system",
+    "summary": "Preview or resume an exact default-binding transition across affected registered worktrees, preserving pinned checkouts and durable work.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "system/auth-status.md"
+  },
+  {
     "command": "connection writes",
     "group": "system",
     "summary": "Inspect native remote-write uncertainty and immutable original-actor outcome evidence without replay.",

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
@@ -22,7 +23,7 @@ public sealed class ConnectionBindingReadTests : IAsyncLifetime
     private const string Tenant = "11111111-1111-1111-1111-111111111111";
     private const string CorporatePrincipal = "22222222-2222-2222-2222-222222222222";
     private const string PersonalPrincipal = "33333333-3333-3333-3333-333333333333";
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-binding-read-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-binding-read-");
     private readonly ITokenRefresher _refresher = Substitute.For<ITokenRefresher>();
     private ConnectionBindingService _bindings = null!;
     private TwigConfiguration _config = null!;
@@ -32,7 +33,6 @@ public sealed class ConnectionBindingReadTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        Directory.CreateDirectory(_temp);
         var repo = Path.Combine(_temp, "repo");
         Directory.CreateDirectory(repo);
         InitCommandTestFixture.InitTempWorktree(repo).ShouldBeTrue();

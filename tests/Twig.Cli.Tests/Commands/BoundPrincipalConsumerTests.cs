@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
@@ -28,7 +29,7 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
 {
     private const string First = "alex@work.example";
     private const string Second = "alex@personal.example";
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-principal-consumer-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-principal-consumer-");
     private readonly PrincipalTransport _transport = new();
     private HttpClient _http = null!;
     private ConnectionBindingService _bindings = null!;
@@ -37,7 +38,6 @@ public sealed class BoundPrincipalConsumerTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        Directory.CreateDirectory(_temp);
         _http = new HttpClient(_transport);
         _bindings = new ConnectionBindingService(Home, patHttpClient: _http);
         return Task.CompletedTask;

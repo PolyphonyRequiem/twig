@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
@@ -28,7 +29,7 @@ public sealed class BoundThrottlingConsumerTests : IAsyncLifetime
     private const string Sibling = "33333333-3333-3333-3333-333333333333";
     private const string Correlation = "44444444-4444-4444-4444-444444444444";
     private const string Activity = "55555555-5555-5555-5555-555555555555";
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-bound-throttle-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-bound-throttle-");
     private readonly IdentityAwareTransport _transport = new();
     private readonly AdoConcurrencyThrottle _throttle = new(maxConcurrency: 1);
     private HttpClient _http = null!;
@@ -38,7 +39,6 @@ public sealed class BoundThrottlingConsumerTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         _home = Path.Combine(_temp, "user");
-        Directory.CreateDirectory(_temp);
         _http = new HttpClient(_transport, disposeHandler: false);
         _bindings = new ConnectionBindingService(_home, new FixtureTokenRefresher(), patHttpClient: _http);
         return Task.CompletedTask;

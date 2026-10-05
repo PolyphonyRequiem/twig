@@ -40,11 +40,11 @@
 # WHY --pre-push EXISTS (AB#248, closing AB#246's admission)
 #
 # The three suites are NECESSARY BUT NOT SUFFICIENT. CI runs FIVE assemblies
-# unfiltered and compiles the whole solution (including tests/Twig.Benchmarks,
+# with the runsettings eligibility filter and compiles the whole solution (including tests/Twig.Benchmarks,
 # which is IsTestProject=false — CI builds it and never tests it). AGENTS.md
 # used to ask a human to run CI's three commands by hand and "read the exit
 # code" — the exact judgement call this script exists to abolish. `--pre-push`
-# runs them, reconciles them with the SAME three signals, and folds the result
+# runs them through bounded CI sessions, reconciles the SAME three signals, and folds the result
 # into TWIG-VERDICT OVERALL.
 #
 # The specific false green it must catch: if the solution-wide BUILD is skipped
@@ -552,28 +552,26 @@ if [ "$PRE_PUSH" -eq 1 ]; then
 
   # --------------------------------------------------------------------------
 
-  # CI's own three commands, in CI's own order (.github/workflows/ci.yml).
-  #
-  # 🔴 Chained with && on purpose. If the build fails and `dotnet test
-  # --no-build` runs anyway, you get a green-looking run of whatever assemblies
-  # happen to still be on disk — the exact trap reconcile() guards. Chaining
-  # means a build failure never reaches the test step at all, and the
-  # invalid-argument marker is the second line of defence for the case where a
-  # stale output directory survives a successful build.
+  # CI's own commands, in CI's own order (.github/workflows/ci.yml).
+  # The bounded runner covers every eligible row, including CI's BinaryLauncher cases.
+  # Chained with && on purpose. If the build fails and the runner
+  # runs anyway, stale assemblies can print green-looking summaries. Chaining
+  # means a build failure never reaches the test step. The bounded runner also
+  # requires every supported assembly and reconciles exact discovered rows.
   #
   # 🔴 Serial with respect to the selected suites above. Two concurrent `dotnet
   # test` processes collide over shared build output and produce a bogus
   # SQLitePCL DllNotFoundException. That is why this runs AFTER the loop rather
-  # than beside it, despite the wide run being the cheaper of the two.
+  # than beside it.
   # --------------------------------------------------------------------------
-  wide_log="$LOG_DIR/SolutionWide.log"
+  wide_log="$LOG_DIR/CiBounded.log"
   echo
-  echo "──> SolutionWide (CI's commands: restore → build → test)"
+  echo "──> CiBounded (CI's commands: restore → build → bounded complete tests)"
 
   {
     dotnet restore \
       && dotnet build --no-restore \
-      && dotnet test --no-build --settings test.runsettings
+      && python tools/run-ci-tests.py
   } 2>&1 | tr '\r' '\n' > "$wide_log"
   wide_exit=${PIPESTATUS[0]}
 
@@ -588,7 +586,7 @@ if [ "$PRE_PUSH" -eq 1 ]; then
 
   [ "$verdict" = "FAILED" ] && OVERALL=1
 
-  line="TWIG-VERDICT SolutionWide: $verdict ($reason) [log: $wide_log]"
+  line="TWIG-VERDICT CiBounded: $verdict ($reason) [log: $wide_log]"
   VERDICT_LINES="$VERDICT_LINES$line"$'\n'
   echo "$line"
 

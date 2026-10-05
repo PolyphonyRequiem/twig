@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
@@ -35,6 +36,7 @@ namespace Twig.Cli.Tests.Commands;
 /// Verified journal history is produced only by authorized lifecycle apply.
 /// </summary>
 [Collection("ConsoleRedirect")]
+[Trait("Category", "HostInventory")]
 public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLifetime
 {
     private const string Organization = "fixture";
@@ -46,7 +48,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
     private const string RenewedActorPat = "fixture-actor-pat-v2";
     private const string SiblingPat = "fixture-sibling-pat";
 
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-binding-transition-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-binding-transition-");
     private readonly PrincipalTransport _transport = new();
     private readonly FixtureRefresher _refresher = new();
     private readonly List<ServiceProvider> _runtimes = [];
@@ -114,7 +116,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         return Task.CompletedTask;
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task PinBeatsDefaultAndUnpinRestoresDefaultWithoutReturningEitherFormerActorsPrivateCache()
     {
         var original = await CreateRuntimeAsync();
@@ -169,7 +171,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task RepeatingTheSamePinWithPendingWorkPreservesItsAdmittedRuntimeAndReadGeneration()
     {
         await ApplyPinAsync(_siblingBinding.BindingId);
@@ -192,7 +194,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("field")]
     [InlineData("note")]
     [InlineData("seed")]
@@ -271,7 +273,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!.Title.ShouldBe("Actor-only release plan");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ANewAuthorizedVerifiedDigestCannotHideAnOlderUnacknowledgedOutcomeDuringPinning()
     {
         var runtime = await CreateRuntimeAsync();
@@ -299,7 +301,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.WorkRequests.ShouldBe(requests);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ActiveNativeHolderMustBeReleasedByItsOrdinaryLifecycleBeforeAnotherActorCanPin()
     {
         var runtime = await CreateRuntimeAsync();
@@ -331,7 +333,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         (await reconnected.GetRequiredService<ISystemWorktreeRegistry>().FindClaimAsync(minted.Claim.ClaimId)).Value.ShouldNotBeNull();
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("attachment")]
     [InlineData("default")]
     [InlineData("binding")]
@@ -371,7 +373,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         fresh.Digest.ShouldNotBe(preview.Digest, "a saved confirmation cannot follow a revised selection/CAS snapshot");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ActualInFlightPrivateReadAndCacheFillExcludeTheManagementTransitionUntilTheySettle()
     {
         var runtime = await CreateRuntimeAsync();
@@ -407,7 +409,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         AssertTitle(await ShowAsync(reconnected, 73, refresh: true), "Sibling-only release plan");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task CompletedPrivateHttpResponseStillExcludesTransitionWhileItsRealCacheSaveIsPaused()
     {
         var runtime = await CreateRuntimeAsync();
@@ -465,7 +467,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task CentralCommitCrashFencesEveryReadAndRecoveryResumesTheOriginalNativeIntentWithoutLosingAuthorityOrHistory()
     {
         var runtime = await CreateRuntimeAsync();
@@ -555,7 +557,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(mutations);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task LostCompletionAcknowledgementReturnsTheOriginalReceiptWithoutResettingNewActorsReadCacheOrPendingWork()
     {
         using var interrupted = new ConnectionBindingTransitionService(Home, _bindings, checkpoint =>
@@ -593,7 +595,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("pat")]
     [InlineData("aad")]
     public async Task VerifiedSamePrincipalRenewalOnAnOpenMigratedRuntimeKeepsPendingWorkAndCachedReadsWithoutReconnect(string method)
@@ -634,7 +636,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task PinCommandRejectsMissingBindingBeforeChangingTheCheckoutOrCallingWorkHttp()
     {
         var runtime = await CreateRuntimeAsync();
@@ -646,7 +648,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task LostCommentResponseSurvivesProviderDisposalAndPendingDiscardAndCannotBeReplayedOrSettledByMatchingText()
     {
         const string note = "Actor note accepted before its response was lost";
@@ -709,7 +711,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.CommentCount.ShouldBe(1);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ActualCommentAcknowledgementLeavesNativeHistorySettledAndPermitsACleanColdPin()
     {
         var runtime = await CreateRuntimeAsync();
@@ -732,7 +734,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(1, "switching preserves the real acknowledgement without replaying the original POST");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task LostCasPatchSettlesOnlyUnderOriginalActorWithItsImmutableFirstPostCasRevisionNotTheLaterCurrentTitle()
     {
         var origin = await CreateRuntimeAsync();
@@ -784,7 +786,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.Mutations.ShouldBe(2, "native readback and transition never replay either PATCH");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task LostSeedCreateSettlesOnlyAfterExactNativePublishRecoveryAndOriginalTaggedCreationRevisionReadback()
     {
         const string title = "Seed whose create response was lost";

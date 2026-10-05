@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
@@ -23,12 +24,13 @@ using Xunit;
 namespace Twig.Cli.Tests.Commands;
 
 [Collection("ConsoleRedirect")]
+[Trait("Category", "HostInventory")]
 public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
 {
     private const string Tenant = "11111111-1111-1111-1111-111111111111";
     private const string Principal = "22222222-2222-2222-2222-222222222222";
     private const string Pat = "fixture-private-pat";
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-migration-consumer-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-migration-consumer-");
     private readonly PrincipalTransport _transport = new();
     private ConnectionBindingService _bindings = null!;
     private ConnectionMigrationService _migration = null!;
@@ -89,7 +91,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         return Task.CompletedTask;
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ActualLegacyProviderAndStoreMustCloseBeforeActivationThenCurrentReadUsesVerifiedPrincipal()
     {
         var legacyCache = new TwigTokenFileCache(Path.Combine(Home, ".token-cache"));
@@ -125,7 +127,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.WorkRequests.ShouldBe(workRequests);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task MigrationPreservesPendingNotesSeedAndHistoricalNativeJournalWithoutPublishingOrDiscarding()
     {
         await RegisterExistingIdentityAsync();
@@ -174,7 +176,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         (await current.GetRequiredService<IWorkItemRepository>().GetByIdAsync(99)).ShouldBeNull();
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task VerifiedPatImportIsIdempotentAndCannotResumeTheRetiredLegacyPatProvider()
     {
         await File.WriteAllTextAsync(_paths.ConfigPath, "{\"auth\":{\"pat\":\"" + Pat + "\"},\"display\":{\"icons\":\"unicode\"}}");
@@ -203,7 +205,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         active.Output.ShouldNotContain(Pat);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task InterruptedActivationCannotExposePartialGenerationAndResumesOnlyTheOriginalNativeIntent()
     {
         await RegisterExistingIdentityAsync();
@@ -266,7 +268,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.WorkRequests.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task RawBaselineSqliteHandleBlocksWithoutParticipatingInAnyNewLeaseLedger()
     {
         using var baseline = new SqliteConnection($"Data Source={_paths.DbPath};Pooling=False");
@@ -286,7 +288,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         await AssertReadAsync("AAD private release plan");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task InconclusiveOsInspectionIsAConsumerVisibleBlockerNotAnEmptyInventory()
     {
         using var unavailable = new ConnectionMigrationService(Home, _bindings,
@@ -301,7 +303,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.WorkRequests.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task ReplacedWrongAccountCredentialRefusesBeforeCreatingDefaultOrMovingLegacyState()
     {
         var identity = await _bindings.RegisterPatIdentityAsync("broken", "fixture", Pat);
@@ -317,7 +319,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task AnotherMetadataHomeCannotAdoptAnAdmittedCacheEvenForACacheOnlyCliRead()
     {
         var preview = await InvokeMigrationAsync("legacy", "aad");
@@ -342,7 +344,7 @@ public sealed class ConnectionMigrateCommandTests : IAsyncLifetime
         _transport.WorkRequests.ShouldBe(requests);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task PortableEditDuringPrincipalVerificationRefusesOriginalConfirmationAndKeepsRecoverableIntent()
     {
         var originalManifest = await File.ReadAllBytesAsync(_paths.RepoConfigPath);

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using NSubstitute;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Infrastructure.Auth;
 using Shouldly;
 using Twig.Infrastructure.Config;
@@ -13,8 +14,7 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed class InitCommandProductionCliTests : IDisposable
 {
-    private readonly string _repoRoot =
-        Path.Combine(Path.GetTempPath(), $"twig-init-cli-test-{Guid.NewGuid():N}");
+    private readonly string _repoRoot = CanonicalTempRoot.Create("twig-init-cli-test-");
 
     public void Dispose()
     {

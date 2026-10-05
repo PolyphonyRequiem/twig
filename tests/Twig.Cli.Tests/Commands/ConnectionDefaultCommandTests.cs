@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Plan;
@@ -17,7 +18,7 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class ConnectionBindingTransitionConsumerTests
 {
-    [Fact]
+    [HostMigrationFact]
     public async Task CompoundDefaultChangesEveryUnpinnedCheckoutButAnOpenPinnedActorKeepsItsPrivateCacheAndRuntime()
     {
         var secondPaths = await AddDefaultCheckoutAsync("second");
@@ -64,7 +65,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("field")]
     [InlineData("note")]
     [InlineData("seed")]
@@ -119,7 +120,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(mutations, "default refusal neither publishes nor reconciles an unknown native write");
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task NewerVerifiedProposalCannotHideAnOlderUnknownOutcomeOnAnotherAffectedMember()
     {
         var secondPaths = await AddDefaultCheckoutAsync("older-outcome");
@@ -151,7 +152,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         (await _bindings.ResolveAsync(_configuration, secondPaths)).Binding.BindingId.ShouldBe(_actorBinding.BindingId);
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("intent-recorded")]
     [InlineData("central-committed")]
     [InlineData("mirror-reset:0")]
@@ -211,7 +212,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(mutations);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task PinnedCheckoutScopeChangesDoNotStrandAnInterruptedDefaultFamily()
     {
         var pinnedPaths = await AddDefaultCheckoutAsync("recovery-pinned", _actorBinding.BindingId);
@@ -241,7 +242,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Theory]
+    [HostMigrationTheory]
     [InlineData("attachment")]
     [InlineData("default")]
     [InlineData("binding")]
@@ -279,7 +280,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task InaccessibleRegisteredMemberAndActualLiveReadEachBlockTheEntireCompoundDefault()
     {
         var secondPaths = await AddDefaultCheckoutAsync("unreachable-member");
@@ -312,7 +313,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         await Should.ThrowAsync<InvalidOperationException>(() => first.GetRequiredService<IWorkItemRepository>().GetByIdAsync(73));
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task SameDefaultAndLostFamilyCompletionAcknowledgementNeverResetNewReadDataOrPendingWork()
     {
         var secondPaths = await AddDefaultCheckoutAsync("receipt-member");
@@ -336,7 +337,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(0);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task AnotherAffectedCheckoutActiveHolderBlocksDefaultWithoutImplicitReleaseOrScopeRewrite()
     {
         var secondPaths = await AddDefaultCheckoutAsync("held-member");
@@ -361,7 +362,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests
         _transport.Mutations.ShouldBe(mutations);
     }
 
-    [Fact]
+    [HostMigrationFact]
     public async Task RealConcurrentDefaultAndLocalPinHaveOneReviewedCasWinnerAndNeverCrossActorAuthority()
     {
         var secondPaths = await AddDefaultCheckoutAsync("racing-member");

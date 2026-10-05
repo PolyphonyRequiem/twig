@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
@@ -30,7 +31,7 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
     private const string Sibling = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
     private const string ActorPat = "fixture-actor-pat";
     private const string SiblingPat = "fixture-sibling-pat";
-    private readonly string _temp = Path.Combine(Path.GetTempPath(), "twig-publication-consumer-" + Guid.NewGuid().ToString("N"));
+    private readonly string _temp = CanonicalTempRoot.Create("twig-publication-consumer-");
     private readonly PrincipalTransport _transport = new();
     private readonly List<ServiceProvider> _runtimes = [];
     private HttpClient _http = null!;
@@ -39,7 +40,6 @@ public sealed class NativePublicationConsumerTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        Directory.CreateDirectory(_temp);
         _http = new HttpClient(_transport);
         _bindings = new ConnectionBindingService(Home, patHttpClient: _http);
         return Task.CompletedTask;

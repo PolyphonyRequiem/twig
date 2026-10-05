@@ -23,6 +23,7 @@ twig connection check [-o <format>]
 twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
 twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection unpin [--confirm <digest>] [-o <format>]
+twig connection default --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection writes [-o <format>]
 twig connection reconcile-write --intent <id> --confirm <digest> --authorize <identity-id> --rationale <basis> [-o <format>]
 ```
@@ -87,6 +88,26 @@ the one disposable mirror when the effective binding changes. Credentials,
 portable policy, primary scope and durable pending/proposal history survive.
 Old live runtimes require explicit reconnect; verified same-principal credential
 renewal and an identical pin no-op do not erase data or adopt another actor.
+
+### Guarded connection default change
+
+`twig connection default --binding <id>` previews changing an existing endpoint
+default across its registered worktree family. Select a binding from `connection
+list`, then apply the same arguments with the exact reviewed `--confirm <digest>`.
+Establish an initial default separately with `connection bind --default`; this
+command never guesses an account. An identical default is an unchanged no-op.
+
+The preview reports affected members, selection/attachment revisions and blockers.
+Pinned checkouts keep their actor and read data. Pending edits, active holders,
+unknown writes, inaccessible members or changed membership/CAS revisions refuse
+the whole unsafe admission; there is no force, automatic publication, discard or
+claim release. An interrupted family fences affected reads until its original
+binding and digest are resumed; do not erase its native recovery intent.
+
+Eligible preview/completion/no-op returns `0`; blockers or runtime failures return
+`1`; missing `--binding` or unsupported output returns `2`. Supported output is
+human, JSON and minimal. Completion preserves credentials, portable policy and
+durable histories and requires explicit reconnect of stale live runtimes.
 
 ### Native uncertain writes
 

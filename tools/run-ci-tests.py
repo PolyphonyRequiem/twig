@@ -395,6 +395,8 @@ class RunnerSelfTests(unittest.TestCase):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selftest", action="store_true", help="check coverage and false-green guards with synthetic data only")
     args = parser.parse_args()

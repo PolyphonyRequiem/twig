@@ -15,7 +15,7 @@ namespace Twig.Infrastructure.Auth.InteractiveAuth;
 /// <para>Many enterprise tenants block device code by Conditional Access policy
 /// (<c>AADSTS50199</c>, <c>AADSTS165000</c>, <c>AADSTS530032</c>, etc.). When that
 /// happens we surface <see cref="InteractiveAuthErrorKind.PolicyBlocked"/> so the
-/// command can suggest <c>twig login</c> (PKCE) instead.</para>
+/// command can suggest <c>twig auth login --identity &lt;alias&gt;</c> (PKCE) instead.</para>
 /// </summary>
 internal sealed class DeviceCodeFlow
 {
@@ -122,7 +122,7 @@ internal sealed class DeviceCodeFlow
                 case "expired_token":
                 case "code_expired":
                     return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.Timeout,
-                        "Device code expired before sign-in completed. Re-run 'twig login --device-code'.");
+                        "Device code expired before sign-in completed. Re-run 'twig auth login --identity <alias> --device-code'.");
                 case "authorization_declined":
                 case "access_denied":
                     return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.AuthorizationServerError,
@@ -139,7 +139,7 @@ internal sealed class DeviceCodeFlow
         }
 
         return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.Timeout,
-            "Device code expired before sign-in completed. Re-run 'twig login --device-code'.");
+            "Device code expired before sign-in completed. Re-run 'twig auth login --identity <alias> --device-code'.");
     }
 
     private async Task<DeviceCodeInitResult> InitiateAsync(string clientId, string tenant, CancellationToken ct)

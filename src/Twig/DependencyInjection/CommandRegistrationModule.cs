@@ -45,7 +45,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Twig.Domain.Interfaces.IManagedWorktreeInitializer>(),
             sp.GetRequiredService<Twig.Domain.Interfaces.ISystemWorktreeRegistry>(),
             sp.GetRequiredService<Twig.Domain.Services.Attachment.IProfileRegistrySource>(),
-            sp.GetRequiredService<Twig.Infrastructure.Ado.AdoConcurrencyThrottle>()));
+            sp.GetRequiredService<Twig.Infrastructure.Ado.AdoConcurrencyThrottle>(),
+            sp.GetRequiredService<Twig.Infrastructure.Auth.BootstrapEndpointSelection>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>(sp => new ShowCommand(
             sp.GetRequiredService<CommandContext>(),

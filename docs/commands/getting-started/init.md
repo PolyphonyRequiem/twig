@@ -17,6 +17,14 @@ identity); implicit auth, display and tracking defaults do not create it.
 Use `init` when first pointing Twig at an ADO org/project or rebuilding a
 workspace with `--reinitialize`.
 
+Onboarding a brand-new checkout is four distinct operations, in this order —
+`init` performs only the third:
+
+1. **Enroll an identity**, once per machine: [`twig auth login --identity <alias>`](../system/auth-login.md) (AAD) or `twig auth pat --identity <alias> --org <org>` (PAT).
+2. **Bind the endpoint to that identity**: [`twig connection bind --org <org> --project <project> --identity <alias> --default`](../system/auth-login.md).
+3. **Initialize the checkout**: `twig init <org> <project>` (this command). It requires an explicitly bound identity for the endpoint it is given — there is no account/last-login/Azure CLI fallback, so skipping steps 1–2 fails with a named remediation instead of silently picking a credential.
+4. **Verify metadata access**: [`twig process --refresh`](../process/process.md) makes read-only ADO metadata requests and refreshes the local process/field metadata caches. This verifies metadata access for the selected identity, not every work-item permission. [`twig connection status`](../system/auth-status.md) only inspects the local binding and identity; it never contacts ADO and cannot verify remote access.
+
 ## Synopsis
 
 ```

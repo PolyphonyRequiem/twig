@@ -29,6 +29,12 @@ public static class NetworkServiceModule
         string? resolvedGitProject = null,
         string? resolvedRepository = null)
     {
+        // GH#466: a mutable handoff slot so `init` can publish the effective endpoint it
+        // resolves from its OWN arguments, read lazily when the deferred bootstrap provider
+        // below is actually admitted (never at this factory's construction time, which still
+        // only sees the configuration discovered at startup).
+        services.TryAddSingleton<BootstrapEndpointSelection>();
+
         services.AddSingleton<IAuthenticationProvider>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
@@ -41,8 +47,10 @@ public static class NetworkServiceModule
             // default-binding lookup against the shared registry.
             if (intent?.InitializationMetadataOnly == true)
             {
+                var endpointSelection = sp.GetRequiredService<BootstrapEndpointSelection>();
                 return new DeferredBoundAuthenticationProvider(
-                    ct => bindings.CreateBootstrapProviderAsync(cfg, ct), initializationMetadataOnly: true);
+                    ct => bindings.CreateBootstrapProviderAsync(endpointSelection.Effective ?? cfg, ct),
+                    initializationMetadataOnly: true);
             }
 
             // Normal attached-worktree route: ResolveAsync admits the central

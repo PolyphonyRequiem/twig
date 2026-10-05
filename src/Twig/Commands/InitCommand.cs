@@ -34,6 +34,7 @@ public sealed class InitCommand
     private readonly Twig.Domain.Interfaces.ISystemWorktreeRegistry? _systemRegistry;
     private readonly Twig.Domain.Services.Attachment.IProfileRegistrySource? _profileRegistry;
     private readonly AdoConcurrencyThrottle? _throttle;
+    private readonly Infrastructure.Auth.BootstrapEndpointSelection? _bootstrapEndpointSelection;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -44,6 +45,13 @@ public sealed class InitCommand
     /// the system store — the two prerequisites §9.5 makes every downstream
     /// attach depend on.
     /// </summary>
+    /// <param name="bootstrapEndpointSelection">
+    /// GH#466: lets this command publish the effective endpoint it resolves from its OWN
+    /// arguments to the bootstrap <see cref="IAuthenticationProvider"/>, which was built
+    /// from the configuration discovered at DI-container startup — potentially empty on a
+    /// fresh checkout, and always a DIFFERENT object than <c>config</c> below. Null in the
+    /// test constructors below, which never touch the shared network module.
+    /// </param>
     internal InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
         IConsoleInput consoleInput,
@@ -51,7 +59,8 @@ public sealed class InitCommand
         Twig.Domain.Interfaces.IManagedWorktreeInitializer managedInitializer,
         Twig.Domain.Interfaces.ISystemWorktreeRegistry systemRegistry,
         Twig.Domain.Services.Attachment.IProfileRegistrySource profileRegistry,
-        AdoConcurrencyThrottle? throttle = null)
+        AdoConcurrencyThrottle? throttle = null,
+        Infrastructure.Auth.BootstrapEndpointSelection? bootstrapEndpointSelection = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -65,6 +74,7 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
         _throttle = throttle;
+        _bootstrapEndpointSelection = bootstrapEndpointSelection;
     }
 
     /// <summary>
@@ -200,6 +210,14 @@ public sealed class InitCommand
         var contextPaths = preserveRepoManifest
             ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
+
+        // GH#466: publish the effective endpoint as soon as it is known, BEFORE any
+        // network admission can occur below. The bootstrap auth provider's identity
+        // resolution is itself lazy (see DeferredBoundAuthenticationProvider), so this
+        // always lands before the first GetAccessTokenAsync call — the provider was built
+        // from the (potentially empty) configuration discovered at DI-container startup,
+        // which is a different object than `config` and may name no endpoint at all.
+        _bootstrapEndpointSelection?.Publish(config);
 
         // ── Design §6.3: every refusal that depends only on inputs and the
         //    tracked manifest runs BEFORE the first mutation, so a rejected

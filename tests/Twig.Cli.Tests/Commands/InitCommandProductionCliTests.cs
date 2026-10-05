@@ -111,6 +111,132 @@ public sealed class InitCommandProductionCliTests : IDisposable
         loaded.Policy.SelectedProfile!.Identity.ShouldBe("Test.Profile");
     }
 
+    /// <summary>
+    /// GH#466: on a FRESH checkout — no tracked <c>twig.json</c>, no <c>.twig/</c> at all —
+    /// Program.cs's startup discovery has nothing to find, so the <c>TwigConfiguration</c>
+    /// it builds the bootstrap <c>IAuthenticationProvider</c> from is empty. The reported
+    /// defect: that empty "startup" configuration is what the bootstrap identity lookup
+    /// used, even though a default identity WAS bound to the exact endpoint <c>init</c> was
+    /// given — because <c>InitCommand</c> builds a SEPARATE effective configuration from its
+    /// own org/project arguments that the DI-captured bootstrap provider never saw.
+    /// Reproduced here through the real built CLI binary and the real
+    /// <see cref="ConnectionBindingService"/>-backed registry (only the AAD token refresh
+    /// call and the ADO HTTP server are doubles), not a test-only iteration/auth mock —
+    /// so this exercises the actual composition path the issue names, not a shortcut around it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Init_ThroughProductionCli_WithEmptyStartupConfig_UsesDefaultBindingForRequestedEndpoint(
+        bool positionalArgs)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        const string project = "TestProject";
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        var contextPaths = TwigPaths.ForContext(twigDir, adoServer.BaseUrl, project, _repoRoot);
+
+        // Fresh git worktree: no tracked twig.json, no .twig/ — the exact shape the issue
+        // reports ("No twig.json remained after the first failure"). Program.cs's
+        // WorkspaceDiscovery therefore finds nothing, and the startup TwigConfiguration it
+        // builds the bootstrap auth provider from names no endpoint at all.
+        await RunGitAsync("init", "--quiet");
+        await RunGitAsync("config", "user.email", "twig-tests@example.com");
+        await RunGitAsync("config", "user.name", "Twig Tests");
+        await File.WriteAllTextAsync(
+            Path.Combine(_repoRoot, ".gitignore"),
+            $".twig/{Environment.NewLine}");
+        Directory.Exists(twigDir).ShouldBeFalse();
+        File.Exists(Path.Combine(_repoRoot, WorkspaceDiscovery.RepoManifestFileName)).ShouldBeFalse();
+
+        var tenant = "11111111-1111-1111-1111-111111111111";
+        var principal = "22222222-2222-2222-2222-222222222222";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["aud"] = JwtAccessTokenInspector.AdoResourceId,
+            ["tid"] = tenant,
+            ["oid"] = principal,
+            ["iss"] = "https://sts.windows.net/" + tenant + "/",
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds()
+        });
+        // JwtAccessTokenInspector.TryDecode only needs the 3-segment shape (it never
+        // decodes the header or signature segments), so the header is computed rather
+        // than hard-coded — any Base64Url blob works.
+        var header = Convert.ToBase64String(Encoding.UTF8.GetBytes("""{"alg":"none","typ":"JWT"}"""))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var token = header + "." + Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)).TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".fixture";
+        var home = Path.Combine(_repoRoot, ".test-system");
+        var refresher = Substitute.For<ITokenRefresher>();
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((token, (string?)null, false));
+
+        // Register an identity and bind it as the DEFAULT for this exact endpoint — the
+        // precondition the issue confirms was already satisfied ("twig connection list
+        // returned the saved endpoint binding") before init still failed.
+        using (var bindings = new ConnectionBindingService(home, refresher))
+        {
+            var identity = await bindings.RegisterAadIdentityAsync("fixture", new TwigRefreshTokenStoreEntry
+            {
+                RefreshToken = "fixture-refresh",
+                ClientId = "fixture-client",
+                TenantId = tenant,
+                ObjectId = principal,
+                AuthorityHost = "login.microsoftonline.com"
+            });
+            await bindings.CreateBindingAsync(adoServer.BaseUrl, project, "fixture", makeDefault: true);
+            new TwigTokenFileCache(Path.Combine(home, "credentials", identity.CredentialRef + ".token-cache"))
+                .TryWrite(token, DateTimeOffset.UtcNow.AddHours(1));
+        }
+
+        var args = positionalArgs
+            ? new[] { "init", adoServer.BaseUrl, project }
+            : new[] { "init", "--org", adoServer.BaseUrl, "--project", project };
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(args);
+
+        // Pre-fix, this failed with exit 1 and:
+        //   "No default identity is bound to /. Bootstrap requires an explicitly-selected
+        //   identity; run 'twig connection bind --identity <name> --default' first."
+        // — naming "/" (the empty startup config) instead of the requested endpoint, even
+        // though a default WAS bound to that endpoint above.
+        stderr.ShouldNotContain("No default identity is bound to",
+            customMessage: $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        exitCode.ShouldBe(0, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stdout.ShouldContain("Initialized Twig workspace");
+        File.Exists(contextPaths.DbPath).ShouldBeTrue();
+        File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
+
+        // HTTP-boundary proof, not just an auth-wiring assertion: endpoint admission alone
+        // (asserted above) does not prove the INTENDED credential reached the metadata
+        // request — InitAdoServer answers purely from the URL and never checked
+        // Authorization, so this would stay green even with no/garbage credentials sent.
+        // Assert against the actual captured request instead.
+        var projectMetadataRequest = adoServer.Requests.FirstOrDefault(
+            r => r.Path.Contains("/_apis/projects/", StringComparison.OrdinalIgnoreCase));
+        projectMetadataRequest.ShouldNotBeNull(
+            $"init must perform a project-metadata request against the requested endpoint; captured requests: {string.Join(", ", adoServer.Requests.Select(r => r.Path))}");
+        projectMetadataRequest!.Path.ShouldBe($"/_apis/projects/{project}");
+        projectMetadataRequest.Authorization.ShouldBe($"Bearer {token}");
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_MissingDefaultNamesRequestedEndpointBeforeAnyMetadataRequest()
+    {
+        await using var adoServer = InitAdoServer.Start();
+        const string project = "TestProject";
+        await RunGitAsync("init", "--quiet");
+        var contextPaths = TwigPaths.ForContext(
+            Path.Combine(_repoRoot, ".twig"), adoServer.BaseUrl, project, _repoRoot);
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init", "--org", adoServer.BaseUrl, "--project", project);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stderr.ShouldContain($"{adoServer.BaseUrl}/{project}");
+        adoServer.Requests.ShouldBeEmpty("missing selection must refuse before metadata HTTP");
+        File.Exists(contextPaths.RepoConfigPath).ShouldBeFalse();
+        File.Exists(contextPaths.DbPath).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Init_ThroughProductionCli_CreatesLocalStateWithoutChangingTrackedManifest()
     {
@@ -336,10 +462,20 @@ public sealed class InitCommandProductionCliTests : IDisposable
         return (process.ExitCode, await stdoutTask, await stderrTask);
     }
 
+    /// <summary>
+    /// One captured inbound request: the path the server was asked for, and the raw
+    /// <c>Authorization</c> header value it carried (or <c>null</c> if none) — this is the
+    /// HTTP-boundary observation point, not an auth-wiring/mock assertion, so it can catch a
+    /// request that reached the server with a missing or wrong outgoing credential.
+    /// </summary>
+    private sealed record CapturedRequest(string Path, string? Authorization);
+
     private sealed class InitAdoServer : IAsyncDisposable
     {
         private readonly HttpListener _listener;
         private readonly Task _serveTask;
+        private readonly List<CapturedRequest> _requests = new();
+        private readonly object _requestsLock = new();
 
         private InitAdoServer(HttpListener listener, string baseUrl)
         {
@@ -349,6 +485,16 @@ public sealed class InitCommandProductionCliTests : IDisposable
         }
 
         internal string BaseUrl { get; }
+
+        /// <summary>
+        /// Snapshot of every request this server has handled so far, in arrival order.
+        /// The serve loop awaits one <c>GetContextAsync</c>/respond cycle at a time, so no
+        /// additional synchronization is needed beyond guarding the list itself.
+        /// </summary>
+        internal IReadOnlyList<CapturedRequest> Requests
+        {
+            get { lock (_requestsLock) { return _requests.ToArray(); } }
+        }
 
         internal static string GetUnusedBaseUrl() => $"http://127.0.0.1:{PickFreePort()}";
 
@@ -385,6 +531,12 @@ public sealed class InitCommandProductionCliTests : IDisposable
             while (_listener.IsListening)
             {
                 var context = await _listener.GetContextAsync();
+                lock (_requestsLock)
+                {
+                    _requests.Add(new CapturedRequest(
+                        context.Request.Url!.AbsolutePath,
+                        context.Request.Headers["Authorization"]));
+                }
                 await WriteResponseAsync(context);
             }
         }

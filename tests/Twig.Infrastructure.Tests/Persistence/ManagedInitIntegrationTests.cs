@@ -20,6 +20,7 @@ public sealed class ManagedInitIntegrationTests : IDisposable
     private readonly TwigPaths _paths;
     private readonly TwigConfiguration _config;
     private readonly bool _gitAvailable;
+    private readonly SqliteSystemWorktreeRegistry _registry;
 
     public ManagedInitIntegrationTests()
     {
@@ -31,10 +32,12 @@ public sealed class ManagedInitIntegrationTests : IDisposable
         File.WriteAllText(Path.Combine(_workDir, "twig.json"), "{\n}\n");
         _systemDbPath = Path.Combine(_workDir, "system.db");
         _gitAvailable = TryInitGit(_workDir);
+        _registry = new SqliteSystemWorktreeRegistry(_systemDbPath, TimeProvider.System);
     }
 
     public void Dispose()
     {
+        _registry.Dispose();
         try { Directory.Delete(_workDir, recursive: true); } catch { }
     }
 
@@ -58,7 +61,7 @@ public sealed class ManagedInitIntegrationTests : IDisposable
         IReferenceProfileProvider? profileProvider = null)
     {
         var store = new WorktreeLocalAttachmentStore(_paths, _config, TimeProvider.System);
-        var registry = new SqliteSystemWorktreeRegistry(_systemDbPath, TimeProvider.System);
+        var registry = _registry;
         var fingerprintProvider = new WorktreeFingerprintProvider(_paths, _config);
         var provider = profileProvider ?? new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(_config));
         return new ManagedWorktreeInitializer(store, registry, fingerprintProvider, _config, _paths,
@@ -120,6 +123,31 @@ public sealed class ManagedInitIntegrationTests : IDisposable
         var sprint = IterationPath.Parse("proj\\Sprint 1").Value;
         policy.Evaluate(WorkItemType.Parse("Bug").Value, sprint).Error.ShouldBe(SprintEntryFailure.NotSprintTier);
         policy.Evaluate(WorkItemType.Parse("Task").Value, sprint).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Failed_profile_write_can_be_retried_on_the_same_initializer_and_activates_persisted_gates()
+    {
+        _gitAvailable.ShouldBeTrue("the persistence retry regression requires Git");
+        var provider = new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(_config));
+        var identity = provider.Load().Value.Identity;
+        var initializer = BuildInitializer();
+        File.Delete(_paths.RepoConfigPath);
+        Directory.CreateDirectory(_paths.RepoConfigPath);
+
+        var failed = await initializer.InitializeAsync("Contoso", "proj", null, identity);
+        failed.IsSuccess.ShouldBeFalse();
+        failed.Error.ShouldStartWith(AttachmentStorageFailure.AtomicWriteFailed);
+        Directory.Delete(_paths.RepoConfigPath);
+
+        var retried = await initializer.InitializeAsync("Contoso", "proj", null, identity);
+        retried.IsSuccess.ShouldBeTrue(retried.Error);
+        var reloadPaths = new TwigPaths(_paths.TwigDir, _paths.ConfigPath, _paths.DbPath,
+            _paths.StartDir, Path.Combine(_workDir, "display.json"));
+        var reloaded = await TwigConfiguration.LoadSplitAsync(reloadPaths);
+        var reloadedProvider = new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(reloaded));
+        new SprintEntryPolicy(reloadedProvider).Evaluate(WorkItemType.Parse("Bug").Value,
+            IterationPath.Parse("proj\\Sprint 1").Value).Error.ShouldBe(SprintEntryFailure.NotSprintTier);
     }
 
     [Fact]

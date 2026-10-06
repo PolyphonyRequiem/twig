@@ -80,6 +80,15 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         if (!loaded.IsSuccess)
             return Result.Fail(loaded.Error);
 
+        var originalProfile = _config.Profile;
+        var originalPolicy = _config.Policy;
+        var originalBinding = originalPolicy?.SelectedProfile;
+        var originalBindingValues = originalBinding is null
+            ? (Identity: string.Empty, Version: string.Empty)
+            : (originalBinding.Identity, originalBinding.Version);
+        var originalScopeTypes = originalPolicy?.PrimaryScopeTypes;
+        var persisted = false;
+
         try
         {
             _config.Policy ??= new PolicyConfig();
@@ -97,10 +106,31 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
                 BaseProcessVersion = loaded.Value.BaseProcess.TailoringVersion,
             };
             await _config.SaveSplitAsync(_paths, ct).ConfigureAwait(false);
+            persisted = true;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         {
             return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
+        }
+        finally
+        {
+            // A failed save must not turn a later same-instance retry into an
+            // apparent already-pinned success. Restore aliases as well as values.
+            if (!persisted)
+            {
+                _config.Profile = originalProfile;
+                _config.Policy = originalPolicy;
+                if (originalPolicy is not null)
+                {
+                    originalPolicy.SelectedProfile = originalBinding;
+                    originalPolicy.PrimaryScopeTypes = originalScopeTypes;
+                }
+                if (originalBinding is not null)
+                {
+                    originalBinding.Identity = originalBindingValues.Identity;
+                    originalBinding.Version = originalBindingValues.Version;
+                }
+            }
         }
         return Result.Ok();
     }

@@ -50,6 +50,23 @@ Behaviors worth naming:
 - **Digest is stable.** The digest returned here is byte-identical to the one
   `proposal preview` reports and the one `proposal apply --confirm` requires.
 
+### Authoring from installed help
+
+Run `twig proposal validate --help` for a complete seed-publication v1 JSON
+example generated from the canonical proposal model and writer, with a
+versioned online reference. Obtain the seed descriptor with
+`twig proposal seed --id -42 -o json`: copy its `identity` GUID string to
+`stagedIdentity` and its `fingerprint` to `expectedFingerprint`. Use your
+active connection's organization/project and a unique operation `id`.
+Save the file inside the active workspace, then run
+`twig proposal validate --file proposal.json -o json`.
+
+Validate checks structure, not seed existence or a live fingerprint. Preview
+writes the local journal and presents review without publication permission;
+apply requires the previewed exact digest and native authorization, and checks
+live preconditions. See [the proposal authoring reference](README.md#author-a-minimal-seed-publication-proposal).
+
+
 ## Examples
 
 Validate a proposal for interactive review:

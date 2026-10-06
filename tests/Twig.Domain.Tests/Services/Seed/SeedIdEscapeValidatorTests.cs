@@ -63,6 +63,41 @@ public sealed class SeedIdEscapeValidatorTests
         result.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("AC-1, AC-2 and AC-3")]
+    [InlineData("Versions v1.0-1 and 1.2.3-2-rc")]
+    [InlineData("Dates 2026-1-2 and 2026-10-03")]
+    [InlineData("Measurements -1.5 and -2.75")]
+    [InlineData("Identifiers étape-1, _-2 and -3suffix")]
+    [InlineData("Numbers -123 and -2147483649")]
+    public void Validate_IncidentalNegativeSubstrings_ReturnsEmpty(string value)
+    {
+        var seed = new WorkItemBuilder(-1, value).AsSeed()
+            .WithField("System.Description", value).Build();
+
+        SeedIdEscapeValidator.Validate(seed, SeedIds).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("-3")]
+    [InlineData("depends on #-3.")]
+    [InlineData("see (-3), then continue")]
+    [InlineData("Depends on seed...-3.")]
+    [InlineData("<p>See <code>-3</code>.</p>")]
+    [InlineData("{\"parent\":-3}")]
+    [InlineData("https://example.test/workitems/-3")]
+    public void Validate_StandaloneSeedReference_ReturnsFailure(string value)
+    {
+        var seed = new WorkItemBuilder(-1, "Clean title").AsSeed()
+            .WithField("System.Description", value).Build();
+
+        var result = SeedIdEscapeValidator.Validate(seed, SeedIds);
+
+        result.Count.ShouldBe(1);
+        result[0].Rule.ShouldBe("System.Description");
+        result[0].Message.ShouldContain("-3");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Single field leak
     // ═══════════════════════════════════════════════════════════════

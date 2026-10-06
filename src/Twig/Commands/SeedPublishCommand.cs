@@ -108,16 +108,23 @@ public sealed class SeedPublishCommand(
             cycleNodes.Add(new RenderNode.KeyValue("cycleError", RenderCell.String(err)));
         }
 
+        var preFlightNodes = new List<RenderNode>(batch.PreFlightErrors.Count);
+        foreach (var err in batch.PreFlightErrors)
+        {
+            preFlightNodes.Add(new RenderNode.KeyValue("preFlightError", RenderCell.String(err)));
+        }
+
         var fields = new List<DocumentField>
         {
             new("results", new RenderNode.Section($"Seed Publish ({batch.Results.Count})", resultNodes)),
             new("cycleErrors", new RenderNode.Section(null, cycleNodes)),
+            new("preFlightErrors", new RenderNode.Section(null, preFlightNodes)),
             new("createdCount", new RenderNode.KeyValue("createdCount", RenderCell.Integer(batch.CreatedCount))),
             new("skippedCount", new RenderNode.KeyValue("skippedCount", RenderCell.Integer(batch.SkippedCount))),
             new("hasErrors", new RenderNode.KeyValue("hasErrors", RenderCell.Boolean(batch.HasErrors))),
         };
 
-        if (batch.Results.Count == 0 && batch.CycleErrors.Count == 0)
+        if (batch.Results.Count == 0 && batch.CycleErrors.Count == 0 && batch.PreFlightErrors.Count == 0)
         {
             fields.Add(new DocumentField(
                 "empty",

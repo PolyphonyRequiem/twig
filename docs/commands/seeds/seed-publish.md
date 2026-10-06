@@ -53,6 +53,28 @@ twig seed publish [<id>] [--all] [--force] [--dry-run]
 - **Active context follow.** If the active work item was one of the published seeds, the active-item pointer is rewritten to the newly assigned positive ID so the next `twig show` still points at the same conceptual item (`src/Twig/Commands/SeedPublishCommand.cs:57-64,85-87`).
 - Exit code mirrors the orchestrator: any error in batch mode → `1`; single-seed mode returns `1` when `!IsSuccess` (`src/Twig/Commands/SeedPublishCommand.cs:66,89`).
 
+### Batch preflight diagnostics
+
+`--all` checks seed validation, parent references, dependency cycles, and seed-ID
+escapes before creating any ADO work items. A passing `seed validate` is not proof
+that batch preflight passed: publishing also checks the graph and field references.
+A single-child dry run can still refuse an unpublished parent.
+
+The escape guard recognizes standalone negative integer tokens that match a seed
+in the batch, including `-3`, `#-3`, `(-3)`, and references inside HTML or URLs.
+Embedded identifier, version, date, and decimal fragments such as `AC-1`,
+`v0.97.1-4`, `2026-1-2`, and `-3.5` are legitimate content, not seed references.
+Titles and all field values are checked; matching references still stop the batch.
+Use seed links for relationships rather than placing local seed IDs in prose.
+
+JSON always includes `preFlightErrors` alongside `results` and `cycleErrors`.
+Each preflight entry has the shape
+`{"key":"preFlightError","value":"<diagnostic>"}`, consistent with cycle diagnostics.
+Human and minimal output show each diagnostic too. A preflight refusal exits `1`
+even if `results` is empty; it does **not** say “No seeds to publish.” That message
+is reserved for an empty batch with no diagnostics. The same reporting applies
+to ordinary publishing and `--dry-run`; legitimate AC labels need no workaround.
+
 ## Examples
 
 Publish one seed:
@@ -76,7 +98,7 @@ Preview an `--all` publish without touching ADO:
 
 ```
 $ twig seed publish --all --dry-run -o json
-{"kind":"seedPublishBatch","results":[...],"dryRun":true, ...}
+{"results":[{"kind":"seedPublishResult","oldId":-42,"newId":0,"title":"Preview seed","status":"DryRun","isSuccess":true,"errorMessage":null}],"cycleErrors":[],"preFlightErrors":[],"createdCount":0,"skippedCount":0,"hasErrors":false}
 ```
 
 ## Exit codes and failure modes
@@ -86,6 +108,7 @@ $ twig seed publish --all --dry-run -o json
 |Publish succeeded, or `--dry-run` completed.|`0`|
 |Neither an ID nor `--all` supplied.|`1`|
 |Any seed failed to publish (batch: `HasErrors`; single: `!IsSuccess`).|`1`|
+|Batch preflight refused (including `--dry-run`).|`1`; every preflight diagnostic is included in the selected output format.|
 |Branch link failure|**does not fail the command** — reported in the link summary.|
 
 ## See also

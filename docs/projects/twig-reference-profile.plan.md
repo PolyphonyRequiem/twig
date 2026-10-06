@@ -465,6 +465,39 @@ Interactions with AB#736's checked-in `twig.json` design:
   T4 (AB#735) is responsible for landing the two-field split when it
   ships the pin migration; #736 was written before this note existed.
 
+### Approved initialization capability clarification — GitHub #469
+
+On 2026-10-06 the maintainer approved option A: fresh non-reference `twig init`
+may succeed without declaring a reference profile. It creates the normal
+layout, cache, and registry entry, supporting process metadata and ordinary
+work-item authoring, but does not write new `profile`,
+`policy.selectedProfile`, or `policy.primaryScopeTypes` materialization without
+explicit selection. A wholly absent declaration retains the reference
+sprint-entry exemption; primary-scope attachment and claims remain unavailable
+without a compatible selected profile. No independent eligibility source is
+introduced.
+
+`--profile <identity>` explicitly selects a shipped release for a fresh or
+untracked manifest. There is no default or automatic process-template
+selection. Unknown identities fail with `profile-identity-unknown`; the flag
+does not establish arbitrary live-process compatibility or add compatible
+profiles. Tracked-manifest protection remains intact: an already tracked,
+unprofiled manifest requires a separate reviewed declaration before init.
+
+Existing pins, including incomplete or mismatched ones, remain unchanged and
+are validated before new state is written. Broken declarations fail closed;
+`--profile`, `--force`, and `--reinitialize` do not repair, replace, or migrate
+them. Matching existing declarations are not rewritten or re-materialized.
+`policy.selectedProfile` / `policy.primaryScopeTypes` remain records, not
+runtime authority or consent. Existing-profile migration is a separate,
+explicit repository-owner decision.
+
+This clarification changes the initialization capability boundary, not T1's
+exact-match rules below or the missing-pin refusal for profile-required
+operations. GitHub #469 uses the authorized incident-specific public dogfood
+exception without an ADO claim while tracker access is blocked; normal ADO
+policy is unchanged and tracker linkage is deferred.
+
 ---
 
 ## Compatibility rules

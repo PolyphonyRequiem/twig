@@ -14,31 +14,90 @@ They have no git dependencies and operate on local state or GitHub/ADO APIs.
 
 ## 1. Commands
 
-### 1.1 `init <org> <project> [--team <team>] [--git-project <name>] [--force]`
+### 1.1 `init <org> <project> [--team <team>] [--git-project <name>] [--profile <identity>] [--force] [--reinitialize]`
 
 Initialize a twig workspace for an Azure DevOps organization and project.
+
+Fresh init has no default reference-profile selection. Without an existing
+top-level `profile` declaration and without `--profile`, initialization
+succeeds for non-reference projects without declaring the shipped reference.
 
 **Behavior:**
 1. Create `.twig/` directory structure (nested by org/project)
 2. Initialize SQLite cache database
-3. Detect ADO process template via ADO API
+3. Discover ADO process metadata via ADO API; never select a reference profile from the process-template label
 4. Fetch work item type appearances (icons, colors)
 5. Fetch team area paths and set defaults
 6. Get current iteration
 7. Detect authenticated user identity
 8. Sync process type state sequences
 9. Sync field definitions
-10. Apply or merge global profile status-fields (if profile exists)
-11. Append `.twig/` to `.gitignore` (if `.git` present)
-12. Prompt for default workspace mode (sprint/workspace) if TTY
+10. Apply or merge global display status-fields (if a display profile exists; this is unrelated to reference-profile selection)
+11. Register the worktree and preserve existing repo-manifest values
+12. Materialize a new reference-profile pin and selected-profile policy records only for explicit `--profile` selection in a fresh or untracked manifest; otherwise leave them absent or preserve an existing declaration unchanged
+13. Append `.twig/` to `.gitignore` (if `.git` present)
+14. Prompt for default workspace mode (sprint/workspace) if TTY
 
 **`--force`:** Deletes and recreates the current context's database. Does not
-affect other org/project contexts under `.twig/`.
+affect other org/project contexts under `.twig/`, override tracked-manifest
+protection, or repair, replace, or migrate any existing profile declaration.
 
 **`--git-project`:** Optional override for the ADO project name used in git
 repository resolution (when ADO project and git project names differ).
 
-**Exit codes:** 0 success, 1 ADO unreachable or auth failure.
+**`--profile`:** Opaque shipped release identity, with no default. For a fresh
+or untracked manifest it explicitly declares the selected release. The current
+shipped artifact's identity is `twig.reference-profile.hyperbright`; an unknown
+identity fails with `profile-identity-unknown`, never an embedded-default
+fallback. The flag declares selection, not live compatibility: stock Agile or
+Scrum is not made compatible with the Basic-derived reference by selecting it.
+No new live-compatibility discovery or compatible-profile support is added.
+
+**Capability boundary:** Plain non-reference init still creates the normal
+layout, cache, and worktree registry entry, supporting process metadata and
+ordinary work-item authoring. No new `profile`, `policy.selectedProfile`, or
+`policy.primaryScopeTypes` is written without explicit selection. Existing
+policy records are not interpreted as consent. A wholly absent profile
+declaration remains exempt from the reference sprint-entry gate; other
+authoring and ADO checks still apply. Primary-scope attachment and claims
+remain unavailable without a compatible selected profile, with no profile-free
+eligibility fallback.
+
+**Runtime authority:** The top-level `profile.identity`,
+`profile.profileVersion`, and `profile.baseProcessVersion` must byte-equal
+the artifact's `identity`, `profileVersion`, and
+`baseProcess.tailoringVersion`. The current artifact declares profile version
+`1.0.0` and tailoring version `basic:2026-08-24:1`.
+`policy.selectedProfile` and `policy.primaryScopeTypes` record materialized
+selection data, not runtime overrides. Editing those records cannot widen the
+provider's allow-set or enable attachment/claims without a valid pin.
+
+**Existing declarations:** Validate a present `profile` block before new
+workspace state is written. Leave it unchanged, including incomplete or
+mismatched values: fail with `profile-schema-invalid`,
+`profile-identity-unknown`, `profile-version-mismatch`, or
+`base-process-version-mismatch` as appropriate. A matching existing pin is
+preserved without re-materializing policy records. Reject explicit switches of
+an existing selection; identity conflicts use `profile-identity-unknown` and
+selected-profile policy version conflicts use `profile-version-mismatch`.
+Neither `--force` nor `--reinitialize` repairs or migrates a profile.
+Selecting a profile for an already tracked unprofiled manifest requires a
+separate, explicit reviewed manifest change; `--profile` does not override
+tracked-manifest protection. Do not delete profile or registry state as a
+recovery shortcut.
+
+**Examples:**
+
+```sh
+# Fresh non-reference workspace; attachment and claims remain unavailable.
+twig init contoso Fabrikam
+
+# Fresh/untracked manifest deliberately declaring the shipped reference release.
+twig init contoso Hyperbright --profile twig.reference-profile.hyperbright
+```
+
+**Exit codes:** 0 success, 1 initialization failure, including ADO/auth,
+tracked-manifest conflicts, or named profile refusals.
 
 **Telemetry:** `init` — `exit_code`, `duration_ms`, `had_global_profile`,
 `field_count`, `output_format`.
@@ -204,6 +263,8 @@ Only `config` is a candidate for MCP exposure.
 | Limitation | Rationale |
 |------------|-----------|
 | `init --force` only deletes current context DB | Multi-context safety; other org/project workspaces preserved |
+| Plain init does not declare a reference profile | Supported non-reference metadata/authoring path; primary-scope attachment/claim still requires compatible profile eligibility |
+| `--profile` cannot overwrite tracked or existing profile selections | Selection and migration are explicit repository decisions; present pins remain unchanged and broken pins fail closed |
 | Global profile write-back failures are non-fatal | Prevents init from failing due to optional feature |
 | `upgrade` has no rollback | Binary replacement is OS-level; compensating actions are fragile |
 | `upgrade` has no signature verification | Acceptable for internal tooling; future improvement |

@@ -120,20 +120,54 @@ public sealed class Ab728InitRollbackTests : IDisposable
             Path.Combine(_tempRoot, ".twig", "cache", "twig.db"),
             startDir: _tempRoot);
 
-        // Deliberately inject the UNAVAILABLE profile registry: the
-        // fixture default supplies an explicit profile, but the review
-        // acceptance requires that when the profile registry declines,
-        // init aborts fatally without leaving managed state on disk.
+        // An explicitly selected profile must fail when its registry declines,
+        // before any managed state is created.
         var cmd = InitCommandTestFixture.CreateInitCommand(
             registry, new UnavailableProfileRegistrySource(),
             _iterationService, paths, _formatterFactory, _hintEngine);
-        var result = await cmd.ExecuteAsync("org", "proj");
+        var result = await cmd.ExecuteAsync("org", "proj", profile: "selected-profile");
 
         result.ShouldBe(1);
-        // The managed-init failure path rolls back everything the init run
-        // created. layout.json / attachment.json MUST be absent.
+        // Profile admission occurs before any write.
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeFalse();
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Init_refuses_untracked_unknown_pin_before_force_or_archive(bool reinitialize)
+    {
+        if (!InitCommandTestFixture.InitTempWorktree(_tempRoot)) return;
+        var (registry, profile) = InitCommandTestFixture.CreateSeams(_tempRoot);
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        var paths = TwigPaths.ForContext(twigDir, "org", "proj", _tempRoot);
+        var config = new TwigConfiguration
+        {
+            Organization = "org",
+            Project = "proj",
+            Profile = new ProfilePinConfig
+            {
+                Identity = "operator-selected-profile",
+                ProfileVersion = "1.0.0",
+                BaseProcessVersion = "basic:2026-08-24:1",
+            },
+        };
+        await config.SaveSplitAsync(paths);
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.DbPath)!);
+        var mirrorBytes = System.Text.Encoding.UTF8.GetBytes("untouched mirror");
+        await File.WriteAllBytesAsync(paths.DbPath, mirrorBytes);
+        var manifestBytes = await File.ReadAllBytesAsync(paths.RepoConfigPath);
+        var cmd = InitCommandTestFixture.CreateInitCommand(
+            registry, profile, _iterationService, paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("org", "proj", force: !reinitialize, reinitialize: reinitialize);
+
+        result.ShouldBe(1);
+        (await File.ReadAllBytesAsync(paths.RepoConfigPath)).ShouldBe(manifestBytes);
+        (await File.ReadAllBytesAsync(paths.DbPath)).ShouldBe(mirrorBytes);
+        Directory.EnumerateDirectories(_tempRoot, ".twig-legacy-*").ShouldBeEmpty();
+        await _iterationService.DidNotReceive().DetectTemplateNameAsync(Arg.Any<CancellationToken>());
     }
 
     // ── Fix (4): rollback on system-registry failure ───────────────────

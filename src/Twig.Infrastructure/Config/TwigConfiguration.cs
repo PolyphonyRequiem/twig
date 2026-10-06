@@ -877,9 +877,9 @@ public sealed class PolicyConfig
 
 /// <summary>
 /// The <c>selectedProfile</c> object materialized into the checked-in
-/// twig.json policy block. Both fields are opaque per T1 §4.1's
-/// process-agnostic constraint; the eligibility source validates that they
-/// are non-empty so a hand-edited manifest fails closed at the right layer.
+/// twig.json policy block. Both fields are opaque release records, not
+/// profile-selection consent or runtime eligibility authority. The top-level
+/// profile pin is the declaration validated by the eligibility provider.
 /// </summary>
 public sealed class SelectedProfileBinding
 {

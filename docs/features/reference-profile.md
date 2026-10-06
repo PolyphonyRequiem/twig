@@ -103,17 +103,20 @@ release cadences, and collapsing them would force one to move whenever the
 other did.
 
 **Only an absent block reports absence.** A `twig.json` with no `profile`
-block is reported as `twig-json-profile-block-missing`. A present block with
-any required field omitted, null, empty, or whitespace remains a declaration
-and fails validation with `profile-schema-invalid`, before the embedded
-profile is loaded. Repair the incomplete pin with `twig init` or restore all
-three values for the intended release; do not remove the declaration to bypass
-the gate.
+block is reported as `twig-json-profile-block-missing` to consumers that
+require a profile. A present block with any required field omitted, null,
+empty, or whitespace remains a declaration and fails validation with
+`profile-schema-invalid`, before the embedded profile is loaded. `twig init`
+does not repair or replace a present pin, even with `--profile`, `--force`, or
+`--reinitialize`. Restoring the intended release's complete pin or migrating
+to another release is a separate, explicit repository-owner decision; do not
+remove the declaration to bypass the gate.
 
 The distinction between *absent* and *broken* is load-bearing:
 
-- **Absent** — this repository never claimed to run the reference process,
-  so profile-gated rules cannot apply to it.
+- **Absent** — this repository never claimed to run the reference process.
+  The reference sprint-entry gate is exempt, but primary-scope attachment
+  and claims are unavailable because their eligibility requires a profile.
 - **Broken** — this repository *did* claim to, but twig cannot tell which
   release's rules apply, so profile-gated rules fail closed with
   `profile-schema-invalid` for incomplete pins or the specific mismatch identifier
@@ -124,6 +127,57 @@ The distinction between *absent* and *broken* is load-bearing:
 reads the *identifier* rather than the boolean success flag, so a
 one-character typo in a version pin cannot silently disable a structural
 gate.
+
+## Initialization and explicit selection
+
+Fresh `twig init` has **no default profile selection**. Without `--profile`
+and without an existing `profile` declaration, it creates the normal
+worktree layout, cache, and registry entry without writing a new `profile`
+block or materializing `policy.selectedProfile` / `policy.primaryScopeTypes`.
+It does not interpret existing policy records as consent to declare a profile.
+
+For a non-reference project, initialize without selecting the reference:
+
+```sh
+twig init contoso Fabrikam
+```
+
+This supports process metadata and ordinary work-item authoring using the
+connected process's vocabulary. An absent declaration leaves the reference
+sprint-entry gate out of scope; it does not bypass other authoring checks or
+ADO rules. Primary-scope attachment and claims remain unavailable until the
+repository explicitly selects a compatible released profile. There is no
+profile-free allow-set fallback.
+
+For a fresh or untracked manifest that intentionally declares the shipped
+reference release:
+
+```sh
+twig init contoso Hyperbright --profile twig.reference-profile.hyperbright
+```
+
+The example identity is data from the shipped `profile.json`; identities are
+opaque and an unknown selection fails with `profile-identity-unknown`, not a
+fallback to the embedded profile. The currently shipped release is
+`twig.reference-profile.hyperbright`, profile version `1.0.0`, with base
+process tailoring version `basic:2026-08-24:1`.
+
+`--profile` is an explicit **declaration and selection**, not automatic live
+compatibility validation. Process-template discovery never chooses a profile;
+stock Agile or Scrum is not made compatible with this Basic-derived reference
+by supplying the flag. This capability adds no new compatible-profile support
+or live-process discovery beyond the existing provider.
+
+An existing declaration is validated before new workspace state is written.
+Its values remain unchanged, including incomplete or mismatched pins, which
+fail closed. An explicit switch of an existing selection is refused. Neither
+`--force` nor `--reinitialize` is a profile migration mechanism.
+
+Tracked-manifest protection remains intact: `--profile` cannot add a
+declaration to an already tracked, unprofiled `twig.json`. Selecting a profile
+there requires a separate, explicit reviewed manifest change before init.
+A matching existing pin is preserved without rewriting it or re-materializing
+policy records.
 
 ## Lifecycle
 
@@ -138,8 +192,8 @@ gate.
                    │             │                                │
                    │      ┌──────┴──────┐                         │
                    │      absent      broken                      │
-                   │      (ok, out    (fail closed)               │
-                   │       of scope)                              │
+                   │      (sprint     (fail closed)               │
+                   │       exempt; scope denied)                  │
                    ▼                                              │
              ReferenceProfile                                     │
                    │                                              │
@@ -184,7 +238,8 @@ subsequent call.
 - `Load()` answers *is the shipped blob intact?* — repair path is "reinstall
   twig."
 - `ValidatePin()` answers *does this repository agree with this binary?* —
-  repair path is "bump the pin, or install the matching twig."
+  recovery is an explicit, reviewed pin migration or using the binary that
+  matches the intended pin, never automatic repair by `init`.
 
 Keeping them apart is what lets `twig init` call `Load()` at a moment when it
 could not yet have satisfied a pin. It is also what makes each failure
@@ -223,6 +278,9 @@ comparison structurally blind.
 `ComputeLiveFingerprint(live, liveBaseProcessRef)` exposes the live-side hash
 independently for tooling that needs to report drift without deciding on it.
 
+This provider capability is distinct from `init --profile`: selecting an
+identity does not establish that these live-process checks have passed.
+
 ## Named failure identifiers
 
 Every failure the profile subsystem raises is a stable, byte-equal string
@@ -244,7 +302,7 @@ ADO-specific content.
 | `primary-scope-empty-allow-set` | `primaryScope.eligibleRoles` is empty. |
 | `primary-scope-unknown-role` | `primaryScope.eligibleRoles` contains an unknown role. |
 | `twig-json-profile-block-missing` | `twig.json` has no `profile` block. Incomplete blocks do not report absence. |
-| `profile-identity-unknown` | Pin `identity` does not match embedded `identity`. |
+| `profile-identity-unknown` | Pin `identity` or explicit `--profile` selection does not match the shipped artifact's `identity`. |
 | `profile-version-mismatch` | Pin `profileVersion` does not match embedded `profileVersion`. |
 | `base-process-version-mismatch` | Pin `baseProcessVersion` does not match embedded `baseProcess.tailoringVersion`. |
 
@@ -269,11 +327,12 @@ type is being committed to a sprint iteration
 
 `ReferenceProfileRegistrySource`
 (`src/Twig.Infrastructure/Persistence/ReferenceProfileRegistrySource.cs`) is
-the T3 cutover that lets `twig init` bind a fresh worktree to the embedded
-profile rather than fail closed with `selected-profile-unavailable`.
+the T3 seam used by `twig init` to resolve an explicitly selected identity or
+an existing repository declaration. No process-template label selects it and
+plain fresh init does not resolve a default binding.
 
-It exposes an `IProfileRegistrySource` whose `Resolve` reads the loaded
-profile and materializes:
+Its `IProfileRegistrySource.Resolve` reads the loaded profile, requires the
+requested opaque identity to match, and materializes:
 
 - `Identity` — verbatim from the embedded `identity`.
 - `ProfileVersion` — verbatim from the embedded `profileVersion`.
@@ -281,21 +340,25 @@ profile and materializes:
   `primaryScope.eligibleRoles` through `TypeByRole` (see
   `ReferenceProfile.PrimaryScopeAllowTypeNames`).
 
-Nothing is synthesized: a profile that fails to load propagates its own
-named error, so the "no synthetic identity, no partial workspace" rule
-holds.
+Nothing is synthesized: an unknown identity fails with
+`profile-identity-unknown`, and a profile that fails to load propagates its
+own named error. Init does not create partial workspace state on refusal.
 
-`ManagedWorktreeInitializer` records the materialized selected-profile
-binding into the checked-in `twig.json` policy block
+For a new explicit declaration, `ManagedWorktreeInitializer` records the
+materialized selected-profile binding into the checked-in `twig.json` policy block
 (`policy.selectedProfile` and `policy.primaryScopeTypes`) as a **record of
 what that binding produced**, not as the runtime authority. The runtime
 authority is always the embedded profile; the policy block is retained so a
 reviewer can see what shape the worktree was bound with.
 
-The separate three-field `profile` pin is what enforces the coupling.
-Editing `policy.primaryScopeTypes` by hand does not widen or narrow what
-twig will attach: narrowing the allow-set means publishing a different
-profile identity, not editing a repository file.
+The separate three-field top-level `profile` pin is what enforces the
+coupling: `profile.identity`, `profile.profileVersion`, and
+`profile.baseProcessVersion` must match the loaded artifact as described
+above. `policy.selectedProfile` and `policy.primaryScopeTypes` are records,
+not runtime overrides or substitutes for that declaration. Editing either
+record cannot enable attachment or claims in an unprofiled repository or
+widen a selected profile's allow-set. Narrowing the allow-set means publishing
+a different profile identity, not editing a repository policy record.
 
 ## How other subsystems consume the profile
 
@@ -305,9 +368,10 @@ profile identity, not editing a repository file.
   applies only where the repository declared the reference process; an
   absent `profile` block passes the gate untouched. See the top of
   `src/Twig.Domain/Services/ReferenceProfile/SprintEntryPolicy.cs`.
-- **Primary-scope attachment** — `IPrimaryScopePolicySource` is a thin
-  adapter over `PrimaryScopeAllowTypeNames`. Its allow-set is a query on
-  the profile, not on the checked-in policy block.
+- **Primary-scope attachment and claims** — `IPrimaryScopePolicySource` is a
+  thin adapter over `PrimaryScopeAllowTypeNames`. Its allow-set is a query on
+  the profile, not on the checked-in policy block. A missing pin refuses
+  eligibility with `twig-json-profile-block-missing`; a broken pin fails closed.
 - **Role lookup** — anywhere twig needs "what role does this ADO type name
   play?" it calls `RoleByTypeName`; anywhere it needs "what ADO type name
   does this role bind to on this profile?" it calls `TypeByRole`.
@@ -323,18 +387,20 @@ never captures it into a constant, an enum member, or a switch arm.
 | Symptom | Identifier | Fix |
 |---|---|---|
 | Twig refuses every command with a load-time error | `profile-blob-not-found`, `profile-fingerprint-mismatch`, `profile-schema-invalid`, or a `-locked-vocabulary-violation` / `-not-canonical` variant | The shipped binary is corrupt or tampered — reinstall twig. |
-| Twig refuses profile-gated commands here but not everywhere | `twig-json-profile-block-missing` | Add the three-field `profile` block to `twig.json` (or re-run `twig init` to write one). |
-| The pin exists but does not match the binary | `profile-identity-unknown`, `profile-version-mismatch`, `base-process-version-mismatch` | Bump the pin to the released profile that this binary embeds, or install the binary that embeds the pinned profile. |
+| Primary-scope attachment or claim is unavailable in an unprofiled repository | `twig-json-profile-block-missing` | Expected for plain non-reference init. Select a compatible shipped profile only if the repository intends to declare it: `--profile` for a fresh/untracked manifest, or a separate reviewed declaration in an already tracked manifest. There is no profile-free attachment/claim support. |
+| A present pin is incomplete | `profile-schema-invalid` | Restore the complete pin for the intended release through an explicit repository-owner decision. Init preserves the broken declaration and refuses; it does not repair it. |
+| The pin exists but does not match the binary | `profile-identity-unknown`, `profile-version-mismatch`, `base-process-version-mismatch` | Use the binary matching the intended pin, or make a separate reviewed migration decision. `--force`, `--reinitialize`, and `--profile` do not replace existing pins. |
 | Twig refuses at command time complaining about state / type / fingerprint | `type-name-missing`, `live-has-extra-state`, `profile-has-extra-state`, `state-order-mismatch`, `state-category-mismatch`, `live-fingerprint-mismatch`, `base-process-parent-mismatch` | The live ADO process has drifted from the released profile. Either the process needs to be reconciled to the profile, or a new profile release needs to be issued and pinned. |
 
 ## Related commands
 
-- [`twig init`](../commands/getting-started/init.md) — bootstraps a workspace
-  and writes an initial `profile` pin plus the materialized selected-profile
-  binding.
+- [`twig init`](../commands/getting-started/init.md) — bootstraps an unprofiled
+  workspace by default; `--profile <identity>` explicitly declares a shipped
+  release only in a fresh/untracked manifest without an existing declaration.
+  Existing pins are preserved and validated, not repaired.
 - [`twig config`](../commands/configuration/config.md) — reads or sets
-  individual configuration keys; useful for inspecting or updating pin
-  fields.
+  workspace configuration keys. Profile migration remains a separate,
+  explicit repository decision.
 - [`twig process description`](../commands/process/process-description.md) —
   byte-stable structural description of the live process; the same shape
   the command-time validator compares against.

@@ -5,40 +5,17 @@ using Twig.Domain.Services.Attachment;
 namespace Twig.Infrastructure.Persistence;
 
 /// <summary>
-/// The T3 cutover (AB#727): resolves the pinned selected profile from the
-/// embedded reference profile rather than failing closed.
-/// <para>
-/// Before this landed, the only registered <see cref="IProfileRegistrySource"/>
-/// was <see cref="UnavailableProfileRegistrySource"/>, so every
-/// <c>twig init</c> in a fresh worktree died with
-/// <c>selected-profile-unavailable</c> — which made AB#727 itself impossible to
-/// work in an isolated worktree, because binding a workspace there required the
-/// feature AB#727 delivers.
-/// </para>
-/// <para>
-/// The materialization is taken verbatim from the embedded profile document:
-/// <see cref="ReferenceProfile.Identity"/>,
-/// <see cref="ReferenceProfile.ProfileVersion"/>, and the concrete allow-set
-/// from <see cref="ReferenceProfile.PrimaryScopeAllowTypeNames"/>. Nothing is
-/// synthesized — the T1 §6.3 "no synthetic identity, no partial workspace" rule
-/// still holds, because a profile that fails to load propagates its own named
-/// error instead of a fabricated value.
-/// </para>
+/// Resolves an explicitly selected opaque identity from the released embedded
+/// profile. Process-template metadata is not a profile selection rule.
+/// Materialization values come from the artifact, never synthetic defaults.
 /// </summary>
 internal sealed class ReferenceProfileRegistrySource(IReferenceProfileProvider profileProvider)
     : IProfileRegistrySource
 {
     private readonly IReferenceProfileProvider _profileProvider = profileProvider;
 
-    public Result<SelectedProfileMaterialization> Resolve(string processTemplate)
+    public Result<SelectedProfileMaterialization> Resolve(string profileIdentity)
     {
-        // The selected profile is pinned by the running binary, not derived from
-        // the live process template. The parameter stays on the interface because
-        // a future multi-profile registry selects on it; today exactly one profile
-        // ships, so honoring it would be inventing a selection rule T1 §6.1 does
-        // not define.
-        _ = processTemplate;
-
         var loaded = _profileProvider.Load();
         if (!loaded.IsSuccess)
         {
@@ -50,6 +27,9 @@ internal sealed class ReferenceProfileRegistrySource(IReferenceProfileProvider p
         }
 
         var profile = loaded.Value;
+        if (!string.Equals(profileIdentity, profile.Identity, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization>(Twig.Domain.ValueObjects.ReferenceProfileErrors.ProfileIdentityUnknown);
+
         return Result.Ok(new SelectedProfileMaterialization(
             profile.Identity,
             profile.ProfileVersion,

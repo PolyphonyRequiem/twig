@@ -6,6 +6,9 @@ using System.Text.Json;
 using NSubstitute;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Infrastructure.Auth;
+using Twig.Domain.Services.ReferenceProfile;
+using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Services.ReferenceProfile;
 using Shouldly;
 using Twig.Infrastructure.Config;
 using Xunit;
@@ -39,10 +42,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
             Organization = adoServer.BaseUrl,
             Project = project,
             Auth = new AuthConfig { Method = "aad" },
-            // AB#728 §6.3: managed init requires a checked-in Policy with a
-            // fully populated SelectedProfile + non-empty PrimaryScopeTypes.
-            // Otherwise the initializer surfaces
-            // `selected-profile-unavailable` and fails fatally.
+            // Policy materialization alone does not declare a runtime profile.
             Policy = new PolicyConfig
             {
                 SelectedProfile = new SelectedProfileBinding { Identity = "Test.Profile", Version = "1.0" },
@@ -57,10 +57,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
             Path.Combine(_repoRoot, ".gitignore"),
             $".twig/{Environment.NewLine}");
         await config.SaveSplitAsync(contextPaths);
-        // AB#728 §6.3: strict init trusts ONLY the tracked repo manifest.
-        // An untracked twig.json is discarded and overwritten with the CLI
-        // coordinates, which drops the Policy block. Committing it here
-        // makes the manifest authoritative for the ensuing init run.
+        // A tracked manifest is authoritative and must remain untouched.
         await RunGitAsync("add", "--", WorkspaceDiscovery.RepoManifestFileName);
         await RunGitAsync("commit", "--quiet", "-m", "Seed tracked manifest");
         File.Exists(contextPaths.DbPath).ShouldBeFalse();
@@ -109,6 +106,7 @@ public sealed class InitCommandProductionCliTests : IDisposable
         loaded.Policy.ShouldNotBeNull();
         loaded.Policy!.SelectedProfile.ShouldNotBeNull();
         loaded.Policy.SelectedProfile!.Identity.ShouldBe("Test.Profile");
+        loaded.Profile.ShouldBeNull("policy records do not select a profile");
     }
 
     /// <summary>
@@ -125,10 +123,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
     /// so this exercises the actual composition path the issue names, not a shortcut around it.
     /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
     public async Task Init_ThroughProductionCli_WithEmptyStartupConfig_UsesDefaultBindingForRequestedEndpoint(
-        bool positionalArgs)
+        bool positionalArgs, bool selectProfile)
     {
         await using var adoServer = InitAdoServer.Start();
         const string project = "TestProject";
@@ -190,6 +189,11 @@ public sealed class InitCommandProductionCliTests : IDisposable
         var args = positionalArgs
             ? new[] { "init", adoServer.BaseUrl, project }
             : new[] { "init", "--org", adoServer.BaseUrl, "--project", project };
+        if (selectProfile)
+        {
+            var provider = new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(new TwigConfiguration()));
+            args = [.. args, "--profile", provider.Load().Value.Identity];
+        }
 
         var (exitCode, stdout, stderr) = await RunTwigAsync(args);
 
@@ -204,6 +208,19 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stdout.ShouldContain("Initialized Twig workspace");
         File.Exists(contextPaths.DbPath).ShouldBeTrue();
         File.Exists(contextPaths.RepoConfigPath).ShouldBeTrue();
+        var loaded = await TwigConfiguration.LoadSplitAsync(contextPaths);
+        if (selectProfile)
+        {
+            var provider = new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(loaded));
+            var policy = new SprintEntryPolicy(provider);
+            policy.Evaluate(WorkItemType.Parse("Bug").Value, IterationPath.Parse(project + "\\Sprint 1").Value)
+                .Error.ShouldBe(SprintEntryFailure.NotSprintTier);
+        }
+        else
+        {
+            loaded.Profile.ShouldBeNull();
+            loaded.Policy.ShouldBeNull();
+        }
 
         // HTTP-boundary proof, not just an auth-wiring assertion: endpoint admission alone
         // (asserted above) does not prove the INTENDED credential reached the metadata
@@ -322,6 +339,40 @@ public sealed class InitCommandProductionCliTests : IDisposable
         stderr.ShouldContain("cannot override existing tracked twig.json");
         Directory.Exists(twigDir).ShouldBeFalse();
         (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_UnknownProfileRefusesBeforeMetadataOrLocalWrites()
+    {
+        await using var adoServer = InitAdoServer.Start();
+        await RunGitAsync("init", "--quiet");
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init", "--org", adoServer.BaseUrl, "--project", "TestProject", "--profile", "unknown-profile");
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        stderr.ShouldContain(ReferenceProfileErrors.ProfileIdentityUnknown);
+        adoServer.Requests.ShouldBeEmpty();
+        Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
+        File.Exists(Path.Combine(_repoRoot, WorkspaceDiscovery.RepoManifestFileName)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Init_ThroughProductionCli_ExplicitProfileCannotRewriteTrackedUnprofiledManifest()
+    {
+        var organization = InitAdoServer.GetUnusedBaseUrl();
+        var manifestBytes = Encoding.UTF8.GetBytes($$"""
+            {"organization":"{{organization}}","project":"TestProject"}
+            """);
+        var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
+        var provider = new EmbeddedReferenceProfileProvider(new TwigJsonReferenceProfilePinSource(new TwigConfiguration()));
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init", "--org", organization, "--project", "TestProject", "--profile", provider.Load().Value.Identity);
+
+        exitCode.ShouldBe(1, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+        Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
     }
 
     private static byte[] CreateManifestBytes(string organization, string project, string team) =>

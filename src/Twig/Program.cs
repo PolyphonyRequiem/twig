@@ -550,7 +550,8 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
     /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
     /// <param name="reinitialize">Archive an existing <c>.twig/</c> tree to <c>.twig-legacy-&lt;timestamp&gt;/</c> and start clean (design §7 supported legacy recovery — no in-place migration).</param>
-    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default)
+    /// <param name="profile">Opaque released profile identity to explicitly select (default: none). Does not discover live-process compatibility.</param>
+    public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null)
     {
         // AB#398 made both coordinates optional so the POSITIONAL spelling the shipped examples
         // document (`twig init <org> <project>`) parses alongside the named one. The generated
@@ -564,7 +565,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, reinitialize, ct);
+        return await services.GetRequiredService<InitCommand>().ExecuteAsync(resolvedOrg, resolvedProject, team, gitProject, force, output, sprint, area, reinitialize, ct, profile: profile);
     }
 
     /// <summary>Set the active work item by ID or title pattern.</summary>

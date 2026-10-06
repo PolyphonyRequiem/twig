@@ -1,6 +1,7 @@
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Infrastructure.Persistence;
@@ -10,11 +11,9 @@ namespace Twig.Infrastructure.Persistence;
 /// registration), and §4.1 policy materialization. Every underlying
 /// primitive is idempotent; the composed run stops at the first §8 failure.
 /// <para>
-/// The caller supplies the materialized profile — no synthetic
-/// identity/version is invented here. When the checked-in
-/// <see cref="TwigConfiguration.Policy"/> is already fully populated the
-/// initializer preserves it byte-for-byte; only genuinely missing fields
-/// are filled from the supplied materialization.
+/// An absent selection leaves the checkout unprofiled. Existing declarations
+/// are validated before writes and never repaired, replaced, or upgraded.
+/// Policy materialization records do not select a profile.
 /// </para>
 /// </summary>
 internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
@@ -49,16 +48,12 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         string organization,
         string project,
         string? team,
-        string profileIdentity,
-        string profileVersion,
+        string? profileIdentity = null,
         CancellationToken ct = default)
     {
-        // Resolve the materialized policy BEFORE touching the filesystem so a
-        // #727-unavailable failure aborts init cleanly with the named error.
-        var policyResult = ResolveMaterializedPolicy(profileIdentity);
-        if (!policyResult.IsSuccess)
-            return Result.Fail(policyResult.Error);
-        var materialized = policyResult.Value;
+        var selection = ResolveMaterializedPolicy(profileIdentity);
+        if (!selection.IsSuccess)
+            return Result.Fail(selection.Error);
 
         var layout = await _store.InitializeAsync(ct).ConfigureAwait(false);
         if (!layout.IsSuccess)
@@ -76,109 +71,132 @@ internal sealed class ManagedWorktreeInitializer : IManagedWorktreeInitializer
         if (!upsertWt.IsSuccess)
             return upsertWt;
 
+        // Only an explicit, newly selected profile needs materialization. A
+        // present pin and its existing policy records are left untouched.
+        if (_config.Profile is not null || selection.Value is not { } materialized)
+            return Result.Ok();
+
+        var loaded = _profileProvider.Load();
+        if (!loaded.IsSuccess)
+            return Result.Fail(loaded.Error);
+
+        var originalProfile = _config.Profile;
+        var originalPolicy = _config.Policy;
+        var originalBinding = originalPolicy?.SelectedProfile;
+        var originalBindingValues = originalBinding is null
+            ? (Identity: string.Empty, Version: string.Empty)
+            : (originalBinding.Identity, originalBinding.Version);
+        var originalScopeTypes = originalPolicy?.PrimaryScopeTypes;
+        var persisted = false;
+
         try
         {
-            // Preserve any existing configured policy. Only fill fields that
-            // are genuinely missing — never overwrite a value the operator
-            // has already checked in. profileVersion is intentionally
-            // ignored when the block already binds a version.
-            _ = profileVersion;
             _config.Policy ??= new PolicyConfig();
             _config.Policy.SelectedProfile ??= new SelectedProfileBinding();
             if (string.IsNullOrWhiteSpace(_config.Policy.SelectedProfile.Identity))
                 _config.Policy.SelectedProfile.Identity = materialized.Identity;
             if (string.IsNullOrWhiteSpace(_config.Policy.SelectedProfile.Version))
                 _config.Policy.SelectedProfile.Version = materialized.Version;
-            if (_config.Policy.PrimaryScopeTypes is null)
-                _config.Policy.PrimaryScopeTypes = new List<string>(materialized.PrimaryScopeTypes);
+            _config.Policy.PrimaryScopeTypes ??= new List<string>(materialized.PrimaryScopeTypes);
 
-            // T1 §5.1 pin (AB#735). Materialized from the EMBEDDED profile,
-            // which is the only correct source: the pin's whole job is to
-            // record which released profile this repository is bound to, and
-            // the running binary is what ships it.
-            //
-            // Written whole or not at all. A two-of-three pin is the subset
-            // match T1 §8.2 rejects, and the pin reader treats any blank field
-            // as no pin at all — so an INCOMPLETE block is replaced rather than
-            // preserved. Preserving it would leave the repository permanently on
-            // twig-json-profile-block-missing with `twig init` as the documented
-            // recovery, and re-running init would do nothing: a repair that
-            // cannot repair.
-            //
-            // A COMPLETE block is never touched, so an operator who deliberately
-            // pinned an older release keeps it and gets a named mismatch rather
-            // than a silent upgrade.
-            if (IsIncompletePin(_config.Profile))
+            _config.Profile = new ProfilePinConfig
             {
-                var embedded = _profileProvider.Load();
-                if (!embedded.IsSuccess)
-                    return Result.Fail(embedded.Error);
-
-                _config.Profile = new ProfilePinConfig
-                {
-                    Identity = embedded.Value.Identity,
-                    ProfileVersion = embedded.Value.ProfileVersion,
-                    BaseProcessVersion = embedded.Value.BaseProcess.TailoringVersion,
-                };
-            }
+                Identity = loaded.Value.Identity,
+                ProfileVersion = loaded.Value.ProfileVersion,
+                BaseProcessVersion = loaded.Value.BaseProcess.TailoringVersion,
+            };
             await _config.SaveSplitAsync(_paths, ct).ConfigureAwait(false);
+            persisted = true;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         {
             return Result.Fail($"{AttachmentStorageFailure.AtomicWriteFailed}: {ex.Message}");
         }
+        finally
+        {
+            // A failed save must not turn a later same-instance retry into an
+            // apparent already-pinned success. Restore aliases as well as values.
+            if (!persisted)
+            {
+                _config.Profile = originalProfile;
+                _config.Policy = originalPolicy;
+                if (originalPolicy is not null)
+                {
+                    originalPolicy.SelectedProfile = originalBinding;
+                    originalPolicy.PrimaryScopeTypes = originalScopeTypes;
+                }
+                if (originalBinding is not null)
+                {
+                    originalBinding.Identity = originalBindingValues.Identity;
+                    originalBinding.Version = originalBindingValues.Version;
+                }
+            }
+        }
         return Result.Ok();
     }
 
-    /// <summary>
-    /// Whether the checked-in <c>profile</c> block is absent or missing any of
-    /// its three fields.
-    /// </summary>
-    /// <remarks>
-    /// Mirrors <c>TwigJsonReferenceProfilePinSource</c>'s reader exactly: it
-    /// reports a partially-filled block as no pin, so init must treat the same
-    /// shape as needing materialization. Two predicates that disagree would
-    /// produce a repository init reports as fixed and the pin reader still calls
-    /// missing.
-    /// </remarks>
-    private static bool IsIncompletePin(ProfilePinConfig? pin) =>
-        pin is null
-        || string.IsNullOrWhiteSpace(pin.Identity)
-        || string.IsNullOrWhiteSpace(pin.ProfileVersion)
-        || string.IsNullOrWhiteSpace(pin.BaseProcessVersion);
-
-    /// <summary>Resolve the materialized policy: (1) an existing checked-in
-    /// <see cref="PolicyConfig"/> whose <see cref="SelectedProfileBinding"/>
-    /// and <see cref="PolicyConfig.PrimaryScopeTypes"/> are complete is
-    /// authoritative; (2) otherwise, delegate to the
-    /// <see cref="IProfileRegistrySource"/> — the future AB#727 seam. A
-    /// failure surfaces <c>selected-profile-unavailable</c>.</summary>
-    private Result<SelectedProfileMaterialization> ResolveMaterializedPolicy(string processTemplate)
+    // InitCommand uses the same admission before archiving or deleting any
+    // previous layout; direct callers are admitted again by InitializeAsync.
+    internal Result ValidateProfileSelection(string? profileIdentity)
     {
-        // (1) Preserve an existing complete policy verbatim.
-        var existing = _config.Policy;
-        if (existing?.SelectedProfile is { Identity: { Length: > 0 } id, Version: { Length: > 0 } ver }
-            && existing.PrimaryScopeTypes is { } types)
+        var selection = ResolveMaterializedPolicy(profileIdentity);
+        return selection.IsSuccess ? Result.Ok() : Result.Fail(selection.Error);
+    }
+
+    private Result<SelectedProfileMaterialization?> ResolveMaterializedPolicy(string? profileIdentity)
+    {
+        if (_config.Profile is not null)
         {
-            return Result.Ok(new SelectedProfileMaterialization(id, ver, types));
+            var pin = _profileProvider.ValidatePin();
+            if (!pin.IsSuccess)
+                return Result.Fail<SelectedProfileMaterialization?>(pin.Error);
         }
-        // (2) Delegate to the profile registry. Default implementation returns
-        // `selected-profile-unavailable` until AB#727 lands.
-        return _profileRegistry.Resolve(processTemplate);
+
+        // Absence is not consent. In particular, policy.selectedProfile is a
+        // materialization record, not an alternative runtime authority.
+        if (profileIdentity is null)
+            return Result.Ok<SelectedProfileMaterialization?>(null);
+
+        if (_config.Profile is { } existingPin
+            && !string.Equals(profileIdentity, existingPin.Identity, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization?>(ReferenceProfileErrors.ProfileIdentityUnknown);
+
+        var resolved = _profileRegistry.Resolve(profileIdentity);
+        if (!resolved.IsSuccess)
+            return Result.Fail<SelectedProfileMaterialization?>(resolved.Error);
+
+        var loaded = _profileProvider.Load();
+        if (!loaded.IsSuccess)
+            return Result.Fail<SelectedProfileMaterialization?>(loaded.Error);
+
+        var materialized = resolved.Value;
+        if (!string.Equals(profileIdentity, materialized.Identity, StringComparison.Ordinal)
+            || !string.Equals(materialized.Identity, loaded.Value.Identity, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization?>(ReferenceProfileErrors.ProfileIdentityUnknown);
+        if (!string.Equals(materialized.Version, loaded.Value.ProfileVersion, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization?>(ReferenceProfileErrors.ProfileVersionMismatch);
+
+        var binding = _config.Policy?.SelectedProfile;
+        if (!string.IsNullOrWhiteSpace(binding?.Identity)
+            && !string.Equals(binding.Identity, materialized.Identity, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization?>(ReferenceProfileErrors.ProfileIdentityUnknown);
+        if (!string.IsNullOrWhiteSpace(binding?.Version)
+            && !string.Equals(binding.Version, materialized.Version, StringComparison.Ordinal))
+            return Result.Fail<SelectedProfileMaterialization?>(ReferenceProfileErrors.ProfileVersionMismatch);
+
+        return Result.Ok<SelectedProfileMaterialization?>(materialized);
     }
 }
 
 /// <summary>
-/// The AB#736 §4.1 profile registry seam AB#727 will land. Until it does,
-/// this default implementation returns
-/// <c>selected-profile-unavailable</c> so init fails closed rather than
-/// materializing synthetic identity/version values.
+/// Failure-path registry source for callers selecting a profile when the
+/// registry is unavailable. Unselected initialization does not consult it.
 /// </summary>
 internal sealed class UnavailableProfileRegistrySource : IProfileRegistrySource
 {
-    public Result<SelectedProfileMaterialization> Resolve(string processTemplate)
+    public Result<SelectedProfileMaterialization> Resolve(string profileIdentity)
     {
-        _ = processTemplate;
+        _ = profileIdentity;
         return Result.Fail<SelectedProfileMaterialization>(AttachmentStorageFailure.SelectedProfileUnavailable);
     }
 }

@@ -1,3 +1,5 @@
+using Twig.Domain.Services.Plan;
+using Twig.Infrastructure.Plan;
 using System.Diagnostics;
 using Shouldly;
 using Xunit;
@@ -101,6 +103,43 @@ public sealed class ProgressiveHelpProductionCliTests : IDisposable
         result.Stdout.ShouldContain("Behavior and effects");
         result.Stdout.ShouldContain("Exit codes and failure modes");
         result.Stdout.ShouldContain(behavior);
+    }
+
+    [Theory]
+    [InlineData("proposal validate")]
+    [InlineData("proposal seed")]
+    [InlineData("plan validate")]
+    public async Task ProposalAuthoringHelp_ProvidesCompleteParserValidSeedPublication(string command)
+    {
+        var result = await RunTwig([.. command.Split(' '), "--help"]);
+        result.ExitCode.ShouldBe(0);
+        result.Stderr.ShouldBeEmpty();
+        var help = result.Stdout.ReplaceLineEndings("\n");
+        var start = help.IndexOf("```json\n", StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0, "Installed help must include a complete proposal JSON example.");
+        start += "```json\n".Length;
+        var end = help.IndexOf("```", start, StringComparison.Ordinal);
+        end.ShouldBeGreaterThan(start);
+        var parsed = new PlanDocumentParser().Parse(help[start..end]);
+        parsed.Issues.ShouldBeEmpty();
+        parsed.Plan.ShouldNotBeNull();
+        using var stream = CommandHelpReference.OpenResource("plans/README.md");
+        using var reader = new StreamReader(stream);
+        var referenceMarkdown = (await reader.ReadToEndAsync()).ReplaceLineEndings("\n");
+        var exampleStart = referenceMarkdown.IndexOf("```json\n", StringComparison.Ordinal) + "```json\n".Length;
+        var exampleEnd = referenceMarkdown.IndexOf("```", exampleStart, StringComparison.Ordinal);
+        var documented = new PlanDocumentParser().Parse(referenceMarkdown[exampleStart..exampleEnd]);
+        documented.Issues.ShouldBeEmpty();
+        documented.CanonicalJson.ShouldBe(parsed.CanonicalJson, "The online example must match the native writer's installed example.");
+        parsed.Plan.Operations.Single().ShouldBeOfType<PublishSeedOperation>();
+        result.Stdout.ShouldContain("twig proposal seed --id -42 -o json");
+        result.Stdout.ShouldContain("twig proposal validate --file proposal.json -o json");
+        var reference = result.Stdout.Split('\n').Single(line => line.StartsWith("Versioned reference: ", StringComparison.Ordinal));
+        var uri = new Uri(reference["Versioned reference: ".Length..].Trim());
+        uri.Host.ShouldBe("github.com");
+        uri.AbsolutePath.ShouldMatch(@"^/PolyphonyRequiem/twig/blob/([0-9a-f]{40}|v[^/]+)/docs/commands/plans/README.md$");
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
     }
 
     [Fact]

@@ -119,13 +119,13 @@ public sealed class InitCommand
         _systemRegistry = systemRegistry;
         _profileRegistry = profileRegistry;
     }
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
         int fieldCount;
         bool hadGlobalProfile;
-        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct);
+        (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, reinitialize, ct, profile);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -142,7 +142,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, bool reinitialize, CancellationToken ct, string? profile)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -207,6 +207,16 @@ public sealed class InitCommand
                 Team = team ?? string.Empty,
             };
 
+        if (!preserveRepoManifest
+            && (File.Exists(requestedContextPaths.RepoConfigPath) || File.Exists(requestedContextPaths.ConfigPath)))
+        {
+            // A user declaration remains a declaration even in an untracked
+            // manifest or a legacy config. Reinitialization cannot erase it.
+            var existing = await TwigConfiguration.LoadSplitAsync(requestedContextPaths, ct);
+            config.Profile = existing.Profile;
+            config.Policy = existing.Policy;
+        }
+
         var contextPaths = preserveRepoManifest
             ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
@@ -235,6 +245,30 @@ public sealed class InitCommand
             Console.Error.WriteLine(fmt.FormatError(overrideConflict));
             return (1, false, 0);
         }
+        var invocationPaths = new TwigPaths(twigDir, contextPaths.ConfigPath, contextPaths.DbPath, invocationStartDir);
+        var invocationFingerprint = new Infrastructure.Persistence.WorktreeFingerprintProvider(invocationPaths, config);
+        var invocationStore = new Infrastructure.Persistence.WorktreeLocalAttachmentStore(invocationPaths, config, TimeProvider.System);
+        if (_systemRegistry is null || _profileRegistry is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Managed init refused: system-store or profile-registry seam is unavailable."));
+            return (1, false, 0);
+        }
+        var scopedInitializer = new Infrastructure.Persistence.ManagedWorktreeInitializer(
+            invocationStore, _systemRegistry, invocationFingerprint, config, invocationPaths, _profileRegistry,
+            new Infrastructure.Services.ReferenceProfile.EmbeddedReferenceProfileProvider(
+                new Infrastructure.Config.TwigJsonReferenceProfilePinSource(config)));
+        var profileAdmission = scopedInitializer.ValidateProfileSelection(profile);
+        if (!profileAdmission.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {profileAdmission.Error}"));
+            return (1, false, 0);
+        }
+        if (preserveRepoManifest && profile is not null && config.Profile is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Init cannot add a profile declaration to tracked twig.json. Select the profile deliberately in the manifest before initializing."));
+            return (1, false, 0);
+        }
+
 
         // `--sprint`/`--area` are pure input validation. Validating them
         // after managed registration would let a rejected flag return 1 with
@@ -410,30 +444,6 @@ public sealed class InitCommand
             if (!preserveRepoManifest)
                 config.ProcessTemplate = template ?? string.Empty;
 
-            // ── Design §6.3 steps 4–10: managed init runs against an
-            //    initializer scoped to THIS invocation's paths + effective
-            //    config, never the DI-singleton built from startup-discovered
-            //    coordinates. `selected-profile-unavailable` is a fatal
-            //    refusal (design §6.3: no synthetic identity, no partial
-            //    workspace), rolled back before any downstream write runs.
-            var invocationPaths = new TwigPaths(twigDir, contextPaths.ConfigPath, contextPaths.DbPath, invocationStartDir);
-            var invocationFingerprint = new Infrastructure.Persistence.WorktreeFingerprintProvider(invocationPaths, config);
-            var invocationStore = new Infrastructure.Persistence.WorktreeLocalAttachmentStore(invocationPaths, config, TimeProvider.System);
-            if (_systemRegistry is null || _profileRegistry is null)
-            {
-                Console.Error.WriteLine(fmt.FormatError("Managed init refused: system-store or profile-registry seam is unavailable."));
-                rollback.Rollback();
-                return (1, false, 0);
-            }
-            var scopedInitializer = new Infrastructure.Persistence.ManagedWorktreeInitializer(
-                invocationStore, _systemRegistry, invocationFingerprint, config, invocationPaths, _profileRegistry,
-                // Invocation-scoped, like the store/fingerprint above: the pin is
-                // materialized against the config being initialized, not the
-                // possibly-empty one loaded at DI time.
-                new Infrastructure.Services.ReferenceProfile.EmbeddedReferenceProfileProvider(
-                    new Infrastructure.Config.TwigJsonReferenceProfilePinSource(config)));
-
-            var effectiveIdentity = string.IsNullOrWhiteSpace(config.ProcessTemplate) ? "unknown" : config.ProcessTemplate;
 
             // Track the files the initializer will create so rollback can
             // remove exactly this run's contribution.
@@ -446,9 +456,8 @@ public sealed class InitCommand
                 config.Organization,
                 config.Project,
                 string.IsNullOrWhiteSpace(config.Team) ? null : config.Team,
-                profileIdentity: effectiveIdentity,
-                profileVersion: "1",
-                ct);
+                profileIdentity: profile,
+                ct: ct);
             if (!managed.IsSuccess)
             {
                 Console.Error.WriteLine(fmt.FormatError($"Managed init failed: {managed.Error}"));

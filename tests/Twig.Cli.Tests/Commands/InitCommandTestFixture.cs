@@ -1,27 +1,22 @@
 using System.Diagnostics;
 using Twig.Commands;
-using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.ReferenceProfile;
 
 namespace Twig.Cli.Tests.Commands;
 
 /// <summary>
-/// Shared fixture helpers for AB#728 <c>twig init</c> tests. Post-#728 the
-/// command validates the git worktree root and requires a system-store
-/// registry plus a deterministic profile-registry source; every fixture
-/// wants exactly the same wiring, so the helpers live here rather than
-/// being copied per suite.
+/// Shared fixture helpers for managed <c>twig init</c> tests. The command
+/// validates the git worktree root and requires a system-store registry.
+/// Explicit profile selections use the real released-profile registry.
 /// </summary>
 internal static class InitCommandTestFixture
 {
-    public const string TestProfileIdentity = "Test.SelectedProfile";
-    public const string TestProfileVersion = "1.0";
-    public static readonly IReadOnlyList<string> TestPrimaryScopeTypes = new[] { "Bug", "Task" };
 
     public static bool InitTempWorktree(string workDir)
     {
@@ -52,7 +47,8 @@ internal static class InitCommandTestFixture
         var systemDbPath = Path.Combine(tempRoot, "system.db");
         var registry = new SqliteSystemWorktreeRegistry(systemDbPath, TimeProvider.System);
         var profileRegistry = profileRegistryOverride
-            ?? new StaticProfileRegistrySource(TestProfileIdentity, TestProfileVersion, TestPrimaryScopeTypes);
+            ?? new ReferenceProfileRegistrySource(new EmbeddedReferenceProfileProvider(
+                new TwigJsonReferenceProfilePinSource(new TwigConfiguration())));
         return (registry, profileRegistry);
     }
 
@@ -78,29 +74,3 @@ internal static class InitCommandTestFixture
             systemRegistry, profileRegistry);
 }
 
-/// <summary>
-/// Deterministic <see cref="IProfileRegistrySource"/> for tests: yields a
-/// fixed profile identity/version with an explicit non-empty
-/// primary-scope allow-set. AB#728 §6.3 requires the initializer to
-/// receive a materialized policy rather than synthesizing one, so tests
-/// bind this explicitly rather than relying on a checked-in twig.json.
-/// </summary>
-internal sealed class StaticProfileRegistrySource : IProfileRegistrySource
-{
-    private readonly string _identity;
-    private readonly string _version;
-    private readonly IReadOnlyList<string> _primaryScopeTypes;
-
-    public StaticProfileRegistrySource(string identity, string version, IReadOnlyList<string> primaryScopeTypes)
-    {
-        _identity = identity;
-        _version = version;
-        _primaryScopeTypes = primaryScopeTypes;
-    }
-
-    public Result<SelectedProfileMaterialization> Resolve(string processTemplate)
-    {
-        _ = processTemplate;
-        return Result.Ok(new SelectedProfileMaterialization(_identity, _version, _primaryScopeTypes));
-    }
-}

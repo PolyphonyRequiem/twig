@@ -3,27 +3,21 @@ using Twig.Domain.Common;
 namespace Twig.Domain.Services.Attachment;
 
 /// <summary>
-/// The AB#736 §4.1 selected-profile source AB#727 will fulfill. Until #727
-/// lands, the default implementation returns
-/// <c>selected-profile-unavailable</c> so <c>twig init</c> fails closed
-/// rather than materializing a synthetic identity/version.
+/// Resolves explicitly selected opaque released-profile identities. Process
+/// templates and policy materialization records never supply implicit consent.
 /// </summary>
 internal interface IProfileRegistrySource
 {
-    /// <summary>Resolve the pinned selected profile for a checkout whose
-    /// process description advertises the given <paramref name="processTemplate"/>.
-    /// A successful result carries a real identity + version + concrete
-    /// primary-scope allow-set materialized from the profile registry;
-    /// a failure result surfaces
-    /// <see cref="AttachmentStorageFailure.EligibilityUnavailable"/> or a
-    /// dedicated <c>selected-profile-unavailable</c> identifier so the init
-    /// verb reports the migration event verbatim.</summary>
-    Result<SelectedProfileMaterialization> Resolve(string processTemplate);
+    /// <summary>Resolve the exact <paramref name="profileIdentity"/> from the
+    /// released profile registry. Unknown identities fail closed with
+    /// <c>profile-identity-unknown</c>; artifact failures retain their named errors.
+    /// A successful result contains artifact identity, version and allow-set.
+    /// This does not validate compatibility with an arbitrary live process.</summary>
+    Result<SelectedProfileMaterialization> Resolve(string profileIdentity);
 }
 
-/// <summary>The materialized policy of the selected pinned profile: the T1
-/// §4.1 shape the checked-in twig.json embeds and AB#738's eligibility gate
-/// consumes.</summary>
+/// <summary>Materialization records for a selected released profile. Runtime
+/// eligibility remains governed by the exact three-field profile pin.</summary>
 internal readonly record struct SelectedProfileMaterialization(
     string Identity,
     string Version,

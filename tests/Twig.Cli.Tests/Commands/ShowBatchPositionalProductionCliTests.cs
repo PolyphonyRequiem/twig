@@ -183,7 +183,76 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
                 + "refusal wearing the other guard's wording sends the user to fix the wrong thing.");
     }
 
-    private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(params string[] args)
+    [Fact]
+    public async Task TargetExportHelp_DiscoversTheInstalledCapabilityOffline()
+    {
+        var twigDir = Path.Combine(_scratchRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        await File.WriteAllTextAsync(Path.Combine(twigDir, "config"), "not valid JSON");
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync("show-batch", "--help");
+
+        exitCode.ShouldBe(0);
+        var help = stdout + stderr;
+        help.ShouldContain("--include-fields");
+        help.ShouldContain("Target-only stored export");
+        help.ShouldContain("exportVersion");
+    }
+
+    [Theory]
+    [InlineData("--refresh")]
+    [InlineData("--fields", "System.State")]
+    [InlineData("--sections", "children")]
+    [InlineData("--unknown-option")]
+    [InlineData("-o", "human")]
+    [InlineData("-o", "json-full")]
+    public async Task TargetExportInvalidModes_RefuseBeforeOpeningAnInvalidWorkspace(params string[] extra)
+    {
+        var twigDir = Path.Combine(_scratchRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        var configPath = Path.Combine(twigDir, "config");
+        await File.WriteAllTextAsync(configPath, "not valid JSON");
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            ["show-batch", "--batch", "42", "--include-fields", "-o", "json", .. extra]);
+
+        exitCode.ShouldBe(2);
+        stdout.ShouldBeEmpty();
+        stderr.ShouldContain("--include-fields");
+        (await File.ReadAllTextAsync(configPath)).ShouldBe("not valid JSON");
+        Directory.EnumerateFileSystemEntries(twigDir).ShouldBe(new[] { configPath });
+    }
+
+    [Fact]
+    public async Task TargetExportValidArguments_SkipFirstRunInstallationAndOldBinaryCleanup()
+    {
+        // dotnet twig.dll cannot exercise either apphost-specific side effect.
+        // A fresh copied installation has no companion marker to mask the bug.
+        var installDir = Path.Combine(_scratchRoot, "bin");
+        Directory.CreateDirectory(installDir);
+        var executableName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
+        var oldBinary = Path.Combine(installDir, executableName + ".old");
+        await File.WriteAllTextAsync(oldBinary, "must remain untouched");
+        var twigDir = Path.Combine(_scratchRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        await File.WriteAllTextAsync(Path.Combine(twigDir, "config"), "not valid JSON");
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(true,
+            "show-batch", "--batch", "42", "--include-fields", "-o", "json");
+
+        // All argument guards pass: workspace validation, not a usage refusal,
+        // remains downstream of the export's offline dispatch.
+        exitCode.ShouldNotBe(0);
+        (stdout + stderr).ShouldNotContain("is not recognized");
+        (stdout + stderr).ShouldNotContain("Installing companion tools");
+        File.Exists(Path.Combine(installDir, ".twig-version")).ShouldBeFalse();
+        (await File.ReadAllTextAsync(oldBinary)).ShouldBe("must remain untouched");
+    }
+
+    private Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(params string[] args)
+        => RunTwigAsync(false, args);
+
+    private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwigAsync(bool isolatedAppHost, params string[] args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var repositoryRoot = Path.GetFullPath(Path.Combine(
@@ -196,7 +265,25 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
         if (string.IsNullOrWhiteSpace(dotnetHost))
             dotnetHost = "dotnet";
 
-        var startInfo = new ProcessStartInfo(dotnetHost)
+        var executable = dotnetHost;
+        if (isolatedAppHost)
+        {
+            var sourceDir = Path.GetDirectoryName(twigAssembly)!;
+            var installDir = Path.Combine(_scratchRoot, "bin");
+            Directory.CreateDirectory(installDir);
+            foreach (var source in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(source) == ".twig-version" || source.EndsWith(".old", StringComparison.Ordinal))
+                    continue;
+                var destination = Path.Combine(installDir, Path.GetRelativePath(sourceDir, source));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(source, destination);
+            }
+            executable = Path.Combine(installDir, OperatingSystem.IsWindows() ? "twig.exe" : "twig");
+            File.Exists(executable).ShouldBeTrue($"Twig apphost not found at {executable}");
+        }
+
+        var startInfo = new ProcessStartInfo(executable)
         {
             WorkingDirectory = _scratchRoot,
             RedirectStandardOutput = true,
@@ -204,7 +291,8 @@ public sealed class ShowBatchPositionalProductionCliTests : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        startInfo.ArgumentList.Add(twigAssembly);
+        if (!isolatedAppHost)
+            startInfo.ArgumentList.Add(twigAssembly);
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
 

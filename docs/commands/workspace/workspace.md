@@ -67,6 +67,13 @@ twig workspace [flags]
 |`--expect-binding`|`string`|unset|Refuse semantic browser reads unless the admitted binding matches this captured ID. Never selects an identity.|
 |`--expect-identity`|`string`|unset|Refuse semantic browser reads unless the admitted identity matches this captured ID.|
 
+The semantic browser envelope also includes `configuration`: a versioned snapshot
+of the captured Bench's explicit pins (including uncached IDs), exact/under area
+filters, sprint expressions, ownership summary, and raw saved-query settings digest.
+These reads resolve expressions from the cached calendar and never replace the
+Bench's settings with workspace-global area/sprint settings. Use
+[`bench configuration`](../bench/README.md#configure-the-current-bench) for edits.
+
 ## Behavior
 
 The command delegates to `WorkspaceCommand.ExecuteAsync`
@@ -154,9 +161,10 @@ $ twig workspace --tree --refresh -o json
 `workspace sync` is the browser's **pull-only** operation. Unlike ordinary
 `twig sync --pull-only`, it does not invoke the broad iteration/area refresh.
 It refreshes the current Bench's cached members and discovers candidates through
-that Bench's saved selectors: current-sprint rules retain their iteration and
-assignee filters, item pins name one item, and subtree pins follow their actual
-descendants. An empty current-sprint scope never becomes an unbounded query.
+that Bench's saved selectors: legacy current-sprint and versioned bench-filter rules
+retain their iteration, exact/under area and assignee intersection; item pins name
+one item, and subtree pins follow their actual descendants. An empty sprint scope
+never becomes an unbounded query. Scoped sync refreshes the cached iteration calendar.
 
 Positive pending-work IDs remain protected, and active-context children/siblings
 and ancestors are fetched only within the configured relationship depths. Seeds

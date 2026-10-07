@@ -181,6 +181,9 @@ public sealed class WorkingSetService
         public Task<IReadOnlyList<IterationPath>> GetCurrentIterationsAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<IterationPath>>([]);
 
+        public Task<IReadOnlyList<IterationPath>> ResolveExpressionAsync(IterationExpression expression, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<IterationPath>>(expression.IsRelative ? [] : [IterationPath.Parse(expression.Raw).Value]);
+
         public Task SaveAsync(IReadOnlyList<TeamIteration> iterations, CancellationToken ct = default)
             => Task.CompletedTask;
     }

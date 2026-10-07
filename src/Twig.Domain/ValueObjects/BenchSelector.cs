@@ -1,4 +1,5 @@
 using Twig.Domain.Enums;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Domain.ValueObjects;
 
@@ -94,7 +95,16 @@ public sealed record BenchSelector(SelectorKind Kind, string Payload)
     public const string CurrentSprintRule = "current-sprint";
 
     /// <summary>The named rule this query selector carries. Throws when this is not a query.</summary>
-    public string QueryRule => SplitQuery().Rule;
+    public string QueryRule
+    {
+        get
+        {
+            if (Kind != SelectorKind.Query)
+                throw new InvalidOperationException($"Selector of kind {Kind} is not a query selector.");
+            var separator = Payload.IndexOf(PayloadSeparator);
+            return separator < 0 ? Payload : Payload[..separator];
+        }
+    }
 
     /// <summary>
     /// The DISPLAY LABEL this query is filtered to, or null for a canonical-only / unfiltered rule.
@@ -114,6 +124,12 @@ public sealed record BenchSelector(SelectorKind Kind, string Payload)
     {
         if (Kind != SelectorKind.Query)
             throw new InvalidOperationException($"Selector of kind {Kind} is not a query selector.");
+
+        if (QueryRule == BenchQueryRule.Name)
+        {
+            var configuredRule = BenchQueryRule.Parse(this);
+            return (BenchQueryRule.Name, configuredRule.AssignedTo, configuredRule.UniqueName);
+        }
 
         var firstSeparator = Payload.IndexOf(PayloadSeparator);
         if (firstSeparator < 0)

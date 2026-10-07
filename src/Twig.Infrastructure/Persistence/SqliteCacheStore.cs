@@ -28,6 +28,9 @@ public sealed class SqliteCacheStore : IDisposable
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
 
+    // SQLite NOCASE only folds ASCII; iteration matching uses .NET ordinal case folding.
+    internal const string OrdinalIgnoreCaseCollationName = "TWIG_ORDINAL_IGNORE_CASE";
+
     private readonly SqliteConnection _connection;
     private readonly MirrorAdmission? _admission;
     private readonly LegacyHostCapability? _legacyCapability;
@@ -103,6 +106,8 @@ public sealed class SqliteCacheStore : IDisposable
             SqlitePlanJournalRepository.RegisterSourcePathCollation(
                 _connection,
                 SqlitePlanJournalRepository.CreateDefaultSourcePathComparer());
+            _connection.CreateCollation(OrdinalIgnoreCaseCollationName,
+                static (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left, right));
             EnableWalMode();
             AttachDurableStore();
             if (ReadDurableSchemaVersion() > DurableSchemaVersion)

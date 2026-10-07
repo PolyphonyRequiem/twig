@@ -240,6 +240,46 @@
     "path": "bench/switch.md"
   },
   {
+    "command": "bench configuration",
+    "group": "bench",
+    "summary": "Read the current Bench's pins, saved filters, ownership and raw settings digest.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area add",
+    "group": "bench",
+    "summary": "Add an exact or Under area filter on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area remove",
+    "group": "bench",
+    "summary": "Remove an area filter on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration sprint add",
+    "group": "bench",
+    "summary": "Add a relative or absolute sprint expression on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration sprint remove",
+    "group": "bench",
+    "summary": "Remove a sprint expression on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
     "command": "history",
     "group": "context",
     "summary": "Show the ADO revision history for a work item; read-only, never cached.",

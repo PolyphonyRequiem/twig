@@ -60,14 +60,50 @@ public sealed class SqliteIterationCalendar : IIterationCalendar
         return paths;
     }
 
+    public async Task<IReadOnlyList<IterationPath>> ResolveExpressionAsync(
+        IterationExpression expression, CancellationToken ct = default)
+    {
+        if (!expression.IsRelative)
+        {
+            var parsed = IterationPath.Parse(expression.Raw);
+            if (!parsed.IsSuccess) throw new ArgumentException(parsed.Error);
+            return [parsed.Value];
+        }
+        var current = await GetCurrentIterationsAsync(ct);
+        if (expression.Offset == 0 || current.Count == 0) return current;
+        using var operation = _store.AcquireOperation();
+        using var command = _store.GetConnection().CreateCommand();
+        command.Transaction = _store.ActiveTransaction;
+        command.CommandText = "SELECT path FROM iteration_calendar WHERE start_date IS NOT NULL AND end_date IS NOT NULL ORDER BY start_date, path;";
+        var ordered = new List<IterationPath>();
+        using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var path = IterationPath.Parse(reader.GetString(0));
+            if (!path.IsSuccess) throw new InvalidOperationException(path.Error);
+            ordered.Add(path.Value);
+        }
+        var result = new List<IterationPath>();
+        foreach (var path in current)
+        {
+            var index = ordered.FindIndex(candidate => string.Equals(candidate.Value, path.Value, StringComparison.OrdinalIgnoreCase));
+            var target = (long)index + expression.Offset;
+            if (index >= 0 && target >= 0 && target < ordered.Count && !result.Contains(ordered[(int)target]))
+                result.Add(ordered[(int)target]);
+        }
+        return result;
+    }
+
     public async Task SaveAsync(IReadOnlyList<TeamIteration> iterations, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
+        using var ownedTransaction = _store.ActiveTransaction is null ? conn.BeginTransaction() : null;
+        var transaction = _store.ActiveTransaction ?? ownedTransaction;
 
         using (var clear = conn.CreateCommand())
         {
-            clear.Transaction = _store.ActiveTransaction;
+            clear.Transaction = transaction;
             clear.CommandText = "DELETE FROM iteration_calendar;";
             await clear.ExecuteNonQueryAsync(ct);
         }
@@ -75,7 +111,7 @@ public sealed class SqliteIterationCalendar : IIterationCalendar
         foreach (var iteration in iterations)
         {
             using var cmd = conn.CreateCommand();
-            cmd.Transaction = _store.ActiveTransaction;
+            cmd.Transaction = transaction;
             cmd.CommandText = """
                 INSERT INTO iteration_calendar (path, start_date, end_date)
                 VALUES (@path, @start, @end)
@@ -88,5 +124,6 @@ public sealed class SqliteIterationCalendar : IIterationCalendar
             cmd.Parameters.AddWithValue("@end", (object?)iteration.EndDate?.ToString("O") ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
+        ownedTransaction?.Commit();
     }
 }

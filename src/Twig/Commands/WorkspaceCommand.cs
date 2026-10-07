@@ -135,6 +135,12 @@ public sealed class WorkspaceCommand(
                 "--include-browser requires --view tree -o json for the current Bench."));
             return 2;
         }
+        if (includeBrowser && refresh)
+        {
+            Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(
+                "Semantic Bench browsing is cache-only. Use workspace sync to refresh the saved Bench scope."));
+            return 2;
+        }
         if (!includeBrowser && (expectBinding is not null || expectIdentity is not null))
         {
             Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(
@@ -155,6 +161,7 @@ public sealed class WorkspaceCommand(
             return 1;
         }
         using var admission = browserAdmission;
+        using var browserOperation = includeBrowser ? workItemRepo.AcquireOperation() : null;
         if (includeBrowser)
         {
             if (ResolveBrowserBindingAsync is null || currentBench is null || benchEvaluator is null)
@@ -266,7 +273,7 @@ public sealed class WorkspaceCommand(
 
                 var benchView = await workingSetService.ComputeAsync(benchIterations, ct);
                 sprintItems = await LoadQueryMatchesInOrderAsync(
-                    benchView.SprintItemIds, benchIterations, selfPrincipal, ct);
+                    benchView.SprintItemIds, benchView.IterationPaths, ct);
                 var sprintIds = new HashSet<int>(benchView.SprintItemIds);
                 manualItems = await LoadItemsInOrderAsync(
                     benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray(), ct);
@@ -307,7 +314,7 @@ public sealed class WorkspaceCommand(
 
                             var freshBenchView = await workingSetService.ComputeAsync(freshBenchIterations, ct);
                             refreshedSprintItems = await LoadQueryMatchesInOrderAsync(
-                                freshBenchView.SprintItemIds, freshBenchIterations, selfPrincipal, ct);
+                                freshBenchView.SprintItemIds, freshBenchView.IterationPaths, ct);
                             var refreshedSprintIds = new HashSet<int>(freshBenchView.SprintItemIds);
                             refreshedManualItems = await LoadItemsInOrderAsync(
                                 freshBenchView.TrackedItemIds.Where(id => !refreshedSprintIds.Contains(id)).ToArray(), ct);
@@ -445,29 +452,36 @@ public sealed class WorkspaceCommand(
         Domain.Aggregates.WorkItem? contextItem = null;
         if (activeId.HasValue)
         {
-            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
-            resolveResult.TryGetWorkItem(out contextItem, out _, out _);
+            if (browserBinding is not null)
+                contextItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
+            else
+            {
+                var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
+                resolveResult.TryGetWorkItem(out contextItem, out _, out _);
+            }
         }
 
         // Normal workspace is a projection of the current Bench. Team/sprint layouts remain
         // explicit sprint views and therefore retain the direct iteration query.
-        var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints);
+        var resolvedIterations = browserBinding is null
+            ? await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints) : Array.Empty<IterationPath>();
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
         IReadOnlyList<Domain.Aggregates.WorkItem> manualItems = Array.Empty<Domain.Aggregates.WorkItem>();
         WorkingSet? benchView = null;
         Bench? observedBench = null;
         BenchMembership? observedMembership = null;
+        Bench? observedStoredBench = null;
 
         if (!all && !sprintLayout)
         {
             IReadOnlyList<IterationPath> benchIterations = resolvedIterations;
-            if (benchIterations.Count == 0)
+            if (benchIterations.Count == 0 && browserBinding is null)
                 benchIterations = [await iterationService.GetCurrentIterationAsync()];
 
             if (browserBinding is not null)
             {
-                observedBench = await currentBench!.ResolveAsync(ct);
-                observedMembership = await benchEvaluator!.EvaluateAsync(observedBench, benchIterations, ct);
+                (observedBench, observedStoredBench) = await currentBench!.ResolveCapturedAsync(ct);
+                observedMembership = await benchEvaluator!.EvaluateAsync(observedBench, ct: ct);
                 benchView = new WorkingSet
                 {
                     SprintItemIds = observedMembership.QueryMatches.Select(item => item.Id).ToArray(),
@@ -482,7 +496,7 @@ public sealed class WorkspaceCommand(
             {
                 benchView = await workingSetService.ComputeAsync(benchIterations);
                 sprintItems = await LoadQueryMatchesInOrderAsync(
-                    benchView.SprintItemIds, benchIterations, selfPrincipal);
+                    benchView.SprintItemIds, benchView.IterationPaths);
             }
             var sprintIds = new HashSet<int>(benchView.SprintItemIds);
             manualItems = await LoadItemsInOrderAsync(
@@ -604,7 +618,7 @@ public sealed class WorkspaceCommand(
             sections: sections, trackedItems: trackedItems, excludedIds: excludedIds);
 
         var browser = browserBinding is not null
-            ? await BuildBrowserDocumentAsync(workspace, observedBench!, observedMembership!, browserBinding, typeLevelMap, ct)
+            ? await BuildBrowserDocumentAsync(workspace, observedBench!, observedStoredBench!, observedMembership!, browserBinding, typeLevelMap, ct)
             : null;
 
         if (fmt is HumanOutputFormatter human)
@@ -689,18 +703,15 @@ public sealed class WorkspaceCommand(
     private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> LoadQueryMatchesInOrderAsync(
         IReadOnlyList<int> selectedIds,
         IReadOnlyList<IterationPath> iterations,
-        string? canonicalPrincipal,
         CancellationToken ct = default)
     {
         if (selectedIds.Count == 0)
             return Array.Empty<Domain.Aggregates.WorkItem>();
 
-        // Self-scoped Bench query: load unfiltered iteration rows, then narrow in-memory by the
-        // bound canonical identity (ADO #1106). Loading unfiltered matches the Bench evaluator's
-        // own path, so the intersection with the evaluator's deterministic ID list reflects what
-        // the Bench actually said — never a repo-level display filter the evaluator would reject.
+        // The evaluated IDs already carry the saved rule's ownership, area and sprint
+        // intersection. Reload only that iteration scope without adding ambient self filters.
         var candidates = await GetSprintItemsFromResolvedIterationsAsync(
-            iterations, canonicalPrincipal, allUsers: false, ct);
+            iterations, canonicalPrincipal: null, allUsers: true, ct);
         var byId = candidates.ToDictionary(item => item.Id);
         var ordered = new List<Domain.Aggregates.WorkItem>(selectedIds.Count);
         foreach (var id in selectedIds)
@@ -981,7 +992,7 @@ public sealed class WorkspaceCommand(
 
 
     private async Task<RenderNode.Document> BuildBrowserDocumentAsync(
-        Workspace workspace, Bench bench, BenchMembership membership, ResolvedConnectionBinding binding,
+        Workspace workspace, Bench bench, Bench storedBench, BenchMembership membership, ResolvedConnectionBinding binding,
         IReadOnlyDictionary<string, int>? typeLevelMap, CancellationToken ct)
     {
         // One native hierarchy for every visible member: shared ancestors are merged across
@@ -1074,6 +1085,8 @@ public sealed class WorkspaceCommand(
             new("bindingId", new RenderNode.KeyValue("bindingId", RenderCell.String(binding.Binding.BindingId))),
             new("identityId", new RenderNode.KeyValue("identityId", RenderCell.String(binding.Identity.IdentityId))),
             new("worktreeRoot", new RenderNode.KeyValue("worktreeRoot", RenderCell.String(binding.WorktreeRoot))),
+            new("configuration", new RenderNode.KeyValue("configuration",
+                await BenchConfigurationProjection.BuildAsync(bench, storedBench, workItemRepo, ct))),
             new("roots", new RenderNode.KeyValue("roots", new RenderCell(string.Empty, new RenderValue.Array(projectedRoots)))),
         ]);
     }

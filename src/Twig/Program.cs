@@ -1149,9 +1149,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track")]
-    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
+    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
@@ -1159,9 +1160,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track-tree")]
-    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
+    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Remove both explicit single-item and subtree pins; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
@@ -1169,9 +1171,10 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace untrack")]
-    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
+    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1226,6 +1229,60 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     [Command("bench delete")]
     public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct);
+
+    /// <summary>Read the current Bench configuration and raw settings digest.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    [Command("bench configuration")]
+    public async Task<int> BenchConfiguration(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+
+    /// <summary>Add a area filter on the captured Bench only.</summary>
+    /// <param name="path">Validated area path.</param>
+    /// <param name="exact">Exact area match instead of Under (default false).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration area add")]
+    public async Task<int> BenchConfigurationAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "add", value: path, exact: exact, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Remove a area filter on the captured Bench only.</summary>
+    /// <param name="path">Validated area path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration area remove")]
+    public async Task<int> BenchConfigurationAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "remove", value: path, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Add a sprint filter on the captured Bench only.</summary>
+    /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration sprint add")]
+    public async Task<int> BenchConfigurationSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "add", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Remove a sprint filter on the captured Bench only.</summary>
+    /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration sprint remove")]
+    public async Task<int> BenchConfigurationSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "remove", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
 
     // ── Workspace Area Path Management ──
 
@@ -1761,6 +1818,11 @@ internal static class GroupedHelp
         "bench list",
         "bench switch",
         "bench delete",
+        "bench configuration",
+        "bench configuration area add",
+        "bench configuration area remove",
+        "bench configuration sprint add",
+        "bench configuration sprint remove",
 
         // Context
         "set",

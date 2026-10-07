@@ -35,15 +35,15 @@ public sealed class TrackingCommand(
     internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
 
     /// <summary>Track a single work item by ID.</summary>
-    public async Task<int> TrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
-        => await TrackCoreAsync(id, TrackingMode.Single, outputFormat, ct, expectBench, expectBinding, expectIdentity);
+    public async Task<int> TrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
+        => await TrackCoreAsync(id, TrackingMode.Single, outputFormat, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Track a work item and its subtree by ID.</summary>
-    public async Task<int> TrackTreeAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
-        => await TrackCoreAsync(id, TrackingMode.Tree, outputFormat, ct, expectBench, expectBinding, expectIdentity);
+    public async Task<int> TrackTreeAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
+        => await TrackCoreAsync(id, TrackingMode.Tree, outputFormat, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Remove a work item from tracking.</summary>
-    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
+    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -61,7 +61,7 @@ public sealed class TrackingCommand(
         PinOutcome outcome;
         try
         {
-            outcome = await pinWorkflow.UnpinAsync(id, ct, expectBench);
+            outcome = await pinWorkflow.UnpinAsync(id, ct, expectBench, expectSettings);
         }
         catch (InvalidOperationException ex)
         {
@@ -181,7 +181,7 @@ public sealed class TrackingCommand(
         return 0;
     }
 
-    private async Task<int> TrackCoreAsync(int id, TrackingMode mode, string outputFormat, CancellationToken ct, string? expectBench, string? expectBinding, string? expectIdentity)
+    private async Task<int> TrackCoreAsync(int id, TrackingMode mode, string outputFormat, CancellationToken ct, string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -199,7 +199,7 @@ public sealed class TrackingCommand(
         // live at evaluation time, which is what makes it pick up children created later.
         try
         {
-            await pinWorkflow.PinAsync(id, includeSubtree: mode == TrackingMode.Tree, ct, expectBench);
+            await pinWorkflow.PinAsync(id, includeSubtree: mode == TrackingMode.Tree, ct, expectBench, expectSettings);
         }
         catch (InvalidOperationException ex)
         {

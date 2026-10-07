@@ -77,6 +77,14 @@ public interface IBenchRepository
     /// <summary>Removes a selector from a Bench. No-op when it is not present.</summary>
     Task RemoveSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default);
 
+    /// <summary>Atomically compares raw query settings and replaces only queries on the still-current Bench.</summary>
+    Task<bool> TryReplaceQuerySelectorsAsync(long benchId, string expectedSettingsDigest,
+        IReadOnlyCollection<BenchSelector> queries, CancellationToken ct = default);
+
+    /// <summary>Atomically edits explicit pins on the still-current Bench, optionally guarding raw query settings.</summary>
+    Task<bool> TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove,
+        string? expectedSettingsDigest = null, CancellationToken ct = default);
+
     /// <summary>
     /// Removes a Bench and the selectors that belong to it (ADO #150, spec §5).
     /// <para>

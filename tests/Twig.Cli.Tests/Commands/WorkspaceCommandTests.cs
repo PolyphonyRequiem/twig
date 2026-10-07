@@ -96,7 +96,11 @@ public class WorkspaceCommandTests
     {
         var benches = Substitute.For<IBenchRepository>();
         benches.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
-        var evaluator = new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), pendingStore);
+        benches.GetByNameAsync(bench.Name, Arg.Any<CancellationToken>()).Returns(bench);
+        var calendar = Substitute.For<IIterationCalendar>();
+        calendar.GetCurrentIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns([IterationPath.Parse("Project\\Sprint 1").Value]);
+        var evaluator = new BenchEvaluator(_workItemRepo, calendar, pendingStore);
         return new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService,
             new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
@@ -196,14 +200,42 @@ public class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task Browser_EmptyCachedViewerStillExposesUncachedExplicitPinConfiguration()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        var bench = new Bench { Id = 7, Name = "Unknown pins", Selectors = [BenchSelector.ForItem(987)] };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json", view: "tree", includeBrowser: true));
+        exit.ShouldBe(0);
+        using var json = JsonDocument.Parse(output);
+        var browser = json.RootElement.GetProperty("browser");
+        browser.GetProperty("roots").GetArrayLength().ShouldBe(0);
+        var configuration = browser.GetProperty("configuration");
+        configuration.GetProperty("settingsDigest").GetString().ShouldBe(BenchQueryRule.SettingsDigest(bench.Selectors));
+        configuration.GetProperty("areas").GetArrayLength().ShouldBe(0);
+        configuration.GetProperty("sprints").GetArrayLength().ShouldBe(0);
+        configuration.GetProperty("automaticEnabled").GetBoolean().ShouldBeFalse();
+        var pin = configuration.GetProperty("pins")[0];
+        pin.GetProperty("id").GetInt32().ShouldBe(987);
+        pin.GetProperty("cached").GetBoolean().ShouldBeFalse();
+        pin.TryGetProperty("title", out _).ShouldBeFalse();
+        await _adoService.DidNotReceive().FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Browser_DepthCutoffCannotHideParentedSeedsOrPendingWork()
     {
         var parent = CreateWorkItem(10, "Parent");
         var owed = CreateWorkItem(99, "Owed edit").WithParentId(10);
         var seed = new WorkItem
         {
-            Id = -1, Type = WorkItemType.Task, Title = "Draft", State = "New", IsSeed = true,
-            IterationPath = parent.IterationPath, AreaPath = parent.AreaPath,
+            Id = -1,
+            Type = WorkItemType.Task,
+            Title = "Draft",
+            State = "New",
+            IsSeed = true,
+            IterationPath = parent.IterationPath,
+            AreaPath = parent.AreaPath,
         }.WithParentId(10);
         var cached = new[] { parent, owed, seed };
         _config.Display.TreeDepthDown = 0;

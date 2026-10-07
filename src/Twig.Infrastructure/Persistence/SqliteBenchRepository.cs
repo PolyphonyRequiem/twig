@@ -3,6 +3,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -197,6 +198,65 @@ public sealed class SqliteBenchRepository : IBenchRepository
         cmd.Parameters.AddWithValue("@kind", selector.Kind.ToString());
         cmd.Parameters.AddWithValue("@payload", selector.Payload);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<bool> TryReplaceQuerySelectorsAsync(long benchId, string expectedSettingsDigest,
+        IReadOnlyCollection<BenchSelector> queries, CancellationToken ct = default)
+    {
+        if (queries.Any(selector => selector.Kind != SelectorKind.Query))
+            throw new ArgumentException("Only query selectors can replace automatic settings.", nameof(queries));
+        foreach (var selector in queries) _ = BenchQueryRule.Parse(selector);
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench configuration cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            if (!await MatchesCapturedAsync(benchId, expectedSettingsDigest, ct)) return false;
+            using var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM bench_selectors WHERE bench_id = @id AND selector_kind = 'Query';";
+            command.Parameters.AddWithValue("@id", benchId);
+            await command.ExecuteNonQueryAsync(ct);
+            foreach (var selector in queries) await AddSelectorAsync(benchId, selector, ct);
+            transaction.Commit();
+            return true;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    public async Task<bool> TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove,
+        string? expectedSettingsDigest = null, CancellationToken ct = default)
+    {
+        if (workItemId <= 0) throw new ArgumentException("Pins require a positive work item ID.", nameof(workItemId));
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench pin edits cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            if (!await MatchesCapturedAsync(benchId, expectedSettingsDigest, ct)) return false;
+            if (remove)
+            {
+                await RemoveSelectorAsync(benchId, BenchSelector.ForItem(workItemId), ct);
+                await RemoveSelectorAsync(benchId, BenchSelector.ForSubtree(workItemId), ct);
+            }
+            else await AddSelectorAsync(benchId, includeSubtree ? BenchSelector.ForSubtree(workItemId) : BenchSelector.ForItem(workItemId), ct);
+            transaction.Commit();
+            return true;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    private async Task<bool> MatchesCapturedAsync(long benchId, string? settingsDigest, CancellationToken ct)
+    {
+        var current = await GetCurrentAsync(ct) ?? await GetByNameAsync(Bench.DefaultName, ct);
+        return current?.Id == benchId && (settingsDigest is null || string.Equals(
+            BenchQueryRule.SettingsDigest(current.Selectors), settingsDigest, StringComparison.Ordinal));
     }
 
     /// <summary>

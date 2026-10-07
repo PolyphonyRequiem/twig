@@ -11,6 +11,7 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -96,6 +97,78 @@ public sealed class BenchSyncCommandTests : RefreshCommandTestBase
         var (exit, _) = await ExecuteAsync(expectBench: "different");
         exit.ShouldBe(1);
         _fetchedIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SavedFilters_RefreshOnlyTheirIntersectedCandidatesAndCountActualMembers()
+    {
+        var rule = new BenchQueryRule(null, "self@example.test",
+            [new("Project\\Exact", false), new("Project\\Under", true)],
+            [BenchQueryRule.ParseSprint("@Current+1"), BenchQueryRule.ParseSprint("Project\\Release")]);
+        SetBench(rule.ToSelector(), BenchSelector.ForItem(42));
+        _calendar.ResolveExpressionAsync(BenchQueryRule.ParseSprint("@Current+1"), Arg.Any<CancellationToken>())
+            .Returns([IterationPath.Parse("Project\\Next").Value]);
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var wiql = call.ArgAt<string>(0);
+                wiql.ShouldContain("[System.AssignedTo] = 'self@example.test'");
+                wiql.ShouldContain("([System.AreaPath] = 'Project\\Exact' OR [System.AreaPath] UNDER 'Project\\Under')");
+                wiql.ShouldContain("([System.IterationPath] = 'Project\\Next' OR [System.IterationPath] = 'Project\\Release')");
+                return new[] { 5 };
+            });
+        _adoService.FetchBatchWithLinksAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var ids = call.ArgAt<IReadOnlyList<int>>(0);
+                _fetchedIds.AddRange(ids);
+                return ((IReadOnlyList<WorkItem>)ids.Select(id => new WorkItemBuilder(id, "Scoped")
+                    .WithIterationPath("Project\\Next").WithAreaPath("Project\\Under\\Child")
+                    .AssignedToUniqueName("self@example.test").Build()).ToArray(),
+                    (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>());
+            });
+        var (exit, output) = await ExecuteAsync();
+        exit.ShouldBe(0);
+        _fetchedIds.ShouldBe([5, 42], ignoreOrder: true);
+        using var json = JsonDocument.Parse(output);
+        json.RootElement.GetProperty("memberCount").GetInt32().ShouldBe(2);
+        json.RootElement.GetProperty("relationshipCount").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task AreaWithoutAnySprint_DoesNotQueryTheProjectButRetainsExplicitPins()
+    {
+        SetBench(new BenchQueryRule(null, null, [new("Project", true)], []).ToSelector(), BenchSelector.ForItem(42));
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyList<int>>(new InvalidOperationException("An area alone cannot discover automatic members.")));
+        var (exit, output) = await ExecuteAsync();
+        exit.ShouldBe(0);
+        _fetchedIds.ShouldBe([42]);
+        using var json = JsonDocument.Parse(output);
+        json.RootElement.GetProperty("memberCount").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task EmptyAutomaticScope_StillRefreshesPendingIdsWithoutOverwritingLocalWork()
+    {
+        SetBench(new BenchQueryRule(null, null, [new("Project\\Elsewhere", true)], []).ToSelector());
+        var cached = new WorkItemBuilder(71, "Local pending title").Dirty().Build();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns([cached]);
+        _workItemRepo.GetByIdAsync(71, Arg.Any<CancellationToken>()).Returns(_ => cached);
+        _workItemRepo.SaveBatchAsync(Arg.Any<IEnumerable<WorkItem>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var replacement = call.ArgAt<IEnumerable<WorkItem>>(0).SingleOrDefault(item => item.Id == 71);
+                if (replacement is not null) cached = replacement;
+                return Task.CompletedTask;
+            });
+        var (exit, output) = await ExecuteAsync();
+        exit.ShouldBe(0);
+        _fetchedIds.ShouldBe([71]);
+        (await _workItemRepo.GetByIdAsync(71))!.Title.ShouldBe("Local pending title");
+        using var json = JsonDocument.Parse(output);
+        json.RootElement.GetProperty("memberCount").GetInt32().ShouldBe(1);
+        json.RootElement.GetProperty("protectedCount").GetInt32().ShouldBe(1);
     }
 
     private void SetBench(params BenchSelector[] selectors)

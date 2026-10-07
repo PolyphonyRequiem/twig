@@ -330,7 +330,7 @@ public sealed class PinWorkflowTests : IDisposable
     }
 
     [Fact]
-    public async Task Unpin_ConnectionLocalBenchSwitchBetweenRemovals_NeverRetargetsSecondRemoval()
+    public async Task Unpin_BenchSwitchBetweenCaptureAndTransaction_RefusesWithoutRetargeting()
     {
         var original = (await _benchRepo.CreateAsync("original"))!;
         var replacement = (await _benchRepo.CreateAsync("replacement"))!;
@@ -343,18 +343,20 @@ public sealed class PinWorkflowTests : IDisposable
         var switching = Substitute.For<IBenchRepository>();
         switching.GetCurrentAsync(Arg.Any<CancellationToken>())
             .Returns(_ => _benchRepo.GetCurrentAsync());
-        switching.RemoveSelectorAsync(Arg.Any<long>(), Arg.Any<BenchSelector>(), Arg.Any<CancellationToken>())
+        switching.TryUpdatePinsAsync(Arg.Any<long>(), Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<bool>(),
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
-                await _benchRepo.RemoveSelectorAsync(call.Arg<long>(), call.Arg<BenchSelector>());
                 await _benchRepo.SetCurrentAsync(replacement.Id);
+                return await _benchRepo.TryUpdatePinsAsync(call.ArgAt<long>(0), call.ArgAt<int>(1),
+                    call.ArgAt<bool>(2), call.ArgAt<bool>(3), call.ArgAt<string?>(4));
             });
         var sut = new PinWorkflow(switching, new DefaultBenchSelectors(IdentityStubs.NewBound()));
 
-        var outcome = await sut.UnpinAsync(42, expectBench: original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        outcome.ShouldBeOfType<PinOutcome.Unpinned>().Bench.Id.ShouldBe(original.Id);
-        (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldBeEmpty();
+        await Should.ThrowAsync<InvalidOperationException>(() => sut.UnpinAsync(42,
+            expectBench: original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldContain(BenchSelector.ForItem(42));
+        (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldContain(BenchSelector.ForSubtree(42));
         (await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors.ShouldContain(BenchSelector.ForItem(42));
         (await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors.ShouldContain(BenchSelector.ForSubtree(42));
     }

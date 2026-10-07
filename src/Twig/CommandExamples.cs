@@ -371,6 +371,31 @@ internal static class CommandExamples
             "twig bench delete \"release blockers\"   Delete it (reports what it holds first)",
             "twig bench delete \"release blockers\" --confirm \"release blockers\"   Delete one that holds pins",
         ],
+        ["bench configuration"] =
+        [
+            "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
+            "twig bench configuration -o json      Capture raw settings digest for guarded edits",
+        ],
+        ["bench configuration area add"] =
+        [
+            "twig bench configuration area add \"Project\\Team A\"          Add an Under filter on this Bench",
+            "twig bench configuration area add \"Project\\Team A\" --exact -o json  Match only this exact area",
+        ],
+        ["bench configuration area remove"] =
+        [
+            "twig bench configuration area remove \"Project\\Team A\"         Remove this Bench's area filter",
+            "twig bench configuration area remove \"Project\\Team A\" --expect-bench 7 --expect-settings <digest> -o json  Guard a captured edit",
+        ],
+        ["bench configuration sprint add"] =
+        [
+            "twig bench configuration sprint add @Current+1   Follow next sprint using the cached calendar",
+            "twig bench configuration sprint add \"Project\\Sprint 8\" -o json  Follow an absolute iteration path",
+        ],
+        ["bench configuration sprint remove"] =
+        [
+            "twig bench configuration sprint remove @Current  Remove the current-sprint expression",
+            "twig bench configuration sprint remove \"Project\\Sprint 8\" --expect-settings <digest> -o json  Refuse stale settings",
+        ],
         ["workspace area"] =
         [
             "twig workspace area                    Show area-filtered workspace view",

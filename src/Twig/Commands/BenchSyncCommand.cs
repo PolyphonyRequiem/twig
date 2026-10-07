@@ -48,32 +48,22 @@ internal sealed class BenchSyncCommand(
             var bench = await currentBench.ResolveAsync(ct, expectBench);
 
             var queries = bench.Selectors.Where(s => s.Kind == SelectorKind.Query).ToArray();
-            IReadOnlyList<Twig.Domain.ValueObjects.IterationPath> currentIterations = [];
+            foreach (var selector in queries) _ = BenchQueryRule.Parse(selector);
             if (queries.Length > 0)
-            {
-                var teamIterations = await iterations.GetTeamIterationsAsync(ct);
-                await calendar.SaveAsync(teamIterations, ct);
-                currentIterations = await calendar.GetCurrentIterationsAsync(ct);
-            }
-            var membership = await evaluator.EvaluateAsync(bench, currentIterations, ct);
-            var ids = new HashSet<int>(membership.AllIds.Where(id => id > 0));
+                await calendar.SaveAsync(await iterations.GetTeamIterationsAsync(ct), ct);
+            var resolvedRules = new Dictionary<Twig.Domain.ValueObjects.BenchSelector, ResolvedBenchQueryRule>();
             foreach (var selector in queries)
+                resolvedRules[selector] = await BenchQueryRule.Parse(selector).ResolveAsync(calendar, ct: ct);
+            var membership = await evaluator.EvaluateResolvedAsync(bench, resolvedRules, ct);
+            var ids = new HashSet<int>(membership.AllIds.Where(id => id > 0));
+            foreach (var resolved in resolvedRules.Values)
             {
-                if (selector.QueryRule != Twig.Domain.ValueObjects.BenchSelector.CurrentSprintRule)
-                    throw new InvalidOperationException($"Unsupported Bench refresh rule '{selector.QueryRule}'.");
-                // No current iteration means an empty rule, never an unbounded query.
-                if (currentIterations.Count == 0)
-                    continue;
-                var iterationFilter = string.Join(" OR ", currentIterations.Select(p =>
-                    $"[System.IterationPath] = '{Escape(p.Value)}'"));
-                var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '{Escape(ctx.Config.Project)}' AND ({iterationFilter})";
-                var assignee = selector.QueryAssignedToUniqueName ?? selector.QueryAssignedTo;
-                if (assignee is not null)
-                    wiql += $" AND [System.AssignedTo] = '{Escape(assignee)}'";
+                var wiql = resolved.BuildWiql(ctx.Config.Project);
+                if (wiql is null) continue;
                 foreach (var id in await ado.QueryByWiqlAsync(wiql, ct))
                     if (id > 0) ids.Add(id);
             }
-            var memberIds = new HashSet<int>(ids);
+            var memberIds = new HashSet<int>(membership.PinnedIds.Concat(membership.DirtyItemIds));
             var active = await context.GetActiveWorkItemIdAsync(ct);
             if (active is > 0) ids.Add(active.Value);
 
@@ -100,6 +90,11 @@ internal sealed class BenchSyncCommand(
             {
                 await FetchAsync([activeItem.ParentId.Value]);
                 await ExpandChildrenAsync([activeItem.ParentId.Value], ctx.Config.Display.TreeDepthSideways);
+            }
+            foreach (var (id, remoteItem) in fetched)
+            {
+                var visible = await repository.GetByIdAsync(id, ct) ?? remoteItem;
+                if (resolvedRules.Values.Any(rule => rule.Matches(visible))) memberIds.Add(id);
             }
             var memberCount = fetched.Keys.Count(memberIds.Contains);
 
@@ -181,5 +176,4 @@ internal sealed class BenchSyncCommand(
         }
     }
 
-    private static string Escape(string value) => value.Replace("'", "''", StringComparison.Ordinal);
 }

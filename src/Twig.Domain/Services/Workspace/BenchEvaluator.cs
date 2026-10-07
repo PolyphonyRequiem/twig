@@ -73,6 +73,16 @@ public sealed class BenchEvaluator
         IReadOnlyList<IterationPath>? iterationOverride = null,
         CancellationToken ct = default)
     {
+        var rules = new Dictionary<BenchSelector, ResolvedBenchQueryRule>();
+        foreach (var selector in bench.Selectors.Where(s => s.Kind == SelectorKind.Query))
+            rules[selector] = await BenchQueryRule.Parse(selector).ResolveAsync(_iterationCalendar,
+                selector.QueryRule == BenchSelector.CurrentSprintRule ? iterationOverride : null, ct);
+        return await EvaluateResolvedAsync(bench, rules, ct);
+    }
+
+    internal async Task<BenchMembership> EvaluateResolvedAsync(Bench bench,
+        IReadOnlyDictionary<BenchSelector, ResolvedBenchQueryRule> rules, CancellationToken ct = default)
+    {
         var queryMatches = new List<WorkItem>();
         var queryMatchIds = new HashSet<int>();
         var pinnedIds = new List<int>();
@@ -86,8 +96,8 @@ public sealed class BenchEvaluator
             {
                 case SelectorKind.Query:
                     {
-                        var (items, resolvedIterations) =
-                            await EvaluateQueryAsync(selector, iterationOverride, ct);
+                        var resolved = rules[selector];
+                        var (items, resolvedIterations) = await EvaluateQueryAsync(resolved, ct);
 
                         foreach (var path in resolvedIterations)
                         {
@@ -162,50 +172,12 @@ public sealed class BenchEvaluator
 
     private async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<IterationPath> Iterations)>
         EvaluateQueryAsync(
-            BenchSelector selector,
-            IReadOnlyList<IterationPath>? iterationOverride,
+            ResolvedBenchQueryRule resolved,
             CancellationToken ct)
     {
-        var rule = selector.QueryRule;
-
-        if (!string.Equals(rule, BenchSelector.CurrentSprintRule, StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"Unknown query rule '{rule}'. A rule is one named kind plus its settings; " +
-                "a new rule is added beside this one rather than expressed within it.");
-
-        var assignedTo = selector.QueryAssignedTo;
-        var assignedToUniqueName = selector.QueryAssignedToUniqueName;
-
-        // The sprint rule is "the iteration whose date range covers now". Which iteration that is
-        // comes from the locally cached calendar and the local clock — never a network call, so a
-        // Bench evaluates and displays with the ADO endpoint unreachable.
-        var iterations = iterationOverride
-            ?? await _iterationCalendar.GetCurrentIterationsAsync(ct);
-
-        if (iterations.Count == 0)
-            return ([], iterations);
-
-        var items = await _workItemRepo.GetByIterationsAsync(iterations, ct);
-
-        if (items.Count == 0)
-            return (items, iterations);
-
-        if (assignedToUniqueName is not null)
-        {
-            items = items
-                .Where(w => w.IsAssignedToIdentity(assignedToUniqueName))
-                .ToList();
-        }
-        else if (assignedTo is not null)
-        {
-            // Explicit saved-Bench display label (noncanonical, user-authored rule): matches ADO's
-            // display rendering exactly. Preserved for Benches saved before the canonical slot
-            // existed and for explicit team-member filters a user wrote by hand.
-            items = items
-                .Where(w => string.Equals(w.AssignedTo, assignedTo, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-        return (items, iterations);
+        if (resolved.Iterations.Count == 0) return ([], resolved.Iterations);
+        var items = await _workItemRepo.GetByIterationsAsync(resolved.Iterations, ct);
+        return (items.Where(resolved.Matches).ToArray(), resolved.Iterations);
     }
 
     /// <summary>

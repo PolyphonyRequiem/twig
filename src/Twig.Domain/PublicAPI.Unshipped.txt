@@ -1,4 +1,7 @@
 #nullable enable
+Twig.Domain.Interfaces.IBenchRepository.TryReplaceQuerySelectorsAsync(long benchId, string! expectedSettingsDigest, System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! queries, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IBenchRepository.TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove, string? expectedSettingsDigest = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IIterationCalendar.ResolveExpressionAsync(Twig.Domain.ValueObjects.IterationExpression expression, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
 Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.get -> System.Collections.Generic.IReadOnlyDictionary<int, System.Collections.Generic.IReadOnlyList<int>!>!
 Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.init -> void
 *REMOVED*Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!

@@ -267,6 +267,60 @@ public sealed class BenchEvaluatorTests
     }
 
     [Fact]
+    public async Task SavedFilters_UnionAlternativesButIntersectAreaSprintAndCanonicalOwnership()
+    {
+        var rule = new BenchQueryRule(null, "self@example.test",
+            [new("Project\\Exact", false), new("Project\\Under", true)],
+            [BenchQueryRule.ParseSprint("Project\\Sprint 7"), BenchQueryRule.ParseSprint("Project\\Sprint 8")]);
+        WorkItem Item(int id, string area, string sprint, string canonical) => new WorkItemBuilder(id, "Fixture")
+            .WithAreaPath(area).WithIterationPath(sprint).AssignedTo("Same display")
+            .AssignedToUniqueName(canonical).Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns([
+                Item(1, "Project\\Exact", "Project\\Sprint 7", "self@example.test"),
+                Item(2, "Project\\Under\\Child", "Project\\Sprint 8", "self@example.test"),
+                Item(3, "Project\\Exact\\Child", "Project\\Sprint 7", "self@example.test"),
+                Item(4, "Project\\Under", "Project\\Sprint 9", "self@example.test"),
+                Item(5, "Project\\Understudy", "Project\\Sprint 7", "self@example.test"),
+                Item(6, "Project\\Exact", "Project\\Sprint 8", "other@example.test"),
+            ]);
+        var membership = await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector(), BenchSelector.ForItem(99)));
+        membership.QueryMatches.Select(item => item.Id).ShouldBe([1, 2]);
+        membership.AllIds.ShouldBe(new HashSet<int> { 1, 2, 99 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task EmptySavedSprintScope_LeavesPinsSeedsAndPendingWorkVisible()
+    {
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns([new WorkItemBuilder(-1, "Local seed").AsSeed().Build()]);
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns([71]);
+        var rule = new BenchQueryRule(null, null, [new("Project", true)], []);
+        var membership = await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector(), BenchSelector.ForItem(99)));
+        membership.QueryMatches.ShouldBeEmpty();
+        membership.AllIds.ShouldBe(new HashSet<int> { -1, 71, 99 }, ignoreOrder: true);
+        var resolved = await rule.ResolveAsync(_calendar);
+        resolved.BuildWiql("Project").ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task NoAreaSelection_DoesNotRestrictAChosenSprint()
+    {
+        var item = new WorkItemBuilder(1, "Other area").WithIterationPath(Sprint.Value).WithAreaPath("Project\\Elsewhere").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>()).Returns([item]);
+        var rule = new BenchQueryRule(null, null, [], [BenchQueryRule.ParseSprint(Sprint.Value)]);
+        (await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector()))).AllIds.ShouldContain(1);
+    }
+
+    [Fact]
+    public void MalformedSavedFilter_RefusesRatherThanDroppingItsConstraints()
+    {
+        var selector = new BenchSelector(Domain.Enums.SelectorKind.Query,
+            "bench-filter\u001f{\"version\":1,\"assignedTo\":null,\"uniqueName\":null,\"areas\":[],\"sprints\":[\"@Current\"],\"unknown\":true}");
+        Should.Throw<InvalidOperationException>(() => BenchQueryRule.Parse(selector));
+    }
+
+    [Fact]
     public async Task UnknownQueryRule_FailsLoudly()
     {
         // A rule this build does not understand must not be silently skipped — that would drop a

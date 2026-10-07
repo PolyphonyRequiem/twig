@@ -104,6 +104,10 @@ rest through the [`bench`](../commands/bench/README.md) group:
   another up.
 - [`bench delete`](../commands/bench/delete.md) — remove one; a Bench that
   holds selectors refuses without re-typing the name into `--confirm`.
+- `bench configuration` — inspect or edit Bench-local exact/under areas and
+  relative/absolute sprints, without changing workspace-global configuration.
+  Saved ownership stays unchanged; pins, seeds and pending work remain additive.
+  See [configuration semantics and captured guards](../commands/bench/README.md#configure-the-current-bench).
 
 ### Context — planned caller-addressable resource
 

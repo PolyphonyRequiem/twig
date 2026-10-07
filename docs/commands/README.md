@@ -54,6 +54,11 @@ and updates.
 | [Bench](bench/README.md) | [`twig bench delete`](bench/delete.md) | Delete a Bench — one holding pins refuses without --confirm. | stable | `local` |
 | [Bench](bench/README.md) | [`twig bench list`](bench/list.md) | List the Benches that exist, marking the current one. | stable | `none` |
 | [Bench](bench/README.md) | [`twig bench switch`](bench/switch.md) | Stand on another Bench. | stable | `local` |
+| [Bench](bench/README.md) | [`twig bench configuration`](bench/README.md#configure-the-current-bench) | Read captured pins, filters, ownership and settings digest. | stable | `none` |
+| [Bench](bench/README.md) | [`twig bench configuration area add`](bench/README.md#configure-the-current-bench) | Add a Bench-local area filter. | stable | `local` |
+| [Bench](bench/README.md) | [`twig bench configuration area remove`](bench/README.md#configure-the-current-bench) | Remove a Bench-local area filter. | stable | `local` |
+| [Bench](bench/README.md) | [`twig bench configuration sprint add`](bench/README.md#configure-the-current-bench) | Add a Bench-local sprint filter. | stable | `local` |
+| [Bench](bench/README.md) | [`twig bench configuration sprint remove`](bench/README.md#configure-the-current-bench) | Remove a Bench-local sprint filter. | stable | `local` |
 | [Context](context/README.md) | [`twig history`](context/history.md) | Show the ADO revision history for a work item; read-only, never cached. | stable | `none` |
 | [Context](context/README.md) | [`twig query`](context/query.md) | Search and filter work items via an ad-hoc WIQL query built from CLI flags. | stable | `local` |
 | [Context](context/README.md) | [`twig set`](context/set.md) | Set the active work item by ID or title pattern. | stable | `local` |

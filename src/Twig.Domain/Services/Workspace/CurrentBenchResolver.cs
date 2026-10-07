@@ -83,6 +83,23 @@ public sealed class CurrentBenchResolver
         return current;
     }
 
+    internal async Task<Bench> ReadStoredAsync(Bench captured, CancellationToken ct = default)
+    {
+        var stored = await _benchRepository.GetByNameAsync(captured.Name, ct);
+        if (stored is null || stored.Id != captured.Id)
+            throw new InvalidOperationException("The captured Bench is no longer available. Refresh and retry.");
+        return stored;
+    }
+
+    internal async Task<(Bench Effective, Bench Stored)> ResolveCapturedAsync(CancellationToken ct = default, string? expectBench = null)
+        => await ReadCapturedAsync(await ResolveAsync(ct, expectBench), ct);
+
+    internal async Task<(Bench Effective, Bench Stored)> ReadCapturedAsync(Bench captured, CancellationToken ct = default)
+    {
+        var stored = await ReadStoredAsync(captured, ct);
+        return (stored.IsDefault ? NormalizeDefaultSelfSprint(stored, await _defaultSelectors.BuildAsync(ct)) : stored, stored);
+    }
+
     /// <summary>
     /// Replaces the default Bench's sprint-rule query selectors with the current bound-principal
     /// canonical form, preserving every non-sprint selector exactly. Pins (item / subtree) and any
@@ -90,17 +107,22 @@ public sealed class CurrentBenchResolver
     /// </summary>
     private static Bench NormalizeDefaultSelfSprint(Bench current, IReadOnlyCollection<BenchSelector> freshSelectors)
     {
-        var combined = new List<BenchSelector>(freshSelectors.Count + current.Selectors.Count);
-        combined.AddRange(freshSelectors);
+        var uniqueName = freshSelectors.Single(s => s.Kind == SelectorKind.Query).QueryAssignedToUniqueName!;
+        var combined = new List<BenchSelector>(current.Selectors.Count);
         foreach (var selector in current.Selectors)
         {
             if (!IsAutomanagedSprintRule(selector))
                 combined.Add(selector);
+            else if (selector.QueryRule == BenchSelector.CurrentSprintRule)
+                combined.Add((BenchQueryRule.Parse(selector) with { AssignedTo = null, UniqueName = uniqueName })
+                    .ToLegacySelector());
+            else
+                combined.Add((BenchQueryRule.Parse(selector) with { AssignedTo = null, UniqueName = uniqueName }).ToSelector());
         }
         return current with { Selectors = combined };
     }
 
     private static bool IsAutomanagedSprintRule(BenchSelector selector)
         => selector.Kind == SelectorKind.Query
-            && string.Equals(selector.QueryRule, BenchSelector.CurrentSprintRule, StringComparison.Ordinal);
+            && selector.QueryRule is BenchSelector.CurrentSprintRule or BenchQueryRule.Name;
 }

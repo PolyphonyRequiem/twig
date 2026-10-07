@@ -56,7 +56,7 @@ public sealed class PinWorkflow(
     /// <param name="ct">Cancellation token.</param>
     /// <param name="expectBench">Optional captured Bench storage ID; a changed Bench is refused before writing.</param>
     public async Task<PinOutcome> PinAsync(
-        int workItemId, bool includeSubtree, CancellationToken ct = default, string? expectBench = null)
+        int workItemId, bool includeSubtree, CancellationToken ct = default, string? expectBench = null, string? expectSettings = null)
     {
         using var admission = authenticationProvider is null
             ? null : await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
@@ -66,7 +66,8 @@ public sealed class PinWorkflow(
             ? BenchSelector.ForSubtree(workItemId)
             : BenchSelector.ForItem(workItemId);
 
-        await benchRepository.AddSelectorAsync(bench.Id, selector, ct);
+        if (!await benchRepository.TryUpdatePinsAsync(bench.Id, workItemId, includeSubtree, remove: false, expectSettings, ct))
+            throw new InvalidOperationException("The captured Bench or automatic settings changed. Refresh and retry; no pins were changed.");
 
         return new PinOutcome.Pinned(bench with
         {
@@ -83,7 +84,7 @@ public sealed class PinWorkflow(
     /// than failing: unpinning something never pinned is not a fault the person can act on.
     /// </para>
     /// </summary>
-    public async Task<PinOutcome> UnpinAsync(int workItemId, CancellationToken ct = default, string? expectBench = null)
+    public async Task<PinOutcome> UnpinAsync(int workItemId, CancellationToken ct = default, string? expectBench = null, string? expectSettings = null)
     {
         using var admission = authenticationProvider is null
             ? null : await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
@@ -94,8 +95,8 @@ public sealed class PinWorkflow(
 
         var wasOnTheBench = bench.Selectors.Contains(item) || bench.Selectors.Contains(subtree);
 
-        await benchRepository.RemoveSelectorAsync(bench.Id, item, ct);
-        await benchRepository.RemoveSelectorAsync(bench.Id, subtree, ct);
+        if (!await benchRepository.TryUpdatePinsAsync(bench.Id, workItemId, includeSubtree: false, remove: true, expectSettings, ct))
+            throw new InvalidOperationException("The captured Bench or automatic settings changed. Refresh and retry; no pins were changed.");
 
         return new PinOutcome.Unpinned(bench with
         {

@@ -32,6 +32,10 @@ twig workspace track <id> [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+|`--expect-bench`|`string`|unset|Refuse a changed current Bench instead of retargeting.|
+|`--expect-binding`|`string`|unset|Refuse a changed native connection binding; never selects one.|
+|`--expect-identity`|`string`|unset|Refuse a changed authenticated principal; never selects one.|
+|`--expect-settings`|`string`|unset|Compare the captured raw query-settings digest inside the atomic pin transaction.|
 
 ## Behavior
 

@@ -272,6 +272,93 @@ public sealed class PinWorkflowTests : IDisposable
         Serialise(await SelectorsAsync()).ShouldBe(before);
     }
 
+    [Fact]
+    public async Task StaleCapturedBench_OnFirstUse_DoesNotCreateADefaultBench()
+    {
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await CreateSut().PinAsync(42, includeSubtree: false, expectBench: "previous-bench"));
+
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("single")]
+    [InlineData("tree")]
+    [InlineData("unpin")]
+    public async Task StaleCapturedBench_RefusesWithoutChangingEitherBench(string operation)
+    {
+        var original = (await _benchRepo.CreateAsync("original"))!;
+        var replacement = (await _benchRepo.CreateAsync("replacement"))!;
+        foreach (var bench in new[] { original, replacement })
+        {
+            await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+            await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForSubtree(42));
+        }
+        await _benchRepo.SetCurrentAsync(replacement.Id);
+        var originalBefore = Serialise((await _benchRepo.GetByNameAsync(original.Name))!.Selectors);
+        var replacementBefore = Serialise((await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors);
+        var sut = CreateSut();
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            var expected = original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (operation == "unpin") await sut.UnpinAsync(42, expectBench: expected);
+            else await sut.PinAsync(42, operation == "tree", expectBench: expected);
+        });
+
+        Serialise((await _benchRepo.GetByNameAsync(original.Name))!.Selectors).ShouldBe(originalBefore);
+        Serialise((await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors).ShouldBe(replacementBefore);
+    }
+
+    [Fact]
+    public async Task Unpin_RemovesBothExplicitSelectorsButPreservesInheritedMembership()
+    {
+        _workItemRepo.GetChildrenAsync(500, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(100, "Inherited child").WithParent(500).Build() });
+        var sut = CreateSut();
+        await sut.PinAsync(500, includeSubtree: true);
+        await sut.PinAsync(100, includeSubtree: false);
+        await sut.PinAsync(100, includeSubtree: true);
+        (await ViewAsync()).ShouldContain(100);
+
+        await sut.UnpinAsync(100);
+
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForItem(100));
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForSubtree(100));
+        (await SelectorsAsync()).ShouldContain(BenchSelector.ForSubtree(500));
+        (await ViewAsync()).ShouldContain(100);
+    }
+
+    [Fact]
+    public async Task Unpin_ConnectionLocalBenchSwitchBetweenRemovals_NeverRetargetsSecondRemoval()
+    {
+        var original = (await _benchRepo.CreateAsync("original"))!;
+        var replacement = (await _benchRepo.CreateAsync("replacement"))!;
+        foreach (var bench in new[] { original, replacement })
+        {
+            await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+            await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForSubtree(42));
+        }
+        await _benchRepo.SetCurrentAsync(original.Id);
+        var switching = Substitute.For<IBenchRepository>();
+        switching.GetCurrentAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => _benchRepo.GetCurrentAsync());
+        switching.RemoveSelectorAsync(Arg.Any<long>(), Arg.Any<BenchSelector>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await _benchRepo.RemoveSelectorAsync(call.Arg<long>(), call.Arg<BenchSelector>());
+                await _benchRepo.SetCurrentAsync(replacement.Id);
+            });
+        var sut = new PinWorkflow(switching, new DefaultBenchSelectors(IdentityStubs.NewBound()));
+
+        var outcome = await sut.UnpinAsync(42, expectBench: original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        outcome.ShouldBeOfType<PinOutcome.Unpinned>().Bench.Id.ShouldBe(original.Id);
+        (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldBeEmpty();
+        (await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors.ShouldContain(BenchSelector.ForItem(42));
+        (await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors.ShouldContain(BenchSelector.ForSubtree(42));
+    }
+
     private static string Serialise(IReadOnlyCollection<BenchSelector> selectors)
         => string.Join("\n", selectors
             .Select(s => $"{s.Kind}\u001f{s.Payload}")

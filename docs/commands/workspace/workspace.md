@@ -63,6 +63,9 @@ twig workspace [flags]
 |`--refresh`|`bool`|`false`|Sync from ADO before displaying, instead of reading cache only.|
 |`--flat`|`bool`|`false`|Use flat (non-tree) output instead of hierarchical rendering.|
 |`--tree`|`bool`|`false`|Render the full backlog hierarchy tree instead of the current-Bench view.|
+|`--include-browser`|`bool`|`false`|With `--view tree -o json`, include the versioned semantic Bench hierarchy, native styled labels, explicit pins and inherited subtree provenance.|
+|`--expect-binding`|`string`|unset|Refuse semantic browser reads unless the admitted binding matches this captured ID. Never selects an identity.|
+|`--expect-identity`|`string`|unset|Refuse semantic browser reads unless the admitted identity matches this captured ID.|
 
 ## Behavior
 
@@ -145,6 +148,39 @@ $ twig workspace --tree --refresh -o json
 |`--tree` combined with `--flat`|`1` with `error: --tree and --flat are mutually exclusive.` on stderr|
 |Tree rendering service unavailable when `--tree` is set|`1` with `error: Tree rendering is not available.` on stderr (`src/Twig/Commands/WorkspaceCommand.cs:296-302`)|
 |Refresh path fails|`0`; the cached rows are shown instead of aborting|
+
+## Bench-scoped pull: `twig workspace sync`
+
+`workspace sync` is the browser's **pull-only** operation. Unlike ordinary
+`twig sync --pull-only`, it does not invoke the broad iteration/area refresh.
+It refreshes the current Bench's cached members and discovers candidates through
+that Bench's saved selectors: current-sprint rules retain their iteration and
+assignee filters, item pins name one item, and subtree pins follow their actual
+descendants. An empty current-sprint scope never becomes an unbounded query.
+
+Positive pending-work IDs remain protected, and active-context children/siblings
+and ancestors are fetched only within the configured relationship depths. Seeds
+stay local. This operation never flushes pending edits, applies a proposal,
+changes the active item, or refreshes every unrelated cached item.
+
+```powershell
+twig workspace sync -o json
+twig workspace sync --expect-bench 7 --expect-binding "<binding-id>" --expect-identity "<identity-id>" -o json
+```
+
+`--expect-bench`, `--expect-binding`, and `--expect-identity` are optional
+captured-target preconditions. A mismatch refuses before remote work; they are
+not authentication selectors. Success returns `kind: benchSync`, `benchId`,
+`benchName`, `itemCount`, `memberCount`, `relationshipCount`, and `protectedCount`.
+The member count includes mandatory pending-work rows; the relationship count
+covers additional context. Protected local values are not overwritten. Runtime
+or scope failures return `1`, with a format-aware diagnosis on stderr.
+
+The shared browser uses local selection, folding, and mouse hit-testing over the
+semantic snapshot. `p` chooses single-item or subtree pinning; `Shift+P` confirms
+removal of both explicit pin kinds on the selected item. Neither operation removes
+inherited membership. Seeds and pending rows omitted by a depth/working-level
+presentation cutoff are promoted into visible roots rather than concealed.
 
 ## See also
 

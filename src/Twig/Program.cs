@@ -1123,8 +1123,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
     /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
+    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
+    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
+    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1134,29 +1137,50 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
     /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
+    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
+    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
+    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     [Command("workspace track")]
-    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct);
+    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     [Command("workspace track-tree")]
-    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct);
+    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
 
-    /// <summary>Remove a work item from tracking.</summary>
+    /// <summary>Remove both explicit single-item and subtree pins; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     [Command("workspace untrack")]
-    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct);
+    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity);
+
+    /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before syncing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    [Command("workspace sync")]
+    public async Task<int> WorkspaceSync(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchSyncCommand>().ExecuteAsync(output, expectBench, expectBinding, expectIdentity, ct);
 
     /// <summary>Exclude a work item from workspace view.</summary>
     /// <param name="id">Work item ID to exclude.</param>
@@ -1717,6 +1741,7 @@ internal static class GroupedHelp
         // Workspace
         "workspace",
         "ws",
+        "workspace sync",
         "workspace track",
         "workspace track-tree",
         "workspace untrack",

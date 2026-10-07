@@ -190,6 +190,74 @@ The implemented **Bench** is durable: it saves a named backlog view and its
 selectors. Switching Benches changes the view, not pending ADO work. The
 current local pointer remains separate from a claim or assignment mechanism.
 
+### Semantic Bench browser contract
+
+`twig workspace --view tree -o json --include-browser` adds a `browser` object
+to the existing workspace JSON; without the flag, the existing output is
+unchanged. It uses the same native cached hierarchy, process metadata,
+working-level ancestor pruning, ordering and configured descendant depth.
+Shared ancestors are merged across selector origins and assignees. Ancestor
+records contain their actual cached work-item fields, never fabricated
+identities or states. Virtual section headings are not selectable work items
+and are not emitted as fake nodes.
+
+The version-1 envelope has these required fields:
+
+```typescript
+interface BrowserSnapshot {
+  version: 1;
+  benchId: string; // invariant-culture native storage ID
+  benchName: string;
+  bindingId: string; // actual admitted native binding
+  identityId: string; // actual admitted registered principal
+  worktreeRoot: string; // actual attached native checkout
+  roots: BrowserNode[];
+}
+interface BrowserNode {
+  key: string; // stable occurrence key, currently item:<id>
+  id: number;
+  title: string;
+  type: string;
+  state: string;
+  label: string; // native badge/color/tree styling, one terminal-safe row; ANSI allowed
+  isSeed: boolean;
+  pins: ("single" | "tree")[]; // explicit selectors on this ID only
+  owningSubtreeIds: number[]; // ancestor subtree selectors actually matched during evaluation
+  membership: "ancestor context" | "bench member" | "seed" | "pending" | "subtree";
+  children: BrowserNode[];
+}
+```
+
+Seeds and pending edits remain visible even when no selector matches them.
+`pins` never infers an explicit pin from inherited membership. A subtree root
+is explicit; its descendants name that root in `owningSubtreeIds`, and a
+nested subtree can name multiple owning ancestors. Native label rendering
+reuses canonical type badges and state colors; controls supplied inside work
+item content cannot inject terminal commands or additional rows.
+
+Browser selection and folding are local UI state, not `twig set`. Browser pin
+actions call `workspace track <id>` or `workspace track-tree <id>` with
+`--expect-bench <benchId>`. `workspace untrack <id>` removes **both** explicit
+single and subtree selectors; it never removes an ancestor's subtree selector
+or prevents a query from continuing to match the item. Seeds cannot be pinned.
+Pin changes are durable local Bench selector edits and never write to ADO.
+
+The browser also passes `--expect-binding <bindingId>` and
+`--expect-identity <identityId>` on semantic reads, pin changes and
+`workspace sync`. These are expected-origin preconditions, not authentication
+selectors: native connection admission and registered credentials remain the
+only authority path. A stale Bench, binding or identity refuses the operation
+before its reads or mutations. A pin operation resolves its current Bench once
+and uses that captured storage ID for both removals, even if another caller
+switches the Bench pointer while it runs.
+
+`twig workspace sync` is a pull-only, Bench-scoped refresh of its query and
+pin selectors plus bounded configured context relationships. It never flushes
+pending writes and does not change the behavior of ordinary `twig sync`.
+Browsers package a private native companion alongside the UI for semantic
+reads, pin changes and bounded refresh; they do not replace the user's normal
+Twig executable or derive item identity by scraping terminal output.
+
 ---
 
 ## Design record: Context addressing

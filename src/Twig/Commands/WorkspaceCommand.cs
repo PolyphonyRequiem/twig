@@ -10,6 +10,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Twig.RenderTree;
@@ -47,9 +48,13 @@ public sealed class WorkspaceCommand(
     SprintIterationResolver sprintIterationResolver,
     TreeRenderingService? treeRenderingService = null,
     SyncCoordinatorFactory? syncCoordinatorFactory = null,
-    RendererFactory? rendererFactory = null)
+    RendererFactory? rendererFactory = null,
+    CurrentBenchResolver? currentBench = null,
+    BenchEvaluator? benchEvaluator = null,
+    IAuthenticationProvider? authenticationProvider = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
 
     private enum WorkspaceViewMode
     {
@@ -115,12 +120,59 @@ public sealed class WorkspaceCommand(
             : (uniqueName, null);
     }
 
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null)
     {
         if (!TryResolveWorkspaceViewMode(view, all, sprintLayout, tree, flat, out var viewMode, out var viewError))
         {
             Console.Error.WriteLine(viewError);
             return 1;
+        }
+
+        if (includeBrowser && (NormalizeOutputFormat(outputFormat) != "json"
+            || viewMode != WorkspaceViewMode.Tree || all || sprintLayout || tree || flat))
+        {
+            Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(
+                "--include-browser requires --view tree -o json for the current Bench."));
+            return 2;
+        }
+        if (!includeBrowser && (expectBinding is not null || expectIdentity is not null))
+        {
+            Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(
+                "Expected browser origin guards require --include-browser."));
+            return 2;
+        }
+
+        IDisposable? browserAdmission;
+        ResolvedConnectionBinding? browserBinding = null;
+        try
+        {
+            browserAdmission = includeBrowser && authenticationProvider is not null
+                ? await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct) : null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(ex.Message));
+            return 1;
+        }
+        using var admission = browserAdmission;
+        if (includeBrowser)
+        {
+            if (ResolveBrowserBindingAsync is null || currentBench is null || benchEvaluator is null)
+            {
+                Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(
+                    "Semantic Bench browsing is unavailable; use a native Twig companion with connection and Bench services."));
+                return 1;
+            }
+            try
+            {
+                browserBinding = await ResolveBrowserBindingAsync(ct);
+                BrowserOriginGuard.EnsureExpected(browserBinding, expectBinding, expectIdentity);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(ctx.FormatterFactory.GetFormatter(outputFormat).FormatError(ex.Message));
+                return 1;
+            }
         }
 
         // Resolve the authenticated bound principal up front for every self-scoped path (ADO #1106).
@@ -315,7 +367,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, outputFormat, all, selfPrincipal, refresh, sprintLayout, flat, viewMode);
+        return await ExecuteSyncAsync(fmt, outputFormat, all, selfPrincipal, refresh, sprintLayout, flat, viewMode, browserBinding, ct);
     }
 
     /// <summary>
@@ -369,7 +421,7 @@ public sealed class WorkspaceCommand(
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, string? selfPrincipal, bool refresh = false, bool sprintLayout = false, bool flat = false, WorkspaceViewMode viewMode = WorkspaceViewMode.Auto)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, string? selfPrincipal, bool refresh = false, bool sprintLayout = false, bool flat = false, WorkspaceViewMode viewMode = WorkspaceViewMode.Auto, ResolvedConnectionBinding? browserBinding = null, CancellationToken ct = default)
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
@@ -403,6 +455,8 @@ public sealed class WorkspaceCommand(
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
         IReadOnlyList<Domain.Aggregates.WorkItem> manualItems = Array.Empty<Domain.Aggregates.WorkItem>();
         WorkingSet? benchView = null;
+        Bench? observedBench = null;
+        BenchMembership? observedMembership = null;
 
         if (!all && !sprintLayout)
         {
@@ -410,9 +464,26 @@ public sealed class WorkspaceCommand(
             if (benchIterations.Count == 0)
                 benchIterations = [await iterationService.GetCurrentIterationAsync()];
 
-            benchView = await workingSetService.ComputeAsync(benchIterations);
-            sprintItems = await LoadQueryMatchesInOrderAsync(
-                benchView.SprintItemIds, benchIterations, selfPrincipal);
+            if (browserBinding is not null)
+            {
+                observedBench = await currentBench!.ResolveAsync(ct);
+                observedMembership = await benchEvaluator!.EvaluateAsync(observedBench, benchIterations, ct);
+                benchView = new WorkingSet
+                {
+                    SprintItemIds = observedMembership.QueryMatches.Select(item => item.Id).ToArray(),
+                    TrackedItemIds = observedMembership.PinnedIds,
+                    SeedIds = observedMembership.SeedIds,
+                    DirtyItemIds = observedMembership.DirtyItemIds,
+                    IterationPaths = observedMembership.IterationPaths,
+                };
+                sprintItems = observedMembership.QueryMatches;
+            }
+            else
+            {
+                benchView = await workingSetService.ComputeAsync(benchIterations);
+                sprintItems = await LoadQueryMatchesInOrderAsync(
+                    benchView.SprintItemIds, benchIterations, selfPrincipal);
+            }
             var sprintIds = new HashSet<int>(benchView.SprintItemIds);
             manualItems = await LoadItemsInOrderAsync(
                 benchView.TrackedItemIds.Where(id => !sprintIds.Contains(id)).ToArray());
@@ -458,8 +529,10 @@ public sealed class WorkspaceCommand(
         var useTreeRendering = viewMode != WorkspaceViewMode.Table && !flat && !all && !sprintLayout;
         if (useTreeRendering || sprintItems.Count > 0)
             processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+        if (processConfig is not null)
+            typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
 
-        if (sprintItems.Count > 0)
+        if (sprintItems.Count > 0 && browserBinding is null)
         {
             var uniqueParentIds = new HashSet<int>();
             foreach (var item in sprintItems)
@@ -525,10 +598,14 @@ public sealed class WorkspaceCommand(
 
         var sections = WorkspaceSections.Build(
             sprintItems, manualItems: manualItems, excludedIds: excludedIds, treeRoots: treeRoots);
-        if (useTreeRendering)
+        if (useTreeRendering && browserBinding is null)
             sections = await AddSectionHierarchiesAsync(sections);
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
             sections: sections, trackedItems: trackedItems, excludedIds: excludedIds);
+
+        var browser = browserBinding is not null
+            ? await BuildBrowserDocumentAsync(workspace, observedBench!, observedMembership!, browserBinding, typeLevelMap, ct)
+            : null;
 
         if (fmt is HumanOutputFormatter human)
         {
@@ -543,7 +620,7 @@ public sealed class WorkspaceCommand(
         }
         else
         {
-            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns);
+            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns, browser);
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
@@ -902,6 +979,104 @@ public sealed class WorkspaceCommand(
         return result;
     }
 
+
+    private async Task<RenderNode.Document> BuildBrowserDocumentAsync(
+        Workspace workspace, Bench bench, BenchMembership membership, ResolvedConnectionBinding binding,
+        IReadOnlyDictionary<string, int>? typeLevelMap, CancellationToken ct)
+    {
+        // One native hierarchy for every visible member: shared ancestors are merged across
+        // selector origins and assignees, while unpublished and owed work cannot disappear.
+        var items = new List<WorkItem>();
+        var seen = new HashSet<int>();
+        var excluded = new HashSet<int>(workspace.ExcludedIds);
+        foreach (var section in workspace.Sections!.Sections)
+            foreach (var item in section.Items)
+                if (seen.Add(item.Id)) items.Add(item);
+        foreach (var item in await LoadItemsInOrderAsync(membership.DirtyItemIds.Order().ToArray(), ct))
+            if (seen.Add(item.Id)) items.Add(item);
+        foreach (var seed in workspace.Seeds)
+            if (seen.Add(seed.Id)) items.Add(seed);
+        if (workspace.ContextItem is { } context && !excluded.Contains(context.Id) && seen.Add(context.Id))
+            items.Add(context);
+
+        var roots = await BuildTreeRootsAsync(items, ct) ?? [];
+        roots = MergeBenchRoots(roots);
+        roots = WorkingLevelResolver.PruneAncestors(roots, ctx.Config.Workspace.WorkingLevel,
+            typeLevelMap, ctx.Config.Display.TreeDepthUp);
+        var formatter = (HumanOutputFormatter)ctx.FormatterFactory.GetFormatter("human");
+        formatter.TypeLevelMap = typeLevelMap;
+        formatter.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
+        var memberIds = membership.SelectedIds;
+        var emitted = new HashSet<int>();
+        var singlePins = new HashSet<int>();
+        var treePins = new HashSet<int>();
+        foreach (var selector in bench.Selectors)
+        {
+            if (selector.Kind == Domain.Enums.SelectorKind.Item) singlePins.Add(selector.AsWorkItemId());
+            else if (selector.Kind == Domain.Enums.SelectorKind.Subtree) treePins.Add(selector.AsWorkItemId());
+        }
+
+        List<RenderCell> Project(IEnumerable<SprintHierarchyNode> nodes, int depth)
+        {
+            var result = new List<RenderCell>();
+            foreach (var node in nodes)
+            {
+                if (node.IsVirtualGroup)
+                {
+                    result.AddRange(Project(node.Children, depth));
+                    continue;
+                }
+                var item = node.Item;
+                if (!emitted.Add(item.Id)) continue;
+                var pins = new List<RenderCell>(2);
+                if (singlePins.Contains(item.Id)) pins.Add(RenderCell.String("single"));
+                if (treePins.Contains(item.Id)) pins.Add(RenderCell.String("tree"));
+                membership.OwningSubtreeIds.TryGetValue(item.Id, out var owners);
+                var summary = item.IsSeed ? "seed"
+                    : membership.DirtyItemIds.Contains(item.Id) ? "pending"
+                    : treePins.Contains(item.Id) || owners is { Count: > 0 } ? "subtree"
+                    : memberIds.Contains(item.Id) ? "bench member" : "ancestor context";
+                var children = depth < ctx.Config.Display.TreeDepthDown ? Project(node.Children, depth + 1) : [];
+                var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["key"] = RenderCell.String("item:" + item.Id.ToString(CultureInfo.InvariantCulture)),
+                    ["id"] = RenderCell.Integer(item.Id),
+                    ["title"] = RenderCell.String(item.Title),
+                    ["type"] = RenderCell.String(item.Type.Value),
+                    ["state"] = RenderCell.String(item.State),
+                    ["label"] = RenderCell.String(formatter.FormatBrowserNodeLabel(workspace, node,
+                        singlePins.Contains(item.Id) || treePins.Contains(item.Id))),
+                    ["isSeed"] = RenderCell.Boolean(item.IsSeed),
+                    ["pins"] = new RenderCell(string.Empty, new RenderValue.Array(pins)),
+                    ["owningSubtreeIds"] = new RenderCell(string.Empty, new RenderValue.Array(
+                        owners is null ? [] : owners.Select(id => RenderCell.Integer(id)).ToArray())),
+                    ["membership"] = RenderCell.String(summary),
+                    ["children"] = new RenderCell(string.Empty, new RenderValue.Array(children)),
+                };
+                result.Add(new RenderCell(string.Empty, new RenderValue.Object(fields)));
+            }
+            return result;
+        }
+
+        var projectedRoots = Project(roots, 0);
+        // Depth and working-level presentation may hide ordinary descendants,
+        // never a seed or outstanding edit. Promote any omitted guarded row.
+        var omittedGuarded = items.Where(item => !emitted.Contains(item.Id)
+            && (item.IsSeed || membership.DirtyItemIds.Contains(item.Id)))
+            .Select(item => new SprintHierarchyNode(item, memberIds.Contains(item.Id)));
+        projectedRoots.AddRange(Project(omittedGuarded, 0));
+
+        return new RenderNode.Document(null,
+        [
+            new("version", new RenderNode.KeyValue("version", RenderCell.Integer(1))),
+            new("benchId", new RenderNode.KeyValue("benchId", RenderCell.String(bench.Id.ToString(CultureInfo.InvariantCulture)))),
+            new("benchName", new RenderNode.KeyValue("benchName", RenderCell.String(bench.Name))),
+            new("bindingId", new RenderNode.KeyValue("bindingId", RenderCell.String(binding.Binding.BindingId))),
+            new("identityId", new RenderNode.KeyValue("identityId", RenderCell.String(binding.Identity.IdentityId))),
+            new("worktreeRoot", new RenderNode.KeyValue("worktreeRoot", RenderCell.String(binding.WorktreeRoot))),
+            new("roots", new RenderNode.KeyValue("roots", new RenderCell(string.Empty, new RenderValue.Array(projectedRoots)))),
+        ]);
+    }
     // ── RenderTree projection for machine output formats (json/minimal/ids) ────────
     // The human path keeps using HumanOutputFormatter to preserve rich-format behavior
     // (active marker, dirty/stale glyphs, tree layout). These helpers produce the
@@ -912,11 +1087,14 @@ public sealed class WorkspaceCommand(
         string outputFormat,
         bool useSprintLayout,
         int staleDays,
-        IReadOnlyList<ColumnSpec>? dynamicColumns)
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        RenderNode.Document? browser = null)
     {
         var doc = useSprintLayout
             ? BuildSprintViewDocument(workspace, dynamicColumns)
             : BuildWorkspaceDocument(workspace, staleDays, dynamicColumns);
+        if (browser is not null)
+            doc = doc with { Fields = doc.Fields.Append(new DocumentField("browser", browser)).ToArray() };
 
         var tree = new Twig.RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
@@ -1102,5 +1280,17 @@ public sealed class WorkspaceCommand(
             }));
         }
         return new RenderNode.Section(null, children);
+    }
+}
+
+/// <summary>Expected origins are preconditions, never authentication selectors or fallback identities.</summary>
+internal static class BrowserOriginGuard
+{
+    internal static void EnsureExpected(ResolvedConnectionBinding binding, string? expectBinding, string? expectIdentity)
+    {
+        if ((expectBinding is not null && !string.Equals(expectBinding, binding.Binding.BindingId, StringComparison.Ordinal))
+            || (expectIdentity is not null && !string.Equals(expectIdentity, binding.Identity.IdentityId, StringComparison.Ordinal)))
+            throw new InvalidOperationException(
+                "The browser connection or identity changed. Reconnect before retrying; no Bench changes were made.");
     }
 }

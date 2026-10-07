@@ -460,7 +460,8 @@ public static class TwigServiceRegistration
         services.TryAddSingleton<PinWorkflow>(sp => new PinWorkflow(
             sp.GetRequiredService<IBenchRepository>(),
             sp.GetRequiredService<DefaultBenchSelectors>(),
-            sp.GetRequiredService<CurrentBenchResolver>()));
+            sp.GetRequiredService<CurrentBenchResolver>(),
+            sp.GetRequiredService<IAuthenticationProvider>()));
 
         // ADO #146: the Bench is the ONLY pin store. One object is both the reader and the writer
         // so the two cannot end up on different stores — which is the failure the tracking file

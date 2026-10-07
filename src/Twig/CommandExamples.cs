@@ -307,23 +307,32 @@ internal static class CommandExamples
             "twig workspace                 Show the current Bench as a tree",
             "twig workspace --view table   Show the current Bench as a table",
             "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
+            "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
+        ],
+        ["workspace sync"] =
+        [
+            "twig workspace sync                    Pull only the current Bench scope, without flushing edits",
+            "twig workspace sync --expect-bench 7 -o json  Pull only if the captured Bench is still current",
         ],
         ["workspace track"] =
         [
             "twig workspace track 1234          Pin work item #1234 to workspace",
             "twig workspace track 5678 -o json  Pin and output confirmation as JSON",
+            "twig workspace track 5678 --expect-bench 7 -o json  Pin only if Bench 7 is still current",
         ],
         ["workspace track-tree"] =
         [
             "twig workspace track-tree 1234     Pin #1234 and its subtree to workspace",
             "twig workspace track-tree 42       Pin an epic and all its children",
+            "twig workspace track-tree 42 --expect-bench 7 -o json  Add a subtree selector with a captured Bench guard",
         ],
         ["workspace untrack"] =
         [
             "twig workspace untrack 1234        Stop tracking work item #1234",
             "twig workspace untrack 5678        Remove a pinned item from workspace",
+            "twig workspace untrack 5678 --expect-bench 7 -o json  Remove both explicit pins with a captured Bench guard",
         ],
         ["workspace exclude"] =
         [

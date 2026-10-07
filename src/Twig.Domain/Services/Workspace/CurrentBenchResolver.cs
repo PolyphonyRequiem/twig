@@ -1,3 +1,4 @@
+using System.Globalization;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
@@ -57,9 +58,18 @@ public sealed class CurrentBenchResolver
     /// untouched, because its selectors are the user's own rules.
     /// </para>
     /// </summary>
-    public async Task<Bench> ResolveAsync(CancellationToken ct = default)
+    public async Task<Bench> ResolveAsync(CancellationToken ct = default, string? expectBench = null)
     {
         var current = await _benchRepository.GetCurrentAsync(ct);
+        if (expectBench is not null)
+        {
+            // A stale browser must not even create the first-use default Bench.
+            current ??= await _benchRepository.GetByNameAsync(Bench.DefaultName, ct);
+            if (current is null || !string.Equals(expectBench,
+                current.Id.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"The current Bench changed (expected '{expectBench}', current '{current?.Id.ToString(CultureInfo.InvariantCulture) ?? "none"}'). Refresh the browser and retry; no pins were changed.");
+        }
         if (current is null)
         {
             var freshSelectors = await _defaultSelectors.BuildAsync(ct);

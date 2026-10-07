@@ -77,6 +77,7 @@ public sealed class BenchEvaluator
         var queryMatchIds = new HashSet<int>();
         var pinnedIds = new List<int>();
         var pinnedIdSet = new HashSet<int>();
+        var subtreeOwners = new Dictionary<int, List<int>>();
         var iterations = new List<IterationPath>();
 
         foreach (var selector in bench.Selectors)
@@ -84,53 +85,56 @@ public sealed class BenchEvaluator
             switch (selector.Kind)
             {
                 case SelectorKind.Query:
-                {
-                    var (items, resolvedIterations) =
-                        await EvaluateQueryAsync(selector, iterationOverride, ct);
-
-                    foreach (var path in resolvedIterations)
                     {
-                        if (!iterations.Any(p => string.Equals(p.Value, path.Value, StringComparison.OrdinalIgnoreCase)))
-                            iterations.Add(path);
-                    }
+                        var (items, resolvedIterations) =
+                            await EvaluateQueryAsync(selector, iterationOverride, ct);
 
-                    // Deduplicated on the way in, so two query selectors matching the same item
-                    // contribute one entry (spec: an item matched by two selectors appears once).
-                    foreach (var item in items)
-                    {
-                        if (queryMatchIds.Add(item.Id))
-                            queryMatches.Add(item);
-                    }
+                        foreach (var path in resolvedIterations)
+                        {
+                            if (!iterations.Any(p => string.Equals(p.Value, path.Value, StringComparison.OrdinalIgnoreCase)))
+                                iterations.Add(path);
+                        }
 
-                    break;
-                }
+                        // Deduplicated on the way in, so two query selectors matching the same item
+                        // contribute one entry (spec: an item matched by two selectors appears once).
+                        foreach (var item in items)
+                        {
+                            if (queryMatchIds.Add(item.Id))
+                                queryMatches.Add(item);
+                        }
+
+                        break;
+                    }
 
                 case SelectorKind.Item:
-                {
-                    var id = selector.AsWorkItemId();
-                    if (pinnedIdSet.Add(id))
-                        pinnedIds.Add(id);
-                    break;
-                }
-
-                case SelectorKind.Subtree:
-                {
-                    // 🔴 The subtree is expanded HERE, at evaluation time, against the cache as it
-                    // is now — never captured as a set of ids when the selector was added. That is
-                    // what makes a subtree selector match a child created after it, and it is the
-                    // distinction a naive implementation loses.
-                    var rootId = selector.AsWorkItemId();
-                    if (pinnedIdSet.Add(rootId))
-                        pinnedIds.Add(rootId);
-
-                    foreach (var descendantId in await GetDescendantIdsAsync(rootId, ct))
                     {
-                        if (pinnedIdSet.Add(descendantId))
-                            pinnedIds.Add(descendantId);
+                        var id = selector.AsWorkItemId();
+                        if (pinnedIdSet.Add(id))
+                            pinnedIds.Add(id);
+                        break;
                     }
 
-                    break;
-                }
+                case SelectorKind.Subtree:
+                    {
+                        // 🔴 The subtree is expanded HERE, at evaluation time, against the cache as it
+                        // is now — never captured as a set of ids when the selector was added. That is
+                        // what makes a subtree selector match a child created after it, and it is the
+                        // distinction a naive implementation loses.
+                        var rootId = selector.AsWorkItemId();
+                        if (pinnedIdSet.Add(rootId))
+                            pinnedIds.Add(rootId);
+
+                        foreach (var descendantId in await GetDescendantIdsAsync(rootId, ct))
+                        {
+                            if (pinnedIdSet.Add(descendantId))
+                                pinnedIds.Add(descendantId);
+                            if (!subtreeOwners.TryGetValue(descendantId, out var owners))
+                                subtreeOwners[descendantId] = owners = [];
+                            owners.Add(rootId);
+                        }
+
+                        break;
+                    }
 
                 default:
                     throw new InvalidOperationException(
@@ -148,6 +152,8 @@ public sealed class BenchEvaluator
         {
             QueryMatches = queryMatches,
             PinnedIds = pinnedIds,
+            OwningSubtreeIds = subtreeOwners.ToDictionary(
+                pair => pair.Key, pair => (IReadOnlyList<int>)pair.Value.Order().ToArray()),
             IterationPaths = iterations,
             SeedIds = seeds.Select(w => w.Id).ToList(),
             DirtyItemIds = owedIds,

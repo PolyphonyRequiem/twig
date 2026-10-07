@@ -980,6 +980,27 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
     }
 
+
+    /// <summary>Uses the native tree badge, color and membership styling without tree connectors or width padding.</summary>
+    internal string FormatBrowserNodeLabel(Workspace workspace, SprintHierarchyNode node, bool explicitlyPinned)
+    {
+        var lines = new List<AlignedLine>(1);
+        FormatTreeNodeLine(lines, workspace, node, string.Empty, string.Empty, terminalSafe: true, explicitPin: explicitlyPinned);
+        var line = lines[0];
+        return $"{line.Prefix} {line.State}{line.Suffix}".TrimEnd();
+    }
+
+    private static string OneRow(string value)
+    {
+        if (!value.Any(c => char.IsControl(c) || c is '\u2028' or '\u2029'))
+            return value;
+        return string.Create(value.Length, value, static (target, source) =>
+        {
+            for (var i = 0; i < source.Length; i++)
+                target[i] = char.IsControl(source[i]) || source[i] is '\u2028' or '\u2029' ? ' ' : source[i];
+        });
+    }
+
     /// <summary>
     /// Formats a single <see cref="SprintHierarchyNode"/> line for workspace tree rendering.
     /// Applies working-level dimming: items above the working level are fully dimmed,
@@ -990,7 +1011,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         Workspace ws,
         SprintHierarchyNode node,
         string indent,
-        string connector)
+        string connector,
+        bool terminalSafe = false,
+        bool? explicitPin = null)
     {
         if (node.IsVirtualGroup)
         {
@@ -1000,13 +1023,17 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
 
         var item = node.Item;
+        var title = terminalSafe ? OneRow(item.Title) : item.Title;
+        var state = terminalSafe ? OneRow(item.State) : item.State;
         var isAboveWorking = IsAboveWorkingLevel(item);
         var isActive = ws.ContextItem is not null && item.Id == ws.ContextItem.Id;
-        var isTracked = ws.IsTracked(item.Id);
+        var isTracked = explicitPin ?? ws.IsTracked(item.Id);
         var marker = isActive ? $"{Cyan}►{Reset} " : isTracked ? $"{Yellow}📌{Reset} " : "";
         var stateColor = GetStateColor(item.State);
-        var badge = GetTypeBadge(item.Type);
+        var badge = terminalSafe ? OneRow(GetTypeBadge(item.Type)) : GetTypeBadge(item.Type);
         var typeColor = GetTypeColor(item.Type);
+        var typePrefix = terminalSafe ? OneRow(item.Type.Value) + " " : string.Empty;
+        var identityPrefix = terminalSafe ? $"{typePrefix}#{item.Id} " : string.Empty;
         var progress = FormatProgressIndicator(node);
 
         var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, _cacheStaleMinutes);
@@ -1016,23 +1043,23 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         {
             // Fully dimmed: badge, title, and state
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{marker}{Dim}{badge} {item.Title}{progress}{Reset}",
-                $"{Dim}[{item.State}]{Reset}", cacheAgeSuffix));
+                $"{indent}{connector}{marker}{Dim}{badge} {identityPrefix}{title}{progress}{Reset}",
+                $"{Dim}[{state}]{Reset}", cacheAgeSuffix));
         }
         else if (node.IsSprintItem)
         {
             // Sprint items: bold with ID
             var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{item.Id} {Bold}{item.Title}{Reset}{progress}",
-                $"[{stateColor}{item.State}{Reset}]", $"{dirty}{cacheAgeSuffix}"));
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} {typePrefix}#{item.Id} {Bold}{title}{Reset}{progress}",
+                $"[{stateColor}{state}{Reset}]", $"{dirty}{cacheAgeSuffix}"));
         }
         else
         {
             // Context ancestor at or below working level — type badge visible, title dimmed
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} {Dim}{item.Title}{Reset}{progress}",
-                $"[{stateColor}{item.State}{Reset}]", cacheAgeSuffix));
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} {Dim}{identityPrefix}{title}{Reset}{progress}",
+                $"[{stateColor}{state}{Reset}]", cacheAgeSuffix));
         }
     }
 

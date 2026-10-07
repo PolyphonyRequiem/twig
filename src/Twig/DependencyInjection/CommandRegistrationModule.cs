@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
@@ -8,6 +9,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.GitHub;
 
 namespace Twig.DependencyInjection;
@@ -102,10 +104,24 @@ public static class CommandRegistrationModule
         services.AddSingleton<DiscardCommand>();
         services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
+        services.AddSingleton<BenchSyncCommand>();
         // 'twig save' is deprecated but still dispatches to SaveCommand
         // (Program.cs Save handler); without this it throws at runtime.
         services.AddSingleton<SaveCommand>();
-        services.AddSingleton<WorkspaceCommand>();
+        services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
+            sp.GetRequiredService<CommandContext>(), sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(), sp.GetRequiredService<IIterationService>(),
+            sp.GetRequiredService<IProcessTypeStore>(), sp.GetRequiredService<IFieldDefinitionStore>(),
+            sp.GetRequiredService<ActiveItemResolver>(), sp.GetRequiredService<WorkingSetService>(),
+            sp.GetRequiredService<ITrackingService>(), sp.GetRequiredService<ISprintHierarchyBuilder>(),
+            sp.GetRequiredService<SprintIterationResolver>(), sp.GetService<TreeRenderingService>(),
+            sp.GetService<SyncCoordinatorFactory>(), sp.GetService<Twig.Rendering.RendererFactory>(),
+            sp.GetRequiredService<CurrentBenchResolver>(), sp.GetRequiredService<BenchEvaluator>(),
+            sp.GetRequiredService<IAuthenticationProvider>())
+        {
+            ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
+                sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
+        });
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<MigrateConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
@@ -127,7 +143,14 @@ public static class CommandRegistrationModule
         services.AddSingleton<ProcessLayoutCommand>();
         services.AddSingleton<ProcessDescriptionCommand>();
         services.AddSingleton<BatchCommand>();
-        services.AddSingleton<TrackingCommand>();
+        services.AddSingleton<TrackingCommand>(sp => new TrackingCommand(
+            sp.GetRequiredService<ITrackingService>(), sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(), sp.GetRequiredService<Twig.Infrastructure.Services.Mutation.PinWorkflow>(),
+            sp.GetService<Twig.Rendering.RendererFactory>(), sp.GetRequiredService<IAuthenticationProvider>())
+        {
+            ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
+                sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
+        });
         // ADO #148: the Bench command surface. The workflow it depends on is registered in the
         // SHARED domain-services module, beside PinWorkflow, so the MCP surface can build it too.
         services.AddSingleton<BenchCommand>();

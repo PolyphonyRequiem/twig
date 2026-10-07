@@ -1,4 +1,6 @@
 using System.Net.Http;
+using System.Text.Json;
+using Twig.Infrastructure.Auth;
 using NSubstitute;
 using Shouldly;
 using Spectre.Console.Testing;
@@ -89,6 +91,146 @@ public class WorkspaceCommandTests
         new(CreateCtx(pipelineFactory, hintEngine), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
             new SprintIterationResolver(_iterationService, _workItemRepo));
+
+    private WorkspaceCommand CreateBrowserCommand(Bench bench, IPendingChangeStore pendingStore)
+    {
+        var benches = Substitute.For<IBenchRepository>();
+        benches.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
+        var evaluator = new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), pendingStore);
+        return new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService,
+            new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
+            currentBench: new CurrentBenchResolver(benches, new DefaultBenchSelectors(_iterationService)),
+            benchEvaluator: evaluator)
+        {
+            ResolveBrowserBindingAsync = _ => Task.FromResult(new ResolvedConnectionBinding(
+                new IdentityBinding("binding-1", "connection-1", "identity-1", 1),
+                new AuthenticationIdentity("identity-1", "Work", "tenant", "object", "issuer", "host", "credential", "user"),
+                "C:/checkout", "checkout-binding-pin", 1,
+                new ConnectionOperationSnapshot("org", "Project", "Team", "fingerprint", 1, "portable", "preferences", "unicode", "portable"))),
+        };
+    }
+
+    [Fact]
+    public async Task Browser_ContainsRealAncestorsMergedAcrossOriginsAndHonestPinProvenance()
+    {
+        var ancestor = new WorkItem
+        {
+            Id = 100,
+            Type = WorkItemType.Epic,
+            Title = "Actual cached ancestor",
+            State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var root = CreateWorkItem(10, "Pinned root").WithParentId(100);
+        var child = CreateWorkItem(11, "Inherited\nchild\u001b[2J").WithParentId(10);
+        var query = CreateWorkItem(20, "Query member").WithParentId(100);
+        var owed = CreateWorkItem(99, "Owed edit");
+        var seed = new WorkItem
+        {
+            Id = -1,
+            Type = WorkItemType.Task,
+            Title = "Draft",
+            State = "New",
+            IsSeed = true,
+            IterationPath = ancestor.IterationPath,
+            AreaPath = ancestor.AreaPath,
+        };
+        var cached = new[] { ancestor, root, child, query, owed, seed };
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(call => cached.Where(item => call.Arg<IEnumerable<int>>().Contains(item.Id)).ToArray());
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>()).Returns(new[] { child });
+        _workItemRepo.GetChildrenAsync(Arg.Is<int>(id => id != 10), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>()).Returns(new[] { ancestor });
+        _workItemRepo.GetParentChainAsync(10, Arg.Any<CancellationToken>()).Returns(new[] { root, ancestor });
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>()).Returns(new[] { query });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(new[] { owed });
+        var bench = new Bench
+        {
+            Id = 7,
+            Name = "Focused",
+            Selectors = [BenchSelector.ForItem(10), BenchSelector.ForSubtree(10),
+                BenchSelector.ForCurrentSprintCanonical(IdentityStubs.DefaultCanonicalPrincipal)],
+        };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+
+        var (exitCode, stdout) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json", view: "tree", includeBrowser: true,
+            expectBinding: "binding-1", expectIdentity: "identity-1"));
+
+        exitCode.ShouldBe(0);
+        using var json = JsonDocument.Parse(stdout);
+        var browser = json.RootElement.GetProperty("browser");
+        browser.GetProperty("benchId").GetString().ShouldBe("7");
+        browser.GetProperty("bindingId").GetString().ShouldBe("binding-1");
+        browser.GetProperty("identityId").GetString().ShouldBe("identity-1");
+        browser.GetProperty("worktreeRoot").GetString().ShouldBe("C:/checkout");
+        var nodes = new List<JsonElement>();
+        void Visit(JsonElement children)
+        {
+            foreach (var node in children.EnumerateArray())
+            {
+                nodes.Add(node);
+                Visit(node.GetProperty("children"));
+            }
+        }
+        Visit(browser.GetProperty("roots"));
+        nodes.Select(node => node.GetProperty("id").GetInt32()).ShouldBe(new[] { 100, 10, 11, 20, 99, -1 }, ignoreOrder: true);
+        var actualAncestor = nodes.Single(node => node.GetProperty("id").GetInt32() == 100);
+        actualAncestor.GetProperty("title").GetString().ShouldBe("Actual cached ancestor");
+        actualAncestor.GetProperty("membership").GetString().ShouldBe("ancestor context");
+        actualAncestor.GetProperty("children").EnumerateArray().Select(node => node.GetProperty("id").GetInt32())
+            .ShouldBe(new[] { 10, 20 });
+        var pinned = nodes.Single(node => node.GetProperty("id").GetInt32() == 10);
+        pinned.GetProperty("pins").EnumerateArray().Select(pin => pin.GetString()).ShouldBe(new[] { "single", "tree" });
+        var inherited = pinned.GetProperty("children")[0];
+        inherited.GetProperty("id").GetInt32().ShouldBe(11);
+        inherited.GetProperty("pins").GetArrayLength().ShouldBe(0);
+        inherited.GetProperty("owningSubtreeIds").EnumerateArray().Select(owner => owner.GetInt32()).ShouldBe(new[] { 10 });
+        inherited.GetProperty("label").GetString()!.ShouldNotContain("\n");
+        inherited.GetProperty("label").GetString()!.ShouldNotContain("\u001b[2J");
+        nodes.Single(node => node.GetProperty("id").GetInt32() == -1).GetProperty("membership").GetString().ShouldBe("seed");
+        nodes.Single(node => node.GetProperty("id").GetInt32() == 99).GetProperty("membership").GetString().ShouldBe("pending");
+    }
+
+    [Fact]
+    public async Task Browser_DepthCutoffCannotHideParentedSeedsOrPendingWork()
+    {
+        var parent = CreateWorkItem(10, "Parent");
+        var owed = CreateWorkItem(99, "Owed edit").WithParentId(10);
+        var seed = new WorkItem
+        {
+            Id = -1, Type = WorkItemType.Task, Title = "Draft", State = "New", IsSeed = true,
+            IterationPath = parent.IterationPath, AreaPath = parent.AreaPath,
+        }.WithParentId(10);
+        var cached = new[] { parent, owed, seed };
+        _config.Display.TreeDepthDown = 0;
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(call => cached.Where(item => call.Arg<IEnumerable<int>>().Contains(item.Id)).ToArray());
+        _workItemRepo.GetParentChainAsync(10, Arg.Any<CancellationToken>()).Returns(new[] { parent });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(new[] { owed });
+        var command = CreateBrowserCommand(new Bench
+        { Id = 7, Name = "Focused", Selectors = [BenchSelector.ForItem(10)] }, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json", view: "tree", includeBrowser: true));
+        exit.ShouldBe(0);
+        using var json = JsonDocument.Parse(output);
+        json.RootElement.GetProperty("browser").GetProperty("roots").EnumerateArray()
+            .Select(node => node.GetProperty("id").GetInt32()).ShouldBe(new[] { 10, 99, -1 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Browser_StaleOrigin_RefusesInsteadOfShowingAnotherIdentitysBench()
+    {
+        var command = CreateBrowserCommand(new Bench { Id = 7, Name = "Focused" }, Substitute.For<IPendingChangeStore>());
+        var (exitCode, _) = await StderrCapture.RunAsync(() => command.ExecuteAsync("json", view: "tree",
+            includeBrowser: true, expectIdentity: "previous-identity"));
+
+        exitCode.ShouldBe(1);
+    }
 
     private WorkspaceCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory) =>
         CreateCommand(pipelineFactory, new HintEngine(new DisplayConfig { Hints = true }));

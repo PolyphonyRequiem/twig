@@ -40,6 +40,22 @@ public sealed class BenchEvaluatorTests
     private static Bench BenchOf(params BenchSelector[] selectors)
         => new() { Name = "test", Selectors = selectors };
 
+    [Fact]
+    public async Task SubtreeProvenance_ReportsEveryMatchingAncestorButNotOwnExplicitPin()
+    {
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(11, "Nested tree").WithParent(10).Build() });
+        _workItemRepo.GetChildrenAsync(11, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(12, "Inherited leaf").WithParent(11).Build() });
+        var membership = await CreateSut().EvaluateAsync(BenchOf(
+            BenchSelector.ForSubtree(11), BenchSelector.ForItem(12), BenchSelector.ForSubtree(10)));
+
+        membership.OwningSubtreeIds.ContainsKey(10).ShouldBeFalse();
+        membership.OwningSubtreeIds[11].ShouldBe(new[] { 10 });
+        membership.OwningSubtreeIds[12].ShouldBe(new[] { 10, 11 });
+        membership.AllIds.ShouldBe(new HashSet<int> { 10, 11, 12 }, ignoreOrder: true);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Test 7 — selector ORDER does not change membership
     // ═══════════════════════════════════════════════════════════════

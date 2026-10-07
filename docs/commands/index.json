@@ -88,6 +88,14 @@
     "path": "workspace/workspace.md"
   },
   {
+    "command": "workspace sync",
+    "group": "workspace",
+    "summary": "Pull current Bench selector members and permitted relationship candidates without flushing edits.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/workspace.md"
+  },
+  {
     "command": "workspace area",
     "group": "workspace",
     "summary": "Show the area-filtered workspace view.",

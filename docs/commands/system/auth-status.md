@@ -118,13 +118,18 @@ digests, response observations and append-only outcome receipts. Inspection neve
 replays a write; clearing a pending note does not settle its unknown remote POST.
 
 `connection reconcile-write` requires the exact digest, original registered
-identity ID and truthful rationale. It performs read-only original-actor evidence
+identity ID and truthful rationale. It uses original-actor read-only evidence
 collection: an exhausted work-item revision test and the exact immutable first
 post-CAS revision can establish the requested effect. A later matching current
 value, matching comment text/actor, an expired lease or rationale alone cannot.
 An unrevisioned lost POST without attributable server evidence remains blocked;
 there is no force, automatic retirement or alternate-account retry. Reconciliation
 returns `0` only with a native outcome receipt; unresolved evidence returns `1`.
+For a confirmed Description-correlated seed, reconciliation also attempts
+revision-guarded cleanup of its exact temporary marker and owned shared pending
+tag. Retrying the same settled seed receipt can retry that cleanup without
+recreating the item or replacing its outcome receipt. Cleanup warnings do not
+change the confirmed create outcome; concurrent human content remains intact.
 
 ### Legacy migration administration
 

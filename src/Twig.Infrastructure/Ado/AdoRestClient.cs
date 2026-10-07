@@ -176,49 +176,74 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(typeName))
             return null;
 
-        // The legacy marker/title/time predicate finds candidates only. Authority comes
-        // from the exact opaque native correlation tag, never a similarly titled item.
-        var escapedTitle = title.Replace("'", "''");
-        var escapedType = typeName.Replace("'", "''");
+        var escapedProject = _project.Replace("'", "''");
         var escapedTag = PublishIntent.IntentTag.Replace("'", "''");
-        var correlationTag = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt).Tag;
+        var correlation = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt);
+        var lowerBound = createdAtOrAfter.AddTicks(-(createdAtOrAfter.Ticks % TimeSpan.TicksPerSecond));
 
-        // Round DOWN to the whole second: the fence is a lower bound, and ADO stores
-        // CreatedDate at ~millisecond resolution, so truncating keeps it inclusive of an item
-        // created in the same second. A slightly loose bound is safe — title + type must match
-        // too. Rounding UP would exclude the very item this query exists to find.
-        var fence = createdAtOrAfter.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        // A native acknowledgment survives discovery lag and metadata cleanup. It must
+        // still identify this exact immutable creation before completing the local intent.
+        if (_authProvider is Twig.Infrastructure.Auth.ISeedPublishConfirmationGuard confirmation
+            && await confirmation.FindAcknowledgedPublishedSeedAsync(correlation, ct).ConfigureAwait(false) is { } acknowledgedId)
+        {
+            var acknowledged = await FetchAtRevisionAsync(acknowledgedId, 1, ct).ConfigureAwait(false);
+            acknowledged.Fields.TryGetValue("System.Description", out var acknowledgedDescription);
+            acknowledged.Fields.TryGetValue("System.Tags", out var acknowledgedTags);
+            var exactMarker = correlation.ContainsDescriptionMarker(acknowledgedDescription);
+            if (acknowledged.Id != acknowledgedId || acknowledged.Revision != 1
+                || !string.Equals(acknowledged.Title, title, StringComparison.Ordinal)
+                || !string.Equals(acknowledged.TypeName, typeName, StringComparison.Ordinal)
+                || (!exactMarker && (!acknowledged.Fields.TryGetValue("System.CreatedDate", out var createdDate)
+                    || !DateTimeOffset.TryParse(createdDate, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out var created) || created < lowerBound))
+                || (!exactMarker && (SeedPublishCorrelation.HasDescriptionMarkerContent(acknowledgedDescription)
+                    || !HasTag(acknowledgedTags, correlation.Tag))))
+                throw new InvalidOperationException("seed-recovery-correlation-unsupported: acknowledged native create does not match this immutable seed creation. Preserve the seed and native journals; no adoption or automatic replay is admitted.");
+            return acknowledgedId;
+        }
 
+        // Current title, type, area and description may have been edited after create.
+        // The project-wide shared tag is discovery only; revision one is the authority.
         var wiql =
-            $"SELECT [System.Id] FROM WorkItems WHERE [System.Tags] CONTAINS '{escapedTag}' " +
-            $"AND [System.Title] = '{escapedTitle}' " +
-            $"AND [System.WorkItemType] = '{escapedType}' " +
-            $"AND [System.CreatedDate] >= '{fence}'";
-
-        // timePrecision: true — the fence carries a time, which ADO rejects (HTTP 400) unless
-        // this is set. Losing it degrades the query to day granularity at best.
-        var ids = await ExecuteWiqlAsync(wiql + $" AND [System.Tags] CONTAINS '{correlationTag}'",
-            top: null, timePrecision: true, ct).ConfigureAwait(false);
-
-        if (ids.Count == 0)
-        {
-            var legacyCandidates = await ExecuteWiqlAsync(wiql, top: null, timePrecision: true, ct).ConfigureAwait(false);
-            if (legacyCandidates.Count != 0)
-                throw new InvalidOperationException("seed-recovery-correlation-unsupported: legacy in-flight candidates lack this exact native seed correlation tag. Preserve the seed and journals and reconcile with authoritative creation evidence; no legacy adoption or create retry is admitted.");
-            return null;
-        }
+            $"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '{escapedProject}' " +
+            $"AND [System.Tags] CONTAINS '{escapedTag}'";
+        var ids = await ExecuteWiqlAsync(wiql, top: null, ct).ConfigureAwait(false);
         int? matched = null;
-        foreach (var id in ids)
+        var unsupportedCandidate = false;
+        foreach (var id in ids.Distinct())
         {
-            var candidate = await FetchAsync(id, ct).ConfigureAwait(false);
-            if (!candidate.Fields.TryGetValue("System.Tags", out var tags)
-                || tags is null || !tags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                    .Contains(correlationTag, StringComparer.OrdinalIgnoreCase))
-                throw new InvalidOperationException("seed-recovery-correlation-unsupported: an in-flight candidate has no exact native seed correlation tag. Preserve the seed and journals and reconcile with authoritative creation evidence; no legacy candidate adoption or create retry is admitted.");
-            if (matched is not null)
-                throw new InvalidOperationException("seed-recovery-correlation-ambiguous: more than one item carries this exact native seed correlation. Reconcile the recorded create before publication; no candidate is guessed.");
-            matched = id;
+            var original = await FetchAtRevisionAsync(id, 1, ct).ConfigureAwait(false);
+            if (original.Id != id || original.Revision != 1)
+                throw new InvalidOperationException("seed-recovery-correlation-unsupported: candidate creation revision could not be verified. Preserve the seed and native journals; no adoption or automatic replay is admitted.");
+
+            original.Fields.TryGetValue("System.Description", out var description);
+            original.Fields.TryGetValue("System.Tags", out var tags);
+            var exactMarker = correlation.ContainsDescriptionMarker(description);
+            var legacyTag = HasTag(tags, correlation.Tag);
+            var matchingTitleAndType = string.Equals(original.Title, title, StringComparison.Ordinal)
+                && string.Equals(original.TypeName, typeName, StringComparison.Ordinal);
+            var validCreatedDate = exactMarker || (original.Fields.TryGetValue("System.CreatedDate", out var createdDate)
+                && DateTimeOffset.TryParse(createdDate, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var created)
+                && created >= lowerBound);
+
+            if (exactMarker || legacyTag)
+            {
+                if (matched is not null)
+                    throw new InvalidOperationException("seed-recovery-correlation-ambiguous: more than one item carries this exact native seed correlation. Reconcile the recorded create; no candidate is guessed.");
+                if (!matchingTitleAndType || !validCreatedDate
+                    || (!exactMarker && SeedPublishCorrelation.HasDescriptionMarkerContent(description)))
+                    throw new InvalidOperationException("seed-recovery-correlation-unsupported: native seed correlation does not match the immutable creation payload. Preserve the seed and native journals; no adoption or automatic replay is admitted.");
+                matched = id;
+            }
+            else if (matchingTitleAndType && !SeedPublishCorrelation.TryReadDescriptionMarkerIdentity(description, out _))
+            {
+                // A legacy/unsupported candidate cannot prove this create's absence.
+                unsupportedCandidate = true;
+            }
         }
+        if (matched is null && unsupportedCandidate)
+            throw new InvalidOperationException("seed-recovery-correlation-unsupported: in-flight candidates lack a supported exact native seed correlation. Preserve the seed and native journals; no legacy adoption or automatic replay is admitted.");
         return matched;
     }
 
@@ -248,21 +273,51 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
         if (remaining.Count == tags.Length)
             return;
 
-        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={AdoApiVersions.WorkItems}";
-        var patchDoc = new List<AdoPatchOperation>
-        {
-            new()
-            {
-                Op = "add",
-                Path = "/fields/System.Tags",
-                Value = System.Text.Json.Nodes.JsonValue.Create(string.Join("; ", remaining)),
-            },
-        };
-        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
-        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
-
-        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct, effectKind: "workitem-patch");
+        await PatchAsync(id, [new FieldChange("System.Tags", current, string.Join("; ", remaining))],
+            item.Revision, ct).ConfigureAwait(false);
     }
+
+    /// <summary>Removes only confirmed native publication metadata, preserving current human edits.</summary>
+    public async Task ClearPublishMetadataAsync(int id, SeedPublishCorrelation correlation, CancellationToken ct = default)
+    {
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        if (_authProvider is not Twig.Infrastructure.Auth.ISeedPublishConfirmationGuard confirmation
+            || !await confirmation.CanCleanPublishedSeedAsync(id, correlation, ct).ConfigureAwait(false))
+            return;
+
+        var original = await FetchAtRevisionAsync(id, 1, ct).ConfigureAwait(false);
+        original.Fields.TryGetValue("System.Description", out var originalDescription);
+        if (original.Id != id || original.Revision != 1
+            || !correlation.ContainsDescriptionMarker(originalDescription))
+            return;
+
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=all&api-version={AdoApiVersions.WorkItems}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct).ConfigureAwait(false);
+        var current = AdoResponseMapper.MapToAuthoritativeSnapshot(await DeserializeWorkItemAsync(response, ct).ConfigureAwait(false));
+        if (current.Id != id || current.Revision <= 0)
+            return;
+        current.Fields.TryGetValue("System.Description", out var description);
+        var changes = new List<FieldChange>(2);
+        if (correlation.TryRemoveDescriptionMarker(description, out var remainingDescription))
+            changes.Add(new FieldChange("System.Description", description, remainingDescription));
+        else if (SeedPublishCorrelation.HasDescriptionMarkerContent(description))
+            return; // Duplicated, edited or otherwise unsupported marker shape is not removable.
+
+        // This bit is frozen from the caller's original tags and checked against the
+        // confirmed native create. Revision one alone cannot establish tag ownership.
+        if (correlation.OwnsIntentTag && current.Fields.TryGetValue("System.Tags", out var tags) && HasTag(tags, PublishIntent.IntentTag))
+        {
+            var remaining = tags!.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Where(tag => !string.Equals(tag, PublishIntent.IntentTag, StringComparison.OrdinalIgnoreCase));
+            changes.Add(new FieldChange("System.Tags", tags, string.Join("; ", remaining)));
+        }
+        if (changes.Count != 0)
+            await PatchAsync(id, changes, current.Revision, ct).ConfigureAwait(false);
+    }
+
+    private static bool HasTag(string? tags, string tag)
+        => tags is not null && tags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Contains(tag, StringComparer.OrdinalIgnoreCase);
 
     public async Task AddCommentAsync(int id, string text, CancellationToken ct = default)
     {

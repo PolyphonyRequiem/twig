@@ -180,8 +180,8 @@ public class SeedPublishIntentTests
         // The tag marks IN-FLIGHT state. Stripping it before the transaction commits disarms the
         // guard for exactly the window it protects: the orphan would carry no tag, so
         // FindPublishedIntentAsync could not narrow to it and the retry would duplicate.
-        await _adoService.DidNotReceive().ClearIntentTagAsync(
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().ClearPublishMetadataAsync(
+            Arg.Any<int>(), Arg.Any<SeedPublishCorrelation>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class SeedPublishIntentTests
         Received.InOrder(() =>
         {
             _unitOfWork.CommitAsync(_transaction, Arg.Any<CancellationToken>());
-            _adoService.ClearIntentTagAsync(500, Arg.Any<CancellationToken>());
+            _adoService.ClearPublishMetadataAsync(500, Arg.Any<SeedPublishCorrelation>(), Arg.Any<CancellationToken>());
         });
     }
 
@@ -245,7 +245,7 @@ public class SeedPublishIntentTests
     {
         ArrangeSeed();
         _adoService
-            .When(a => a.ClearIntentTagAsync(500, Arg.Any<CancellationToken>()))
+            .When(a => a.ClearPublishMetadataAsync(500, Arg.Any<SeedPublishCorrelation>(), Arg.Any<CancellationToken>()))
             .Do(_ => throw new HttpRequestException("ADO unreachable"));
 
         var result = await _orchestrator.PublishAsync(-1);

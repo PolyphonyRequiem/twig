@@ -10,8 +10,8 @@ namespace Twig.Domain.ValueObjects;
 /// </para>
 /// <para>
 /// An intent with no outcome is the reconcilable state: on restart twig can ask ADO
-/// <i>"did my create already happen?"</i> by querying for <see cref="IntentTag"/> and then
-/// matching locally on title, type and <see cref="RecordedAt"/>.
+/// <i>"did my create already happen?"</i> using the shared <see cref="IntentTag"/> for
+/// discovery and the staged GUID in the immutable initial Description for attribution.
 /// </para>
 /// </summary>
 public sealed record PublishIntent
@@ -29,17 +29,15 @@ public sealed record PublishIntent
     /// the pending set, so twig must not colonise a shared namespace to track its own state.
     /// </para>
     /// <para>
-    /// One constant tag means the in-use set is bounded by the number of publishes currently
-    /// in flight — normally one, since publishing is serial and topologically ordered.
-    /// Disambiguation is therefore LOCAL: the recovery query narrows by this tag, then matches
-    /// title + type + a creation time at or after the intent was recorded. The time fence stops
-    /// an older same-titled item matching.
+    /// One shared tag bounds the project vocabulary independently of the number of seeds.
+    /// The exact staged GUID is written into Description in the same create request and
+    /// read from revision one, so current title, area or Description edits cannot reattribute
+    /// the request. Missing discovery evidence never authorizes replay of an unknown create.
     /// </para>
     /// <para>
-    /// KNOWN LIMITATION: if two seeds of the same type share a title inside one publish window,
-    /// the predicate is ambiguous. Publishing is serial and topologically ordered, which makes
-    /// that window small, but it does not close it. A per-create key would remove the ambiguity
-    /// at the cost of the unbounded shared-tag growth described above.
+    /// Description cleanup follows durable ID, intent, map and native outcome recording,
+    /// uses a fresh revision fence, and preserves current human edits. Cleanup removes the
+    /// current marker only; the staged GUID remains in ADO revision history.
     /// </para>
     /// <para>
     /// Avoids a leading <c>@</c>, which ADO's query editor would read as a macro and which

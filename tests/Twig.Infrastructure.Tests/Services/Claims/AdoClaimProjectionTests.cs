@@ -218,6 +218,7 @@ public sealed class AdoClaimProjectionTests
         public Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<int?> FindPublishedIntentAsync(PublishIntent intent, CancellationToken ct = default) => throw new NotImplementedException();
         public Task ClearIntentTagAsync(int id, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ClearPublishMetadataAsync(int id, SeedPublishCorrelation correlation, CancellationToken ct = default) => throw new NotSupportedException("Publication is outside this claim fixture.");
         public Task AddCommentAsync(int id, string text, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default) => throw new NotImplementedException();

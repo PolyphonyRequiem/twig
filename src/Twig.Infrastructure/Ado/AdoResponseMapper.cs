@@ -222,14 +222,15 @@ internal static class AdoResponseMapper
             });
         }
 
-        InjectTags(operations, request.StampIntentTag, request.SeedCorrelation);
+        InjectTags(operations, request.StampIntentTag || request.SeedCorrelation is not null);
+        if (request.SeedCorrelation is not null)
+            InjectDescriptionMarker(operations, request.SeedCorrelation);
 
         return operations;
     }
 
-    // Native correlated creates keep their exact server key alongside provenance and
-    // the in-flight marker. Existing caller tags round-trip; labels never correlate outcomes.
-    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag, SeedPublishCorrelation? correlation)
+    // Shared labels never grow the project tag vocabulary; Description carries exact native origin.
+    private static void InjectTags(List<AdoPatchOperation> operations, bool stampIntentTag)
     {
         const string tagPath = "/fields/System.Tags";
         const string twigTag = "twig";
@@ -244,8 +245,6 @@ internal static class AdoResponseMapper
         var merged = MergeTag(current, twigTag);
         if (stampIntentTag)
             merged = MergeTag(merged, PublishIntent.IntentTag);
-        if (correlation is not null)
-            merged = MergeTag(merged, correlation.Tag);
 
         if (existingIndex >= 0)
         {
@@ -260,6 +259,43 @@ internal static class AdoResponseMapper
                 Value = JsonValue.Create(merged),
             });
         }
+    }
+
+    private static void InjectDescriptionMarker(List<AdoPatchOperation> operations, SeedPublishCorrelation correlation)
+    {
+        const string descriptionPath = "/fields/System.Description";
+        var existingIndex = -1;
+        for (var index = 0; index < operations.Count; index++)
+        {
+            if (!string.Equals(operations[index].Path, descriptionPath, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (existingIndex >= 0)
+                throw new InvalidOperationException("A seed cannot supply multiple Description fields.");
+            existingIndex = index;
+        }
+
+        var description = existingIndex >= 0
+            ? operations[existingIndex].Value?.GetValue<string>() ?? ""
+            : "";
+        if (SeedPublishCorrelation.HasDescriptionMarkerContent(description))
+            throw new InvalidOperationException("Seed Description contains reserved Twig publish origin content.");
+
+        var stamped = description + correlation.DescriptionMarkerHtml;
+        if (!correlation.ContainsDescriptionMarker(stamped))
+            throw new InvalidOperationException("Seed Description cannot safely contain a visible Twig publish origin paragraph.");
+
+        if (existingIndex >= 0)
+        {
+            operations[existingIndex].Path = descriptionPath;
+            operations[existingIndex].Value = JsonValue.Create(stamped);
+        }
+        else
+            operations.Add(new AdoPatchOperation
+            {
+                Op = "add",
+                Path = descriptionPath,
+                Value = JsonValue.Create(stamped),
+            });
     }
 
     /// <summary>

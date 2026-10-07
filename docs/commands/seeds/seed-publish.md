@@ -52,6 +52,9 @@ twig seed publish [<id>] [--all] [--force] [--dry-run]
 - `--dry-run` skips branch resolution entirely and returns the orchestrator's simulated results without any writes (`src/Twig/Commands/SeedPublishCommand.cs:166-172`).
 - **Active context follow.** If the active work item was one of the published seeds, the active-item pointer is rewritten to the newly assigned positive ID so the next `twig show` still points at the same conceptual item (`src/Twig/Commands/SeedPublishCommand.cs:57-64,85-87`).
 - Exit code mirrors the orchestrator: any error in batch mode → `1`; single-seed mode returns `1` when `!IsSuccess` (`src/Twig/Commands/SeedPublishCommand.cs:66,89`).
+- **Bounded tag vocabulary.** Correlated creates use the shared `twig` and `twig-publishing` tags, never a per-seed GUID/hash tag. The existing staged GUID is appended as a temporary visible paragraph in Description in the original create request.
+- **Exact recovery.** Original native acknowledgments or the exact GUID in creation revision one attribute a prior create. A shared-tag query only discovers candidates; missing or ambiguous evidence cannot authorize replay of an unresolved create. Historical tagged request evidence remains readable.
+- **Confirmed cleanup.** Temporary Description metadata and the owned shared pending tag are removed only after durable intent, published-ID mapping and native outcome evidence exist. Cleanup uses current content and a revision fence, preserving concurrent human edits and caller-owned tags. A failed cleanup does not repeat creation. The GUID remains in ADO revision history after current Description cleanup.
 
 ## Examples
 

@@ -75,7 +75,7 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         var intent = await new SqlitePublishIntentRepository(store).GetIntentAsync(correlation.Identity, ct).ConfigureAwait(false);
         if (intent is null || intent.RecordedAt != correlation.IntentRecordedAt || intent.PublishedId is not null
             || SeedCreateTitle(request.Payload) != intent.Title || SeedCreateType(request.Target) != intent.TypeName
-            || !SeedCreateHasCorrelation(request.Payload, correlation.Tag))
+            || !SeedCreateHasDescriptionCorrelation(request.Payload, correlation))
             throw new InvalidOperationException("remote-write-seed-correlation-mismatch: the original open durable publish intent does not match this exact staged create request. No HTTP mutation was admitted.");
     }
 
@@ -101,6 +101,18 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
                 && op.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String)
                 return (value.GetString() ?? "").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                     .Contains(tag, StringComparer.Ordinal);
+        return false;
+    }
+
+    internal static bool SeedCreateHasDescriptionCorrelation(string payload, Twig.Domain.ValueObjects.SeedPublishCorrelation correlation)
+    {
+        using var json = JsonDocument.Parse(payload);
+        if (json.RootElement.ValueKind != JsonValueKind.Array) return false;
+        foreach (var op in json.RootElement.EnumerateArray())
+            if (op.ValueKind == JsonValueKind.Object && op.TryGetProperty("path", out var path)
+                && path.ValueKind == JsonValueKind.String && string.Equals(path.GetString(), "/fields/System.Description", StringComparison.OrdinalIgnoreCase)
+                && op.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String)
+                return correlation.ContainsDescriptionMarker(value.GetString());
         return false;
     }
 

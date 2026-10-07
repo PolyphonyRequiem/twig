@@ -75,6 +75,13 @@ internal interface IConnectionRemoteWriteAdmission
     Task RecordResponseAsync(ConnectionRemoteWriteResponse response, CancellationToken ct = default);
 }
 
+/// <summary>Cleanup is allowed only after the original create has durable identity and outcome evidence.</summary>
+internal interface ISeedPublishConfirmationGuard
+{
+    Task<bool> CanCleanPublishedSeedAsync(int id, SeedPublishCorrelation correlation, CancellationToken ct = default);
+    Task<int?> FindAcknowledgedPublishedSeedAsync(SeedPublishCorrelation correlation, CancellationToken ct = default);
+}
+
 
 internal static class ConnectionOperationAdmission
 {

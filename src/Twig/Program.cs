@@ -1485,7 +1485,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionWrites(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(false, output: output, ct: ct);
 
-    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, replay or inferred outcome.</summary>
+    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Confirmed seeds can retry revision-guarded temporary metadata cleanup without replacing their receipt. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, create replay or inferred outcome.</summary>
     /// <param name="intent">Opaque native write intent ID from connection writes; required.</param>
     /// <param name="confirm">Exact immutable request digest from connection writes; required.</param>
     /// <param name="authorize">Original registered identity ID, not a display name or a replacement actor; required.</param>

@@ -72,7 +72,16 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
             throw new InvalidOperationException("remote-write-digest-mismatch: confirm the exact immutable native request; no receipt was written.");
         if (!ConnectionRemoteWriteAdmission.SameAuthority(current, intent.Origin) || authorizer != intent.Origin.Identity.IdentityId)
             return Report(history, ["remote-write-authority-mismatch: authorization must identify the original registered identity id, with its unchanged binding/principal/admitted generation. No current or display-name actor can adopt this intent."]);
-        if (history.Receipt is not null) return Report(history, []);
+        if (history.Receipt is not null)
+        {
+            if (intent.Request.EffectKind != "workitem-create" || intent.Request.SeedCorrelation is not { } settledCorrelation
+                || !ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(intent.Request.Payload, settledCorrelation)
+                || MigrationBoundAuthenticationProvider.PublishedIdFromReceipt(history) is null)
+                return Report(history, []);
+            var cleanupProvider = _bindings.CreateAuthenticationProvider(current);
+            try { return await CleanupConfirmedSeedAsync(history, current, cleanupProvider, ct).ConfigureAwait(false); }
+            finally { (cleanupProvider as IDisposable)?.Dispose(); }
+        }
         if (intent.Request.SeedCorrelation is not null && intent.Request.EffectKind == "workitem-create")
             return await ReconcilePublishedSeedAsync(history, current, configuration, paths, authorizer, rationale, ct).ConfigureAwait(false);
         if (!TryRevisionFence(intent.Request, out var expectedRevision))
@@ -121,8 +130,9 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
         var provider = _bindings.CreateAuthenticationProvider(current);
         try
         {
-            if (!ConnectionRemoteWriteAdmission.SeedCreateHasCorrelation(intent.Request.Payload, correlation.Tag))
-                return Report(history, ["remote-write-seed-correlation-unsupported: original create carried no exact native server tag. Constant publishing tag/title/type/time or local ID-map evidence cannot establish this old POST outcome; preserve uncertainty."]);
+            var descriptionOrigin = ConnectionRemoteWriteAdmission.SeedCreateHasDescriptionCorrelation(intent.Request.Payload, correlation);
+            if (!descriptionOrigin && !ConnectionRemoteWriteAdmission.SeedCreateHasCorrelation(intent.Request.Payload, correlation.Tag))
+                return Report(history, ["remote-write-seed-correlation-unsupported: original create carried no exact Description origin or historical correlation tag. Shared tag/title/type/time cannot establish this POST outcome; preserve uncertainty."]);
             using var operation = await ConnectionOperationAdmission.AcquireAsync(provider, ct).ConfigureAwait(false);
             var currentPaths = TwigPaths.BuildPaths(paths.TwigDir, configuration, paths.StartDir);
             using var store = SqliteCacheStore.OpenWorkspace(currentPaths, _bindings.RegistryPath);
@@ -161,27 +171,52 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
                 || !fields.TryGetProperty("System.WorkItemType", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != publishedIntent.TypeName
                 || !fields.TryGetProperty("System.CreatedDate", out var date) || date.ValueKind != JsonValueKind.String
                 || !DateTimeOffset.TryParse(date.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var createdAt)
-                || createdAt < correlation.IntentRecordedAt
-                || !fields.TryGetProperty("System.Tags", out var tags) || tags.ValueKind != JsonValueKind.String
-                || !(tags.GetString() ?? "").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                    .Contains(correlation.Tag, StringComparer.Ordinal)
+                || (!descriptionOrigin && createdAt < correlation.IntentRecordedAt)
+                || !(descriptionOrigin
+                    ? fields.TryGetProperty("System.Description", out var description) && description.ValueKind == JsonValueKind.String
+                        && correlation.ContainsDescriptionMarker(description.GetString())
+                    : fields.TryGetProperty("System.Tags", out var tags) && tags.ValueKind == JsonValueKind.String
+                        && (tags.GetString() ?? "").Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                            .Contains(correlation.Tag, StringComparer.Ordinal))
                 || !MatchesExpectedEffects(intent.Request.Payload, creation.RootElement, hasRevisionTest: false))
                 return Report(history, ["remote-write-seed-creation-unproved: original-bound immutable revision one does not prove the exact original create payload/type/time effect. Current text, latest state and unrelated success are not attribution."]);
             var receipt = new ConnectionRemoteWriteReceipt(1, Guid.NewGuid().ToString("N"), intent.IntentId,
                 intent.RequestDigest, "native-published-seed-readback", null,
-                SeedReceiptEvidence(publishedIntent, id, correlation.Tag, creation.RootElement), current,
+                SeedReceiptEvidence(publishedIntent, id, descriptionOrigin ? correlation.DescriptionMarkerText : correlation.Tag, descriptionOrigin, creation.RootElement), current,
                 authorizer, rationale, DateTimeOffset.UtcNow);
             var appended = await _registry.AppendConnectionRemoteWriteReceiptAsync(intent, receipt, ct).ConfigureAwait(false);
             if (!appended.IsSuccess) throw new InvalidOperationException(appended.Error);
-            return Report(history with { Receipt = receipt }, []);
+            return descriptionOrigin
+                ? await CleanupConfirmedSeedAsync(history with { Receipt = receipt }, current, provider, ct).ConfigureAwait(false)
+                : Report(history with { Receipt = receipt }, []);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return Report(history, ["remote-write-seed-readback-unavailable: " + ex.Message + " The original create uncertainty stays durable; no request was replayed."]); }
         finally { (provider as IDisposable)?.Dispose(); }
     }
+    private async Task<ConnectionRemoteWriteInspection> CleanupConfirmedSeedAsync(ConnectionRemoteWriteHistory history,
+        ResolvedConnectionBinding current, Twig.Domain.Interfaces.IAuthenticationProvider provider, CancellationToken ct)
+    {
+        try
+        {
+            var id = MigrationBoundAuthenticationProvider.PublishedIdFromReceipt(history);
+            if (id is not { } publishedId || history.Intent.Request.SeedCorrelation is not { } correlation)
+                return Report(history, []);
+            var client = new Twig.Infrastructure.Ado.AdoRestClient(_http, provider,
+                current.Operation.Organization, current.Operation.Project, new Twig.Domain.Services.WorkItemMapper());
+            await client.ClearPublishMetadataAsync(publishedId, correlation, ct).ConfigureAwait(false);
+            return Report(history, []);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            return Report(history, ["publish-metadata-cleanup-pending: native create is confirmed; temporary metadata could not be removed: " + ex.Message]);
+        }
+    }
+
 
     private static string SeedReceiptEvidence(Twig.Domain.ValueObjects.PublishIntent intent, int mappedId,
-        string correlationTag, JsonElement creation)
+        string originMarker, bool descriptionOrigin, JsonElement creation)
     {
         var buffer = new System.Buffers.ArrayBufferWriter<byte>();
         using var writer = new Utf8JsonWriter(buffer);
@@ -191,7 +226,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
         writer.WriteString("intentCompletedAt", intent.CompletedAt!.Value);
         writer.WriteNumber("publishedId", intent.PublishedId!.Value);
         writer.WriteNumber("mappedId", mappedId);
-        writer.WriteString("correlationTag", correlationTag);
+        writer.WriteString(descriptionOrigin ? "descriptionMarker" : "correlationTag", originMarker);
         writer.WritePropertyName("immutableCreationReadback");
         creation.WriteTo(writer);
         writer.WriteEndObject();

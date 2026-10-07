@@ -46,11 +46,9 @@ public interface IAdoWorkItemService
     /// (PolyphonyRequiem/twig#270).
     /// </para>
     /// <para>
-    /// The match is a single constant tag (<see cref="ValueObjects.PublishIntent.IntentTag"/>)
-    /// to narrow, then the intent's own title, type and <c>RecordedAt</c> to identify. A
-    /// per-create unique tag would be a stronger key but mints one new project-wide tag per
-    /// published item forever, which ADO's unique-tag cap and 0001 §1's "twig owns only the
-    /// pending set" both rule out.
+    /// The shared tag narrows candidates; the durable staged GUID in the original
+    /// Description at revision one attributes the create. Existing historical correlation
+    /// tags remain readable, but new creates never mint a project tag per seed.
     /// </para>
     /// <para>
     /// Takes the <see cref="ValueObjects.PublishIntent"/> whole rather than three unpacked
@@ -73,6 +71,13 @@ public interface IAdoWorkItemService
     /// a successful publish into a reported failure. Implementations must preserve other tags.
     /// </remarks>
     Task ClearIntentTagAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes only the owned Description correlation block and in-flight tag after the
+    /// native create receipt, durable intent and identity map confirm the published item.
+    /// Uses current content and revision/CAS; unavailable confirmation leaves metadata intact.
+    /// </summary>
+    Task ClearPublishMetadataAsync(int id, ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default);
 
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);

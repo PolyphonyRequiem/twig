@@ -5,7 +5,7 @@ using Twig.Infrastructure.Persistence;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>Freezes checkout authority; an old provider refuses changes until explicit reconnect.</summary>
-internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
+internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, ISeedPublishConfirmationGuard, IDisposable
 {
     private readonly IAuthenticationProvider _inner;
     private readonly ResolvedConnectionBinding _binding;
@@ -151,6 +151,83 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
     {
         using var lease = await AcquireOperationAsync(ct).ConfigureAwait(false);
         return await ConnectionRemoteWriteAdmission.BeginAsync(_registryPath, _binding, request, ct).ConfigureAwait(false);
+    }
+
+    public async Task<bool> CanCleanPublishedSeedAsync(int id, Twig.Domain.ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default)
+    {
+        using var lease = await AcquireOperationAsync(ct).ConfigureAwait(false);
+        var configuration = new TwigConfiguration
+        {
+            Organization = _binding.Operation.Organization,
+            Project = _binding.Operation.Project,
+            Team = _binding.Operation.Team,
+        };
+        var paths = TwigPaths.BuildPaths(Path.Combine(_binding.WorktreeRoot, ".twig"), configuration, _binding.WorktreeRoot);
+        using var store = SqliteCacheStore.OpenWorkspace(paths, _registryPath);
+        var intent = await new SqlitePublishIntentRepository(store).GetIntentAsync(correlation.Identity, ct).ConfigureAwait(false);
+        var map = new SqlitePublishIdMapRepository(store, new SqliteStagedIdentityRegistry(store));
+        if (intent?.PublishedId != id || intent.RecordedAt != correlation.IntentRecordedAt
+            || intent.CompletedAt is null || await map.GetNewIdAsync(correlation.Identity, ct).ConfigureAwait(false) != id)
+            return false;
+        if (await FindAcknowledgedPublishedSeedAsync(correlation, ct).ConfigureAwait(false) != id) return false;
+        using var registry = new SqliteSystemWorktreeRegistry(_registryPath, TimeProvider.System);
+        var writes = await registry.ReadConnectionRemoteWritesAsync(_binding.Operation.WorktreeFingerprint, ct: ct).ConfigureAwait(false);
+        if (!writes.IsSuccess) throw new InvalidOperationException(writes.Error);
+        return writes.Value.Any(write => CanUseCleanupReceipt(write, _binding, correlation, id));
+    }
+
+    internal static bool CanUseCleanupReceipt(ConnectionRemoteWriteHistory write, ResolvedConnectionBinding origin,
+        Twig.Domain.ValueObjects.SeedPublishCorrelation correlation, int id)
+        => write.Intent.Request.EffectKind == "workitem-create"
+            && write.Intent.Request.SeedCorrelation == correlation
+            && ConnectionRemoteWriteAdmission.SameAuthority(origin, write.Intent.Origin)
+            && PublishedIdFromReceipt(write) == id;
+
+    public async Task<int?> FindAcknowledgedPublishedSeedAsync(Twig.Domain.ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default)
+    {
+        using var lease = await AcquireOperationAsync(ct).ConfigureAwait(false);
+        using var registry = new SqliteSystemWorktreeRegistry(_registryPath, TimeProvider.System);
+        var writes = await registry.ReadConnectionRemoteWritesAsync(_binding.Operation.WorktreeFingerprint, ct: ct).ConfigureAwait(false);
+        if (!writes.IsSuccess) throw new InvalidOperationException(writes.Error);
+        int? publishedId = null;
+        foreach (var write in writes.Value)
+        {
+            if (write.Intent.Request.EffectKind != "workitem-create"
+                || write.Intent.Request.SeedCorrelation?.Identity != correlation.Identity
+                || write.Intent.Request.SeedCorrelation.IntentRecordedAt != correlation.IntentRecordedAt
+                || !ConnectionRemoteWriteAdmission.SameAuthority(_binding, write.Intent.Origin))
+                continue;
+            if (write.Receipt is null) return null;
+            if (PublishedIdFromReceipt(write) is not { } id) continue;
+            if (publishedId is { } prior && prior != id)
+                throw new InvalidOperationException("publish-receipt-ambiguous: original staged identity has conflicting acknowledged IDs.");
+            publishedId = id;
+        }
+        return publishedId;
+    }
+
+    internal static int? PublishedIdFromReceipt(ConnectionRemoteWriteHistory write)
+    {
+        if (write.Receipt is null) return null;
+        string body;
+        string idProperty;
+        if (write.Receipt.Kind == "native-published-seed-readback")
+        {
+            body = write.Receipt.EvidenceJson;
+            idProperty = "publishedId";
+        }
+        else if (write.Receipt.Kind == "acknowledged")
+        {
+            var response = write.Observations.FirstOrDefault(observation => observation.ObservationId == write.Receipt.ObservationId)?.Response;
+            if (response is null) throw new InvalidOperationException("publish-receipt-unreadable: original acknowledged create response is missing.");
+            body = response.Body;
+            idProperty = "id";
+        }
+        else return null;
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        if (!json.RootElement.TryGetProperty(idProperty, out var observedId) || !observedId.TryGetInt32(out var id) || id <= 0)
+            throw new InvalidOperationException("publish-receipt-unreadable: original create receipt has no positive work-item ID.");
+        return id;
     }
 
     public void InvalidateToken()

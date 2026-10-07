@@ -1206,30 +1206,42 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Create a Bench with a name you will recognise later.</summary>
     /// <param name="name">Name for the new Bench, e.g. "release blockers".</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before creating.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before creating.</param>
     [Command("bench create")]
-    public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct);
+    public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct, expectBinding, expectIdentity);
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="includeManagement">Emit versioned management JSON with stable IDs, full contents digests, pins and query descriptions; requires -o json.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before listing.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before listing.</param>
     [Command("bench list")]
-    public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct);
+    public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct, includeManagement, expectBinding, expectIdentity);
 
     /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
     /// <param name="name">Name of an existing Bench.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured target Bench storage ID; refuses deletion/recreation under the same name.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before selecting.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before selecting.</param>
     [Command("bench switch")]
-    public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct);
+    public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct, expectBench, expectBinding, expectIdentity);
 
     /// <summary>Delete a Bench. One holding pins reports what it holds and deletes nothing.</summary>
     /// <param name="name">Name of the Bench to delete.</param>
     /// <param name="confirm">Re-type the Bench's name to delete one that holds pins. There is deliberately no --force.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured target Bench storage ID; refuses deletion/recreation under the same name.</param>
+    /// <param name="expectContents">Optional complete stored selector digest from management listing; changed contents require fresh confirmation.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before deleting.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before deleting.</param>
     [Command("bench delete")]
-    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct);
+    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct, expectBench, expectBinding, expectIdentity, expectContents);
 
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

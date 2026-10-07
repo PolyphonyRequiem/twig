@@ -1,3 +1,4 @@
+using System.Globalization;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
@@ -80,7 +81,7 @@ public sealed class BenchWorkflow(
     /// default Bench would be ensured, so a typo cannot even be the command that brings a Bench
     /// into existence as a side effect.
     /// </remarks>
-    public async Task<BenchOutcome> SwitchAsync(string name, CancellationToken ct = default)
+    public async Task<BenchOutcome> SwitchAsync(string name, CancellationToken ct = default, string? expectBench = null)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -90,20 +91,20 @@ public sealed class BenchWorkflow(
 
         var trimmed = name.Trim();
 
-        // The default cannot go missing (spec §4), so a switch TO it must succeed on a fresh
-        // install where nothing has created it yet. It is ensured only on that branch: ensuring it
-        // unconditionally would make an unknown name write a row, which is the side effect this
-        // whole ticket forbids.
-        if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase))
+        // Only an unguarded default reference may create the first-use default. A captured target
+        // must already exist; a stale browser must not create or select a replacement arrangement.
+        if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase) && expectBench is null)
         {
             var previousName = (await currentBench.ResolveAsync(ct)).Name;
             var defaultBench = await benchRepository.GetOrCreateDefaultAsync(
                 await defaultSelectors.BuildAsync(ct), ct);
-            await benchRepository.SetCurrentAsync(defaultBench.Id, ct);
-            return new BenchOutcome.Switched(defaultBench, previousName);
+            var selected = await benchRepository.TrySetCurrentAsync(defaultBench.Id, ct)
+                ?? throw new InvalidOperationException("The target Bench changed. Refresh and retry; no Bench was selected.");
+            return new BenchOutcome.Switched(selected, previousName);
         }
 
         var target = await benchRepository.GetByNameAsync(trimmed, ct);
+        EnsureExpectedTarget(target, expectBench);
         if (target is null)
         {
             var known = (await benchRepository.GetAllAsync(ct)).Select(b => b.Name).ToList();
@@ -111,8 +112,9 @@ public sealed class BenchWorkflow(
         }
 
         var previous = (await currentBench.ResolveAsync(ct)).Name;
-        await benchRepository.SetCurrentAsync(target.Id, ct);
-        return new BenchOutcome.Switched(target, previous);
+        var switched = await benchRepository.TrySetCurrentAsync(target.Id, ct)
+            ?? throw new InvalidOperationException("The target Bench changed. Refresh and retry; no Bench was selected.");
+        return new BenchOutcome.Switched(switched, previous);
     }
 
     /// <summary>
@@ -151,7 +153,8 @@ public sealed class BenchWorkflow(
     /// </para>
     /// </remarks>
     public async Task<BenchOutcome> DeleteAsync(
-        string name, string? confirmedName = null, CancellationToken ct = default)
+        string name, string? confirmedName = null, CancellationToken ct = default,
+        string? expectBench = null, string? expectContents = null)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -161,27 +164,21 @@ public sealed class BenchWorkflow(
 
         var trimmed = name.Trim();
 
-        // The lookup happens before any write, exactly as switching does: a typo must not be the
-        // command that brings a Bench into existence, not even the default. The default is looked
-        // up rather than ensured, so a delete of it on a fresh store is refused without creating
-        // anything.
+        // Resolve before any write: an unknown name must not create even the first-use default.
         var target = await benchRepository.GetByNameAsync(trimmed, ct);
+        if (target?.IsDefault == true || string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase))
+            return new BenchOutcome.DefaultBenchCannotBeDeleted(
+                target ?? new Bench { Name = Bench.DefaultName, IsDefault = true });
+        EnsureExpectedTarget(target, expectBench);
         if (target is null)
         {
-            if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase))
-            {
-                // The default cannot go missing even before it has been written down: refusing is
-                // the same answer whether or not the row exists yet.
-                return new BenchOutcome.DefaultBenchCannotBeDeleted(
-                    new Bench { Name = Bench.DefaultName, IsDefault = true });
-            }
-
             var known = (await benchRepository.GetAllAsync(ct)).Select(b => b.Name).ToList();
             return new BenchOutcome.UnknownBench(trimmed, known);
         }
 
-        if (target.IsDefault)
-            return new BenchOutcome.DefaultBenchCannotBeDeleted(target);
+        var digest = BenchQueryRule.ContentsDigest(target.Selectors);
+        if (expectContents is not null && !string.Equals(expectContents, digest, StringComparison.Ordinal))
+            throw new InvalidOperationException("Bench contents changed since confirmation opened. Refresh and confirm again; nothing was deleted.");
 
         var confirmed = confirmedName is not null
             && string.Equals(confirmedName.Trim(), target.Name, StringComparison.OrdinalIgnoreCase);
@@ -200,8 +197,16 @@ public sealed class BenchWorkflow(
                     .ToList());
         }
 
-        await benchRepository.DeleteAsync(target.Id, ct);
-        return new BenchOutcome.Deleted(target);
+        var deleted = await benchRepository.TryDeleteAsync(target.Id, expectContents ?? digest, ct)
+            ?? throw new InvalidOperationException("The target Bench or its contents changed. Refresh and confirm again; nothing was deleted.");
+        return new BenchOutcome.Deleted(deleted);
+    }
+
+    private static void EnsureExpectedTarget(Bench? target, string? expectBench)
+    {
+        if (expectBench is not null && !string.Equals(expectBench,
+            target?.Id.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
+            throw new InvalidOperationException("The target Bench changed since it was displayed. Refresh and retry; no Bench was changed.");
     }
 
     private static IReadOnlyList<int> SelectorIds(Bench bench, SelectorKind kind)

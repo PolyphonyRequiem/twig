@@ -359,11 +359,13 @@ internal static class CommandExamples
         [
             "twig bench list                        List Benches, marking the current one",
             "twig bench list -o json                List them for a script to read",
+            "twig bench list --include-management -o json   Capture stable IDs and complete contents for management",
         ],
         ["bench switch"] =
         [
             "twig bench switch \"release blockers\"   Stand on another Bench",
             "twig bench switch default              Go back to the Bench you started with",
+            "twig bench switch \"release blockers\" --expect-bench <id>   Select the displayed target only",
         ],
         // ADO #150 — deleting. There is deliberately NO --force: a Bench holding pins reports
         // them and stops, and the way past that is re-typing its NAME, which differs every time
@@ -372,6 +374,7 @@ internal static class CommandExamples
         [
             "twig bench delete \"release blockers\"   Delete it (reports what it holds first)",
             "twig bench delete \"release blockers\" --confirm \"release blockers\"   Delete one that holds pins",
+            "twig bench delete \"release blockers\" --confirm \"release blockers\" --expect-bench <id> --expect-contents <digest>   Delete only the reviewed arrangement",
         ],
         ["bench configuration"] =
         [

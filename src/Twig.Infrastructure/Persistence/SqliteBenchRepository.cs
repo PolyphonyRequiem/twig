@@ -163,6 +163,25 @@ public sealed class SqliteBenchRepository : IBenchRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<Bench?> TrySetCurrentAsync(long benchId, CancellationToken ct = default)
+    {
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench switching cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var target = await LoadAsync("id = @id", benchId, ct);
+            if (target is null) return null;
+            await SetCurrentAsync(target.Id, ct);
+            transaction.Commit();
+            return target;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
     public async Task AddSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
@@ -329,6 +348,27 @@ public sealed class SqliteBenchRepository : IBenchRepository
             """;
         cmd.Parameters.AddWithValue("@benchId", benchId);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<Bench?> TryDeleteAsync(long benchId, string expectedContentsDigest, CancellationToken ct = default)
+    {
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench deletion cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var target = await LoadAsync("id = @id", benchId, ct);
+            if (target is null || target.IsDefault || !string.Equals(
+                BenchQueryRule.ContentsDigest(target.Selectors), expectedContentsDigest, StringComparison.Ordinal))
+                return null;
+            await DeleteAsync(target.Id, ct);
+            transaction.Commit();
+            return target;
+        }
+        finally { _store.ActiveTransaction = null; }
     }
 
     private async Task<Bench?> LoadAsync(string where, long? id, CancellationToken ct, string? name = null)

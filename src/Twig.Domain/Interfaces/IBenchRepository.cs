@@ -69,6 +69,9 @@ public interface IBenchRepository
     /// </summary>
     Task SetCurrentAsync(long benchId, CancellationToken ct = default);
 
+    /// <summary>Atomically selects the captured target ID, or returns null if it no longer exists.</summary>
+    Task<Bench?> TrySetCurrentAsync(long benchId, CancellationToken ct = default);
+
     /// <summary>
     /// Adds a selector to a Bench. Idempotent: adding the same selector twice leaves one, so
     /// membership cannot be changed by repetition.
@@ -111,4 +114,10 @@ public interface IBenchRepository
     /// </para>
     /// </summary>
     Task DeleteAsync(long benchId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically deletes the captured non-default target only when its full stored selector digest
+    /// still matches. Returns the deleted Bench, or null on a stale target, changed contents or default.
+    /// </summary>
+    Task<Bench?> TryDeleteAsync(long benchId, string expectedContentsDigest, CancellationToken ct = default);
 }

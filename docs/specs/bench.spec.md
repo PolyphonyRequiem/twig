@@ -372,6 +372,23 @@ deliberately unsettled (§7): deleting only has to LEAVE IT ALONE, which it does
 An unknown name on delete behaves exactly as it does on switch: non-zero, names what was asked for,
 lists what exists, creates nothing — not even the default, on a store where nothing exists yet.
 
+**Browser management:** `twig bench list --include-management -o json` emits one versioned
+object with `version: 1`, `currentBenchId` and `benches`. Each Bench carries its stable storage
+`id` (a string), exact `name`, boolean `isCurrent`/`isDefault`, a `contentsDigest`, typed `pins`
+(`id`, `mode: single|tree`) and complete saved query descriptions. The digest covers every
+stored selector kind and raw payload, including automatic settings; it is not a selector count
+or an effective default-principal projection. Reordering selectors does not change it.
+
+All lifecycle commands accept `--expect-binding` and `--expect-identity` as native origin
+preconditions. `bench switch` and `bench delete` also accept `--expect-bench` for the target
+storage ID, not the current Bench. Deletion accepts `--expect-contents` from the displayed
+listing. Target existence and deletion contents are checked atomically with the mutation:
+delete/recreate under the same name or any selector change refuses the old confirmation.
+The browser must refresh and display a new confirmation rather than retrying with a new digest.
+Ordinary CLI calls retain the existing output and lifecycle rules above. Browser controls always
+confirm deletion, including empty Benches, and display pin IDs/kinds, queries and the staged-work
+preservation note. Creating stays in management without selecting; default has no delete control.
+
 Two rules are inherited and non-negotiable:
 
 - 🔴 **An unknown Bench is a hard error.** Non-zero exit, name what was asked for, say what

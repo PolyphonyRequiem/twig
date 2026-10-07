@@ -127,6 +127,21 @@ internal sealed record BenchQueryRule(string? AssignedTo, string? UniqueName,
         return Convert.ToHexString(SHA256.HashData(stream.GetBuffer().AsSpan(0, (int)stream.Length))).ToLowerInvariant();
     }
 
+    /// <summary>Hashes the complete stored selector set, including unnormalized query payloads.</summary>
+    internal static string ContentsDigest(IEnumerable<BenchSelector> selectors)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            foreach (var selector in selectors.OrderBy(s => s.Kind).ThenBy(s => s.Payload, StringComparer.Ordinal))
+            {
+                writer.Write((int)selector.Kind);
+                writer.Write(selector.Payload);
+            }
+        }
+        return Convert.ToHexString(SHA256.HashData(stream.GetBuffer().AsSpan(0, (int)stream.Length))).ToLowerInvariant();
+    }
+
     private static string? ReadIdentity(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Null) return null;

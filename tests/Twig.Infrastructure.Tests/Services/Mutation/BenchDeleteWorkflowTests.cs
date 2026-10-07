@@ -46,6 +46,71 @@ public sealed class BenchDeleteWorkflowTests : IDisposable
     private DefaultBenchSelectors Selectors => new(IdentityStubs.NewBound());
     private CurrentBenchResolver Resolver => new(_benchRepo, Selectors);
     private BenchWorkflow CreateSut() => new(_benchRepo, Selectors, Resolver);
+
+    [Fact]
+    public async Task Delete_ContentsChangedAfterWorkflowReadAreRefusedInsideNativeMutation()
+    {
+        var original = (await CreateSut().CreateAsync("reviewed")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        await _benchRepo.AddSelectorAsync(original.Id, BenchSelector.ForItem(42));
+        var reviewed = (await _benchRepo.GetByNameAsync(original.Name))!;
+        var proxy = Substitute.For<IBenchRepository>();
+        proxy.GetByNameAsync(original.Name, Arg.Any<CancellationToken>())
+            .Returns(call => _benchRepo.GetByNameAsync(original.Name, call.ArgAt<CancellationToken>(1)));
+        proxy.TryDeleteAsync(original.Id, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var ct = call.ArgAt<CancellationToken>(2);
+                await _benchRepo.AddSelectorAsync(original.Id, BenchSelector.ForSubtree(500), ct);
+                return await _benchRepo.TryDeleteAsync(original.Id, call.ArgAt<string>(1), ct);
+            });
+        var workflow = new BenchWorkflow(proxy, Selectors, Resolver);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => workflow.DeleteAsync(original.Name, original.Name,
+            expectBench: original.Id.ToString(), expectContents: BenchQueryRule.ContentsDigest(reviewed.Selectors)));
+
+        (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldBe(
+            [BenchSelector.ForItem(42), BenchSelector.ForSubtree(500)], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GuardedDelete_RefusesStaleContentsUntilFreshConfirmationThenFallsBackWithoutLosingOwedWork()
+    {
+        var sut = CreateSut();
+        var bench = (await sut.CreateAsync("reviewed")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        await sut.SwitchAsync(bench.Name);
+        await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+        var reviewed = (await _benchRepo.GetByNameAsync(bench.Name))!;
+        var digest = BenchQueryRule.ContentsDigest(reviewed.Selectors);
+        await _pendingStore.AddChangeAsync(555, "field", "System.Title", "old", "owed edit");
+        await _benchRepo.AddSelectorAsync(bench.Id, BenchSelector.ForSubtree(500));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => sut.DeleteAsync(bench.Name, bench.Name,
+            expectBench: bench.Id.ToString(), expectContents: digest));
+        (await _benchRepo.GetCurrentAsync())!.Id.ShouldBe(bench.Id);
+        (await _benchRepo.GetByNameAsync(bench.Name))!.Selectors.ShouldBe(
+            [BenchSelector.ForItem(42), BenchSelector.ForSubtree(500)], ignoreOrder: true);
+
+        var fresh = (await _benchRepo.GetByNameAsync(bench.Name))!;
+        (await sut.DeleteAsync(bench.Name, bench.Name, expectBench: bench.Id.ToString(),
+            expectContents: BenchQueryRule.ContentsDigest(fresh.Selectors))).ShouldBeOfType<BenchOutcome.Deleted>();
+        (await sut.ListAsync()).CurrentBenchName.ShouldBe(Bench.DefaultName);
+        (await _pendingStore.GetChangesAsync(555)).ShouldHaveSingleItem().NewValue.ShouldBe("owed edit");
+    }
+
+    [Fact]
+    public async Task GuardedDelete_RefusesSameNameReplacementEvenWithIdenticalContents()
+    {
+        var sut = CreateSut();
+        var original = (await sut.CreateAsync("reviewed")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        var digest = BenchQueryRule.ContentsDigest(original.Selectors);
+        await sut.DeleteAsync(original.Name);
+        var replacement = (await sut.CreateAsync(original.Name)).ShouldBeOfType<BenchOutcome.Created>().Bench;
+
+        await Should.ThrowAsync<InvalidOperationException>(() => sut.DeleteAsync(original.Name, original.Name,
+            expectBench: original.Id.ToString(), expectContents: digest));
+
+        (await _benchRepo.GetByNameAsync(replacement.Name))!.Id.ShouldBe(replacement.Id);
+    }
     private PinWorkflow CreatePin() => new(_benchRepo, Selectors, Resolver);
 
     // ═══════════════════════════════════════════════════════════════

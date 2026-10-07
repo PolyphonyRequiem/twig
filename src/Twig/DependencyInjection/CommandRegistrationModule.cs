@@ -154,7 +154,14 @@ public static class CommandRegistrationModule
         });
         // ADO #148: the Bench command surface. The workflow it depends on is registered in the
         // SHARED domain-services module, beside PinWorkflow, so the MCP surface can build it too.
-        services.AddSingleton<BenchCommand>();
+        services.AddSingleton<BenchCommand>(sp => new BenchCommand(
+            sp.GetRequiredService<Twig.Infrastructure.Services.Mutation.BenchWorkflow>(),
+            sp.GetRequiredService<OutputFormatterFactory>(), sp.GetService<Twig.Rendering.RendererFactory>(),
+            sp.GetRequiredService<IAuthenticationProvider>(), sp.GetRequiredService<IWorkItemRepository>())
+        {
+            ResolveBrowserBindingAsync = ct => sp.GetRequiredService<IConnectionBindingService>().ResolveAsync(
+                sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(), ct),
+        });
         services.AddSingleton<AreaCommand>();
         services.AddSingleton<SprintCommand>();
         services.AddSingleton<PlanCommand>();

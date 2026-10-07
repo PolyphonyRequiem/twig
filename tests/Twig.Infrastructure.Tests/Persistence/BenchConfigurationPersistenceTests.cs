@@ -16,6 +16,99 @@ namespace Twig.Infrastructure.Tests.Persistence;
 public sealed class BenchConfigurationPersistenceTests
 {
     [Fact]
+    public async Task GuardedDelete_SelectorReorderingPreservesReviewedContents()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repository = new SqliteBenchRepository(store);
+        var bench = (await repository.CreateAsync("reordered"))!;
+        var item = BenchSelector.ForItem(42);
+        var query = BenchSelector.ForCurrentSprint("Saved owner");
+        await repository.AddSelectorAsync(bench.Id, item);
+        await repository.AddSelectorAsync(bench.Id, query);
+        var digest = BenchQueryRule.ContentsDigest((await repository.GetByNameAsync(bench.Name))!.Selectors);
+        await repository.RemoveSelectorAsync(bench.Id, item);
+        await repository.AddSelectorAsync(bench.Id, item);
+
+        (await repository.TryDeleteAsync(bench.Id, digest)).ShouldNotBeNull();
+        (await repository.GetByNameAsync(bench.Name)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GuardedDelete_RejectsPinKindAndRawAutomaticChangesEvenWhenCountsMatch()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repository = new SqliteBenchRepository(store);
+        var bench = (await repository.CreateAsync("reviewed"))!;
+        var item = BenchSelector.ForItem(42);
+        var tree = BenchSelector.ForSubtree(42);
+        var firstQuery = BenchSelector.ForCurrentSprint("First owner");
+        var changedQuery = BenchSelector.ForCurrentSprint("Different owner");
+        await repository.AddSelectorAsync(bench.Id, item);
+        await repository.AddSelectorAsync(bench.Id, firstQuery);
+        var digest = BenchQueryRule.ContentsDigest((await repository.GetByNameAsync(bench.Name))!.Selectors);
+
+        await repository.RemoveSelectorAsync(bench.Id, item);
+        await repository.AddSelectorAsync(bench.Id, tree);
+        (await repository.TryDeleteAsync(bench.Id, digest)).ShouldBeNull();
+        (await repository.GetByNameAsync(bench.Name))!.Selectors.ShouldBe([tree, firstQuery], ignoreOrder: true);
+
+        await repository.RemoveSelectorAsync(bench.Id, tree);
+        await repository.AddSelectorAsync(bench.Id, item);
+        await repository.RemoveSelectorAsync(bench.Id, firstQuery);
+        await repository.AddSelectorAsync(bench.Id, changedQuery);
+        (await repository.TryDeleteAsync(bench.Id, digest)).ShouldBeNull();
+        var stored = (await repository.GetByNameAsync(bench.Name))!;
+        stored.Selectors.ShouldBe([item, changedQuery], ignoreOrder: true);
+        (await repository.TryDeleteAsync(bench.Id, BenchQueryRule.ContentsDigest(stored.Selectors))).ShouldNotBeNull();
+        (await repository.GetByNameAsync(bench.Name)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GuardedLifecycle_RejectsRecreatedTargetAndProtectsDefaultInStorage()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repository = new SqliteBenchRepository(store);
+        var defaultBench = await repository.GetOrCreateDefaultAsync([BenchSelector.ForItem(99)]);
+        var original = (await repository.CreateAsync("reviewed"))!;
+        var emptyDigest = BenchQueryRule.ContentsDigest(original.Selectors);
+        await repository.DeleteAsync(original.Id);
+        var replacement = (await repository.CreateAsync(original.Name))!;
+
+        replacement.Id.ShouldNotBe(original.Id);
+        (await repository.TrySetCurrentAsync(original.Id)).ShouldBeNull();
+        (await repository.TryDeleteAsync(original.Id, emptyDigest)).ShouldBeNull();
+        (await repository.GetByNameAsync(replacement.Name))!.Id.ShouldBe(replacement.Id);
+        (await repository.GetCurrentAsync()).ShouldBeNull();
+        (await repository.TryDeleteAsync(defaultBench.Id, BenchQueryRule.ContentsDigest(defaultBench.Selectors))).ShouldBeNull();
+        (await repository.GetByNameAsync(Bench.DefaultName))!.Selectors.ShouldBe([BenchSelector.ForItem(99)]);
+    }
+
+    [Fact]
+    public async Task GuardedDelete_FailedCommitRollsBackSelectorsAndCurrentPointer()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repository = new SqliteBenchRepository(store);
+        var bench = (await repository.CreateAsync("rollback"))!;
+        await repository.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+        await repository.SetCurrentAsync(bench.Id);
+        var stored = (await repository.GetByNameAsync(bench.Name))!;
+        using (var trigger = store.GetConnection().CreateCommand())
+        {
+            trigger.CommandText = """
+                CREATE TRIGGER pending.refuse_bench_delete BEFORE DELETE ON benches
+                BEGIN SELECT RAISE(ABORT, 'Simulated deletion failure'); END;
+                """;
+            await trigger.ExecuteNonQueryAsync();
+        }
+
+        await Should.ThrowAsync<SqliteException>(() => repository.TryDeleteAsync(bench.Id, BenchQueryRule.ContentsDigest(stored.Selectors)));
+
+        (await repository.GetByNameAsync(bench.Name))!.Selectors.ShouldBe([BenchSelector.ForItem(42)]);
+        (await repository.GetCurrentAsync())!.Id.ShouldBe(bench.Id);
+        (await repository.TrySetCurrentAsync(bench.Id))!.Id.ShouldBe(bench.Id);
+    }
+
+    [Fact]
     public async Task ReplacingQueries_PreservesPinsOtherBenchesAndSettingsAfterReopen()
     {
         var directory = Path.Combine(Path.GetTempPath(), "twig-bench-config-" + Guid.NewGuid().ToString("N"));

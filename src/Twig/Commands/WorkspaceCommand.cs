@@ -1085,6 +1085,7 @@ public sealed class WorkspaceCommand(
             new("bindingId", new RenderNode.KeyValue("bindingId", RenderCell.String(binding.Binding.BindingId))),
             new("identityId", new RenderNode.KeyValue("identityId", RenderCell.String(binding.Identity.IdentityId))),
             new("worktreeRoot", new RenderNode.KeyValue("worktreeRoot", RenderCell.String(binding.WorktreeRoot))),
+            new("effectiveTeam", new RenderNode.KeyValue("effectiveTeam", RenderCell.String(TwigConfiguration.ResolveTeam(binding.Operation.Project, binding.Operation.Team)))),
             new("configuration", new RenderNode.KeyValue("configuration",
                 await BenchConfigurationProjection.BuildAsync(bench, storedBench, workItemRepo, ct))),
             new("roots", new RenderNode.KeyValue("roots", new RenderCell(string.Empty, new RenderValue.Array(projectedRoots)))),

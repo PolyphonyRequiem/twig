@@ -434,7 +434,7 @@ public sealed class InitCommand
 
             var effectiveOrg = config.Organization;
             var effectiveProject = config.Project;
-            var effectiveTeam = string.IsNullOrWhiteSpace(config.Team) ? $"{effectiveProject} Team" : config.Team;
+            var effectiveTeam = TwigConfiguration.ResolveTeam(effectiveProject, config.Team);
             var iterationService = _iterationService
                 ?? new AdoIterationService(_httpClient!, _authProvider!, effectiveOrg, effectiveProject, effectiveTeam, throttle: _throttle);
 

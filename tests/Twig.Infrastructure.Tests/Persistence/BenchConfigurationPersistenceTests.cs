@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
@@ -49,6 +50,98 @@ public sealed class BenchConfigurationPersistenceTests
             SqliteConnection.ClearAllPools();
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Single)]
+    [InlineData(TrackingMode.Tree)]
+    public async Task TypedPinRemoval_PersistsOnlyRequestedDeletionAndPreservesOtherWork(TrackingMode mode)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "twig-pin-removal-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var connection = $"Data Source={Path.Combine(directory, "twig.db")}";
+        var query = BenchSelector.ForCurrentSprint("Saved owner");
+        var retained = mode == TrackingMode.Single ? BenchSelector.ForSubtree(42) : BenchSelector.ForItem(42);
+        try
+        {
+            using (var store = new SqliteCacheStore(connection))
+            {
+                var repository = new SqliteBenchRepository(store);
+                var bench = (await repository.CreateAsync("edited"))!;
+                var other = (await repository.CreateAsync("untouched"))!;
+                await repository.SetCurrentAsync(bench.Id);
+                foreach (var selector in new[] { query, BenchSelector.ForItem(42), BenchSelector.ForSubtree(42), BenchSelector.ForSubtree(500) })
+                    await repository.AddSelectorAsync(bench.Id, selector);
+                await repository.AddSelectorAsync(other.Id, BenchSelector.ForItem(42));
+                await repository.AddSelectorAsync(other.Id, BenchSelector.ForSubtree(42));
+                var items = new SqliteWorkItemRepository(store, new WorkItemMapper());
+                await items.SaveAsync(new WorkItemBuilder(42, "Owed item").Build());
+                await items.SaveAsync(new WorkItemBuilder(-1, "Seed").AsSeed().Build());
+                await new SqlitePendingChangeStore(store).AddChangeAsync(42, "note", null, null, "Preserve this note");
+                using (var trigger = store.GetConnection().CreateCommand())
+                {
+                    trigger.CommandText = """
+                        CREATE TRIGGER pending.refuse_retained_pin_delete BEFORE DELETE ON bench_selectors
+                        WHEN OLD.selector_kind = @retainedKind
+                        BEGIN SELECT RAISE(ABORT, 'Must not remove the other pin kind'); END;
+                        """.Replace("@retainedKind", "'" + retained.Kind + "'", StringComparison.Ordinal);
+                    await trigger.ExecuteNonQueryAsync();
+                    trigger.CommandText = """
+                        CREATE TRIGGER pending.refuse_pin_reinsert BEFORE INSERT ON bench_selectors
+                        BEGIN SELECT RAISE(ABORT, 'Must not remove and re-add pins'); END;
+                        """;
+                    await trigger.ExecuteNonQueryAsync();
+                }
+
+                var digest = BenchQueryRule.SettingsDigest((await repository.GetByNameAsync(bench.Name))!.Selectors);
+                var removal = await repository.TryRemovePinsAsync(bench.Id, 42, mode, digest);
+                removal.ShouldNotBeNull();
+                removal.Value.WasPinned.ShouldBeTrue();
+                removal.Value.Bench.Id.ShouldBe(bench.Id);
+                removal.Value.Bench.Selectors.ShouldBe([query, retained, BenchSelector.ForSubtree(500)], ignoreOrder: true);
+                (await repository.TryRemovePinsAsync(bench.Id, 42, mode, digest))!.Value.WasPinned.ShouldBeFalse();
+            }
+            using (var reopened = new SqliteCacheStore(connection))
+            {
+                var repository = new SqliteBenchRepository(reopened);
+                (await repository.GetByNameAsync("edited"))!.Selectors.ShouldBe([query, retained, BenchSelector.ForSubtree(500)], ignoreOrder: true);
+                (await repository.GetByNameAsync("untouched"))!.Selectors.ShouldBe([BenchSelector.ForItem(42), BenchSelector.ForSubtree(42)], ignoreOrder: true);
+                var changes = await new SqlitePendingChangeStore(reopened).GetChangesAsync(42);
+                changes.ShouldHaveSingleItem().NewValue.ShouldBe("Preserve this note");
+                (await new SqliteWorkItemRepository(reopened, new WorkItemMapper()).GetSeedsAsync()).Select(item => item.Id).ShouldBe([-1]);
+            }
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PinRemoval_FailedDeleteRollsBackAndReleasesTransaction()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var repository = new SqliteBenchRepository(store);
+        var bench = (await repository.CreateAsync("rollback"))!;
+        await repository.SetCurrentAsync(bench.Id);
+        await repository.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+        await repository.AddSelectorAsync(bench.Id, BenchSelector.ForSubtree(42));
+        using (var trigger = store.GetConnection().CreateCommand())
+        {
+            trigger.CommandText = """
+                CREATE TRIGGER pending.refuse_subtree_delete BEFORE DELETE ON bench_selectors
+                WHEN OLD.selector_kind = 'Subtree'
+                BEGIN SELECT RAISE(ABORT, 'Simulated delete failure'); END;
+                """;
+            await trigger.ExecuteNonQueryAsync();
+        }
+
+        await Should.ThrowAsync<SqliteException>(() => repository.TryRemovePinsAsync(bench.Id, 42));
+
+        (await repository.GetByNameAsync(bench.Name))!.Selectors.ShouldBe([BenchSelector.ForItem(42), BenchSelector.ForSubtree(42)], ignoreOrder: true);
+        (await repository.TryRemovePinsAsync(bench.Id, 42, TrackingMode.Single))!.Value.WasPinned.ShouldBeTrue();
+        (await repository.GetByNameAsync(bench.Name))!.Selectors.ShouldBe([BenchSelector.ForSubtree(42)]);
     }
 
     [Fact]
@@ -109,14 +202,21 @@ public sealed class BenchConfigurationPersistenceTests
         var other = (await repository.CreateAsync("other"))!;
         await repository.SetCurrentAsync(original.Id);
         var digest = BenchQueryRule.SettingsDigest(original.Selectors);
+        await repository.AddSelectorAsync(original.Id, BenchSelector.ForItem(88));
+        await repository.AddSelectorAsync(original.Id, BenchSelector.ForSubtree(88));
         await repository.AddSelectorAsync(original.Id, BenchSelector.ForCurrentSprint("Changed owner"));
         (await repository.TryReplaceQuerySelectorsAsync(original.Id, digest, [])).ShouldBeFalse();
         (await repository.TryUpdatePinsAsync(original.Id, 88, false, false, digest)).ShouldBeFalse();
+        (await repository.TryRemovePinsAsync(original.Id, 88, TrackingMode.Single, digest)).ShouldBeNull();
+        (await repository.TryRemovePinsAsync(original.Id, 88, TrackingMode.Tree, digest)).ShouldBeNull();
         await repository.SetCurrentAsync(other.Id);
         digest = BenchQueryRule.SettingsDigest((await repository.GetByNameAsync(original.Name))!.Selectors);
         (await repository.TryReplaceQuerySelectorsAsync(original.Id, digest, [])).ShouldBeFalse();
         (await repository.TryUpdatePinsAsync(original.Id, 88, false, false, digest)).ShouldBeFalse();
-        (await repository.GetByNameAsync(original.Name))!.Selectors.ShouldBe([BenchSelector.ForCurrentSprint("Changed owner")]);
+        (await repository.TryRemovePinsAsync(original.Id, 88, TrackingMode.Single, digest)).ShouldBeNull();
+        (await repository.TryRemovePinsAsync(original.Id, 88, TrackingMode.Tree, digest)).ShouldBeNull();
+        (await repository.GetByNameAsync(original.Name))!.Selectors.ShouldBe([
+            BenchSelector.ForItem(88), BenchSelector.ForSubtree(88), BenchSelector.ForCurrentSprint("Changed owner")], ignoreOrder: true);
         (await repository.GetByNameAsync(other.Name))!.Selectors.ShouldBeEmpty();
     }
 

@@ -87,6 +87,15 @@ Benches holding the same selectors show the same items. There is no evaluation s
 reason about, and no way for two arrangements to disagree because they were built in a
 different order.
 
+Single-item and subtree selectors rooted at the same ID are independent: either,
+both, or neither can exist. `workspace track` ensures the single pin is present;
+`workspace track-tree` ensures the subtree pin is present. Typed removal with
+`workspace untrack <id> --mode single|tree` removes only that exact selector kind
+inside the guarded native transaction. Omitting `--mode` keeps the existing
+remove-both behavior. Removing a pin never removes an ancestor selector, query
+or protected membership, and the reported changed/no-op result comes from the
+transaction rather than a previously captured view.
+
 ### Selectors are evaluated against the local cache, not against ADO
 
 🔴 **This is the constraint that decides the design, so it is stated before the model and

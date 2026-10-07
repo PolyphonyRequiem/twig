@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Interfaces;
@@ -81,9 +82,17 @@ public interface IBenchRepository
     Task<bool> TryReplaceQuerySelectorsAsync(long benchId, string expectedSettingsDigest,
         IReadOnlyCollection<BenchSelector> queries, CancellationToken ct = default);
 
-    /// <summary>Atomically edits explicit pins on the still-current Bench, optionally guarding raw query settings.</summary>
+    /// <summary>Atomically edits explicit pins on the still-current Bench; removal deletes both kinds.</summary>
     Task<bool> TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove,
         string? expectedSettingsDigest = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically removes explicit pins on the still-current Bench. A mode removes only that kind;
+    /// null removes both. Returns the committed Bench and actual deletion result, or null when
+    /// the captured Bench or raw query settings no longer match.
+    /// </summary>
+    Task<(Bench Bench, bool WasPinned)?> TryRemovePinsAsync(long benchId, int workItemId,
+        TrackingMode? mode = null, string? expectedSettingsDigest = null, CancellationToken ct = default);
 
     /// <summary>
     /// Removes a Bench and the selectors that belong to it (ADO #150, spec §5).

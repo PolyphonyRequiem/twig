@@ -42,8 +42,8 @@ public sealed class TrackingCommand(
     public async Task<int> TrackTreeAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
         => await TrackCoreAsync(id, TrackingMode.Tree, outputFormat, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
-    /// <summary>Remove a work item from tracking.</summary>
-    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
+    /// <summary>Remove both explicit pin kinds, or only the specified single/tree kind.</summary>
+    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -51,6 +51,18 @@ public sealed class TrackingCommand(
         {
             Console.Error.WriteLine(fmt.FormatError("Cannot untrack seeds or invalid IDs. Provide a positive work item ID."));
             return 2;
+        }
+
+        TrackingMode? pinMode = null;
+        if (mode is not null)
+        {
+            if (string.Equals(mode, "single", StringComparison.OrdinalIgnoreCase)) pinMode = TrackingMode.Single;
+            else if (string.Equals(mode, "tree", StringComparison.OrdinalIgnoreCase)) pinMode = TrackingMode.Tree;
+            else
+            {
+                Console.Error.WriteLine(fmt.FormatError("Invalid --mode. Use single or tree, or omit --mode to remove both explicit pin kinds."));
+                return 2;
+            }
         }
 
         // ADO #145: unpinning takes the selector off the CURRENT BENCH. It routes through the
@@ -61,15 +73,17 @@ public sealed class TrackingCommand(
         PinOutcome outcome;
         try
         {
-            outcome = await pinWorkflow.UnpinAsync(id, ct, expectBench, expectSettings);
+            outcome = await pinWorkflow.UnpinAsync(id, ct, expectBench, expectSettings, pinMode);
         }
         catch (InvalidOperationException ex)
         {
             Console.Error.WriteLine(fmt.FormatError(ex.Message));
             return 1;
         }
-        var wasTracked = outcome is PinOutcome.Unpinned { WasPinned: true };
-        if (wasTracked)
+        var removal = (PinOutcome.Unpinned)outcome;
+        if (removal.Mode is not null)
+            RenderTypedUnpin(removal, outputFormat);
+        else if (removal.WasPinned)
             RenderOutcome("untracked", $"Untracked #{id}.", id, outputFormat, Severity.Success);
         else
             RenderOutcome("untrackNotTracked", $"#{id} was not tracked.", id, outputFormat, Severity.Info);
@@ -236,6 +250,27 @@ public sealed class TrackingCommand(
         if (title is not null)
             fields["title"] = RenderCell.String(title);
         return new RenderNode.Record("tracked", fields);
+    }
+
+    private void RenderTypedUnpin(PinOutcome.Unpinned removal, string outputFormat)
+    {
+        var mode = removal.Mode == TrackingMode.Tree ? "tree" : "single";
+        var label = removal.Mode == TrackingMode.Tree ? "subtree" : "single";
+        var message = removal.WasPinned
+            ? $"Removed {label} pin for #{removal.WorkItemId}."
+            : $"#{removal.WorkItemId} has no explicit {label} pin.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower is "json" or "json-full" or "json-compact" or "ids"
+            ? new RenderNode.Record(removal.WasPinned ? "untracked" : "untrackNotTracked",
+                new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderCell.String(message),
+                    ["itemId"] = RenderCell.Integer(removal.WorkItemId),
+                    ["pinMode"] = RenderCell.String(mode),
+                    ["wasPinned"] = RenderCell.Boolean(removal.WasPinned),
+                })
+            : new RenderNode.Text(message, removal.WasPinned ? Severity.Success : Severity.Info);
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
     }
 
     private void RenderOutcome(string kind, string message, int? itemId, string outputFormat, Severity severity, (string Key, RenderCell Value)? extra = null)

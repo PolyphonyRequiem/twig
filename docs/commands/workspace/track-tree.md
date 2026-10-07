@@ -56,6 +56,11 @@ The human-format output appends ` (tree)` to the confirmation message so it is
 distinct from a single-item pin
 (`src/Twig/Commands/TrackingCommand.cs:186-198`).
 
+A subtree pin and single pin for the same ID are independent and can coexist.
+This command ensures the subtree pin is present without replacing a single pin.
+Remove only this kind with `workspace untrack <id> --mode tree`; omit `--mode`
+only when you intend to remove both explicit kinds.
+
 ## Examples
 
 ```

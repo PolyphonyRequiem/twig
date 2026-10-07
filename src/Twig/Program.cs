@@ -1165,16 +1165,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
-    /// <summary>Remove both explicit single-item and subtree pins; inherited membership remains.</summary>
+    /// <summary>Remove explicit pins, optionally only single or tree; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
     /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
     /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
     /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
+    /// <param name="mode">Optional pin kind: single or tree (case-insensitive). Unset removes both explicit kinds.</param>
     [Command("workspace untrack")]
-    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
+    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
 
     /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

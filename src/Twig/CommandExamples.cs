@@ -333,6 +333,8 @@ internal static class CommandExamples
             "twig workspace untrack 1234        Stop tracking work item #1234",
             "twig workspace untrack 5678        Remove a pinned item from workspace",
             "twig workspace untrack 5678 --expect-bench 7 -o json  Remove both explicit pins with a captured Bench guard",
+            "twig workspace untrack 5678 --mode single  Remove only the explicit single pin; retain a subtree pin",
+            "twig workspace untrack 5678 --mode tree --expect-bench 7 -o json  Remove only the explicit subtree pin on captured Bench 7",
         ],
         ["workspace exclude"] =
         [

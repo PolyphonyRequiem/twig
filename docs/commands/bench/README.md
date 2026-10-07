@@ -69,9 +69,14 @@ ordinary workspace JSON remains unchanged.
 
 Any positive work item ID can be pinned with `workspace track` or
 `workspace track-tree`, even on an empty Bench. Unknown IDs are uncached/unverified,
-not invented work-item records. `workspace untrack` removes both explicit modes
-for that ID but cannot hide inherited subtree membership, seeds or pending work.
-These pin commands also accept `--expect-settings` for captured browser forms.
+not invented work-item records. Single and subtree pins for the same ID coexist.
+`workspace untrack --mode single` removes only the single pin, and
+`workspace untrack --mode tree` removes only the subtree pin. Omitting `--mode`
+still removes both explicit kinds for that ID. None of these operations hides
+inherited subtree membership, query matches, seeds or pending work.
+These pin commands also accept `--expect-settings` for captured browser forms;
+typed removal reports the named kind and whether the transaction actually
+deleted it, then consumers can refresh native truth.
 
 
 ## See also

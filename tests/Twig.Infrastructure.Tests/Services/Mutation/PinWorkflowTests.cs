@@ -97,14 +97,19 @@ public sealed class PinWorkflowTests : IDisposable
         selectors.ShouldNotContain(BenchSelector.ForItem(100));
     }
 
-    [Fact]
-    public async Task Pin_IsIdempotent_SoRepetitionCannotChangeMembership()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pin_BothKindsCoexistAndEachAddIsIdempotent(bool treeFirst)
     {
         var sut = CreateSut();
-        await sut.PinAsync(42, includeSubtree: false);
-        await sut.PinAsync(42, includeSubtree: false);
+        await sut.PinAsync(42, includeSubtree: treeFirst);
+        await sut.PinAsync(42, includeSubtree: !treeFirst);
+        await sut.PinAsync(42, includeSubtree: treeFirst);
+        await sut.PinAsync(42, includeSubtree: !treeFirst);
 
-        (await SelectorsAsync()).Count(s => s == BenchSelector.ForItem(42)).ShouldBe(1);
+        (await SelectorsAsync()).Where(selector => selector.Kind != SelectorKind.Query)
+            .ShouldBe([BenchSelector.ForItem(42), BenchSelector.ForSubtree(42)], ignoreOrder: true);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -285,6 +290,8 @@ public sealed class PinWorkflowTests : IDisposable
     [InlineData("single")]
     [InlineData("tree")]
     [InlineData("unpin")]
+    [InlineData("unpin-single")]
+    [InlineData("unpin-tree")]
     public async Task StaleCapturedBench_RefusesWithoutChangingEitherBench(string operation)
     {
         var original = (await _benchRepo.CreateAsync("original"))!;
@@ -302,7 +309,13 @@ public sealed class PinWorkflowTests : IDisposable
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
             var expected = original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            if (operation == "unpin") await sut.UnpinAsync(42, expectBench: expected);
+            if (operation.StartsWith("unpin", StringComparison.Ordinal))
+                await sut.UnpinAsync(42, expectBench: expected, mode: operation switch
+                {
+                    "unpin-single" => TrackingMode.Single,
+                    "unpin-tree" => TrackingMode.Tree,
+                    _ => null,
+                });
             else await sut.PinAsync(42, operation == "tree", expectBench: expected);
         });
 
@@ -329,8 +342,92 @@ public sealed class PinWorkflowTests : IDisposable
         (await ViewAsync()).ShouldContain(100);
     }
 
-    [Fact]
-    public async Task Unpin_BenchSwitchBetweenCaptureAndTransaction_RefusesWithoutRetargeting()
+    [Theory]
+    [InlineData(TrackingMode.Single, false, false)]
+    [InlineData(TrackingMode.Single, true, false)]
+    [InlineData(TrackingMode.Single, false, true)]
+    [InlineData(TrackingMode.Single, true, true)]
+    [InlineData(TrackingMode.Tree, false, false)]
+    [InlineData(TrackingMode.Tree, true, false)]
+    [InlineData(TrackingMode.Tree, false, true)]
+    [InlineData(TrackingMode.Tree, true, true)]
+    public async Task TypedUnpin_RemovesOnlyRequestedExplicitKind(TrackingMode mode, bool single, bool tree)
+    {
+        var sut = CreateSut();
+        if (single) await sut.PinAsync(100, includeSubtree: false);
+        if (tree) await sut.PinAsync(100, includeSubtree: true);
+        var outcome = (await sut.UnpinAsync(100, mode: mode)).ShouldBeOfType<PinOutcome.Unpinned>();
+
+        outcome.Mode.ShouldBe(mode);
+        outcome.WasPinned.ShouldBe(mode == TrackingMode.Single ? single : tree);
+        var expected = new List<BenchSelector>();
+        if (single && mode != TrackingMode.Single) expected.Add(BenchSelector.ForItem(100));
+        if (tree && mode != TrackingMode.Tree) expected.Add(BenchSelector.ForSubtree(100));
+        (await SelectorsAsync()).Where(selector => selector.Kind != SelectorKind.Query)
+            .ShouldBe(expected, ignoreOrder: true);
+        outcome.Bench.Selectors.ShouldBe(await SelectorsAsync(), ignoreOrder: true);
+        (await sut.UnpinAsync(100, mode: mode)).ShouldBeOfType<PinOutcome.Unpinned>().WasPinned.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(TrackingMode.Single)]
+    [InlineData(TrackingMode.Tree)]
+    public async Task TypedUnpin_PreservesAncestorQueryAndProtectedMembership(TrackingMode mode)
+    {
+        _workItemRepo.GetChildrenAsync(500, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(100, "Inherited child").WithParent(500).Build() });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(200, "Query match").AssignedToUniqueName(IdentityStubs.DefaultCanonicalPrincipal)
+                .WithIterationPath(Sprint.Value).Build() });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(-1, "Local seed").AsSeed().Build() });
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 300 });
+        var sut = CreateSut();
+        await sut.PinAsync(500, includeSubtree: true);
+        foreach (var id in new[] { 100, 200, 300 })
+            await sut.PinAsync(id, includeSubtree: mode == TrackingMode.Tree);
+        var queries = (await SelectorsAsync()).Where(selector => selector.Kind == SelectorKind.Query).ToArray();
+
+        foreach (var id in new[] { 100, 200, 300 }) await sut.UnpinAsync(id, mode: mode);
+        (await sut.UnpinAsync(100, mode: mode)).ShouldBeOfType<PinOutcome.Unpinned>().WasPinned.ShouldBeFalse();
+
+        (await SelectorsAsync()).ShouldBe(queries.Append(BenchSelector.ForSubtree(500)), ignoreOrder: true);
+        (await ViewAsync()).ShouldBe([500, 100, 200, 300, -1], ignoreOrder: true);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(TrackingMode.Single)]
+    [InlineData(TrackingMode.Tree)]
+    public async Task Unpin_ConcurrentRemoval_ReportsActualNoOpAndCommittedBench(TrackingMode? mode)
+    {
+        var sut = CreateSut();
+        await sut.PinAsync(42, includeSubtree: mode == TrackingMode.Tree);
+        var intercepted = Substitute.For<IBenchRepository>();
+        intercepted.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(_ => _benchRepo.GetByNameAsync(Bench.DefaultName));
+        intercepted.TryRemovePinsAsync(Arg.Any<long>(), Arg.Any<int>(), Arg.Any<TrackingMode?>(),
+                Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await _benchRepo.TryRemovePinsAsync(call.ArgAt<long>(0), 42, mode);
+                await _benchRepo.AddSelectorAsync(call.ArgAt<long>(0), BenchSelector.ForItem(99));
+                return await _benchRepo.TryRemovePinsAsync(call.ArgAt<long>(0), call.ArgAt<int>(1),
+                    call.ArgAt<TrackingMode?>(2), call.ArgAt<string?>(3));
+            });
+
+        var outcome = (await new PinWorkflow(intercepted, new DefaultBenchSelectors(IdentityStubs.NewBound()))
+            .UnpinAsync(42, mode: mode)).ShouldBeOfType<PinOutcome.Unpinned>();
+
+        outcome.WasPinned.ShouldBeFalse();
+        outcome.Bench.Selectors.ShouldContain(BenchSelector.ForItem(99));
+        outcome.Bench.Selectors.ShouldBe(await SelectorsAsync(), ignoreOrder: true);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(TrackingMode.Single)]
+    [InlineData(TrackingMode.Tree)]
+    public async Task Unpin_BenchSwitchBetweenCaptureAndTransaction_RefusesWithoutRetargeting(TrackingMode? mode)
     {
         var original = (await _benchRepo.CreateAsync("original"))!;
         var replacement = (await _benchRepo.CreateAsync("replacement"))!;
@@ -343,18 +440,18 @@ public sealed class PinWorkflowTests : IDisposable
         var switching = Substitute.For<IBenchRepository>();
         switching.GetCurrentAsync(Arg.Any<CancellationToken>())
             .Returns(_ => _benchRepo.GetCurrentAsync());
-        switching.TryUpdatePinsAsync(Arg.Any<long>(), Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<bool>(),
+        switching.TryRemovePinsAsync(Arg.Any<long>(), Arg.Any<int>(), Arg.Any<TrackingMode?>(),
                 Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(async call =>
             {
                 await _benchRepo.SetCurrentAsync(replacement.Id);
-                return await _benchRepo.TryUpdatePinsAsync(call.ArgAt<long>(0), call.ArgAt<int>(1),
-                    call.ArgAt<bool>(2), call.ArgAt<bool>(3), call.ArgAt<string?>(4));
+                return await _benchRepo.TryRemovePinsAsync(call.ArgAt<long>(0), call.ArgAt<int>(1),
+                    call.ArgAt<TrackingMode?>(2), call.ArgAt<string?>(3));
             });
         var sut = new PinWorkflow(switching, new DefaultBenchSelectors(IdentityStubs.NewBound()));
 
         await Should.ThrowAsync<InvalidOperationException>(() => sut.UnpinAsync(42,
-            expectBench: original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            expectBench: original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), mode: mode));
         (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldContain(BenchSelector.ForItem(42));
         (await _benchRepo.GetByNameAsync(original.Name))!.Selectors.ShouldContain(BenchSelector.ForSubtree(42));
         (await _benchRepo.GetByNameAsync(replacement.Name))!.Selectors.ShouldContain(BenchSelector.ForItem(42));

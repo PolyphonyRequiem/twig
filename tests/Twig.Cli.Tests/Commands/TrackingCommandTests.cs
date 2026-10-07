@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
@@ -9,6 +11,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Services.Mutation;
 using Xunit;
 using Twig.Cli.Tests.TestSupport;
@@ -143,6 +146,114 @@ public sealed class TrackingCommandTests
 
         result.ShouldBe(2);
         stderr.ShouldContain("Cannot untrack seeds or invalid IDs");
+    }
+
+    [Theory]
+    [InlineData("SiNgLe", "single", false)]
+    [InlineData("TrEe", "tree", true)]
+    public async Task Untrack_ModeRemovesOnlyNamedKindAndReportsActualChange(string requested, string normalized, bool tree)
+    {
+        var cmd = CreateCommand();
+        await StdoutCapture.RunAsync(() => cmd.TrackAsync(987, "json"));
+        await StdoutCapture.RunAsync(() => cmd.TrackTreeAsync(987, "json"));
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(987, "json", mode: requested));
+
+        result.ShouldBe(0);
+        using var changed = JsonDocument.Parse(stdout);
+        changed.RootElement.GetProperty("itemId").GetInt32().ShouldBe(987);
+        changed.RootElement.GetProperty("pinMode").GetString().ShouldBe(normalized);
+        changed.RootElement.GetProperty("wasPinned").GetBoolean().ShouldBeTrue();
+        (await SelectorsAsync()).Where(selector => selector.Kind != SelectorKind.Query)
+            .ShouldBe([tree ? BenchSelector.ForItem(987) : BenchSelector.ForSubtree(987)]);
+
+        (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(987, "json", mode: requested));
+        result.ShouldBe(0);
+        using var noOp = JsonDocument.Parse(stdout);
+        noOp.RootElement.GetProperty("pinMode").GetString().ShouldBe(normalized);
+        noOp.RootElement.GetProperty("wasPinned").GetBoolean().ShouldBeFalse();
+        (await SelectorsAsync()).Where(selector => selector.Kind != SelectorKind.Query)
+            .ShouldBe([tree ? BenchSelector.ForItem(987) : BenchSelector.ForSubtree(987)]);
+    }
+
+    [Fact]
+    public async Task Untrack_DefaultRemovesBothKindsAndPreservesExistingJsonShape()
+    {
+        var cmd = CreateCommand();
+        await StdoutCapture.RunAsync(() => cmd.TrackAsync(42, "json"));
+        await StdoutCapture.RunAsync(() => cmd.TrackTreeAsync(42, "json"));
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42, "json"));
+
+        result.ShouldBe(0);
+        using var json = JsonDocument.Parse(stdout);
+        json.RootElement.EnumerateObject().Select(property => property.Name).ShouldBe(["message", "itemId"], ignoreOrder: true);
+        json.RootElement.GetProperty("itemId").GetInt32().ShouldBe(42);
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForItem(42));
+        (await SelectorsAsync()).ShouldNotContain(BenchSelector.ForSubtree(42));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("0")]
+    [InlineData("both")]
+    [InlineData("single,tree")]
+    [InlineData(" single")]
+    public async Task Untrack_InvalidExplicitModeReturnsUsageErrorWithoutMutation(string mode)
+    {
+        var cmd = CreateCommand();
+        await StdoutCapture.RunAsync(() => cmd.TrackAsync(42, "json"));
+        await StdoutCapture.RunAsync(() => cmd.TrackTreeAsync(42, "json"));
+        var before = await SelectorsAsync();
+
+        var (result, stderr) = await StderrCapture.RunAsync(() => cmd.UntrackAsync(42, "json", expectBinding: "missing", mode: mode));
+
+        result.ShouldBe(2);
+        stderr.ShouldNotBeNullOrWhiteSpace();
+        (await SelectorsAsync()).ShouldBe(before, ignoreOrder: true);
+    }
+
+    [Theory]
+    [InlineData("bench")]
+    [InlineData("settings")]
+    [InlineData("binding")]
+    [InlineData("identity")]
+    public async Task Untrack_TypedRemovalRefusesStaleCapturedGuards(string stale)
+    {
+        var repository = BenchRepo;
+        var bench = (await repository.CreateAsync("captured"))!;
+        var other = (await repository.CreateAsync("other"))!;
+        await repository.SetCurrentAsync(bench.Id);
+        foreach (var target in new[] { bench, other })
+        {
+            await repository.AddSelectorAsync(target.Id, BenchSelector.ForItem(42));
+            await repository.AddSelectorAsync(target.Id, BenchSelector.ForSubtree(42));
+        }
+        var before = (await repository.GetByNameAsync(bench.Name))!.Selectors;
+        var authentication = Substitute.For<IAuthenticationProvider, IConnectionOperationGuard>();
+        ((IConnectionOperationGuard)authentication).AcquireOperationAsync(Arg.Any<CancellationToken>())
+            .Returns(Substitute.For<IDisposable>());
+        var pin = new PinWorkflow(repository, new DefaultBenchSelectors(IdentityStubs.NewBound()), authenticationProvider: authentication);
+        var command = new TrackingCommand(_trackingService, _workItemRepo, _formatterFactory, pin, authenticationProvider: authentication)
+        {
+            ResolveBrowserBindingAsync = _ => Task.FromResult(new ResolvedConnectionBinding(
+                new IdentityBinding("binding", "connection", "actor", 1),
+                new AuthenticationIdentity("actor", "Fixture", "tenant", "object", "issuer", "host", "credential", null),
+                "fixture", "fixture", 1,
+                new ConnectionOperationSnapshot("org", "project", "team", "fingerprint", 1, "manifest", "config", "unicode", "config"))),
+        };
+
+        var (result, stderr) = await StderrCapture.RunAsync(() => command.UntrackAsync(42, "json",
+            expectBench: (stale == "bench" ? other.Id : bench.Id).ToString(CultureInfo.InvariantCulture),
+            expectBinding: stale == "binding" ? "old-binding" : "binding",
+            expectIdentity: stale == "identity" ? "old-actor" : "actor",
+            expectSettings: stale == "settings" ? "old-settings" : BenchQueryRule.SettingsDigest(before),
+            mode: "single"));
+
+        result.ShouldBe(1);
+        stderr.ShouldNotBeNullOrWhiteSpace();
+        (await repository.GetByNameAsync(bench.Name))!.Selectors.ShouldBe(before, ignoreOrder: true);
+        (await repository.GetByNameAsync(other.Name))!.Selectors.ShouldBe([BenchSelector.ForItem(42), BenchSelector.ForSubtree(42)], ignoreOrder: true);
     }
 
     // ── Exclude ────────────────────────────────────────────────────────

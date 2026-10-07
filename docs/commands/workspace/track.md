@@ -54,6 +54,11 @@ The pin is a Bench selector, not a snapshot: it does not pre-expand any
 descendants, and the item continues to be resolved live at workspace-evaluation
 time.
 
+A single pin and subtree pin for the same ID are independent and can coexist.
+This command ensures the single pin is present without replacing a subtree pin.
+Remove only this kind with `workspace untrack <id> --mode single`; omit `--mode`
+only when you intend to remove both explicit kinds.
+
 ## Examples
 
 ```

@@ -86,10 +86,31 @@ public sealed class ShowCommand(
     /// Cache-only — no ADO fetch. When <paramref name="fields"/> or <paramref name="sections"/>
     /// is set, the response is a compact projection envelope with truthful field statuses
     /// (present / absent / unknown) instead of the full items[] array.
+    /// <para><paramref name="includeFields"/> exports complete stored target fields and
+    /// metadata without loading parent, child, or link-endpoint bodies.</para>
     /// </summary>
-    public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null)
+    public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null, bool includeFields = false)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
+        if (includeFields)
+        {
+            if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) || fields is not null || sections is not null)
+            {
+                ctx.StderrWriter.WriteLine("error: --include-fields requires -o json and cannot be combined with --fields or --sections.");
+                return 2;
+            }
+            if (!ShowBatchExportArguments.TryParseIds(batch, out var ids))
+            {
+                ctx.StderrWriter.WriteLine("error: --include-fields requires a non-empty comma-separated list of distinct nonzero work item IDs.");
+                return 2;
+            }
+            if (string.IsNullOrWhiteSpace(ctx.Config.Organization) || string.IsNullOrWhiteSpace(ctx.Config.Project))
+            {
+                ctx.StderrWriter.WriteLine("error: --include-fields requires a configured organization and project.");
+                return 2;
+            }
+            return await ExecuteTargetExportAsync(ids, ct);
+        }
         var request = ShowProjection.Request.Parse(fields, sections);
         if (request.IsActive && OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact"))
         {
@@ -773,6 +794,107 @@ public sealed class ShowCommand(
             ["targetBranch"] = RenderCell.String(pr.TargetBranch ?? string.Empty),
             ["url"] = RenderCell.String(pr.Url ?? string.Empty),
         });
+    }
+
+    private async Task<int> ExecuteTargetExportAsync(IReadOnlyList<int> ids, CancellationToken ct)
+    {
+        using var operation = workItemRepo.AcquireOperation();
+        var items = new List<Domain.Aggregates.WorkItem>(ids.Count);
+        var foundIds = new List<int>(ids.Count);
+        var missing = new List<RenderCell>();
+        var requested = new List<RenderCell>(ids.Count);
+        foreach (var id in ids)
+        {
+            requested.Add(RenderCell.Integer(id));
+            var item = await workItemRepo.GetByIdAsync(id, ct);
+            if (item is null)
+                missing.Add(RenderCell.Integer(id));
+            else
+            {
+                items.Add(item);
+                foundIds.Add(id);
+            }
+        }
+
+        // These repositories expose metadata only. Do not use SyncGuard here: it
+        // hydrates every dirty item, including bodies outside the requested set.
+        IReadOnlySet<int>? pendingIds = null;
+        if (_pendingChangeStore is not null)
+        {
+            try
+            {
+                pendingIds = new HashSet<int>(await _pendingChangeStore.GetDirtyItemIdsAsync(ct));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Unknown pending evidence must remain unknown, never falsely clean.
+            }
+        }
+        var links = new List<WorkItemLink>();
+        var verified = new Dictionary<int, DateTimeOffset>();
+        // Bound each metadata query to SQLite's conservative parameter limit,
+        // not the requested set: exports have no item-count ceiling.
+        foreach (var chunk in foundIds.Chunk(999))
+        {
+            links.AddRange(await linkRepo.GetLinksForSetAsync(chunk, ct));
+            foreach (var (id, stamp) in await linkRepo.GetLinksVerifiedAtForSetAsync(chunk, ct))
+                verified.Add(id, stamp);
+        }
+        var graph = WorkItemGraph.Build(items, links);
+        var exported = new List<RenderCell>(items.Count);
+        foreach (var item in items)
+        {
+            var storedFields = new Dictionary<string, RenderCell>(item.Fields.Count, StringComparer.Ordinal);
+            foreach (var (refName, value) in item.Fields)
+                storedFields.Add(refName, value is null ? new RenderCell(string.Empty, new RenderValue.Null()) : RenderCell.String(value));
+
+            item.Fields.TryGetValue("System.Tags", out var rawTags);
+            var tags = new List<RenderCell>();
+            if (rawTags is not null)
+                foreach (var tag in rawTags.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    tags.Add(RenderCell.String(tag));
+            var itemLinks = graph.GetLinks(item.Id);
+            var linkCells = new List<RenderCell>(itemLinks.Count);
+            foreach (var link in itemLinks)
+                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
+
+            var freshness = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["hasLocalChanges"] = item.IsDirty ? RenderCell.Boolean(true) : pendingIds is not null
+                    ? RenderCell.Boolean(pendingIds.Contains(item.Id)) : new RenderCell(string.Empty, new RenderValue.Null()),
+                ["lastSyncedAt"] = LinksVerifiedAtCell(item.LastSyncedAt),
+                ["linksVerifiedAt"] = LinksVerifiedAtCell(verified.TryGetValue(item.Id, out var stamp) ? stamp : null),
+            };
+            var core = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(item.Id),
+                ["revision"] = RenderCell.Integer(item.Revision),
+                ["isSeed"] = RenderCell.Boolean(item.IsSeed),
+                ["type"] = RenderCell.String(item.Type.ToString()),
+                ["title"] = RenderCell.String(item.Title),
+                ["state"] = RenderCell.String(item.State),
+                ["assignedTo"] = item.AssignedTo is null ? new RenderCell(string.Empty, new RenderValue.Null()) : RenderCell.String(item.AssignedTo),
+                ["areaPath"] = RenderCell.String(item.AreaPath.ToString()),
+                ["iterationPath"] = RenderCell.String(item.IterationPath.ToString()),
+                ["parentId"] = item.ParentId is int parentId ? RenderCell.Integer(parentId) : new RenderCell(string.Empty, new RenderValue.Null()),
+                ["tags"] = new RenderCell(string.Empty, new RenderValue.Array(tags)),
+                ["fields"] = new RenderCell(string.Empty, new RenderValue.Object(storedFields)),
+                ["freshness"] = new RenderCell(string.Empty, new RenderValue.Object(freshness)),
+                ["links"] = new RenderCell(string.Empty, new RenderValue.Array(linkCells)),
+            };
+            exported.Add(new RenderCell(string.Empty, new RenderValue.Object(core)));
+        }
+        var envelope = new RenderNode.Record(null, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["exportVersion"] = RenderCell.Integer(1),
+            ["connection"] = RenderCell.String(ShowProjection.FormatConnection(ctx.Config)!),
+            ["requestedIds"] = new RenderCell(string.Empty, new RenderValue.Array(requested)),
+            ["items"] = new RenderCell(string.Empty, new RenderValue.Array(exported)),
+            ["missing"] = new RenderCell(string.Empty, new RenderValue.Array(missing)),
+        });
+        _rendererFactory.GetRenderer("json").Render(new Twig.RenderTree.RenderTree([envelope]));
+        Console.WriteLine();
+        return missing.Count > 0 ? 1 : 0;
     }
 
     private async Task<int> ExecuteBatchCoreAsync(string batch, string outputFormat, ShowProjection.Request request, CancellationToken ct)

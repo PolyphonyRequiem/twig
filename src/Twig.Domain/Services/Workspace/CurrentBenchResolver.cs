@@ -25,11 +25,13 @@ namespace Twig.Domain.Services.Workspace;
 /// </para>
 /// <para>
 /// 🔴 The DEFAULT Bench's self sprint selector is re-bound to the current authenticated principal
-/// on every resolve (ADO #1106). A default persisted before the canonical slot existed carries a
+/// on every membership resolve (ADO #1106). A default persisted before the canonical slot existed carries a
 /// display-rendered <see cref="BenchSelector.ForCurrentSprint(string?)"/>; evaluating that today
 /// could merge two accounts with the same display name, or route a different operator's view
 /// through the previous user's display name. Normalizing in-memory keeps pins intact and never
 /// overwrites CUSTOM Benches whose rules are the user's own authored choices.
+/// Metadata-only consumers use <see cref="ResolveStoredAsync"/> instead: they report durable
+/// arrangements, never evaluate their self rules, and leave stored selectors unchanged.
 /// </para>
 /// </summary>
 public sealed class CurrentBenchResolver
@@ -58,13 +60,27 @@ public sealed class CurrentBenchResolver
     /// untouched, because its selectors are the user's own rules.
     /// </para>
     /// </summary>
-    public async Task<Bench> ResolveAsync(CancellationToken ct = default, string? expectBench = null)
+    public Task<Bench> ResolveAsync(CancellationToken ct = default, string? expectBench = null)
+        => ResolveCoreAsync(normalizeDefaultSelf: true, ct, expectBench);
+
+    /// <summary>
+    /// Resolves the same current pointer and default policy for metadata-only consumers, returning
+    /// durable selectors without rebinding or evaluating the default's self rule. An existing
+    /// default needs no identity discovery; first-use creation still requires canonical identity.
+    /// Membership and query consumers must use <see cref="ResolveAsync"/> instead.
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="expectBench">Optional captured current Bench ID, checked before first-use initialization.</param>
+    public Task<Bench> ResolveStoredAsync(CancellationToken ct = default, string? expectBench = null)
+        => ResolveCoreAsync(normalizeDefaultSelf: false, ct, expectBench);
+
+    private async Task<Bench> ResolveCoreAsync(bool normalizeDefaultSelf, CancellationToken ct, string? expectBench)
     {
-        var current = await _benchRepository.GetCurrentAsync(ct);
+        var current = await _benchRepository.GetCurrentAsync(ct)
+            ?? await _benchRepository.GetByNameAsync(Bench.DefaultName, ct);
         if (expectBench is not null)
         {
             // A stale browser must not even create the first-use default Bench.
-            current ??= await _benchRepository.GetByNameAsync(Bench.DefaultName, ct);
             if (current is null || !string.Equals(expectBench,
                 current.Id.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
                 throw new InvalidOperationException(
@@ -74,10 +90,10 @@ public sealed class CurrentBenchResolver
         {
             var freshSelectors = await _defaultSelectors.BuildAsync(ct);
             current = await _benchRepository.GetOrCreateDefaultAsync(freshSelectors, ct);
-            return NormalizeDefaultSelfSprint(current, freshSelectors);
+            return normalizeDefaultSelf ? NormalizeDefaultSelfSprint(current, freshSelectors) : current;
         }
 
-        if (current.IsDefault)
+        if (normalizeDefaultSelf && current.IsDefault)
             return NormalizeDefaultSelfSprint(current, await _defaultSelectors.BuildAsync(ct));
 
         return current;
@@ -92,7 +108,7 @@ public sealed class CurrentBenchResolver
     }
 
     internal async Task<(Bench Effective, Bench Stored)> ResolveCapturedAsync(CancellationToken ct = default, string? expectBench = null)
-        => await ReadCapturedAsync(await ResolveAsync(ct, expectBench), ct);
+        => await ReadCapturedAsync(await ResolveStoredAsync(ct, expectBench), ct);
 
     internal async Task<(Bench Effective, Bench Stored)> ReadCapturedAsync(Bench captured, CancellationToken ct = default)
     {

@@ -95,9 +95,8 @@ public sealed class BenchWorkflow(
         // must already exist; a stale browser must not create or select a replacement arrangement.
         if (string.Equals(trimmed, Bench.DefaultName, StringComparison.OrdinalIgnoreCase) && expectBench is null)
         {
-            var previousName = (await currentBench.ResolveAsync(ct)).Name;
-            var defaultBench = await benchRepository.GetOrCreateDefaultAsync(
-                await defaultSelectors.BuildAsync(ct), ct);
+            var previousName = (await currentBench.ResolveStoredAsync(ct)).Name;
+            var defaultBench = await EnsureDefaultAsync(ct);
             var selected = await benchRepository.TrySetCurrentAsync(defaultBench.Id, ct)
                 ?? throw new InvalidOperationException("The target Bench changed. Refresh and retry; no Bench was selected.");
             return new BenchOutcome.Switched(selected, previousName);
@@ -111,7 +110,7 @@ public sealed class BenchWorkflow(
             return new BenchOutcome.UnknownBench(trimmed, known);
         }
 
-        var previous = (await currentBench.ResolveAsync(ct)).Name;
+        var previous = (await currentBench.ResolveStoredAsync(ct)).Name;
         var switched = await benchRepository.TrySetCurrentAsync(target.Id, ct)
             ?? throw new InvalidOperationException("The target Bench changed. Refresh and retry; no Bench was selected.");
         return new BenchOutcome.Switched(switched, previous);
@@ -216,20 +215,23 @@ public sealed class BenchWorkflow(
     /// Every Bench that exists, with the current one named. Creates the default first so the
     /// listing is never empty: the default exists without the person creating it (spec §4), and a
     /// listing that showed nothing until somebody pinned something would say something false.
+    /// Existing arrangements are read as stored metadata, without resolving identity or evaluating
+    /// sprint rules. Connection admission remains the caller's responsibility.
     /// </summary>
     public async Task<BenchListing> ListAsync(CancellationToken ct = default)
     {
-        var current = await currentBench.ResolveAsync(ct);
+        var current = await currentBench.ResolveStoredAsync(ct);
         var all = await benchRepository.GetAllAsync(ct);
         return new BenchListing(all, current.Name);
     }
 
     /// <summary>
-    /// The default Bench, created on first use. Only <see cref="CreateAsync"/> calls this now:
+    /// The default Bench, created on first use. Creation and switching to default share this path:
     /// which Bench is CURRENT is <see cref="CurrentBenchResolver"/>'s single answer, shared with
     /// the view and the pin workflow, so no surface can be left reading the default after a
     /// switch.
     /// </summary>
     private async Task<Bench> EnsureDefaultAsync(CancellationToken ct)
-        => await benchRepository.GetOrCreateDefaultAsync(await defaultSelectors.BuildAsync(ct), ct);
+        => await benchRepository.GetByNameAsync(Bench.DefaultName, ct)
+            ?? await benchRepository.GetOrCreateDefaultAsync(await defaultSelectors.BuildAsync(ct), ct);
 }

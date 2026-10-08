@@ -24,6 +24,14 @@ command means the same thing in a pipe as at a prompt.
 |[`bench switch`](./switch.md)|Stand on another Bench.|local|
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
 
+Listing, creating a named Bench and switching read existing arrangements as stored
+metadata, without identity-profile discovery or query evaluation. First-use default
+initialization still validates the admitted canonical identity; a refusal creates
+nothing. Native connection admission, captured target IDs and atomic storage guards
+remain in force. Creating a Bench does not select it. Metadata reads never rewrite
+saved selectors, and default self membership is still rebound to the current
+canonical principal whenever a workspace, pin or query consumer evaluates it.
+
 ## Configure the current Bench
 
 `bench configuration` reads explicit pins (including IDs not yet cached), saved

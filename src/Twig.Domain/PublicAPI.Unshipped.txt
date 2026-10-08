@@ -11,6 +11,7 @@ Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.get -> System.Co
 Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.init -> void
 *REMOVED*Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
 Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveStoredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
 Twig.Domain.Interfaces.IWorkItemRepository.AcquireOperation() -> System.IDisposable?
 static Twig.Domain.Services.Field.CacheAgeFormatter.FormatAge(System.DateTimeOffset? lastSyncedAt, int staleMinutes) -> string?
 *REMOVED*Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int cacheStaleMinutes) -> void

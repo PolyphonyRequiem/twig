@@ -298,7 +298,7 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoTeamFieldValuesResponse, ct);
 
         if (result?.Values is null || result.Values.Count == 0)
-            return result?.DefaultValue is not null ? [(result.DefaultValue, true)] : Array.Empty<(string, bool)>();
+            return Array.Empty<(string, bool)>();
 
         var paths = new List<(string Path, bool IncludeChildren)>(result.Values.Count);
         foreach (var v in result.Values)

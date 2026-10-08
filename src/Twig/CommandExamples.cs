@@ -381,6 +381,16 @@ internal static class CommandExamples
             "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
             "twig bench configuration -o json      Capture raw settings digest for guarded edits",
         ],
+        ["bench detail"] =
+        [
+            "twig bench detail 42                  Read full cached detail without changing the active item",
+            "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
+        ],
+        ["bench configuration area candidates"] =
+        [
+            "twig bench configuration area candidates   List the configured team's official area paths",
+            "twig bench configuration area candidates --expect-bench 7 -o json  Capture team paths and exact/under semantics",
+        ],
         ["bench configuration area add"] =
         [
             "twig bench configuration area add \"Project\\Team A\"          Add an Under filter on this Bench",
@@ -659,24 +669,15 @@ internal static class CommandExamples
 
         string? key = null;
 
-        // Try 3-token compound first (e.g. "workspace area add")
-        if (args.Length >= 3)
+        for (var length = args.Length; length > 0; length--)
         {
-            var triple = $"{args[0]} {args[1]} {args[2]}";
-            if (Examples.ContainsKey(triple))
-                key = triple;
+            var candidate = string.Join(" ", args, 0, length);
+            if (!Examples.ContainsKey(candidate)) continue;
+            key = candidate;
+            break;
         }
 
-        // Try 2-token compound (e.g. "nav up", "workspace area")
-        if (key is null && args.Length >= 2)
-        {
-            var compound = $"{args[0]} {args[1]}";
-            if (Examples.ContainsKey(compound))
-                key = compound;
-        }
-
-        // Fall back to single token
-        key ??= args[0];
+        if (key is null) return;
 
         if (!Examples.TryGetValue(key, out var examples))
             return;

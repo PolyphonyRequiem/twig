@@ -1243,6 +1243,17 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
         => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct, expectBench, expectBinding, expectIdentity, expectContents);
 
+    /// <summary>Read full, richly rendered cached detail for an explicitly selected Bench work item.</summary>
+    /// <param name="id">Work item ID or local seed ID; never changes the active item.</param>
+    /// <param name="width">Terminal rendering width in columns (default 80).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    [Command("bench detail")]
+    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
@@ -1251,6 +1262,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     [Command("bench configuration")]
     public async Task<int> BenchConfiguration(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
         => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+
+    /// <summary>Read the configured team's official area paths without changing Bench or workspace settings.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    [Command("bench configuration area candidates")]
+    public async Task<int> BenchConfigurationAreaCandidates(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchAreaCandidatesCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
 
     /// <summary>Add a area filter on the captured Bench only.</summary>
     /// <param name="path">Validated area path.</param>
@@ -1831,7 +1851,9 @@ internal static class GroupedHelp
         "bench list",
         "bench switch",
         "bench delete",
+        "bench detail",
         "bench configuration",
+        "bench configuration area candidates",
         "bench configuration area add",
         "bench configuration area remove",
         "bench configuration sprint add",

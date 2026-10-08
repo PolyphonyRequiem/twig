@@ -23,6 +23,8 @@ command means the same thing in a pipe as at a prompt.
 |[`bench list`](./list.md)|List the Benches that exist, marking the current one.|none|
 |[`bench switch`](./switch.md)|Stand on another Bench.|local|
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
+|`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
+|`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
 
 Listing, creating a named Bench and switching read existing arrangements as stored
 metadata, without identity-profile discovery or query evaluation. First-use default
@@ -32,7 +34,31 @@ remain in force. Creating a Bench does not select it. Metadata reads never rewri
 saved selectors, and default self membership is still rebound to the current
 canonical principal whenever a workspace, pin or query consumer evaluates it.
 
-## Configure the current Bench
+## Behavior
+
+### Read full work-item detail
+
+```powershell
+twig bench detail 42
+twig bench detail -1 --width 100 -o json --expect-bench 7
+```
+
+Detail is cache-only and read-only: it never calls `twig set`, discovers a remote
+identity, refreshes an item, or edits pending work. The shared detail projection
+provides full values, including custom fields. Cached field metadata identifies
+HTML fields; headings, paragraphs, lists, emphasis, code, links and tables render
+without the normal preview's line cap. Narrow tables stack columns rather than
+discarding values. HTML is inert: scripts, styles, remote images and source
+terminal-control sequences are never executed. Missing field metadata is disclosed;
+unknown field types remain literal rather than guessed. Seeds remain explicitly
+unpublished. A cache miss asks for explicit Bench sync.
+
+JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
+`title`, and complete renderer-generated `ansi`. The optional `--expect-bench`,
+`--expect-binding`, and `--expect-identity` refuse retargeting. Minimal output is
+complete unstyled detail; `ids` is not meaningful for this single-item view.
+
+### Configure the current Bench
 
 `bench configuration` reads explicit pins (including IDs not yet cached), saved
 area and sprint filters, the existing automatic ownership scope, and a settings
@@ -47,6 +73,22 @@ twig bench configuration sprint add @Current+1
 twig bench configuration sprint add "Project\Release Sprint"
 twig bench configuration sprint remove @Current
 ```
+
+Read official paths without importing workspace defaults:
+
+```powershell
+twig bench configuration area candidates -o json
+twig bench configuration area candidates --expect-bench 7 --expect-binding <binding> --expect-identity <identity> -o json
+```
+
+The read uses the configured team's actual `values` and `includeChildren` flags;
+`defaultValue` alone does not imply an Under filter. Empty and failed reads stay
+distinct. JSON carries `version: 1`, captured Bench/binding/identity IDs, `team`,
+`areas` (`path`, `includeChildren`), and `settingsDigest`. Reading never changes
+the configured team, workspace area defaults or saved Bench selectors. Select a
+path and review an ordinary captured `bench configuration area add` operation.
+Changing the Bench, origin or settings during the read refuses the observation.
+
 
 Area alternatives are ORed; sprint alternatives are ORed; the area, sprint and
 saved assignee constraints intersect. No areas means no area restriction. No
@@ -85,6 +127,18 @@ inherited subtree membership, query matches, seeds or pending work.
 These pin commands also accept `--expect-settings` for captured browser forms;
 typed removal reports the named kind and whether the transaction actually
 deleted it, then consumers can refresh native truth.
+
+## Exit codes and failure modes
+
+- `0`: the complete captured read or guarded local edit succeeded.
+- `1`: cache miss, unavailable Bench, ADO/authentication failure, or changed origin,
+  Bench or settings. No read retries or selects a replacement account/Bench.
+- `2`: invalid arguments, including zero detail ID, unsupported detail `ids` output,
+  invalid rendering width or malformed configuration selectors.
+- Detail requires an existing cached Bench and never performs first-use initialization.
+- Team candidates require a successful official team read; an empty collection is
+  successful and distinct from a failed lookup. No guessed workspace paths are used.
+- Error output is format-aware; JSON errors are emitted as an object on stderr.
 
 
 ## See also

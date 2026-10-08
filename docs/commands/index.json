@@ -248,6 +248,22 @@
     "path": "bench/README.md"
   },
   {
+    "command": "bench detail",
+    "group": "bench",
+    "summary": "Read full cached, richly rendered work-item or seed detail without changing context.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area candidates",
+    "group": "bench",
+    "summary": "Read official configured-team area paths without changing Bench or workspace settings.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
     "command": "bench configuration area add",
     "group": "bench",
     "summary": "Add an exact or Under area filter on the captured Bench only.",

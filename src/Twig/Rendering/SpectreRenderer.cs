@@ -1158,7 +1158,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var summaryBadge = RichHtmlRenderer.SafeText(_theme.FormatTypeBadge(item.Type));
         var summaryState = RichHtmlRenderer.SafeText(_theme.FormatState(item.State));
-        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {SafeMarkup(item.Type.ToString())} — {SafeMarkup(item.Title)} {summaryState}{cacheAgeMarkup}");
 
         // Work item detail panel — dirty indicator uses ● (DD-03)
         var dirty = item.IsDirty ? " [yellow]●[/]" : "";
@@ -1277,20 +1276,41 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             content.Add(new Markup(markup));
         }
 
-        IRenderable panelContent = content.Count == 1 ? itemGrid : new Rows(content);
 
         var idPrefix = $"#{item.Id} ";
         var dirtyVisibleLen = item.IsDirty ? 2 : 0;
         var cacheAgeVisibleLen = cacheAge is not null ? cacheAge.Length + 1 : 0;
-        var headerTitle = SafeMarkup(FormatterHelpers.TruncateTitle(
-            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen)));
+        if (fullContent)
+            content.Insert(0, new Markup($"[bold]{SafeMarkup(item.Title)}[/]"));
+        var headerTitleText = fullContent ? string.Empty : FormatterHelpers.TruncateTitle(
+            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen));
+        IRenderable panelContent = content.Count == 1 ? itemGrid : new Rows(content);
+        var headerTitle = SafeMarkup(headerTitleText);
 
         var itemPanel = new Panel(panelContent)
             .Header($"[bold]{idPrefix}{headerTitle}[/]{dirty}{cacheAgeMarkup}")
-            .Border(BoxBorder.Rounded)
+            .Border(fullContent ? OpenRightBoxBorder.Instance : BoxBorder.Rounded)
             .Expand();
 
+        if (fullContent)
+            return itemPanel;
+
+        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {SafeMarkup(item.Type.ToString())} — {SafeMarkup(item.Title)} {summaryState}{cacheAgeMarkup}");
         return new Rows(summaryMarkup, itemPanel);
+    }
+
+    private sealed class OpenRightBoxBorder : BoxBorder
+    {
+        public static BoxBorder Instance { get; } = new OpenRightBoxBorder();
+
+        public override string GetPart(BoxBorderPart part) => part switch
+        {
+            BoxBorderPart.TopRight => Square.GetPart(BoxBorderPart.Top),
+            BoxBorderPart.BottomRight => Square.GetPart(BoxBorderPart.Bottom),
+            // Preserve Spectre's two-column edge budget without drawing a right edge.
+            BoxBorderPart.Right => " ",
+            _ => Square.GetPart(part),
+        };
     }
 
     public async Task RenderStatusAsync(

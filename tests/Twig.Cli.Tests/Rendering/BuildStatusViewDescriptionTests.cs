@@ -114,9 +114,13 @@ public class BuildStatusViewDescriptionTests
 
     // ── Long / multi-paragraph integration tests ──────────────────────
 
-    [Fact]
-    public async Task BuildStatusViewAsync_LongDescription_TruncatedWithIndicator()
+    [Theory]
+    [InlineData(40)]
+    [InlineData(120)]
+    public async Task BuildStatusViewAsync_LongDescription_KeepsSummaryClosedRoundedFrameAndPreviewLimit(int width)
     {
+        _testConsole.Profile.Width = width;
+        _testConsole.Profile.Capabilities.Unicode = true;
         var item = CreateWorkItem(17, "Long Desc", "Active");
         // 35 paragraphs → exceeds MaxDescriptionLines (30), triggers "(+N more lines)" marker
         var paragraphs = string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Paragraph {i} content.</p>"));
@@ -128,6 +132,20 @@ public class BuildStatusViewDescriptionTests
         output.ShouldContain("Paragraph 1 content");
         output.ShouldContain("(+");
         output.ShouldContain("more lines)");
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r', ' ')).ToArray();
+        lines[0].ShouldStartWith("#17 ");
+        lines.Count(line => line.Contains("Long Desc", StringComparison.Ordinal)).ShouldBe(2);
+        var top = lines.Single(line => line.StartsWith("╭", StringComparison.Ordinal));
+        top.ShouldEndWith("╮");
+        lines[^1].ShouldStartWith("╰");
+        lines[^1].ShouldEndWith("╯");
+        foreach (var line in lines.SkipWhile(line => line != top).Skip(1).SkipLast(1))
+        {
+            line.ShouldStartWith("│");
+            line.ShouldEndWith("│");
+        }
+        output.ShouldNotContain("Paragraph 35 content");
     }
 
     [Fact]

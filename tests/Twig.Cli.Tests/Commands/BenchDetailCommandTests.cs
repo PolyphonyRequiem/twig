@@ -40,8 +40,10 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
     }
 
-    [Fact]
-    public async Task Json_PreservesEveryCachedHtmlFieldAndLongTailWithoutIdentityDiscovery()
+    [Theory]
+    [InlineData(40)]
+    [InlineData(120)]
+    public async Task Json_SingleOpenRightFramePreservesFullContentAtAnyWidthWithoutIdentityDiscovery(int width)
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");
         var benches = new SqliteBenchRepository(store);
@@ -52,21 +54,48 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
             ["System.Description"] = string.Concat(Enumerable.Range(1, 65).Select(i => $"<p>description-{i:D2}</p>")),
             ["Custom.Body"] = string.Concat(Enumerable.Range(1, 65).Select(i => $"<p>paragraph-{i:D2}</p>")),
             ["Custom.Acceptance"] = "<h2>Acceptance</h2><p>" + new string('z', 250) + " LAST-VALUE</p>",
+            ["Custom.Value"] = new string('v', 220) + " STRING-TAIL",
         });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns([
             new FieldDefinition("Custom.Body", "Body", "html", false),
             new FieldDefinition("Custom.Acceptance", "Acceptance Criteria", "html", false),
         ]);
-        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter()).ExecuteAsync(42, width: 64, output: "json",
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter()).ExecuteAsync(42, width: width, output: "json",
             expectBench: bench.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), expectBinding: "binding", expectIdentity: "actor"));
         exit.ShouldBe(0);
         using var json = JsonDocument.Parse(output);
+        json.RootElement.GetProperty("version").GetInt32().ShouldBe(1);
+        json.RootElement.GetProperty("benchId").GetString().ShouldBe(bench.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        json.RootElement.GetProperty("bindingId").GetString().ShouldBe("binding");
+        json.RootElement.GetProperty("identityId").GetString().ShouldBe("actor");
+        json.RootElement.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        json.RootElement.GetProperty("title").GetString().ShouldBe("Full detail");
         var ansi = json.RootElement.GetProperty("ansi").GetString()!;
         ansi.ShouldContain("paragraph-65");
         ansi.ShouldContain("description-65");
         ansi.ShouldContain("LAST-VALUE");
         ansi.ShouldNotContain("more lines");
+        ansi.ShouldContain("STRING-TAIL");
+        var plain = Regex.Replace(ansi, "\\x1b\\[[0-9;:]*m", "");
+        var lines = plain.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r', ' ')).ToArray();
+        lines[0].ShouldStartWith("┌");
+        lines[0].ShouldEndWith("─");
+        lines[^1].ShouldStartWith("└");
+        lines[^1].ShouldEndWith("─");
+        lines.Count(line => line.Contains("Full detail", StringComparison.Ordinal)).ShouldBe(1);
+        foreach (var line in lines.Skip(1).SkipLast(1))
+        {
+            line.ShouldStartWith("│");
+            line.Count(character => character == '│').ShouldBe(1);
+        }
+        plain.ShouldNotContain("┐");
+        plain.ShouldNotContain("┘");
+        plain.ShouldNotContain("╭");
+        plain.ShouldNotContain("╮");
+        plain.ShouldNotContain("╰");
+        plain.ShouldNotContain("╯");
         _adoService.ReceivedCalls().ShouldBeEmpty();
         _contextStore.ReceivedCalls().ShouldBeEmpty();
         await _iterationService.DidNotReceive().GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>());
@@ -185,8 +214,10 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         (await benches.GetCurrentAsync())!.Id.ShouldBe(replacement.Id);
     }
 
-    [Fact]
-    public async Task DefaultAndRepeatedRead_ReReadCacheWithoutNetworkOrContextChanges()
+    [Theory]
+    [InlineData(20)]
+    [InlineData(64)]
+    public async Task DefaultAndRepeatedRead_ReReadCacheWithoutNetworkOrContextChanges(int width)
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");
         var benches = new SqliteBenchRepository(store);
@@ -194,14 +225,16 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         var command = CreateCommand(benches, new StringWriter());
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Initial cached title"));
         var (firstExit, first) = await CaptureAsync(() => command.ExecuteAsync(42, output: "json"));
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Latest cached title"));
-        var (secondExit, second) = await CaptureAsync(() => command.ExecuteAsync(42, width: 64, output: "json"));
+        var updatedTitle = width < 60 ? "Changed title with TITLE-TAIL" : "Latest cached title " + new string('x', 140) + " TITLE-TAIL";
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, updatedTitle));
+        var (secondExit, second) = await CaptureAsync(() => command.ExecuteAsync(42, width: width, output: "json"));
         firstExit.ShouldBe(0);
         secondExit.ShouldBe(0);
         using var initial = JsonDocument.Parse(first);
         using var latest = JsonDocument.Parse(second);
         initial.RootElement.GetProperty("title").GetString().ShouldBe("Initial cached title");
-        latest.RootElement.GetProperty("title").GetString().ShouldBe("Latest cached title");
+        latest.RootElement.GetProperty("title").GetString().ShouldBe(updatedTitle);
+        latest.RootElement.GetProperty("ansi").GetString()!.ShouldContain("TITLE-TAIL");
         _adoService.ReceivedCalls().ShouldBeEmpty();
         _iterationService.ReceivedCalls().ShouldBeEmpty();
         _contextStore.ReceivedCalls().ShouldBeEmpty();

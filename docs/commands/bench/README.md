@@ -53,12 +53,20 @@ metadata identifies other HTML fields. Headings, lists, code, links and tables r
 scrollable without a line cap; unknown field types remain literal. Scripts, styles,
 remote images and source terminal-control sequences are never executed.
 
+In the browser, **Enter** expands this status beneath the selected Bench row in an
+open-right frame: square left corners, a left edge and horizontal rules, with no
+right border. The tree/table rows and expanded detail form one continuous scrolling
+surface; ancestors and following work items remain in that same sequence. **Enter**
+or **Esc** collapses the detail and restores the previous Bench selection, folds and
+viewport. CLI detail returns the same open-right status frame without a duplicate
+summary line; ordinary `twig show` retains its existing presentation.
+
 In the browser, **S** explicitly pulls only the captured positive item and its links;
 **R** reloads its cached presentation. `--sync` is the CLI equivalent of S. Neither
 action changes the active work item, flushes pending edits, or fetches related targets.
 Local edits remain protected and seeds remain unpublished: seed sync is refused.
 While an action is busy, repeated actions are refused; failures retain readable
-cached detail. Esc restores the same Bench selection and scroll position.
+cached detail and its composed scroll position.
 
 JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `title`, and complete renderer-generated `ansi`. The optional `--expect-bench`,

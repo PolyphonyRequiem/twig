@@ -142,6 +142,42 @@ public class BuildStatusViewDescriptionTests
         output.ShouldContain("Second paragraph");
     }
 
+    [Fact]
+    public async Task FullContent_DescriptionRemainsRichAndCompleteWithoutFieldMetadata()
+    {
+        var item = CreateWorkItem(19, "Full cached description", "Active");
+        item.SetField("System.Description", "<h2>Plan</h2><pre>    if (ready) {\n        finish();\n    }</pre>" +
+            string.Concat(Enumerable.Range(1, 65).Select(i => $"<p>description-{i:D2}</p>")));
+        item.SetField("Custom.Unknown", "<p>" + new string('x', 200) + " UNKNOWN-FIELD-TAIL</p>");
+        var output = await RenderStatusViewAsync(item, fullContent: true);
+        output.ShouldContain("description-65");
+        output.ShouldContain("UNKNOWN-FIELD-TAIL");
+        output.ShouldContain("    if (ready)");
+        output.ShouldContain("        finish();");
+        output.ShouldNotContain("<h2>");
+        output.ShouldNotContain("<pre>");
+        output.ShouldNotContain("more lines");
+        item.Fields["System.Description"]!.ShouldContain("<h2>Plan</h2>");
+        item.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task FullContent_AllCachedHtmlTailsRemainReadableDespiteSummaryFieldSelection()
+    {
+        var item = CreateWorkItem(20, "Full HTML fields", "Active");
+        var definitions = new List<FieldDefinition>();
+        for (var i = 1; i <= 12; i++)
+        {
+            var reference = $"Custom.Html{i}";
+            definitions.Add(new FieldDefinition(reference, $"HTML field {i}", "html", false));
+            item.SetField(reference, $"<p>Body-{i:D2}</p><table><tr><td>{new string('x', 200)} TAIL-{i:D2}</td></tr></table>");
+        }
+        var output = await RenderStatusViewAsync(item, statusFieldEntries: [], fieldDefinitions: definitions, fullContent: true);
+        output.ShouldContain("TAIL-01");
+        output.ShouldContain("TAIL-12");
+        output.ShouldNotContain("more lines");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state)
@@ -157,12 +193,13 @@ public class BuildStatusViewDescriptionTests
         };
     }
 
-    private async Task<string> RenderStatusViewAsync(WorkItem item, List<StatusFieldEntry>? statusFieldEntries = null)
+    private async Task<string> RenderStatusViewAsync(WorkItem item, List<StatusFieldEntry>? statusFieldEntries = null,
+        IReadOnlyList<FieldDefinition>? fieldDefinitions = null, bool fullContent = false)
     {
         var renderable = await _renderer.BuildStatusViewAsync(
             item,
             () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
-            statusFieldEntries: statusFieldEntries);
+            statusFieldEntries: statusFieldEntries, fieldDefinitions: fieldDefinitions, fullContent: fullContent);
         _testConsole.Write(renderable);
         return _testConsole.Output;
     }

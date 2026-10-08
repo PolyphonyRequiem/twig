@@ -385,6 +385,7 @@ internal static class CommandExamples
         [
             "twig bench detail 42                  Read full cached detail without changing the active item",
             "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
+            "twig bench detail 42 --sync           Pull only this item and its links; never publish local edits",
         ],
         ["bench configuration area candidates"] =
         [

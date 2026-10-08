@@ -1147,7 +1147,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         WorkItem? parent = null,
         IReadOnlyList<WorkItem>? children = null,
         int cacheStaleMinutes = 5,
-        Domain.ValueObjects.GitContext? gitContext = null)
+        Domain.ValueObjects.GitContext? gitContext = null,
+        bool fullContent = false)
     {
         var pending = await getPendingChanges();
 
@@ -1155,22 +1156,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
         var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
-        var summaryBadge = _theme.FormatTypeBadge(item.Type);
-        var summaryState = _theme.FormatState(item.State);
-        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}{cacheAgeMarkup}");
+        var summaryBadge = RichHtmlRenderer.SafeText(_theme.FormatTypeBadge(item.Type));
+        var summaryState = RichHtmlRenderer.SafeText(_theme.FormatState(item.State));
+        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {SafeMarkup(item.Type.ToString())} — {SafeMarkup(item.Title)} {summaryState}{cacheAgeMarkup}");
 
         // Work item detail panel — dirty indicator uses ● (DD-03)
         var dirty = item.IsDirty ? " [yellow]●[/]" : "";
         var budget = new WidthBudget(_console.Profile.Width);
         var itemGrid = new Grid().AddColumn().AddColumn();
-        itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
-        itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
-        itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
-        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
-        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
+        itemGrid.AddRow("[dim]Type:[/]", summaryBadge + " " + SafeMarkup(item.Type.ToString()));
+        itemGrid.AddRow("[dim]State:[/]", summaryState);
+        itemGrid.AddRow("[dim]Assigned:[/]", SafeMarkup(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
+        itemGrid.AddRow("[dim]Area:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
+        itemGrid.AddRow("[dim]Iteration:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
 
         // Extended fields from the Fields dictionary
-        AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);
+        AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries, fullContent);
 
         if (childProgress is { Total: > 0 } cp)
         {
@@ -1191,8 +1192,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var dirtySummary = DirtyStateSummary.Build(pending);
         if (dirtySummary is not null)
         {
-            itemGrid.AddRow("", $"[yellow]{Markup.Escape(dirtySummary)}[/]");
-            itemGrid.AddRow("", "[dim](unsaved — run 'twig save' to push)[/]");
+            itemGrid.AddRow("", $"[yellow]{SafeMarkup(dirtySummary)}[/]");
+            itemGrid.AddRow("", fullContent
+                ? "[dim](local pending edits — item sync does not publish them)[/]"
+                : "[dim](unsaved — run 'twig save' to push)[/]");
         }
 
         // Relationships section — hierarchy + non-hierarchy links
@@ -1208,26 +1211,26 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var parentOverhead = 13 + parent.Id.ToString().Length;
                 var parentTitle = Formatters.FormatterHelpers.TruncateTitle(
                     parent.Title, Math.Max(budget.GridValueBudget - parentOverhead, 10));
-                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parentTitle)}");
+                itemGrid.AddRow("", $"[dim]Parent:[/] {RichHtmlRenderer.SafeText(_theme.FormatTypeBadge(parent.Type))} #{parent.Id} {SafeMarkup(parentTitle)}");
             }
 
             if (children is { Count: > 0 })
             {
                 foreach (var child in children)
                 {
-                    var childState = _theme.FormatState(child.State);
+                    var childState = RichHtmlRenderer.SafeText(_theme.FormatState(child.State));
                     // Overhead: "Child:  "(8) + badge(2) + " #"(2) + id digits + " "(1) + " "(1) + state chars
                     var childOverhead = 14 + child.Id.ToString().Length + child.State.Length;
                     var childTitle = Formatters.FormatterHelpers.TruncateTitle(
                         child.Title, Math.Max(budget.GridValueBudget - childOverhead, 10));
-                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)} {childState}");
+                    itemGrid.AddRow("", $"[dim]Child:[/]  {RichHtmlRenderer.SafeText(_theme.FormatTypeBadge(child.Type))} #{child.Id} {SafeMarkup(childTitle)} {childState}");
                 }
             }
 
             if (links is { Count: > 0 })
             {
                 foreach (var link in links)
-                    itemGrid.AddRow("", $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}");
+                    itemGrid.AddRow("", $"[blue]{SafeMarkup(link.LinkType)}[/]: #{link.TargetId}");
             }
         }
 
@@ -1238,32 +1241,48 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             itemGrid.AddRow("[dim]⌥ Git:[/]", "");
 
             if (gitContext.CurrentBranch is not null)
-                itemGrid.AddRow("", $"[dim]Branch:[/] [blue]{Markup.Escape(gitContext.CurrentBranch)}[/]");
+                itemGrid.AddRow("", $"[dim]Branch:[/] [blue]{SafeMarkup(gitContext.CurrentBranch)}[/]");
 
             if (gitContext.LinkedPullRequests is { Count: > 0 })
             {
                 foreach (var pr in gitContext.LinkedPullRequests)
                 {
-                    var prStatus = pr.Status.Equals("active", StringComparison.OrdinalIgnoreCase) ? "[green]active[/]" : $"[dim]{Markup.Escape(pr.Status)}[/]";
-                    itemGrid.AddRow("", $"[dim]PR:[/]    [blue]!{pr.PullRequestId}[/] {Markup.Escape(pr.Title)} {prStatus}");
+                    var prStatus = pr.Status.Equals("active", StringComparison.OrdinalIgnoreCase) ? "[green]active[/]" : $"[dim]{SafeMarkup(pr.Status)}[/]";
+                    itemGrid.AddRow("", $"[dim]PR:[/]    [blue]!{pr.PullRequestId}[/] {SafeMarkup(pr.Title)} {prStatus}");
                 }
             }
         }
 
-        IRenderable panelContent = itemGrid;
+        var content = new List<IRenderable> { itemGrid };
+        if (item.IsSeed)
+            content.Add(new Markup("[dim]Read-only local seed · unpublished[/]"));
         if (item.Fields.TryGetValue("System.Description", out var rawDescription))
+            AddHtmlSection("Description", rawDescription);
+        if (fullContent)
         {
-            var descriptionMarkup = Formatters.FormatterHelpers.HtmlToSpectreMarkup(rawDescription);
-            if (!string.IsNullOrWhiteSpace(descriptionMarkup))
-                panelContent = new Rows(itemGrid,
-                    new Rule("[dim]Description[/]").LeftJustified().RuleStyle("dim"),
-                    new Markup(descriptionMarkup));
+            var htmlDefinitions = fieldDefinitions?.Where(definition =>
+                string.Equals(definition.DataType, "html", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(definition.ReferenceName, "System.Description", StringComparison.OrdinalIgnoreCase));
+            if (htmlDefinitions is not null)
+                foreach (var definition in htmlDefinitions)
+                    if (item.Fields.TryGetValue(definition.ReferenceName, out var html))
+                        AddHtmlSection(definition.DisplayName, html);
         }
+
+        void AddHtmlSection(string label, string? html)
+        {
+            var markup = fullContent ? RichHtmlRenderer.ToMarkup(html) : FormatterHelpers.HtmlToSpectreMarkup(html);
+            if (string.IsNullOrWhiteSpace(markup)) return;
+            content.Add(new Rule($"[dim]{SafeMarkup(label)}[/]").LeftJustified().RuleStyle("dim"));
+            content.Add(new Markup(markup));
+        }
+
+        IRenderable panelContent = content.Count == 1 ? itemGrid : new Rows(content);
 
         var idPrefix = $"#{item.Id} ";
         var dirtyVisibleLen = item.IsDirty ? 2 : 0;
         var cacheAgeVisibleLen = cacheAge is not null ? cacheAge.Length + 1 : 0;
-        var headerTitle = Markup.Escape(FormatterHelpers.TruncateTitle(
+        var headerTitle = SafeMarkup(FormatterHelpers.TruncateTitle(
             item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen)));
 
         var itemPanel = new Panel(panelContent)
@@ -1399,7 +1418,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     private static void AddExtendedFieldRows(
         Grid grid, WorkItem item,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions,
-        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null)
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
+        bool fullContent = false)
     {
         if (item.Fields.Count == 0)
             return;
@@ -1422,10 +1442,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     ? def.DisplayName
                     : Domain.Services.Workspace.ColumnResolver.DeriveDisplayName(entry.ReferenceName);
                 var dataType = def?.DataType ?? "string";
-                var formatted = Formatters.FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: 60);
+                if (fullContent && string.Equals(dataType, "html", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var formatted = Formatters.FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: fullContent ? int.MaxValue : 60);
 
                 if (!string.IsNullOrWhiteSpace(formatted))
-                    grid.AddRow($"[dim]{Markup.Escape(displayName)}:[/]", Markup.Escape(formatted));
+                    grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
             }
             return;
         }
@@ -1439,22 +1461,26 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 continue;
             if (string.Equals(kvp.Key, "System.Description", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (count >= 10)
+            if (!fullContent && count >= 10)
                 break;
 
             var displayName = defLookup.TryGetValue(kvp.Key, out var def2)
                 ? def2.DisplayName
                 : Domain.Services.Workspace.ColumnResolver.DeriveDisplayName(kvp.Key);
             var dataType = def2?.DataType ?? "string";
-            var formatted = Formatters.FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
+            if (fullContent && string.Equals(dataType, "html", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var formatted = Formatters.FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: fullContent ? int.MaxValue : 60);
 
             if (!string.IsNullOrWhiteSpace(formatted))
             {
-                grid.AddRow($"[dim]{Markup.Escape(displayName)}:[/]", Markup.Escape(formatted));
+                grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
                 count++;
             }
         }
     }
+
+    private static string SafeMarkup(string text) => Markup.Escape(RichHtmlRenderer.SafeText(text));
 
     /// <summary>
     /// Removes HTML tags from a string using a simple regex-free approach.

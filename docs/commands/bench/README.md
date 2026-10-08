@@ -40,18 +40,25 @@ canonical principal whenever a workspace, pin or query consumer evaluates it.
 
 ```powershell
 twig bench detail 42
+twig bench detail 42 --sync            # explicitly pull only this item and its links
 twig bench detail -1 --width 100 -o json --expect-bench 7
 ```
 
-Detail is cache-only and read-only: it never calls `twig set`, discovers a remote
-identity, refreshes an item, or edits pending work. The shared detail projection
-provides full values, including custom fields. Cached field metadata identifies
-HTML fields; headings, paragraphs, lists, emphasis, code, links and tables render
-without the normal preview's line cap. Narrow tables stack columns rather than
-discarding values. HTML is inert: scripts, styles, remote images and source
-terminal-control sequences are never executed. Missing field metadata is disclosed;
-unknown field types remain literal rather than guessed. Seeds remain explicitly
-unpublished. A cache miss asks for explicit Bench sync.
+Detail opens from cache using the same renderer as `twig show`, with full values
+rather than preview truncation. Opening, resizing, and refreshing cached detail never
+call `twig set`, discover a remote identity, or refresh work items. The presentation
+includes cached parent/children, links, freshness and pending-edit indicators. The
+standard description renders as rich HTML even without cached field metadata;
+metadata identifies other HTML fields. Headings, lists, code, links and tables remain
+scrollable without a line cap; unknown field types remain literal. Scripts, styles,
+remote images and source terminal-control sequences are never executed.
+
+In the browser, **S** explicitly pulls only the captured positive item and its links;
+**R** reloads its cached presentation. `--sync` is the CLI equivalent of S. Neither
+action changes the active work item, flushes pending edits, or fetches related targets.
+Local edits remain protected and seeds remain unpublished: seed sync is refused.
+While an action is busy, repeated actions are refused; failures retain readable
+cached detail. Esc restores the same Bench selection and scroll position.
 
 JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `title`, and complete renderer-generated `ansi`. The optional `--expect-bench`,

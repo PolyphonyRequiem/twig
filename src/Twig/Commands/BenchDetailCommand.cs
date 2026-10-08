@@ -3,9 +3,9 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Spectre.Console;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Projections;
-using Twig.Domain.Services;
+using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
 using Twig.Infrastructure.Auth;
@@ -15,16 +15,18 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Renders complete cached work-item detail without changing context or refreshing ADO.</summary>
+/// <summary>Renders full Show detail from cache, with an explicit selected-item-only pull.</summary>
 internal sealed class BenchDetailCommand(CommandContext ctx, CurrentBenchResolver resolver,
     IBenchRepository benches, IWorkItemRepository repository, IFieldDefinitionStore fieldDefinitions,
     IAuthenticationProvider authentication, IConnectionBindingService bindings, TwigPaths paths,
-    RendererFactory renderers)
+    RendererFactory renderers, IWorkItemLinkRepository links, IPendingChangeStore pendingChanges,
+    StatusFieldConfigReader statusFields, SyncCoordinatorFactory syncCoordinators,
+    IProcessConfigurationProvider processConfiguration, SpectreTheme theme)
 {
     internal async Task<int> ExecuteAsync(int id, int width = 80,
         string output = OutputFormatterFactory.DefaultFormat,
         string? expectBench = null, string? expectBinding = null, string? expectIdentity = null,
-        CancellationToken ct = default)
+        bool sync = false, CancellationToken ct = default)
     {
         var started = Stopwatch.GetTimestamp();
         var exit = 1;
@@ -43,21 +45,70 @@ internal sealed class BenchDetailCommand(CommandContext ctx, CurrentBenchResolve
             if (await benches.GetCurrentAsync(ct) is null && await benches.GetByNameAsync(Bench.DefaultName, ct) is null)
                 throw new InvalidOperationException("No cached Bench is available. Open the Bench before requesting detail.");
             var bench = await resolver.ResolveStoredAsync(ct, expectBench);
+            if (sync)
+            {
+                if (id < 0)
+                    throw new ArgumentException("Local seeds cannot sync or publish from the detail viewer.");
+                await EnsureCaptureAsync();
+                try
+                {
+                    // Pull only this root and its edge metadata. SyncRootLinksAsync also
+                    // materializes related targets, which are outside the captured selection.
+                    await syncCoordinators.ReadOnly.SyncLinksAsync(id, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    throw new InvalidOperationException($"Sync failed or incomplete for #{id}: {ex.Message}", ex);
+                }
+                await EnsureCaptureAsync();
+            }
             var item = await repository.GetByIdAsync(id, ct)
-                ?? throw new InvalidOperationException($"Work item #{id} is not cached. Sync the Bench explicitly, then retry; no refresh was performed.");
-            var definitions = (await fieldDefinitions.GetAllAsync(ct)).ToDictionary(
-                definition => definition.ReferenceName, StringComparer.OrdinalIgnoreCase);
-            var document = BuildDetail(item, definitions, width);
-            // Metadata reads can yield while the current Bench changes. Never emit a
-            // completed observation under an authority that no longer matches its capture.
-            await resolver.ResolveStoredAsync(ct, bench.Id.ToString(CultureInfo.InvariantCulture));
-            var currentBinding = await bindings.ResolveAsync(ctx.Config, paths, ct);
-            BrowserOriginGuard.EnsureExpected(currentBinding, binding.Binding.BindingId, binding.Identity.IdentityId);
-            if (currentBinding.Operation != binding.Operation)
-                throw new InvalidOperationException("The browser connection changed while reading detail. Reconnect before retrying; no refresh was performed.");
+                ?? throw new InvalidOperationException(sync
+                    ? $"Work item #{id} could not be loaded after sync; local pending changes may protect it."
+                    : $"Work item #{id} is not cached. Press S or run 'twig bench detail {id} --sync' to pull this item explicitly; no refresh was performed.");
+            var definitions = await fieldDefinitions.GetAllAsync(ct);
+            var entries = await statusFields.ReadAsync(ct);
+            var children = await repository.GetChildrenAsync(item.Id, ct);
+            var parent = item.ParentId.HasValue ? await repository.GetByIdAsync(item.ParentId.Value, ct) : null;
+            var cachedLinks = await links.GetLinksAsync(item.Id, ct);
+            var changes = await pendingChanges.GetChangesAsync(item.Id, ct);
+            using var writer = new StringWriter(CultureInfo.InvariantCulture);
+            var useAnsi = !output.Equals("minimal", StringComparison.OrdinalIgnoreCase) &&
+                (output.ToLowerInvariant() is "json" or "json-full" or "json-compact" || !Console.IsOutputRedirected);
+            var console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(writer),
+                Ansi = useAnsi ? AnsiSupport.Yes : AnsiSupport.No,
+                ColorSystem = useAnsi ? ColorSystemSupport.TrueColor : ColorSystemSupport.NoColors,
+                Interactive = InteractionSupport.No,
+            });
+            console.Profile.Width = width;
+            console.Profile.Capabilities.Ansi = useAnsi;
+            console.Profile.Capabilities.ColorSystem = useAnsi ? ColorSystem.TrueColor : ColorSystem.NoColors;
+            console.Profile.Capabilities.Links = false;
+            console.Profile.Capabilities.Interactive = false;
+            console.Profile.Capabilities.Unicode = true;
+            var view = await new SpectreRenderer(console, theme).BuildStatusViewAsync(item,
+                () => Task.FromResult(changes), fieldDefinitions: definitions, statusFieldEntries: entries,
+                childProgress: processConfiguration.ComputeChildProgress(children), links: cachedLinks,
+                parent: parent, children: children, cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
+                fullContent: true);
+            console.Write(view);
+            // All yielding reads and rendering finish before the captured authority is
+            // rechecked. A changed Bench/connection must never receive this observation.
+            await EnsureCaptureAsync();
+
+            async Task EnsureCaptureAsync()
+            {
+                var currentBinding = await bindings.ResolveAsync(ctx.Config, paths, ct);
+                BrowserOriginGuard.EnsureExpected(currentBinding, binding.Binding.BindingId, binding.Identity.IdentityId);
+                if (currentBinding.Operation != binding.Operation)
+                    throw new InvalidOperationException("The browser connection changed while reading detail. Reconnect before retrying.");
+                await resolver.ResolveStoredAsync(ct, bench.Id.ToString(CultureInfo.InvariantCulture));
+            }
             if (output.ToLowerInvariant() is "json" or "json-full" or "json-compact")
             {
-                var ansi = renderers.CaptureHuman(document, width, "always").Text;
+                var ansi = writer.ToString();
                 renderers.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchDetail",
                     new Dictionary<string, RenderCell>(StringComparer.Ordinal)
                     {
@@ -71,16 +122,8 @@ internal sealed class BenchDetailCommand(CommandContext ctx, CurrentBenchResolve
                         ["ansi"] = RenderCell.String(ansi),
                     })]));
             }
-            else if (output.Equals("minimal", StringComparison.OrdinalIgnoreCase))
-            {
-                // Complete, readable, unstyled detail remains useful over a pipe.
-                Console.Write(renderers.CaptureHuman(document, width, "never").Text);
-            }
             else
-            {
-                var color = Console.IsOutputRedirected ? "never" : "always";
-                renderers.GetHumanRenderer(Console.Out, width, color).Render(document);
-            }
+                Console.Write(writer.ToString());
             exit = 0;
             return exit;
         }
@@ -108,42 +151,4 @@ internal sealed class BenchDetailCommand(CommandContext ctx, CurrentBenchResolve
         }
     }
 
-    internal static RenderTree.RenderTree BuildDetail(WorkItem item,
-        IReadOnlyDictionary<string, Twig.Domain.ValueObjects.FieldDefinition> definitions, int width)
-    {
-        var snapshot = new WorkItemMapper().ToSnapshot(item);
-        var projection = WorkItemDetailProjector.Project(FallbackFormLayout.For(snapshot), snapshot, definitions);
-        var nodes = new List<RenderNode>
-        {
-            new RenderNode.Markup("[bold cyan]#" + item.Id.ToString(CultureInfo.InvariantCulture) + " " +
-                Markup.Escape(RichHtmlRenderer.SafeText(item.Title)) + "[/]"),
-            new RenderNode.Text(item.IsSeed ? "Read-only local seed · unpublished" : item.LastSyncedAt is { } synced
-                ? "Read-only cache · last synced " + synced.ToUniversalTime().ToString("u", CultureInfo.InvariantCulture)
-                : "Read-only cache · sync time unknown (not verified live)", Severity.Muted),
-            new RenderNode.Text("Cached-field layout · no refresh performed", Severity.Muted),
-            new RenderNode.Text(""),
-        };
-        foreach (var control in projection.Pages.SelectMany(page => page.AllGroups).SelectMany(group => group.Controls))
-        {
-            var value = control.Value;
-            if (value is null) continue;
-            var definition = definitions.GetValueOrDefault(control.Id);
-            var label = RichHtmlRenderer.SafeText(definition?.DisplayName ?? control.Label);
-            nodes.Add(new RenderNode.Markup("[bold underline]" + Markup.Escape(label) + "[/]"));
-            if (value.State != DetailFieldState.HasValue)
-                nodes.Add(new RenderNode.Text(value.State == DetailFieldState.EmptyOnServer
-                    ? "(empty in cached snapshot)" : "(not carried by Twig; value unknown)", Severity.Muted));
-            else if (string.Equals(definition?.DataType, "html", StringComparison.OrdinalIgnoreCase))
-            {
-                var rich = RichHtmlRenderer.Render(value.Full, width);
-                if (rich.Count == 0) nodes.Add(new RenderNode.Text("(no visible text in cached HTML)", Severity.Muted));
-                else nodes.AddRange(rich);
-            }
-            else nodes.Add(new RenderNode.Markup(Markup.Escape(RichHtmlRenderer.SafeText(value.Full!))));
-            nodes.Add(new RenderNode.Text(""));
-        }
-        if (definitions.Count == 0)
-            nodes.Add(new RenderNode.Text("Field metadata is not cached; unknown field types are shown as literal values.", Severity.Muted));
-        return new RenderTree.RenderTree(nodes);
-    }
 }

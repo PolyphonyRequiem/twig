@@ -153,6 +153,21 @@ internal static class FormatterHelpers
     }
 
     /// <summary>
+    /// Converts HTML to readable, untruncated review text. This is presentation-only: callers
+    /// retain the original field value in the semantic review model and machine output.
+    /// </summary>
+    internal static string HtmlToReviewText(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        var marked = InsertBlockMarkers(html, preserveClosingBoundaries: true);
+        var stripped = StripAllTags(marked);
+        var decoded = System.Net.WebUtility.HtmlDecode(stripped);
+        return string.Join('\n', NormalizeLines(decoded));
+    }
+
+    /// <summary>
     /// Converts an HTML string (typically from ADO description fields) to Spectre.Console markup.
     /// The returned string already contains Spectre markup tags (e.g. <c>[bold]</c>, <c>[italic]</c>)
     /// and user text has been escaped via <see cref="Markup.Escape"/>.
@@ -268,7 +283,7 @@ internal static class FormatterHelpers
         // else: unknown tag — strip silently
     }
 
-    private static string InsertBlockMarkers(string html)
+    private static string InsertBlockMarkers(string html, bool preserveClosingBoundaries = false)
     {
         var sb = new StringBuilder(html.Length + 64);
         var i = 0;
@@ -285,7 +300,7 @@ internal static class FormatterHelpers
                 }
 
                 var tagContent = html.AsSpan(i + 1, tagEnd - i - 1);
-                // Trim leading '/' for closing tags — we only care about opening tags
+                // Trim leading '/' for closing tags and preserve block boundaries.
                 var isClosing = tagContent.Length > 0 && tagContent[0] == '/';
                 var tagName = isClosing ? tagContent[1..] : tagContent;
 
@@ -294,8 +309,16 @@ internal static class FormatterHelpers
                 if (spaceIdx >= 0)
                     tagName = tagName[..spaceIdx];
 
-                if (!isClosing && IsBlockElement(tagName))
-                    sb.Append(tagName.Equals("li", StringComparison.OrdinalIgnoreCase) ? "\n• " : "\n");
+                if (IsBlockElement(tagName))
+                {
+                    if (isClosing)
+                    {
+                        if (preserveClosingBoundaries)
+                            sb.Append('\n');
+                    }
+                    else
+                        sb.Append(tagName.Equals("li", StringComparison.OrdinalIgnoreCase) ? "\n• " : "\n");
+                }
                 else if (!isClosing && IsBreakElement(tagName))
                     sb.Append('\n');
 

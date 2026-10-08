@@ -260,6 +260,18 @@ public sealed class PlanOperationExecutorTests
     [InlineData("<!--><pre>--><div>a</div>", "<!--><pre>--><div>a </div>", false)]
     [InlineData("<!-- --!><pre> --><div>a</div>", "<!-- --!><pre> --><div>a </div>", false)]
     [InlineData("<!-- ordinary --><p>a</p>", "<!-- ordinary --><p>a </p>", false)]
+    [InlineData("<ul class='contains-task-list'><li class='task-list-item'><input type='checkbox' disabled>Old </li></ul><h2>New</h2><p>Body</p><ul><li>Check</li></ul>",
+        "<ul class='contains-task-list'><li class='task-list-item'><input type='checkbox' disabled>Old </li></ul><h2>New </h2><p>Body </p><ul><li>Check </li> </ul>", true)]
+    [InlineData("<p>Before</p><p class='custom'>Strict</p><p>After</p>",
+        "<p>Before </p><p class='custom'>Strict</p><p>After </p>", true)]
+    [InlineData("<p class='custom'>Strict</p><p>After</p>",
+        "<p class='custom'>Strict </p><p>After </p>", false)]
+    [InlineData("<div><p>Before</p><p class='custom'>Strict</p></div><p>After</p>",
+        "<div><p>Before </p><p class='custom'>Strict</p></div><p>After </p>", false)]
+    [InlineData("<textarea><input title='</textarea><pre>'></textarea><p>Body</p>",
+        "<textarea><input title='</textarea><pre>'></textarea><p>Body </p>", false)]
+    [InlineData("<link rel='stylesheet' href='data:text/css,p%7Bwhite-space:pre%7D'><p>Body</p>",
+        "<link rel='stylesheet' href='data:text/css,p%7Bwhite-space:pre%7D'><p>Body </p>", false)]
     public async Task ReadbackBatch_HtmlBlockEdges_PreservesRenderingBoundaries(
         string expected, string actual, bool equivalent)
     {

@@ -407,6 +407,45 @@ public sealed class ShowProjectionTests : IDisposable
         item.GetProperty("freshness").GetProperty("hasLocalChanges").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Projection_CachedMetadataDistinguishesUnsetFromUncarriedFields(bool batch)
+    {
+        var item = new WorkItemBuilder(42, "Cached").LastSyncedAt(DateTimeOffset.Parse("2026-10-11T00:00:00Z")).Build();
+        item.MarkSynced(7);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _fieldDefinitionStore.GetByReferenceNameAsync("Custom.Unset", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("Custom.Unset", "Unset", "html", false));
+        _fieldDefinitionStore.GetByReferenceNameAsync("Custom.Uncarried", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("Custom.Uncarried", "Uncarried", "boolean", false));
+        var output = await CaptureStdout(() => batch
+            ? _cmd.ExecuteBatchAsync("42", "json", fields: "Custom.Unset,Custom.Uncarried,Custom.Unknown")
+            : _cmd.ExecuteAsync(42, "json", fields: "Custom.Unset,Custom.Uncarried,Custom.Unknown"));
+        using var doc = JsonDocument.Parse(output);
+        var projected = batch ? doc.RootElement.GetProperty("items")[0] : doc.RootElement;
+        var fields = projected.GetProperty("requestedFields");
+        fields.GetProperty("Custom.Unset").GetProperty("status").GetString().ShouldBe("absent");
+        fields.GetProperty("Custom.Uncarried").GetProperty("status").GetString().ShouldBe("unknown");
+        fields.GetProperty("Custom.Unknown").GetProperty("status").GetString().ShouldBe("unknown");
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(42, 7)]
+    public async Task Projection_UncapturedFieldsRemainUnknownEvenWithMetadata(int id, int revision)
+    {
+        var item = new WorkItemBuilder(id, "Uncaptured").Build();
+        item.MarkSynced(revision);
+        _workItemRepo.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns(item);
+        _fieldDefinitionStore.GetByReferenceNameAsync("Custom.Unset", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("Custom.Unset", "Unset", "html", false));
+        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync(id.ToString(), "json", fields: "Custom.Unset"));
+        using var doc = JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("items")[0].GetProperty("requestedFields").GetProperty("Custom.Unset")
+            .GetProperty("status").GetString().ShouldBe("unknown");
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private static async Task<string> CaptureStdout(Func<Task<int>> action)

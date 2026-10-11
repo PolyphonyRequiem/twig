@@ -82,6 +82,12 @@ Core fields use the same field-value resolver as the detail document.
 `requestedFields` entries distinguish `present` (with the complete value),
 `absent` (known empty), and `unknown` (not carried by Twig). A field's absence
 from the cached dictionary alone is never proof of absence on ADO.
+Only the requested cached field definitions are consulted, with no metadata
+fetch. If the shared import policy proves Twig carries a declared field, a
+missing value is `absent`; missing definitions, excluded data types, and
+non-imported read-only fields remain `unknown`. This same distinction applies
+to compact `show-batch` reads. It does not weaken freshness, pending-change
+protection, revision checks, or publication rules.
 
 `--sections links` includes cached edges and their verification timestamp;
 unverified edges are `unknown`, not an authoritative empty set. Cached children

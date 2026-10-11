@@ -1,0 +1,416 @@
+{
+  "status": "executed-native-descriptive-evidence-not-product-qualification",
+  "sourceCommit": "39e10719870437e011567155c328aee03b80c835",
+  "runtime": ".NET 11.0.0-rc.1.26425.128",
+  "buildProof": {
+    "receipt": "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/profiler-build-proof.json",
+    "exitCode": 0,
+    "elapsedSeconds": 129.91,
+    "sdk": "11.0.100-rc.1.26425.128",
+    "rid": "win-x64",
+    "publishAot": true,
+    "publishTrimmed": true,
+    "trimMode": "full",
+    "minVerVersionOverride": "0.0.0-1142",
+    "changedSnapshotFileCount": 4,
+    "diagnostics": "NETSDK1057 informational only; no warnings/errors in successful output",
+    "observedNativeCodeGeneration": true
+  },
+  "finalPreservation": {
+    "receipt": "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/preservation-final-check.json",
+    "capturedUtc": "2026-10-10T01:20:11.9214810Z",
+    "checkedCount": 70,
+    "changedCount": 0,
+    "scope": "Captured stable installed payloads/manifests/global Herdr config/shims; not all files or credential contents"
+  },
+  "executableSha256": "d68742f18deabd55a10a9a6d5b36706a3824d8964abcd6f91e1f5356e67f2ba3",
+  "rawResultPath": "tools/research/tui-aot-1142/generated/results/results.json",
+  "rawResultSha256": "46c8e28d5c33c7d2611b3980a32eda544bbcc52c3fd7a8339af17c84a7e753f7",
+  "observationCount": 387,
+  "warmSamplesPerItemWidthMode": 20,
+  "itemWidths": [
+    45,
+    80,
+    120
+  ],
+  "corpus": [
+    1141,
+    1142,
+    1143
+  ],
+  "cellSummaries": {
+    "1141/45/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 575.9005,
+      "medianMs": 740.1765,
+      "p95NearestRankMs": 889.7797,
+      "maximumMs": 905.7074
+    },
+    "1141/45/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 361.75,
+      "medianMs": 475.74665000000005,
+      "p95NearestRankMs": 535.104,
+      "maximumMs": 576.951
+    },
+    "1141/80/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 577.883,
+      "medianMs": 735.6656,
+      "p95NearestRankMs": 940.1673,
+      "maximumMs": 1003.559
+    },
+    "1141/80/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 360.8223,
+      "medianMs": 459.02115000000003,
+      "p95NearestRankMs": 651.0229,
+      "maximumMs": 742.5166
+    },
+    "1141/120/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 603.4823,
+      "medianMs": 761.9312500000001,
+      "p95NearestRankMs": 865.5849,
+      "maximumMs": 895.271
+    },
+    "1141/120/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 424.8468,
+      "medianMs": 522.7953,
+      "p95NearestRankMs": 654.2172,
+      "maximumMs": 675.9976
+    },
+    "1142/45/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 554.7675,
+      "medianMs": 743.1997,
+      "p95NearestRankMs": 865.4777,
+      "maximumMs": 1026.8548
+    },
+    "1142/45/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 358.148,
+      "medianMs": 441.1158,
+      "p95NearestRankMs": 736.23,
+      "maximumMs": 781.4017
+    },
+    "1142/80/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 573.4422,
+      "medianMs": 663.62365,
+      "p95NearestRankMs": 794.9293,
+      "maximumMs": 850.7426
+    },
+    "1142/80/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 367.7329,
+      "medianMs": 508.2903,
+      "p95NearestRankMs": 740.8829,
+      "maximumMs": 743.5623
+    },
+    "1142/120/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 552.2392,
+      "medianMs": 671.9186,
+      "p95NearestRankMs": 862.8005,
+      "maximumMs": 867.8978
+    },
+    "1142/120/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 324.1354,
+      "medianMs": 396.0167,
+      "p95NearestRankMs": 587.1373,
+      "maximumMs": 596.6608
+    },
+    "1143/45/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 551.8709,
+      "medianMs": 662.3127999999999,
+      "p95NearestRankMs": 904.2027,
+      "maximumMs": 923.1275
+    },
+    "1143/45/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 368.9285,
+      "medianMs": 425.8274,
+      "p95NearestRankMs": 582.8754,
+      "maximumMs": 620.0101
+    },
+    "1143/80/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 586.2816,
+      "medianMs": 879.9150999999999,
+      "p95NearestRankMs": 1039.2898,
+      "maximumMs": 1099.3139
+    },
+    "1143/80/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 439.1154,
+      "medianMs": 600.5163,
+      "p95NearestRankMs": 715.043,
+      "maximumMs": 727.3158
+    },
+    "1143/120/warm-one-shot": {
+      "count": 20,
+      "minimumMs": 561.7763,
+      "medianMs": 724.42025,
+      "p95NearestRankMs": 948.8765,
+      "maximumMs": 1173.9314
+    },
+    "1143/120/warm-reused-state": {
+      "count": 20,
+      "minimumMs": 318.3221,
+      "medianMs": 398.709,
+      "p95NearestRankMs": 534.427,
+      "maximumMs": 559.3669
+    }
+  },
+  "stageSummary": [
+    {
+      "mode": "warm-one-shot",
+      "stage": "composition",
+      "rowCount": 180,
+      "medianMs": 86.312,
+      "minMs": 63.291,
+      "maxMs": 290.045
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "data-reads",
+      "rowCount": 180,
+      "medianMs": 1.235,
+      "minMs": 0.896,
+      "maxMs": 2.461
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "detail-operation-with-disposal",
+      "rowCount": 180,
+      "medianMs": 588.795,
+      "minMs": 444.28,
+      "maxMs": 1031.462
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "envelope-output",
+      "rowCount": 180,
+      "medianMs": 0.4,
+      "minMs": 0.27,
+      "maxMs": 0.776
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "final-admission",
+      "rowCount": 180,
+      "medianMs": 133.466,
+      "minMs": 96.233,
+      "maxMs": 301.774
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "initial-admission",
+      "rowCount": 180,
+      "medianMs": 428.334,
+      "minMs": 323.431,
+      "maxMs": 845.769
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "layout-and-native-serialization",
+      "rowCount": 180,
+      "medianMs": 15.876,
+      "minMs": 8.275,
+      "maxMs": 38.07
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "leaf-service-resolution",
+      "rowCount": 180,
+      "medianMs": 7.456,
+      "minMs": 5.153,
+      "maxMs": 11.988
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "store-initialize-subset",
+      "rowCount": 180,
+      "medianMs": 7.848,
+      "minMs": 5.749,
+      "maxMs": 13.251
+    },
+    {
+      "mode": "warm-one-shot",
+      "stage": "store-open-total-nested",
+      "rowCount": 180,
+      "medianMs": 13.571,
+      "minMs": 10.137,
+      "maxMs": 21.808
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "data-reads",
+      "rowCount": 180,
+      "medianMs": 1.616,
+      "minMs": 0.723,
+      "maxMs": 5.2
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "detail-operation-with-disposal",
+      "rowCount": 180,
+      "medianMs": 476.41,
+      "minMs": 318.322,
+      "maxMs": 781.402
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "envelope-output",
+      "rowCount": 180,
+      "medianMs": 0.385,
+      "minMs": 0.147,
+      "maxMs": 5.142
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "final-admission",
+      "rowCount": 180,
+      "medianMs": 142.356,
+      "minMs": 96.105,
+      "maxMs": 405.473
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "initial-admission",
+      "rowCount": 180,
+      "medianMs": 293.806,
+      "minMs": 203.798,
+      "maxMs": 614.722
+    },
+    {
+      "mode": "warm-reused-state",
+      "stage": "layout-and-native-serialization",
+      "rowCount": 180,
+      "medianMs": 19.978,
+      "minMs": 7.609,
+      "maxMs": 64.213
+    }
+  ],
+  "bracketedWarm": {
+    "medianMs": 1299.2516500000002,
+    "minimumMs": 979.5452,
+    "maximumMs": 2817.4216
+  },
+  "dimensions": [
+    {
+      "itemId": 1141,
+      "width": 45,
+      "ansiBytes": 11956,
+      "plainChars": 10028,
+      "physicalRows": 218,
+      "titleChars": 79
+    },
+    {
+      "itemId": 1141,
+      "width": 80,
+      "ansiBytes": 12842,
+      "plainChars": 10935,
+      "physicalRows": 135,
+      "titleChars": 79
+    },
+    {
+      "itemId": 1141,
+      "width": 120,
+      "ansiBytes": 13157,
+      "plainChars": 11253,
+      "physicalRows": 93,
+      "titleChars": 79
+    },
+    {
+      "itemId": 1142,
+      "width": 45,
+      "ansiBytes": 6937,
+      "plainChars": 5888,
+      "physicalRows": 128,
+      "titleChars": 70
+    },
+    {
+      "itemId": 1142,
+      "width": 80,
+      "ansiBytes": 7671,
+      "plainChars": 6561,
+      "physicalRows": 81,
+      "titleChars": 70
+    },
+    {
+      "itemId": 1142,
+      "width": 120,
+      "ansiBytes": 8669,
+      "plainChars": 7381,
+      "physicalRows": 61,
+      "titleChars": 70
+    },
+    {
+      "itemId": 1143,
+      "width": 45,
+      "ansiBytes": 7011,
+      "plainChars": 5980,
+      "physicalRows": 130,
+      "titleChars": 53
+    },
+    {
+      "itemId": 1143,
+      "width": 80,
+      "ansiBytes": 7731,
+      "plainChars": 6642,
+      "physicalRows": 82,
+      "titleChars": 53
+    },
+    {
+      "itemId": 1143,
+      "width": 120,
+      "ansiBytes": 8769,
+      "plainChars": 7502,
+      "physicalRows": 62,
+      "titleChars": 53
+    }
+  ],
+  "nativeHtmlSizes": [
+    {
+      "itemId": 1141,
+      "htmlChars": [
+        7086
+      ]
+    },
+    {
+      "itemId": 1142,
+      "htmlChars": [
+        4672
+      ]
+    },
+    {
+      "itemId": 1143,
+      "htmlChars": [
+        4745
+      ]
+    }
+  ],
+  "environment": {
+    "prototypeRepublishStarted": "2026-10-10T00:45:50.712Z",
+    "profilingJob": "bg_1",
+    "limitation": "Stage profiling runs in this background agent environment, not an idle benchmark machine; final isolated prototype NativeAOT republish overlaps part of the measurement series. Results remain descriptive and do not qualify approved latency targets."
+  },
+  "limits": [
+    "Process-first is not OS-cold; no cache eviction or credential reset.",
+    "Startup installer/old-binary cleanup intentionally absent in snapshot.",
+    "Store total/constructor are nested in composition/service resolution; never sum nested rows.",
+    "Reuse operation includes lease disposal but excludes composition/process startup and25ms idle gaps.",
+    "One-shot native wall versus reuse inner operation is an overhead comparison, not isolated cause proof.",
+    "Reuse emission is pipe-captured; no Go terminal event queue/layout/paint measured.",
+    "Bracketed wall includes real status before/after but is not input-to-painted-frame.",
+    "Only approved cached Epic/frontier corpus; not broad production qualification.",
+    "Twenty descriptive warm samples do not approve any latency target.",
+    "Store sums are within-row same-name sums only; store open/constructor overlap composition/leaf resolution and cannot be added across stage names.",
+    "Coordinator reports369.69seconds wall for successful full series; prototype final16.45second republish and background host tests overlap part of measurement. No idle-machine baseline or stage causal subprofiling."
+  ]
+}

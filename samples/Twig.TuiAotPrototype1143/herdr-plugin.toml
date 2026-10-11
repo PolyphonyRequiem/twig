@@ -1,0 +1,37 @@
+id = "twig-tui-aot-1143"
+name = "Twig AOT1143 throwaway"
+version = "0.0.1"
+min_herdr_version = "0.9.1"
+description = "Opt-in fixture-only Windows NativeAOT terminal experiment. Not production Twig; no credentials, store, auth or publication. Explicit captured source, no focus changes."
+platforms = ["windows"]
+
+[[actions]]
+id = "open-windows"
+platforms = ["windows"]
+title = "AOT1143: reuse/open fixture"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw "HERDR_PLUGIN_ROOT is unset"}; if($p.StartsWith('\\?\')){$p=$p.Substring(4)}; & (Join-Path $p 'launch.ps1') open''']
+
+[[actions]]
+id = "tree-windows"
+platforms = ["windows"]
+title = "AOT1143: external Tree intent"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw "HERDR_PLUGIN_ROOT is unset"}; if($p.StartsWith('\\?\')){$p=$p.Substring(4)}; & (Join-Path $p 'launch.ps1') tree''']
+
+[[actions]]
+id = "table-windows"
+platforms = ["windows"]
+title = "AOT1143: external Table intent"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw "HERDR_PLUGIN_ROOT is unset"}; if($p.StartsWith('\\?\')){$p=$p.Substring(4)}; & (Join-Path $p 'launch.ps1') table''']
+
+[[actions]]
+id = "close-windows"
+platforms = ["windows"]
+title = "AOT1143: close captured fixture"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw "HERDR_PLUGIN_ROOT is unset"}; if($p.StartsWith('\\?\')){$p=$p.Substring(4)}; & (Join-Path $p 'launch.ps1') close''']
+
+[[panes]]
+id = "bench-windows"
+platforms = ["windows"]
+title = "Twig AOT1143 fixture"
+placement = "split"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw "HERDR_PLUGIN_ROOT is unset"}; if($p.StartsWith('\\?\')){$p=$p.Substring(4)}; & (Join-Path $p 'launch.ps1') panel''']

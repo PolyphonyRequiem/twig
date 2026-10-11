@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>twig-tui-aot-1143</AssemblyName>
+    <RootNamespace>Twig.TuiAotPrototype1143</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <Compile Include="*.cs" />
+    <!-- Reuse existing inert presentation source without building any production project. -->
+    <Compile Include="../../src/Twig/Rendering/RichHtmlRenderer.cs" Link="Native/RichHtmlRenderer.cs" />
+    <Compile Include="../../src/Twig.RenderTree/RenderNode.cs;../../src/Twig.RenderTree/RenderCell.cs;../../src/Twig.RenderTree/RenderValue.cs;../../src/Twig.RenderTree/RenderRow.cs;../../src/Twig.RenderTree/RenderColumn.cs;../../src/Twig.RenderTree/RenderTreeBranch.cs;../../src/Twig.RenderTree/RenderTextSpan.cs;../../src/Twig.RenderTree/Severity.cs;../../src/Twig.RenderTree/DocumentField.cs;../../src/Twig.RenderTree/RenderAudience.cs" Link="Native/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,284 @@
+{
+  "version": {
+    "argv": [
+      "herdr",
+      "--version"
+    ],
+    "exitCode": 0,
+    "stdout": "herdr 0.9.1-preview.2026-09-29-9dc3a1df2b56\n",
+    "stderr": ""
+  },
+  "plugins": {
+    "argv": [
+      "herdr",
+      "plugin",
+      "list"
+    ],
+    "exitCode": 0,
+    "stdout": "2 plugins installed:\n- herdr-file-viewer (herdr-file-viewer) enabled [github:smarzban/herdr-file-viewer@v1.14.0]\n  config: C:\\Users\\dangreen\\AppData\\Roaming\\herdr\\plugins\\config\\herdr-file-viewer\n- twig-herdr (Twig bench) enabled [github:PolyphonyRequiem/twig-herdr@v0.2.4]\n  config: C:\\Users\\dangreen\\AppData\\Roaming\\herdr\\plugins\\config\\twig-herdr\n",
+    "stderr": ""
+  },
+  "stableActions": {
+    "argv": [
+      "herdr",
+      "plugin",
+      "action",
+      "list",
+      "--plugin",
+      "twig-herdr"
+    ],
+    "exitCode": 0,
+    "stdout": "{\"id\":\"cli:plugin\",\"result\":{\"actions\":[{\"action_id\":\"exit-review\",\"command\":[\"./bin/twig-herdr\",\"exit-review\"],\"platforms\":[\"linux\",\"macos\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Exit Twig review\"},{\"action_id\":\"exit-review-windows\",\"command\":[\"powershell\",\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",\"$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw \\\"HERDR_PLUGIN_ROOT is unset\\\"}; if($p.StartsWith('\\\\\\\\?\\\\')){$p=$p.Substring(4)}; & (Join-Path $p 'scripts\\\\launch.ps1') exit-review\"],\"platforms\":[\"windows\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Exit Twig review\"},{\"action_id\":\"open\",\"command\":[\"./bin/twig-herdr\",\"open\"],\"platforms\":[\"linux\",\"macos\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Open Twig bench\"},{\"action_id\":\"open-windows\",\"command\":[\"powershell\",\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",\"$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw \\\"HERDR_PLUGIN_ROOT is unset\\\"}; if($p.StartsWith('\\\\\\\\?\\\\')){$p=$p.Substring(4)}; & (Join-Path $p 'scripts\\\\launch.ps1') open\"],\"platforms\":[\"windows\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Open Twig bench\"},{\"action_id\":\"reconnect\",\"command\":[\"./bin/twig-herdr\",\"reconnect\"],\"platforms\":[\"linux\",\"macos\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Acknowledge and reconnect\"},{\"action_id\":\"reconnect-windows\",\"command\":[\"powershell\",\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",\"$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw \\\"HERDR_PLUGIN_ROOT is unset\\\"}; if($p.StartsWith('\\\\\\\\?\\\\')){$p=$p.Substring(4)}; & (Join-Path $p 'scripts\\\\launch.ps1') reconnect\"],\"platforms\":[\"windows\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Acknowledge and reconnect\"},{\"action_id\":\"table\",\"command\":[\"./bin/twig-herdr\",\"table\"],\"platforms\":[\"linux\",\"macos\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Table view\"},{\"action_id\":\"table-windows\",\"command\":[\"powershell\",\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",\"$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw \\\"HERDR_PLUGIN_ROOT is unset\\\"}; if($p.StartsWith('\\\\\\\\?\\\\')){$p=$p.Substring(4)}; & (Join-Path $p 'scripts\\\\launch.ps1') table\"],\"platforms\":[\"windows\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Table view\"},{\"action_id\":\"tree\",\"command\":[\"./bin/twig-herdr\",\"tree\"],\"platforms\":[\"linux\",\"macos\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Tree view\"},{\"action_id\":\"tree-windows\",\"command\":[\"powershell\",\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-Command\",\"$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw \\\"HERDR_PLUGIN_ROOT is unset\\\"}; if($p.StartsWith('\\\\\\\\?\\\\')){$p=$p.Substring(4)}; & (Join-Path $p 'scripts\\\\launch.ps1') tree\"],\"platforms\":[\"windows\"],\"plugin_id\":\"twig-herdr\",\"title\":\"Twig bench: Tree view\"}],\"type\":\"plugin_action_list\"}}\n",
+    "stderr": ""
+  },
+  "paneOpenHelp": {
+    "argv": [
+      "herdr",
+      "plugin",
+      "pane",
+      "open",
+      "--help"
+    ],
+    "exitCode": 0,
+    "stdout": "Open a plugin pane\n\nUsage: herdr plugin pane open [OPTIONS]\n\nOptions:\n      --plugin <ID>\n          \n\n      --entrypoint <ID>\n          \n\n      --placement <PLACEMENT>\n          [possible values: overlay, split, tab, zoomed]\n\n      --workspace <ID>\n          \n\n      --target-pane <PANE>\n          \n\n      --direction <DIRECTION>\n          [possible values: right, down]\n\n      --cwd <PATH>\n          \n\n      --env <KEY=VALUE>\n          Set an environment variable for the launched process\n\n      --focus\n          \n\n      --no-focus\n\n",
+    "stderr": ""
+  },
+  "actionInvokeHelp": {
+    "argv": [
+      "herdr",
+      "plugin",
+      "action",
+      "invoke",
+      "--help"
+    ],
+    "exitCode": 0,
+    "stdout": "Invoke a plugin action\n\nUsage: herdr plugin action invoke [OPTIONS] <ACTION_ID>\n\nArguments:\n  <ACTION_ID>\n          \n\nOptions:\n      --plugin <ID>\n\n",
+    "stderr": ""
+  },
+  "sdkVersions": {
+    "argv": [
+      "dotnet",
+      "--list-sdks"
+    ],
+    "exitCode": 0,
+    "stdout": "8.0.425 [C:\\Program Files\\dotnet\\sdk]\n10.0.112 [C:\\Program Files\\dotnet\\sdk]\n10.0.201 [C:\\Program Files\\dotnet\\sdk]\n10.0.401 [C:\\Program Files\\dotnet\\sdk]\n11.0.100-rc.1.26425.128 [C:\\Program Files\\dotnet\\sdk]\n",
+    "stderr": ""
+  },
+  "hostSchema": {
+    "protocol": 22,
+    "schemaVersion": 1,
+    "definitions": {
+      "PluginPaneOpenParams": {
+        "properties": {
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/SplitDirection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "focus": {
+            "default": false,
+            "type": "boolean"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/PopupSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "placement": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/PluginPanePlacement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plugin_id": {
+            "type": "string"
+          },
+          "target_pane_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/PopupSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "plugin_id",
+          "entrypoint"
+        ],
+        "type": "object"
+      },
+      "PluginInvocationContext": {
+        "properties": {
+          "clicked_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "focused_pane_agent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "focused_pane_cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "focused_pane_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "focused_pane_status": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/AgentStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invocation_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link_handler_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tab_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tab_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace_cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "worktree": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/WorkspaceWorktreeInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PluginLinkParams": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/schemas/request/$defs/PluginSourceInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

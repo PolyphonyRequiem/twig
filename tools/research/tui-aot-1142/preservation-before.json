@@ -1,0 +1,356 @@
+{
+  "capturedUtc": "2026-10-09T23:35:59.007530+00:00",
+  "scope": "Stable launch manifests, config, shims, current and retained Twig binary payloads; no credential/configuration stores opened",
+  "files": [
+    {
+      "path": "C:/Users/dangreen/.local/bin/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/runtimes/win-arm/native/e_sqlite3.dll",
+      "bytes": 1282560,
+      "sha256": "2ff400c5bbfd7d08b393eccdc9e0065b525f7fe5ff790b17779d3892bb1de66d"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/runtimes/win-arm64/native/e_sqlite3.dll",
+      "bytes": 1592320,
+      "sha256": "d28ff71188b00e30489bb7bef15dd2ebc2fded92fd9cd8af97ce222d5cfa4c61"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/runtimes/win-x64/native/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/runtimes/win-x86/native/e_sqlite3.dll",
+      "bytes": 1453568,
+      "sha256": "d067d9e40d4bc93df3d142e19cd3a92ebae865d245e7335020478929489d5c8f"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-native/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-native/twig-bench-native.exe",
+      "bytes": 28972968,
+      "sha256": "0e47ec23057533bebb91b06f3ad05e82b4f092bd91cdf7064cf11e1f608fc7b1"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-tui.exe",
+      "bytes": 5500328,
+      "sha256": "de88930a002beeea9c8defff5fb1ce437b81c3d1ac90df0a232905c687230d2b"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-tui.exe.previous-07da9ef2bded4eeca438b3c27e50837d",
+      "bytes": 7991808,
+      "sha256": "c95dde5d317bae938090d38a013a1e8a754e7ca73fe99d1c574304cc721e3e5a"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-tui.exe.previous-0ea67cf27c4f44bcbfb849fc652acaaa",
+      "bytes": 7997952,
+      "sha256": "d50a2bdcba3dfd437c5d6be9889bcd4ef2119af280f970c64a0be22cd7df7cd4"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-tui.exe.previous-4acdd7c74a21466cb3986148aa3b2cb7",
+      "bytes": 8581120,
+      "sha256": "cb1507b8d9f986a77d30ddd1908897cd85ef124fc3ca6de9b8196a70edb037ce"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-bench-tui.exe.previous-9030e330034f447d8454e98d003f6982",
+      "bytes": 8484352,
+      "sha256": "fd5882c2c3b21770aae10025b4a6c6d2683eb358580c1a8f486cb85c9fd6e02b"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-core.exe",
+      "bytes": 28448680,
+      "sha256": "9e3feb2f7c41b6ef5df3d11886962b48bb701c97778aa59dab9be41c2051bbcb"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-core.exe.old",
+      "bytes": 28380936,
+      "sha256": "0c99e5ecb40cef7dd8bcbd6aa45add609baa57785a153f976116626e83fd7cc8"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-herdr.exe",
+      "bytes": 8764840,
+      "sha256": "a5aff63bf7e6bd575e78573c1f939ef1a3a02e745ae5f7b51eeb28681c36728e"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp-core.exe",
+      "bytes": 28838152,
+      "sha256": "136611410cede3d13e2660f9721ccc7a2173719b06ca717d3d0e2d2dea3180fa"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp.cmd",
+      "bytes": 418,
+      "sha256": "8b61000db6bdf9c32960149766eb2044e9f30e0e017e6b29910fe473113d63fb"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp.exe",
+      "bytes": 28838152,
+      "sha256": "136611410cede3d13e2660f9721ccc7a2173719b06ca717d3d0e2d2dea3180fa"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp.exe.bak",
+      "bytes": 24094720,
+      "sha256": "c4636f5e096240c6a2d7717361b0125e9bff7bb5058eca69b4ae70dc055c14a9"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp.exe.bak2",
+      "bytes": 24193024,
+      "sha256": "d1eb78378c06d00747c69d96bd96255c8bfe8982e0c377daeb73637aaa125c2f"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-mcp.pdb",
+      "bytes": 101707776,
+      "sha256": "2b0aa76e59bd3c76f2dd4d95c724210a0905d324fa8bb6df7b9db3cd8ce1b1b7"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-rollback-1116-9a099174-c614-4c46-881a-349cc0c44b13/twig.exe",
+      "bytes": 25086728,
+      "sha256": "b5fc6ecf5a3dd3ffacb584c7c11e03717f7f65c8314249c963a53b5fdb1f5847"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-rollback-v0.97.0-96faa7f6-3e93-40f7-90a4-65a7ffe4eb1d/twig.exe",
+      "bytes": 28334080,
+      "sha256": "4abfc8ec222af8ec5cdd3c8af863abac9c23fa4451ae7cd6fe25febfa5410a54"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-tui-core.exe",
+      "bytes": 85993944,
+      "sha256": "caedefe6bbb7ddd07b976312cf56e13084a3f5c578546e4ed65c904e0041ccee"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-tui-core.exe.old",
+      "bytes": 85970232,
+      "sha256": "b5431296383ab21dd455edc830168fb6fe0d0b380cdb057339a07865a1a053e6"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-tui.cmd",
+      "bytes": 418,
+      "sha256": "3f2cad1a69b7547fb8938764cf81e61dcdaf207296a87f0aec2d78baf854c0f0"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-tui.exe",
+      "bytes": 85993944,
+      "sha256": "0f423e037a26108d817647228927ca7ecaae2c6d702f1d6838742eb14b101bba"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig-tui.pdb",
+      "bytes": 20108,
+      "sha256": "a49065d33857fe00edd350432faa07fa9bc510176fe1cfa6bee9880ad59504ed"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig.cmd",
+      "bytes": 406,
+      "sha256": "d914af034577ab5dfa411a08b486fb09361add6a9e08ba54abde6995ffdb9812"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig.exe",
+      "bytes": 28448680,
+      "sha256": "9e3feb2f7c41b6ef5df3d11886962b48bb701c97778aa59dab9be41c2051bbcb"
+    },
+    {
+      "path": "C:/Users/dangreen/.local/bin/twig.pdb",
+      "bytes": 114380800,
+      "sha256": "1caed97cec6ed6fc27d3a78e2faef7eeb182e79da57a8d4600caf502b057937f"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/runtimes/win-arm/native/e_sqlite3.dll",
+      "bytes": 1282560,
+      "sha256": "2ff400c5bbfd7d08b393eccdc9e0065b525f7fe5ff790b17779d3892bb1de66d"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/runtimes/win-arm64/native/e_sqlite3.dll",
+      "bytes": 1592320,
+      "sha256": "d28ff71188b00e30489bb7bef15dd2ebc2fded92fd9cd8af97ce222d5cfa4c61"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/runtimes/win-x64/native/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/runtimes/win-x86/native/e_sqlite3.dll",
+      "bytes": 1453568,
+      "sha256": "d067d9e40d4bc93df3d142e19cd3a92ebae865d245e7335020478929489d5c8f"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-core.exe",
+      "bytes": 28421544,
+      "sha256": "50183f881297b8893ee5bc7815b76549cc826f6eca4b6801abc15f77808caab2"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-core.exe.old",
+      "bytes": 28380936,
+      "sha256": "0c99e5ecb40cef7dd8bcbd6aa45add609baa57785a153f976116626e83fd7cc8"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-mcp-core.exe",
+      "bytes": 28838152,
+      "sha256": "136611410cede3d13e2660f9721ccc7a2173719b06ca717d3d0e2d2dea3180fa"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-mcp.cmd",
+      "bytes": 418,
+      "sha256": "8b61000db6bdf9c32960149766eb2044e9f30e0e017e6b29910fe473113d63fb"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-mcp.exe",
+      "bytes": 28838152,
+      "sha256": "136611410cede3d13e2660f9721ccc7a2173719b06ca717d3d0e2d2dea3180fa"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-mcp.pdb",
+      "bytes": 125849600,
+      "sha256": "9b82341dcc576f75a76afc356daa9a74ea738f2b7a302880647dd321eb8f9d9a"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui-core.exe",
+      "bytes": 85993944,
+      "sha256": "caedefe6bbb7ddd07b976312cf56e13084a3f5c578546e4ed65c904e0041ccee"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui-core.exe.old",
+      "bytes": 85970232,
+      "sha256": "b5431296383ab21dd455edc830168fb6fe0d0b380cdb057339a07865a1a053e6"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui.cmd",
+      "bytes": 418,
+      "sha256": "3f2cad1a69b7547fb8938764cf81e61dcdaf207296a87f0aec2d78baf854c0f0"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui.exe",
+      "bytes": 85993944,
+      "sha256": "caedefe6bbb7ddd07b976312cf56e13084a3f5c578546e4ed65c904e0041ccee"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui.exe.old",
+      "bytes": 85970232,
+      "sha256": "b5431296383ab21dd455edc830168fb6fe0d0b380cdb057339a07865a1a053e6"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig-tui.pdb",
+      "bytes": 20108,
+      "sha256": "a49065d33857fe00edd350432faa07fa9bc510176fe1cfa6bee9880ad59504ed"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig.cmd",
+      "bytes": 406,
+      "sha256": "d914af034577ab5dfa411a08b486fb09361add6a9e08ba54abde6995ffdb9812"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig.exe",
+      "bytes": 28421544,
+      "sha256": "50183f881297b8893ee5bc7815b76549cc826f6eca4b6801abc15f77808caab2"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig.exe.old",
+      "bytes": 28380936,
+      "sha256": "0c99e5ecb40cef7dd8bcbd6aa45add609baa57785a153f976116626e83fd7cc8"
+    },
+    {
+      "path": "C:/Users/dangreen/.twig/bin/twig.pdb",
+      "bytes": 114380800,
+      "sha256": "1caed97cec6ed6fc27d3a78e2faef7eeb182e79da57a8d4600caf502b057937f"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/config.toml",
+      "bytes": 336,
+      "sha256": "07e0b1bce3c2ab4f6067253932825fc075f2f2b51b19d61c0c1e770a78a2878b"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-bench-native/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-bench-native/twig-bench-native.exe",
+      "bytes": 28972968,
+      "sha256": "0e47ec23057533bebb91b06f3ad05e82b4f092bd91cdf7064cf11e1f608fc7b1"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-bench-tui.exe",
+      "bytes": 5500328,
+      "sha256": "de88930a002beeea9c8defff5fb1ce437b81c3d1ac90df0a232905c687230d2b"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe",
+      "bytes": 8764840,
+      "sha256": "a5aff63bf7e6bd575e78573c1f939ef1a3a02e745ae5f7b51eeb28681c36728e"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe.original",
+      "bytes": 8130048,
+      "sha256": "d37d1c2750012a87eba2e41cf93d1f8b4d244973654f3fe1163a6551c0dbf935"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe.previous-5ab52f94dbe94e6fb02196caa3145a8e",
+      "bytes": 13528064,
+      "sha256": "9398ae979a3bd2be67f49daf21a4eeda5e71855f6290438bbaf71b8111326619"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe.previous-9a6378c84cc6417aab7fd0707e4e138b",
+      "bytes": 13550592,
+      "sha256": "d564b1daeddc890a7e5ce6a72021478e170039b0b252cd1420c52466a6fb6234"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe.previous-d320d01722ea4f0a853021b0873c80a6",
+      "bytes": 13465088,
+      "sha256": "b607e7b2cee61716d463e39fa00899c0f9129307b1d0e4b9990d760def32d437"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/bin/twig-herdr.exe.previous-ec824e993165491ca40c5bf4a91b29d2",
+      "bytes": 13520384,
+      "sha256": "d4c0aa88d6920b2b9183d3f34a3271cf3b134fef87a01a985205c8d1ccded3b5"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/herdr-plugin.toml",
+      "bytes": 3780,
+      "sha256": "7f708fc68ece590226f2d1b76281737bae076d3ffb370e0a7a4f85d6d7edc2dc"
+    },
+    {
+      "path": "C:/Users/dangreen/AppData/Roaming/herdr/plugins/github/twig-herdr-145da1c6cf2a/scripts/launch.ps1",
+      "bytes": 626,
+      "sha256": "5cebbd86964559888b7456e7f0366f612cbaa53aa597a14a16f028c8c84bd1aa"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/bin/twig-bench-native/e_sqlite3.dll",
+      "bytes": 1795072,
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/bin/twig-bench-native/twig-bench-native.exe",
+      "bytes": 28972968,
+      "sha256": "0e47ec23057533bebb91b06f3ad05e82b4f092bd91cdf7064cf11e1f608fc7b1"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/bin/twig-bench-tui.exe",
+      "bytes": 5500328,
+      "sha256": "de88930a002beeea9c8defff5fb1ce437b81c3d1ac90df0a232905c687230d2b"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/bin/twig-herdr.exe",
+      "bytes": 8764840,
+      "sha256": "a5aff63bf7e6bd575e78573c1f939ef1a3a02e745ae5f7b51eeb28681c36728e"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/herdr-plugin.toml",
+      "bytes": 3780,
+      "sha256": "7f708fc68ece590226f2d1b76281737bae076d3ffb370e0a7a4f85d6d7edc2dc"
+    },
+    {
+      "path": "C:/Users/dangreen/projects/twig-herdr/scripts/launch.ps1",
+      "bytes": 626,
+      "sha256": "5cebbd86964559888b7456e7f0366f612cbaa53aa597a14a16f028c8c84bd1aa"
+    }
+  ]
+}

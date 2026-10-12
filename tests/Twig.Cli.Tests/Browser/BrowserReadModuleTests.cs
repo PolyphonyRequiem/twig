@@ -217,6 +217,28 @@ public sealed class BrowserReadModuleTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task ActualNativeOperationContentionRetainsCapturedReadForRetryButNotChangedAuthority()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(NativeBrowserFixture.Item(42, "Private cached detail"));
+        var module = _fixture.CreateModule(runtime);
+        var observation = Success(await module.ReadDetailAsync(new(42)));
+        using (ConnectionOperationGate.Acquire(_fixture.Paths.StartDir!, exclusive: true))
+        {
+            Task<BrowserDetailResult> blocked;
+            // Model another actor rather than inheriting this actor's reentrant exclusive scope.
+            using (ExecutionContext.SuppressFlow())
+                blocked = Task.Run(() => module.ReadDetailAsync(new(42, Captured: observation.Capture)));
+            Failure(await blocked, BrowserReadFailureKind.Unavailable);
+            (await observation.RenderAsync(80, ansi: false)).Ansi.ShouldContain("Private cached detail");
+        }
+
+        Success(await module.ReadDetailAsync(new(42, Captured: observation.Capture))).Title.ShouldBe("Private cached detail");
+        await _fixture.SwitchAsync(_fixture.SiblingBinding.BindingId);
+        Failure(await module.ReadDetailAsync(new(42, Captured: observation.Capture)), BrowserReadFailureKind.AuthorityInvalidated);
+    }
+
+    [HostMigrationFact]
     public async Task LockedNativeAdditiveRegistryOpenIsUnavailableAndRetryPreservesAdmittedOrigin()
     {
         var runtime = await _fixture.CreateRuntimeAsync();

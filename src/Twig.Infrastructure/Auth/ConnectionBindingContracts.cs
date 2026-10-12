@@ -144,6 +144,7 @@ internal static class ConnectionOperationAdmission
 }
 internal static class ConnectionOperationGate
 {
+    internal const string ActiveFailureCode = "binding-operation-active";
     private static readonly AsyncLocal<Lease?> ExclusiveScope = new();
 
     internal static IDisposable Acquire(string worktreeRoot, bool exclusive = false)
@@ -161,7 +162,7 @@ internal static class ConnectionOperationGate
         }
         catch (IOException ex)
         {
-            throw new InvalidOperationException("binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
+            throw new ConnectionBindingResolutionException(ActiveFailureCode, "binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
         }
         var lease = new Lease(stream, exclusive ? root : null, ExclusiveScope.Value);
         if (exclusive) ExclusiveScope.Value = lease;

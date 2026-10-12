@@ -87,8 +87,10 @@ not a Go UI or read subprocess. This candidate does not redirect `twig tui`,
   Page/Home/End scroll; resize reflows retained data. Selection never calls `twig set`.
 - **Read:** R is cache-only. S explicitly pulls the captured positive item and links,
   never pushes pending work or fetches unrelated targets. Seed S refuses. Retryable
-  same-origin failures retain content; authority changes clear visible/hidden state
-  and stop operations until explicit Ctrl+R reconnect creates a fresh native runtime.
+  native checkout-lease or registry contention retains cached content without admitting
+  a read or write; retry after release rechecks the captured origin. Confirmed authority
+  changes clear visible/hidden state and stop operations until explicit Ctrl+R reconnect
+  creates a fresh native runtime. Other retryable same-origin failures retain content too.
 - **Configure:** c opens Pins/Areas/Sprints/Benches; digits or Tab select a section.
   Pins use independent p/P Single/Subtree toggles; a/A accepts manual IDs, including
   uncached IDs shown as unverified. Areas use a/d, x Exact/u Under, and an explicit t

@@ -25,8 +25,9 @@ internal sealed class BrowserControlServer : IAsyncDisposable
         _worker = ServeAsync(listener);
     }
 
+    // Keep OS buffer defaults: Unix applies explicit sizes after accept, when an EOF peer may already be gone.
     private NamedPipeServerStream CreateListener() => new(_owned.Pipe, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
-        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 4096, 4096);
+        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
     private async Task ServeAsync(NamedPipeServerStream listener)
     {

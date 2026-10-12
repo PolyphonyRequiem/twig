@@ -111,6 +111,12 @@ unsaved buffer needs a decision. Modes, inherited code pages and POSIX termios a
 restored on exit. Native terminal code targets win-x64/linux-x64/osx-arm64; source or
 an unsigned smoke build is not signed installed-platform qualification.
 
+Wrapping keeps extended graphemes intact. Windows budgets their per-rune console-cell
+advances and reflows overflowing native Show/Review ANSI rows before viewport clipping,
+retaining text, active styling and the left panel edge. Unix keeps its existing width
+and native-row policy. A cluster too wide for the current viewport remains in the
+retained text for later wider reflow; font-specific rendering still needs qualification.
+
 `--herdr --intent open|status|tree|table|view|review|exit-review|reconnect|close`
 routes authenticated bounded controls to the same application in an opt-in native
 manifest-owned pane. The isolated manifest is `integrations/herdr-aot/herdr-plugin.toml`
@@ -124,6 +130,10 @@ Control protocol 3 uses short unpredictable pipe identifiers within standard mac
 limits and acknowledges a nonce/owner/source-validated complete reply before disconnect
 or close delivery. Version-1/2 registrations refuse rather than being adopted; recovery
 requires the same control/store contract. Authentication tokens and nonces remain 256-bit.
+Malformed, truncated or disconnected clients do not retire the owner registration.
+Accepted pipes disconnect even after EOF marks them broken; OS-default buffers avoid
+retuning an already-disconnected Unix peer during accept. The next authenticated request
+uses the same owner, without replacing the terminal or relaxing control checks.
 An uncatchable kill may leave a stale private registration; explicit proved-dead
 owner recovery never steals a slow live peer. Supported legacy migration requires
 explicitly closing the candidate host; no native quiescence exemption is invented.

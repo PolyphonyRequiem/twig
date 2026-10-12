@@ -106,7 +106,7 @@ def build(args):
     target.mkdir(parents=True)
     argv = ["dotnet", "publish", REPO / "src/Twig/Twig.csproj", "-c", "Release", "-r", args.rid,
             "--self-contained", "true", "-p:PublishAot=true", "-p:PublishTrimmed=true", "-p:TrimMode=full",
-            "-p:MinVerVersionOverride=0.0.0-tui-candidate", f"-p:InformationalVersion=0.0.0-tui-candidate+{args.commit}",
+            f"-p:MinVerVersionOverride=0.0.0-tui-candidate+{args.commit}",
             "-p:IncludeSourceRevisionInInformationalVersion=false", "-o", target / "bin"]
     output = run(argv, REPO)
     source_pin(args.commit)

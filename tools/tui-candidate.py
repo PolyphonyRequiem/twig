@@ -174,6 +174,8 @@ def inspect(root, expected_commit, expected_rid, expected_manifest_sha):
         raise ValueError("Candidate checksum/path inventory changed; no executable was launched.")
     if "herdr-plugin.toml" not in files:
         raise ValueError("The native Herdr manifest is missing from the qualified payload.")
+    if "bin/.twig-version" not in files:
+        raise ValueError("Candidate lacks sealed startup state; rebuild a marked artifact before installation or recovery.")
     for name in RIDS[expected_rid][1:]:
         if f"bin/{name}" not in files:
             raise ValueError(f"Missing native dependency: {name}")

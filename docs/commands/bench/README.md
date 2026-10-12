@@ -133,6 +133,22 @@ builds/seals source-pinned artifacts and installs/restores only an explicit priv
 candidate root. Inspect/install/restore require a manifest SHA-256 from an independently
 trusted receipt; payload-supplied hashes alone are not trust. Windows also requires the
 approved publisher/public-trust profile, timestamp and signed complete source commit.
+
+The package seals the canonical `bin/.twig-version` marker for its native version.
+Candidates deliberately omit classic companion binaries, so ordinary CLI startup must
+not attempt a companion download or add files to the sealed installation. The hosted
+gate executes a normal command in an uninitialized workspace and rechecks the complete
+seal afterward; Windows artifact transport also preserves this required hidden file.
+Earlier unmarked packages are not supported recovery payloads, even when their store
+versions match. Do not run `twig upgrade` inside a candidate installation: use an
+independently verified source-pinned package instead.
+
+If the selected payload loses integrity, inspect and restore refuse without changing
+the selection. Retain that root as evidence and install a verified marked package into
+a fresh private candidate root. Do not delete unexpected files, relax the inventory or
+re-seal the rejected payload to make it pass. This does not move or discard workspace
+data, credentials, pending edits or journals.
+
 Hosted Unix artifacts contain `<rid>.tar.gz` plus a separate seal receipt. Extract
 the tar archive before inspect/install (for example, `tar -xzf linux-x64.tar.gz`);
 do not upload or copy the raw Unix payload through a mode-stripping ZIP service.

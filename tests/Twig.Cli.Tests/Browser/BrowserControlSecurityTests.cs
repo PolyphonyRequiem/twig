@@ -126,6 +126,38 @@ public sealed class BrowserControlSecurityTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    [Fact]
+    public async Task TruncatedClientEofPreservesNextAuthenticatedRequestAndOwner()
+    {
+        var root = PrivateRoot();
+        try
+        {
+            var source = Source();
+            var application = new BrowserApplication(new BrowserRuntimeFactory());
+            await using var server = new BrowserControlServer(application, source, "host-pane", BrowserControlProtocol.NewToken(), root);
+            var path = BrowserControlProtocol.PathFor(root, source);
+            var owner = BrowserControlProtocol.ReadRegistration(path)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using (var pipe = new NamedPipeClientStream(".", owner.Pipe, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly))
+            {
+                await pipe.ConnectAsync(deadline.Token);
+                var truncated = new byte[6];
+                BinaryPrimitives.WriteInt32LittleEndian(truncated, 10);
+                truncated[4] = (byte)'{';
+                truncated[5] = (byte)'}';
+                await pipe.WriteAsync(truncated, deadline.Token);
+                await pipe.FlushAsync(deadline.Token);
+            }
+
+            // Availability and ownership are the contract; no browser or tracker operation is needed.
+            var reply = await BrowserControlServer.SendAsync(owner, source, new("status"), deadline.Token);
+            reply.Pid.ShouldBe(owner.Pid);
+            reply.Started.ShouldBe(owner.Started);
+            BrowserControlProtocol.ReadRegistration(path).ShouldBe(owner);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     private static BrowserSource Source() => BrowserSource.Create(Path.Combine(Path.GetTempPath(), "herdr.sock"), "workspace", "tab", "source-pane", Path.GetTempPath());
     private static BrowserHostRegistration Owner(BrowserSource source) => new(BrowserControlProtocol.NewPipeName(),
         BrowserControlProtocol.NewToken(), Environment.ProcessId, BrowserControlProtocol.ProcessStarted(Environment.ProcessId), "host-pane", source, BrowserControlProtocol.NewToken());

@@ -64,7 +64,8 @@ internal sealed class BrowserControlServer : IAsyncDisposable
                 finally
                 {
                     close?.TrySetCanceled();
-                    if (listener.IsConnected) listener.Disconnect();
+                    // EOF can make IsConnected false; a Broken accepted pipe still needs disconnecting.
+                    listener.Disconnect();
                 }
             }
         }

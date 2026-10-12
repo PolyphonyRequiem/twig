@@ -659,7 +659,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         var anchor = preserve ? Capture() : null; var next = new List<Line>();
         if (_screen == "review" && _review is not null)
         {
-            var lines = BrowserTerminalText.Rows(_review.Render(_width, _reviewFull));
+            var lines = BrowserTerminalText.Rows(_review.Render(_width, _reviewFull), _width);
             for (var i = 0; i < lines.Count; i++) next.Add(new("review", i, lines[i]));
         }
         else if (_screen == "editor" && _editor is not null) EditorRows(next);
@@ -684,7 +684,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
                     var detailWidth = DetailWidth(item.Id);
                     if (!ReferenceEquals(_renderedDetail, _detail) || _renderedWidth != detailWidth)
                     {
-                        _detailRows = BrowserTerminalText.Rows(_detail.RenderAsync(detailWidth).GetAwaiter().GetResult().Ansi);
+                        _detailRows = BrowserTerminalText.Rows(_detail.RenderAsync(detailWidth).GetAwaiter().GetResult().Ansi, detailWidth);
                         _renderedDetail = _detail; _renderedWidth = detailWidth;
                     }
                     var lines = _detailRows;

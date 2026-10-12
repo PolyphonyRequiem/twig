@@ -1,3 +1,4 @@
+using System.Globalization;
 using Shouldly;
 using Twig.Browser;
 using Xunit;
@@ -21,11 +22,12 @@ public sealed class BrowserTerminalTextTests
     }
 
     [Fact]
-    public void OneColumnViewportReplacesUnfittableGraphemeWithoutSplittingItOrLosingTheTail()
+    public void OneColumnWrappingPreservesUnfittableGraphemesForReflow()
     {
         var rows = BrowserTerminalText.Wrap("👩‍💻é中z", 1);
-        rows.Select(row => row.Text).ShouldBe(new[] { "�", "é", "�", "z" });
+        rows.Select(row => row.Text).ShouldBe(new[] { "👩‍💻", "é", "中", "z" });
         rows.Select(row => row.Offset).ShouldBe(new[] { 0, "👩‍💻".Length, "👩‍💻é".Length, "👩‍💻é中".Length });
+        string.Concat(rows.Select(row => row.Text)).ShouldBe("👩‍💻é中z");
     }
 
     [Fact]
@@ -33,7 +35,7 @@ public sealed class BrowserTerminalTextTests
     {
         const string text = "before \x1b]8;id=114;https://example.test/#114\aReview\x1b]8;;\a after";
 
-        BrowserTerminalText.Rows(text).ShouldBe(new[] { "before Review after" });
+        BrowserTerminalText.Rows(text, 100).ShouldBe(new[] { "before Review after" });
         BrowserTerminalText.Clip(text, 100).ShouldBe("before Review after");
         BrowserTerminalText.Clip(text, 9).ShouldBe("before Re");
     }
@@ -43,9 +45,11 @@ public sealed class BrowserTerminalTextTests
     {
         const string text = "\x1b[31m\x1b]8;id=114;https://example.test/#114\x1b\\é👩‍💻z\x1b]8;;\x1b\\\nnext\x1b[0m";
 
-        BrowserTerminalText.Rows(text).ShouldBe(new[] { "\x1b[31mé👩‍💻z", "\x1b[31mnext\x1b[0m" });
+        BrowserTerminalText.Rows(text, 100).ShouldBe(new[] { "\x1b[31mé👩‍💻z", "\x1b[31mnext\x1b[0m" });
         BrowserTerminalText.Clip(text, 2).ShouldBe("\x1b[31mé");
-        BrowserTerminalText.Clip(text, 3).ShouldBe("\x1b[31mé👩‍💻");
+        var completeWidth = OperatingSystem.IsWindows() ? 7 : 3;
+        BrowserTerminalText.Clip(text, completeWidth - 1).ShouldBe("\x1b[31mé");
+        BrowserTerminalText.Clip(text, completeWidth).ShouldBe("\x1b[31mé👩‍💻");
     }
 
     [Fact]
@@ -53,7 +57,7 @@ public sealed class BrowserTerminalTextTests
     {
         const string text = "A\x1bPdcs\a\x1b[31mpayload\x1b\\B\x1bXsos\x1b\\C\x1b^pm\x1b\\D\x1b_apc\x1b\\E";
 
-        BrowserTerminalText.Rows(text).ShouldBe(new[] { "ABCDE" });
+        BrowserTerminalText.Rows(text, 100).ShouldBe(new[] { "ABCDE" });
         BrowserTerminalText.Clip(text, 100).ShouldBe("ABCDE");
     }
 
@@ -63,9 +67,74 @@ public sealed class BrowserTerminalTextTests
         const string hyperlink = "label\x1b]8;id=114;https://example.test/\nnot a row";
         const string deviceControl = "label\x1bPpayload\a\nnot a row\x1b";
 
-        BrowserTerminalText.Rows(hyperlink).ShouldBe(new[] { "label" });
+        BrowserTerminalText.Rows(hyperlink, 100).ShouldBe(new[] { "label" });
         BrowserTerminalText.Clip(hyperlink, 100).ShouldBe("label");
-        BrowserTerminalText.Rows(deviceControl).ShouldBe(new[] { "label" });
+        BrowserTerminalText.Rows(deviceControl, 100).ShouldBe(new[] { "label" });
         BrowserTerminalText.Clip(deviceControl, 100).ShouldBe("label");
+    }
+
+    [Theory]
+    [InlineData("é", 2, 1)]
+    [InlineData("👩‍💻", 5, 2)]
+    [InlineData("🇨🇦", 4, 2)]
+    public void MeasuredGraphemeBudgetClipsOnlyAtCompleteGraphemeBoundaries(string grapheme, int windowsCells, int unixCells)
+    {
+        var cells = OperatingSystem.IsWindows() ? windowsCells : unixCells;
+        var styled = "\x1b[31m" + grapheme + "TAIL";
+
+        BrowserTerminalText.CellWidth(grapheme).ShouldBe(cells);
+        BrowserTerminalText.Clip(styled, cells - 1).ShouldBe("\x1b[31m");
+        BrowserTerminalText.Clip(styled, cells).ShouldBe("\x1b[31m" + grapheme);
+    }
+
+    [Fact]
+    public void WrappedUnicodeTitleSurvivesPaintingWithoutExceedingThePlatformCellBudget()
+    {
+        const string title = "· #-14 Task [To Do] owed seed  BENCH_FIXTURE_14e10111 — café é 中文 👩‍💻 🇨🇦 wrapped title continuation preserved full title preserved full title preserved full title preserved full title preserved full title preserved full title preserved full title BENCH_TITLE_TAIL_14e10111";
+        var rows = BrowserTerminalText.Wrap(title, 120);
+
+        string.Concat(rows.Select(row => row.Text)).ShouldBe(title);
+        foreach (var row in rows)
+        {
+            ObservedPlatformCells(row.Text).ShouldBeLessThanOrEqualTo(120);
+            BrowserTerminalText.Clip(row.Text, 120).ShouldBe(row.Text);
+        }
+    }
+
+    [Fact]
+    public void NativeStyledRowsReflowBeforePaintingWithoutDroppingTitleTextOrPanelPrefix()
+    {
+        const string content = "é👩‍💻🇨🇦TAIL";
+        var rows = BrowserTerminalText.Rows("\x1b[31m│ " + content + "\x1b[0m", 12);
+        var visible = rows.Select(row => System.Text.RegularExpressions.Regex.Replace(row, @"\x1b\[[0-9;]*m", "")).ToArray();
+
+        string.Concat(visible.Select(row => row[2..])).ShouldBe(content);
+        foreach (var row in visible)
+        {
+            row.ShouldStartWith("│ ");
+            ObservedPlatformCells(row).ShouldBeLessThanOrEqualTo(12);
+        }
+        rows.ShouldAllBe(row => row.StartsWith("\x1b[31m│ ", StringComparison.Ordinal));
+        rows.ShouldAllBe(row => BrowserTerminalText.Clip(row, 12) == row);
+    }
+
+    private static int ObservedPlatformCells(string text)
+    {
+        // Independent cursor-advance observations, not BrowserTerminalText's width calculation.
+        var windows = OperatingSystem.IsWindows();
+        var elements = StringInfo.GetTextElementEnumerator(text);
+        var cells = 0;
+        while (elements.MoveNext())
+        {
+            cells += elements.GetTextElement() switch
+            {
+                "é" => windows ? 2 : 1,
+                "👩‍💻" => windows ? 5 : 2,
+                "🇨🇦" => windows ? 4 : 2,
+                "中" or "文" => 2,
+                _ => 1,
+            };
+        }
+        return cells;
     }
 }

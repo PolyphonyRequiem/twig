@@ -17,6 +17,7 @@ internal static class BrowserTerminalText
         var width = 0;
         for (var i = 0; i < text.Length;)
         {
+            if (text[i] == '\x1b') { i = EscapeEnd(text, i); continue; }
             var element = StringInfo.GetNextTextElement(text, i);
             width += Width(element); i += element.Length;
         }
@@ -54,7 +55,7 @@ internal static class BrowserTerminalText
                 end = boundary;
             var line = new StringBuilder();
             for (var j = start; j < end; j++)
-                line.Append(elements[j].Cells > width ? "�" : elements[j].Text == "\t" ? " " : elements[j].Text);
+                line.Append(elements[j].Text == "\t" ? " " : elements[j].Text);
             rows.Add(new(elements[start].Offset, line.ToString()));
             if (end < elements.Count && elements[end].Text is "\n" or "\r\n") end++;
             start = Math.Max(start + 1, end);
@@ -63,8 +64,9 @@ internal static class BrowserTerminalText
         return rows;
     }
 
-    internal static IReadOnlyList<string> Rows(string text)
+    internal static IReadOnlyList<string> Rows(string text, int width)
     {
+        width = Math.Max(1, width);
         var rows = new List<string>();
         var row = new StringBuilder();
         var style = new StringBuilder();
@@ -84,7 +86,7 @@ internal static class BrowserTerminalText
             }
             else if (text[i] == '\n')
             {
-                rows.Add(row.ToString());
+                AddRows(rows, row.ToString(), width);
                 row.Clear().Append(style);
                 i++;
             }
@@ -94,8 +96,50 @@ internal static class BrowserTerminalText
                 i++;
             }
         }
-        if (row.Length > 0) rows.Add(row.ToString());
+        if (row.Length > 0) AddRows(rows, row.ToString(), width);
         return rows;
+    }
+
+    private static void AddRows(List<string> rows, string text, int width)
+    {
+        // Spectre's logical glyph widths can under-budget native Windows cells.
+        // Reflow before frame clipping, preserving both content and active SGR.
+        if (!OperatingSystem.IsWindows() || CellWidth(text) <= width)
+        {
+            rows.Add(text);
+            return;
+        }
+        var visible = 0;
+        while (visible < text.Length && text[visible] == '\x1b') visible = EscapeEnd(text, visible);
+        var prefix = text.AsSpan(visible).StartsWith("│ ", StringComparison.Ordinal) ? "│ " : "";
+        var row = new StringBuilder();
+        var style = new StringBuilder();
+        var cells = 0;
+        for (var i = 0; i < text.Length;)
+        {
+            if (text[i] == '\x1b')
+            {
+                var end = EscapeEnd(text, i);
+                var escape = text.AsSpan(i, end - i);
+                row.Append(escape);
+                if (escape.SequenceEqual("\x1b[0m") || escape.SequenceEqual("\x1b[m")) style.Clear();
+                else style.Append(escape);
+                i = end;
+                continue;
+            }
+            var element = StringInfo.GetNextTextElement(text, i);
+            var next = Width(element);
+            if (cells + next > width && cells > prefix.Length)
+            {
+                rows.Add(row.ToString());
+                row.Clear().Append(style).Append(prefix);
+                cells = prefix.Length;
+            }
+            row.Append(element);
+            cells += next;
+            i += element.Length;
+        }
+        rows.Add(row.ToString());
     }
 
     internal static string Clip(string text, int width)
@@ -156,15 +200,18 @@ internal static class BrowserTerminalText
 
     private static int Width(string grapheme)
     {
-        if (grapheme.Contains('\u200d') || grapheme.Contains('\ufe0f')) return 2;
+        var windows = OperatingSystem.IsWindows();
+        if (!windows && (grapheme.Contains('\u200d') || grapheme.Contains('\ufe0f'))) return 2;
         var width = 0;
         foreach (var rune in grapheme.EnumerateRunes())
         {
-            if (Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark or UnicodeCategory.Format) continue;
+            if (!windows && Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark or UnicodeCategory.Format) continue;
             var v = rune.Value;
             var wide = v is >= 0x1100 and <= 0x115f or >= 0x2e80 and <= 0xa4cf or >= 0xac00 and <= 0xd7a3 or
                 >= 0xf900 and <= 0xfaff or >= 0xfe10 and <= 0xfe6f or >= 0xff00 and <= 0xff60 or >= 0x1f000 and <= 0x1faff or >= 0x20000 and <= 0x3ffff;
-            width = Math.Max(width, wide ? 2 : 1);
+            // ConPTY advances for each rune, including combining marks and joiners.
+            // Keep the grapheme atomic; only its console-cell budget differs.
+            width = windows ? width + (wide ? 2 : 1) : Math.Max(width, wide ? 2 : 1);
         }
         return width;
     }

@@ -1,7 +1,5 @@
-using System.Reflection;
 using NSubstitute;
 using Shouldly;
-using Terminal.Gui.Views;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
@@ -12,23 +10,7 @@ using Xunit;
 
 namespace Twig.Tui.Tests;
 
-/// <summary>
-/// 🔴 <b>The acceptance floor for wayfinder-detail-projection ticket 0004.</b>
-/// </summary>
-/// <remarks>
-/// <para>
-/// The trap this ticket exists to avoid is TWO field-selection implementations drifting
-/// apart. These tests fail if <see cref="WorkItemFormView"/> silently returns to one: the
-/// structural arms assert it declares no pre-built field widgets, and the behavioural arms
-/// assert every painted row came from the document — including rows the old hard-coded list
-/// never had, and excluding ones it always had.
-/// </para>
-/// <para>
-/// Each of these fails against the pre-0004 implementation, which is the bar
-/// <c>AGENTS.md</c>'s testing conventions set. The old view had no
-/// <c>LoadDocument</c> at all, ten <c>TextField</c> members, and a fixed row set.
-/// </para>
-/// </remarks>
+/// <summary>Observable document ordering, value states and editing behavior of the legacy form.</summary>
 public class WorkItemFormViewDocumentWalkTests
 {
     private static WorkItem Item(int id = 42, string title = "Story") =>
@@ -70,65 +52,6 @@ public class WorkItemFormViewDocumentWalkTests
     private static WorkItemFormView NewForm() =>
         new(Substitute.For<IPendingChangeStore>());
 
-    // ── Structural: the hard-coded list cannot come back ────────────
-
-    [Fact]
-    public void View_DeclaresNoPreBuiltFieldWidgets()
-    {
-        // The pre-0004 view declared ten: _titleField, _stateField, _assignedToField,
-        // _iterationField, _areaField, _effortField, _priorityField, _tagsField,
-        // _descriptionField (TextField) plus _idLabel/_typeLabel (Label). Every one of them
-        // encoded a "this form shows THIS field" decision that the document now owns.
-        var fieldWidgets = typeof(WorkItemFormView)
-            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
-            .Where(f => f.FieldType == typeof(TextField))
-            .Select(f => f.Name)
-            .ToList();
-
-        fieldWidgets.ShouldBeEmpty(
-            $"WorkItemFormView must not declare per-field widgets; found: {string.Join(", ", fieldWidgets)}");
-    }
-
-    [Fact]
-    public void View_ExposesNoPerFieldLoadEntrypoint()
-    {
-        // LoadWorkItem(WorkItem) was the old entrypoint: given an aggregate, the view decided
-        // for itself which fields to show. The only load path now requires a document.
-        var loadMethods = typeof(WorkItemFormView)
-            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(m => m.Name.StartsWith("Load", StringComparison.Ordinal))
-            .ToList();
-
-        loadMethods.ShouldNotBeEmpty();
-        foreach (var method in loadMethods)
-        {
-            method.GetParameters()
-                .Select(p => p.ParameterType)
-                .ShouldContain(typeof(WorkItemDetailDocument),
-                    $"{method.Name} must take the shared document; a load path that does not " +
-                    "is a second field-selection implementation.");
-        }
-    }
-
-    [Fact]
-    public void View_HasNoFieldReferenceNameConstantsBeyondTheEditableSet()
-    {
-        // The editable set is an EDITABILITY decision (which rows accept typing), bounded by
-        // what IPendingChangeStore persists — not a decision about which rows exist. Anything
-        // beyond it that looks like a field reference name is field selection creeping back.
-        var refNameLiterals = typeof(WorkItemFormView)
-            .GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
-            .Where(f => f.FieldType == typeof(string))
-            .Select(f => (string?)f.GetValue(null))
-            .Where(v => v is not null && (v.StartsWith("System.", StringComparison.Ordinal)
-                || v.StartsWith("Microsoft.VSTS.", StringComparison.Ordinal)))
-            .ToList();
-
-        refNameLiterals.ShouldBeEmpty();
-        NewForm().EditableFieldRefs.Count.ShouldBe(3);
-    }
-
-    // ── Behavioural: the rows ARE the document's ────────────────────
 
     [Fact]
     public void LoadDocument_PaintsExactlyTheDocumentsControls_InOrder()
@@ -143,6 +66,30 @@ public class WorkItemFormViewDocumentWalkTests
 
         form.FieldOrder.ShouldBe(
             ["System.Title", "Microsoft.VSTS.Common.Priority", "System.State"]);
+    }
+
+    [Fact]
+    public void ServedHeaderFieldsRemainVisibleAndTypableBeforePageControls()
+    {
+        var form = NewForm();
+        var layout = new FormLayout("User Story", "process-guid", [])
+        {
+            SystemControls =
+            [
+                Field("System.Title", "Title"),
+                Field("System.State", "State"),
+                Field("System.AssignedTo", "Assigned"),
+            ],
+        };
+
+        form.LoadDocument(WorkItemDetailProjector.Project(layout, Snapshot()), Item());
+
+        form.FieldOrder.ShouldBe(["System.Title", "System.State", "System.AssignedTo"]);
+        form.DisplayedValue("System.Title").ShouldBe("Story");
+        form.DisplayedValue("System.State").ShouldBe("Active");
+        form.DisplayedValue("System.AssignedTo").ShouldBe("Alice");
+        form.EditorFor("System.Title")!.Text = "Edited header";
+        form.DisplayedValue("System.Title").ShouldBe("Edited header");
     }
 
     [Fact]

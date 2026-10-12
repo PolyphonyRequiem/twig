@@ -5,7 +5,7 @@ using Twig.Domain.Projections;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Tui;
+namespace Twig.Infrastructure.Ado;
 
 /// <summary>
 /// Produces the <see cref="WorkItemDetailDocument"/> the TUI paints: acquires the
@@ -38,7 +38,7 @@ internal sealed class DetailDocumentSource
     private readonly WorkItemMapper _mapper;
     private readonly Dictionary<string, FormLayout?> _layoutCache = new(StringComparer.OrdinalIgnoreCase);
 
-    internal DetailDocumentSource(IFormLayoutProvider? layoutProvider, WorkItemMapper? mapper = null)
+    public DetailDocumentSource(IFormLayoutProvider? layoutProvider, WorkItemMapper? mapper = null)
     {
         _layoutProvider = layoutProvider;
         _mapper = mapper ?? new WorkItemMapper();
@@ -47,7 +47,7 @@ internal sealed class DetailDocumentSource
     /// <summary>
     /// Gets the detail document for <paramref name="item"/>.
     /// </summary>
-    internal async Task<WorkItemDetailDocument> GetAsync(WorkItem item, CancellationToken ct = default)
+    public async Task<WorkItemDetailDocument> GetAsync(WorkItem item, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
 

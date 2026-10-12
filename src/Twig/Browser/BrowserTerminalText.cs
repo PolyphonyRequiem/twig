@@ -8,8 +8,61 @@ namespace Twig.Browser;
 /// are not. Graphemes remain indivisible; ambiguous/font-specific widths remain a
 /// terminal qualification gate, as in the bounded Windows 1143 evidence slice.
 /// </summary>
+internal sealed record BrowserTextChunk(int Offset, string Text);
+
 internal static class BrowserTerminalText
 {
+    internal static int CellWidth(string text)
+    {
+        var width = 0;
+        for (var i = 0; i < text.Length;)
+        {
+            var element = StringInfo.GetNextTextElement(text, i);
+            width += Width(element); i += element.Length;
+        }
+        return width;
+    }
+
+    internal static IReadOnlyList<BrowserTextChunk> Wrap(string text, int width)
+    {
+        width = Math.Max(1, width);
+        var elements = new List<(int Offset, string Text, int Cells)>();
+        for (var i = 0; i < text.Length;)
+        {
+            var element = StringInfo.GetNextTextElement(text, i);
+            elements.Add((i, element, element == "\t" ? 1 : Width(element)));
+            i += element.Length;
+        }
+        var rows = new List<BrowserTextChunk>();
+        for (var start = 0; start < elements.Count;)
+        {
+            var end = start;
+            var used = 0;
+            var boundary = -1;
+            while (end < elements.Count)
+            {
+                var element = elements[end];
+                if (element.Text is "\n" or "\r\n") break;
+                if (used + element.Cells > width && end > start) break;
+                used += Math.Min(element.Cells, width);
+                end++;
+                if (string.IsNullOrWhiteSpace(element.Text)) boundary = end;
+                if (used >= width) break;
+            }
+            // Word boundaries are preferred without trimming or losing any whitespace.
+            if (end < elements.Count && elements[end].Text is not ("\n" or "\r\n") && boundary > start)
+                end = boundary;
+            var line = new StringBuilder();
+            for (var j = start; j < end; j++)
+                line.Append(elements[j].Cells > width ? "�" : elements[j].Text == "\t" ? " " : elements[j].Text);
+            rows.Add(new(elements[start].Offset, line.ToString()));
+            if (end < elements.Count && elements[end].Text is "\n" or "\r\n") end++;
+            start = Math.Max(start + 1, end);
+        }
+        if (elements.Count == 0 || text.EndsWith('\n')) rows.Add(new(text.Length, string.Empty));
+        return rows;
+    }
+
     internal static IReadOnlyList<string> Rows(string text)
     {
         var rows = new List<string>();
@@ -81,8 +134,19 @@ internal static class BrowserTerminalText
     private static int EscapeEnd(string text, int start)
     {
         if (start + 1 >= text.Length) return text.Length;
-        if (text[start + 1] != '[') return start + 2;
+        var kind = text[start + 1];
         var end = start + 2;
+        if (kind is ']' or 'P' or 'X' or '^' or '_')
+        {
+            while (end < text.Length)
+            {
+                if (kind == ']' && text[end] == '\a') return end + 1;
+                if (text[end] == '\x1b' && end + 1 < text.Length && text[end + 1] == '\\') return end + 2;
+                end++;
+            }
+            return text.Length;
+        }
+        if (kind != '[') return end;
         while (end < text.Length && text[end] is not (>= '@' and <= '~')) end++;
         return Math.Min(end + 1, text.Length);
     }

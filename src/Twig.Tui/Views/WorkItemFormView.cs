@@ -6,6 +6,7 @@ using Terminal.Gui.Views;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Tui.Views;
 
@@ -146,6 +147,25 @@ internal sealed class WorkItemFormView : View
             : new Dictionary<string, string>();
 
         var row = 0;
+        void AddControl(DetailControl control)
+        {
+            if (!control.Visible) return;
+            if (control.IsContribution || control.Value is null)
+            {
+                _fieldArea.Add(new Label { Text = $"{control.Label}:", X = 1, Y = row });
+                _fieldArea.Add(new Label
+                {
+                    Text = "<add-in — not rendered here>",
+                    X = LabelWidth,
+                    Y = row,
+                    Width = Dim.Fill(1),
+                });
+                row++;
+            }
+            else AddFieldRow(control, savedEdits, ref row);
+        }
+
+        foreach (var control in document.SystemControls) AddControl(control);
         foreach (var page in document.Pages)
         {
             // Host policy, not field selection: this pane draws only pages that carry field
@@ -157,32 +177,7 @@ internal sealed class WorkItemFormView : View
             {
                 if (!group.Visible) continue;
 
-                foreach (var control in group.Controls)
-                {
-                    if (!control.Visible) continue;
-
-                    // Contribution slots name no field and carry no value. Named, not drawn.
-                    if (control.IsContribution || control.Value is null)
-                    {
-                        _fieldArea.Add(new Label
-                        {
-                            Text = $"{control.Label}:",
-                            X = 1,
-                            Y = row,
-                        });
-                        _fieldArea.Add(new Label
-                        {
-                            Text = "<add-in — not rendered here>",
-                            X = LabelWidth,
-                            Y = row,
-                            Width = Dim.Fill(1),
-                        });
-                        row++;
-                        continue;
-                    }
-
-                    AddFieldRow(control, savedEdits, ref row);
-                }
+                foreach (var control in group.Controls) AddControl(control);
             }
         }
 

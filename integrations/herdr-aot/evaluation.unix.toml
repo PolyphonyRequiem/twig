@@ -1,0 +1,9 @@
+# Evaluation only: pass HERDR_CONFIG_PATH to a separate named Herdr session.
+# Never copy this over the normal Herdr configuration or replace twig-herdr.
+onboarding = false
+
+[[keys.command]]
+key = "prefix+t"
+type = "plugin_action"
+command = "twig-herdr-aot-candidate.open"
+description = "Open Twig bench (native candidate)"

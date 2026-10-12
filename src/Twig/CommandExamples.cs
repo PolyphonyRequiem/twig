@@ -387,10 +387,12 @@ internal static class CommandExamples
             "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
             "twig bench detail 42 --sync           Pull only this item and its links; never publish local edits",
         ],
-        ["bench native-detail"] =
+        ["bench browser"] =
         [
-            "twig bench native-detail 42            Open the opt-in Windows native cached detail viewport",
-            "twig bench native-detail -1            Read a local seed without publishing it; R cache, S root/links, Q quit",
+            "twig bench browser                    Open the opt-in native Bench Tree view; normal TUI launchers stay unchanged",
+            "twig bench browser --cwd C:\\work\\twig --view table  Use the captured source workspace in a standalone terminal",
+            "twig bench browser --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
+            "twig bench browser --herdr --intent tree -o json  Open or reuse the isolated native Herdr browser pane",
         ],
         ["bench configuration area candidates"] =
         [

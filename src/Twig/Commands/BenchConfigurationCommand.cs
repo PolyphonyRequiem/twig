@@ -39,46 +39,9 @@ internal sealed class BenchConfigurationCommand(CommandContext ctx, CurrentBench
             var digest = BenchQueryRule.SettingsDigest(stored.Selectors);
             if (expectSettings is not null && !string.Equals(expectSettings, digest, StringComparison.Ordinal))
                 throw new InvalidOperationException("Automatic settings changed since this form opened. Refresh and retry; no settings were changed.");
-            var rules = effective.Selectors.Where(s => s.Kind == SelectorKind.Query).Select(BenchQueryRule.Parse).ToList();
             if (section is not null)
             {
-                if (section is not ("area" or "sprint") || action is not ("add" or "remove"))
-                    throw new ArgumentException("Expected area or sprint add/remove.");
-                AreaPathFilter? area = null;
-                IterationExpression? sprint = null;
-                if (section == "area")
-                {
-                    var parsed = AreaPath.Parse(value);
-                    if (!parsed.IsSuccess) throw new ArgumentException(parsed.Error);
-                    area = new(parsed.Value.Value, !exact);
-                }
-                else sprint = BenchQueryRule.ParseSprint(value);
-                if (rules.Count == 0)
-                {
-                    var unique = effective.IsDefault
-                        ? (await defaults.BuildAsync(ct)).Single().QueryAssignedToUniqueName : null;
-                    rules.Add(new(null, unique, [], []));
-                }
-                var replacements = new List<BenchSelector>();
-                foreach (var rule in rules)
-                {
-                    var changed = rule;
-                    if (area is { } filter)
-                    {
-                        var updated = rule.Areas.Where(existing => !string.Equals(existing.Path, filter.Path, StringComparison.OrdinalIgnoreCase)).ToList();
-                        if (action == "add") updated.Add(filter);
-                        changed = rule with { Areas = updated };
-                    }
-                    else if (sprint is { } expression)
-                    {
-                        var updated = rule.Sprints.Where(existing => !string.Equals(existing.Raw, expression.Raw, StringComparison.OrdinalIgnoreCase)).ToList();
-                        if (action == "add") updated.Add(expression);
-                        changed = rule with { Sprints = updated };
-                    }
-                    replacements.Add(changed.ToSelector());
-                }
-                if (!await benches.TryReplaceQuerySelectorsAsync(effective.Id, digest, replacements.Distinct().ToArray(), ct))
-                    throw new InvalidOperationException("The captured Bench or automatic settings changed. Refresh and retry; no settings were changed.");
+                await BenchSettingsEditor.ApplyAsync(effective, stored, defaults, benches, section, action ?? string.Empty, value, exact, ct);
                 (effective, stored) = await resolver.ReadCapturedAsync(effective, ct);
             }
             var configuration = await BenchConfigurationProjection.BuildAsync(effective, stored, repository, ct);

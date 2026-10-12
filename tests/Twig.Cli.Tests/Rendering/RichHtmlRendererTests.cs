@@ -33,6 +33,19 @@ public sealed class RichHtmlRendererTests
     }
 
     [Fact]
+    public void GraphemeJoinersSurviveWhileBidiAndTerminalControlsStayInert()
+    {
+        var output = Render("<p>é 👩‍💻 می\u200cروم \u202ehidden\u2066isolated \u001b[2J</p>", width: 120);
+        output.ShouldContain("é 👩‍💻 می\u200cروم");
+        output.ShouldContain("\\u202e");
+        output.ShouldContain("\\u2066");
+        output.ShouldContain("\\u001b[2J");
+        output.ShouldNotContain("\u202e");
+        output.ShouldNotContain("\u2066");
+        output.ShouldNotContain("\u001b");
+    }
+
+    [Fact]
     public void StructuredContentRetainsCodeIndentationNestedListsLinksAndTableTail()
     {
         var output = Render("<html><body><h2>Plan</h2><p>Paragraph one</p><p>Paragraph two</p>" +

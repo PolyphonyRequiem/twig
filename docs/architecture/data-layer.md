@@ -197,12 +197,12 @@ Batch operations accept pre-computed protected IDs to avoid N+1 queries.
 
 ### Admitted Browser Reads
 
-`BrowserReadModule` (`src/Twig/Browser/BrowserReadModule.cs`) owns the complete
-selected-detail operation used by the CLI and the opt-in native terminal adapter.
-It admits the bound provider and repository operation, captures the current
-Bench and its complete selector digest, reads cached facts, renders full native
-Show detail, and rechecks the mutable native origin before returning. Explicit
-pull uses `ReadOnly.SyncLinksAsync` for the selected root and edge metadata only;
+`BrowserOperationModule` owns shared short provider/repository admission, exact
+Bench and complete-selector capture, fresh native origin checks and typed failures.
+`BrowserReadModule` uses it for complete selected-detail operations shared by the
+CLI and native application. `BrowserBenchModule`, `BrowserEditingModule` and
+`BrowserReviewModule` reuse the same admission rather than duplicating authority.
+Explicit pull uses `ReadOnly.SyncLinksAsync` for the selected root and edge metadata only;
 it never flushes pending changes or materializes related targets.
 
 Origin checks include binding/selection revisions, stable principal evidence,
@@ -220,6 +220,20 @@ Leases are disposed before returning and are never held during terminal idle.
 Callers serialize operations on the shared SQLite runtime and reject late
 results; these checks do not claim a physically atomic transaction across
 registry, configuration files, mirror and durable stores.
+
+Intentional local Bench changes fence the exact expected committed arrangement,
+never whichever current Bench is observed later. `BrowserRuntimeFactory` reuses
+the CLI's `WorkspaceRegistrationModule` only at startup or explicit reconnect;
+old runtime ownership ends before fresh configuration/provider/store composition.
+The application serializes native work and owns terminal state on one event loop.
+Platform transports and authenticated Herdr topology/control remain adapters.
+
+The shared field document retains server `SystemControls` separately from page
+controls, including order, visibility, contribution/read-only flags and resolved
+values. The native editor, preserved companion form and external sample consume
+those headers without synthesizing a second field list. Sink-declared editability
+and captured local baselines govern a durable local batch; rendering/Review never
+authorize or apply proposals.
 
 ---
 

@@ -1,11 +1,11 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 
-namespace Twig.Tui;
+namespace Twig.Infrastructure.Persistence;
 
 /// <summary>
-/// The <see cref="IChangeSink"/> Twig ships for its own TUI: changes are staged into the
-/// local SQLite <see cref="IPendingChangeStore"/> and pushed later by <c>twig save</c>.
+/// The shared <see cref="IChangeSink"/>: changes are staged into the
+/// local SQLite <see cref="IPendingChangeStore"/> and pushed only by an explicit native command.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,15 +19,14 @@ namespace Twig.Tui;
 /// <b>Why a sink is bound to one work item.</b> <see cref="ChangeProposal"/> deliberately
 /// carries no work-item id — it says what changed, not what it changed on — so the binding
 /// lives here. An unbound sink still <i>declares</i> what it can persist (the declaration does
-/// not vary by item, which is why <see cref="WorkItemFormView"/> can derive editability before
+/// not vary by item, which is why a form can derive editability before
 /// anything is loaded) but refuses submissions, because staging a change against no item would
 /// be a silent no-op and silent loss is the failure this whole design exists to prevent.
 /// </para>
 /// <para>
-/// <b>This sink never reports <see cref="Conflicted"/>.</b> It writes to a local staging table
-/// that nothing else races it for; a revision collision is discovered later, when <c>twig
-/// save</c> pushes the staged rows to the server. Reporting a conflict here would be inventing
-/// contention this sink cannot observe.
+/// <b>This sink never reports <see cref="Conflicted"/>.</b> It writes to the local staging
+/// table. Hosts must fence their captured local baseline before submitting; server revision
+/// collisions remain the explicit native publication path's responsibility.
 /// </para>
 /// </remarks>
 internal sealed class PendingChangeStoreSink : IChangeSink
@@ -131,6 +130,31 @@ internal sealed class PendingChangeStoreSink : IChangeSink
             return new Refused($"Staging failed: {ex.Message}");
         }
 
+        return new Saved(_revision);
+    }
+
+    /// <summary>Stages ordinary field edits together, without inventing a state move.</summary>
+    public async Task<SubmitOutcome> SubmitBatchAsync(IReadOnlyList<FieldEdit> edits, CancellationToken ct = default)
+    {
+        if (_workItemId is not { } id)
+            return new Refused("This sink is not bound to a work item; nothing would be staged.");
+
+        var rows = new List<(string ChangeType, string? FieldName, string? OldValue, string? NewValue)>(edits.Count);
+        foreach (var edit in edits)
+        {
+            if (!Persistable.Contains(edit.FieldRef))
+                return new Refused($"Field '{edit.FieldRef}' is not persistable by the pending-change store.");
+            rows.Add((ChangeTypeFor(edit.FieldRef), edit.FieldRef, edit.PriorValue, edit.ProposedValue));
+        }
+        try
+        {
+            if (rows.Count > 0)
+                await _store.AddChangesBatchAsync(id, rows, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new Refused($"Staging failed: {ex.Message}");
+        }
         return new Saved(_revision);
     }
 

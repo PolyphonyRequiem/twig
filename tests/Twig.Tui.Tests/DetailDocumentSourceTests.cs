@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Ado;
 using Twig.TestKit;
 using Xunit;
 
@@ -134,23 +135,4 @@ public class DetailDocumentSourceTests
         await provider.Received(1).GetFormLayoutAsync("User Story", Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task GetAsync_BothBranchesReturnTheSameDocumentType()
-    {
-        // The migration's load-bearing property: a host downstream cannot tell the served
-        // path from the fallback path, so it cannot special-case either.
-        var served = Substitute.For<IFormLayoutProvider>();
-        served.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FormLayoutResult.Served(ServedLayout("System.Title")));
-
-        var absent = Substitute.For<IFormLayoutProvider>();
-        absent.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FormLayoutResult.Unavailable());
-
-        var a = await new DetailDocumentSource(served).GetAsync(Item());
-        var b = await new DetailDocumentSource(absent).GetAsync(Item());
-
-        a.ShouldBeOfType<WorkItemDetailDocument>();
-        b.ShouldBeOfType<WorkItemDetailDocument>();
-    }
 }

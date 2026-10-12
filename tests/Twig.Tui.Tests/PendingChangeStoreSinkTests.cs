@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
 using Twig.Tui.Views;
 using Xunit;

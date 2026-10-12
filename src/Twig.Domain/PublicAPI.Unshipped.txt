@@ -1,4 +1,6 @@
 #nullable enable
+Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>!
+Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.init -> void
 Twig.Domain.Interfaces.IBenchRepository.TrySetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
 Twig.Domain.Interfaces.IBenchRepository.TryDeleteAsync(long benchId, string! expectedContentsDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
 Twig.Domain.Interfaces.IBenchRepository.TryReplaceQuerySelectorsAsync(long benchId, string! expectedSettingsDigest, System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! queries, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!

@@ -281,6 +281,19 @@ public sealed class ProgressiveHelpProductionCliTests : IDisposable
             .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
     }
 
+    [Fact]
+    public async Task BrowserUsageFailurePrecedesWorkspaceAdmissionAndLeavesPluginDirectoryUntouched()
+    {
+        var result = await RunTwig("bench", "browser", "--herdr", "--host-entry", "-o", "json");
+
+        result.ExitCode.ShouldBe(2);
+        result.Stdout.ShouldBeEmpty();
+        using var error = System.Text.Json.JsonDocument.Parse(result.Stderr);
+        error.RootElement.GetProperty("error").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.String);
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
+    }
+
     private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwig(params string[] args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;

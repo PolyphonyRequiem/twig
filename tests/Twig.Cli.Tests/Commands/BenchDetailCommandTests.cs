@@ -414,8 +414,9 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
     {
         var ctx = new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }), _config, Stderr: stderr);
-        var module = new BrowserReadModule(ctx, new CurrentBenchResolver(benches, new DefaultBenchSelectors(_iterationService)),
-            _workItemRepo, _fieldDefinitionStore, _authentication, _bindings, _paths,
+        var operations = new BrowserOperationModule(ctx, new CurrentBenchResolver(benches, new DefaultBenchSelectors(_iterationService)),
+            _workItemRepo, _authentication, _bindings, _paths);
+        var module = new BrowserReadModule(ctx, operations, _workItemRepo, _fieldDefinitionStore,
             _links, _pendingChangeStore, new StatusFieldConfigReader(_paths),
             new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, _links, 30, 30),
             _processConfiguration, new SpectreTheme(_config.Display));

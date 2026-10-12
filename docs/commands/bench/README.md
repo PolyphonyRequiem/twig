@@ -25,7 +25,7 @@ command means the same thing in a pipe as at a prompt.
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
 |`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
 |`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
-|`bench native-detail <id>`|Opt-in Windows terminal for full native in-process cached detail; not a stable TUI replacement.|none unless explicit S pull|
+|`bench browser`|Opt-in shared native Bench terminal, local editing and read-only Review; stable TUI defaults remain unchanged.|local only; explicit S pulls selected root/links|
 
 Listing, creating a named Bench and switching read existing arrangements as stored
 metadata, without identity-profile discovery or query evaluation. First-use default
@@ -74,31 +74,71 @@ JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `--expect-binding`, and `--expect-identity` refuse retargeting. Minimal output is
 complete unstyled detail; `ids` is not meaningful for this single-item view.
 
-### Opt-in Native Detail Terminal
+### Opt-in Native Bench Browser
 
-`twig bench native-detail 42` runs a bounded Windows detail viewport in an actual
-console/ConPTY. It consumes the same admitted browser-read module as `bench detail`,
-not a CLI subprocess or a second authority implementation. It is an opt-in
-implementation slice, not full Bench configuration/navigation parity or a
-replacement for `twig tui`, the standalone Go browser, or the registered Herdr
-plugin. Existing launch paths and supported release platforms remain unchanged.
+`twig bench browser --cwd <workspace> --view tree` opens the shared native terminal
+application; `--view table` selects Table. It uses admitted native modules in-process,
+not a Go UI or read subprocess. This candidate does not redirect `twig tui`,
+`twig-tui`, the stable standalone Go browser, or the installed Herdr plugin.
 
-Arrows, j/k, Page Up/Down, Home/End and mouse wheel scroll retained content.
-Resize reflows retained full Show facts without another read. R requests cached
-detail; S explicitly pulls only the captured positive root and links, protecting
-pending work and refusing seed sync. Esc cancels an active read; Q exits. A
-superseded result cannot repaint data, and a known authority invalidation clears
-visible and retained content even if that completion was canceled or superseded.
-R/S then remain disabled until the user quits and explicitly reconnects/restarts.
-An initial cache miss retains its admitted context so a later R/S cannot adopt
-a different Bench. Retryable same-origin cache or registry contention does not
-masquerade as an identity change. No automatic push, rebind or permanent idle
-operation lease is introduced.
+- **Browse:** 1 Tree, 2 Table, arrows/j/k select locally; Left/Right/Space fold;
+  Enter opens or closes full inline Show beneath all wrapped lines of the item.
+  Mouse disclosure/click/double-click and wheel use the same continuous surface.
+  Page/Home/End scroll; resize reflows retained data. Selection never calls `twig set`.
+- **Read:** R is cache-only. S explicitly pulls the captured positive item and links,
+  never pushes pending work or fetches unrelated targets. Seed S refuses. Retryable
+  same-origin failures retain content; authority changes clear visible/hidden state
+  and stop operations until explicit Ctrl+R reconnect creates a fresh native runtime.
+- **Configure:** c opens Pins/Areas/Sprints/Benches; digits or Tab select a section.
+  Pins use independent p/P Single/Subtree toggles; a/A accepts manual IDs, including
+  uncached IDs shown as unverified. Areas use a/d, x Exact/u Under, and an explicit t
+  configured-team candidate read. Sprints use a/d and native expressions. Benches use
+  n create, Enter switch, and d guarded delete; Default is protected and stale contents
+  require a new confirmation. These operations preserve pending work.
+- **Edit:** E opens the served document, including server header controls before pages.
+  Typing is limited by the shared local sink (Title/State/Assigned To), not server
+  read-only metadata. Enter edits; Tab accepts/moves; Ctrl+S stages one local batch.
+  Unsupported/missing values or invalid transitions refuse; failed saves retain input.
+  Esc returns without discarding; Ctrl+D explicitly discards only unsaved input.
+  Saved pending values survive viewer restart. No UI action publishes them.
+- **Review:** 3 opens the latest qualified unresolved native proposal, or start with
+  `--file <proposal>` to capture one explicit file. D details, B brief and Esc/c back
+  remain read-only. Original digest/file/journal origin are rechecked; a changed
+  proposal clears old content rather than silently substituting a replacement.
 
-The footer stays on the bottom visible row and clips horizontally at narrow
-widths. The native input/output modes and inherited console encoding are
-restored on exit. This Windows input slice does not qualify Linux/macOS or
-choose the final cross-platform terminal strategy.
+The footer stays on the last visible row and clips horizontally. q quits when no
+unsaved buffer needs a decision. Modes, inherited code pages and POSIX termios are
+restored on exit. Native terminal code targets win-x64/linux-x64/osx-arm64; source or
+an unsigned smoke build is not signed installed-platform qualification.
+
+`--herdr --intent open|status|tree|table|view|review|exit-review|reconnect|close`
+routes authenticated bounded controls to the same application in an opt-in native
+manifest-owned pane. The isolated manifest is `integrations/herdr-aot/herdr-plugin.toml`
+(`twig-herdr-aot-candidate`); evaluation configs belong only to a separate named
+session, never the normal config. Installed protocol22 was the measured capability
+contract: plugin-pane open/close, opaque owner metadata, pane get/list/process-info,
+captured source topology and no-focus launch. Display IDs alone are not authority.
+Both manifest pane entries launch the native image directly, including Windows;
+the exact reported native root PID (or a positive foreground PID) is required.
+Control protocol 2 acknowledges a nonce/owner/source-validated complete reply before
+the server disconnects or completes close delivery. Version-1 registrations refuse
+rather than being adopted, and recovery requires the same control/store contract.
+An uncatchable kill may leave a stale private registration; explicit proved-dead
+owner recovery never steals a slow live peer. Supported legacy migration requires
+explicitly closing the candidate host; no native quiescence exemption is invented.
+
+Candidate delivery is separate from default replacement. `tools/tui-candidate.py`
+builds/seals source-pinned artifacts and installs/restores only an explicit private
+candidate root. Inspect/install/restore require a manifest SHA-256 from an independently
+trusted receipt; payload-supplied hashes alone are not trust. Windows also requires the
+approved publisher/public-trust profile, timestamp and signed complete source commit.
+Hosted Unix artifacts contain `<rid>.tar.gz` plus a separate seal receipt. Extract
+the tar archive before inspect/install (for example, `tar -xzf linux-x64.tar.gz`);
+do not upload or copy the raw Unix payload through a mode-stripping ZIP service.
+The archive preserves executable permissions for the native image and launchers.
+Rollback accepts only retained identical store/control contracts; no credential,
+pending/journal mutation or incompatible downgrade is performed. Final default/plugin
+switches and retirement require the epic's separate qualified owner cutover gate.
 
 ### Configure the current Bench
 

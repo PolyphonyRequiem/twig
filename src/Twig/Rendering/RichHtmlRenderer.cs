@@ -38,7 +38,7 @@ internal static class RichHtmlRenderer
         {
             if (ch == '\t') result.Append("    ");
             else if ((char.IsControl(ch) && ch != '\n') ||
-                char.GetUnicodeCategory(ch) == UnicodeCategory.Format)
+                char.GetUnicodeCategory(ch) == UnicodeCategory.Format && ch is not ('\u200c' or '\u200d'))
                 result.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:x4}");
             else result.Append(ch);
         }

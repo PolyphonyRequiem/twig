@@ -55,6 +55,32 @@ public class WorkItemDetailProjectorTests
         value.Full.ShouldBe("A title the Fields dictionary does not contain");
     }
 
+    [Fact]
+    public void ServedHeaderControlsRetainValuesAndFlagsWithoutInventingPageFields()
+    {
+        var layout = new FormLayout("Type", "process-1", [])
+        {
+            SystemControls =
+            [
+                new("System.Title", "", "FieldControl", false, true, false),
+                new("System.State", "Stat&e", "FieldControl", true, false, false),
+                new("header-addon", "Extension", "Contribution", false, true, true),
+            ],
+        };
+
+        var document = WorkItemDetailProjector.Project(layout, SnapshotWith());
+
+        document.SystemControls.Select(control => control.Id)
+            .ShouldBe(["System.Title", "System.State", "header-addon"]);
+        document.SystemControls[0].Value!.Full.ShouldBe("A title the Fields dictionary does not contain");
+        document.SystemControls[1].Value!.Full.ShouldBe("Active");
+        document.SystemControls[1].ReadOnly.ShouldBeTrue();
+        document.SystemControls[1].Visible.ShouldBeFalse();
+        document.SystemControls[2].IsContribution.ShouldBeTrue();
+        document.SystemControls[2].Value.ShouldBeNull();
+        document.Pages.ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData("System.Id", "7")]
     [InlineData("System.Rev", "3")]

@@ -102,6 +102,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         services.AddTwigNetworkServices(Configuration);
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
+        services.AddTwigCommands();
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         await runtime.GetRequiredService<IProcessTypeStore>().SaveAsync(new ProcessTypeRecord
@@ -117,12 +118,14 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
 
     internal BrowserReadModule CreateModule(ServiceProvider runtime, IFieldDefinitionStore? metadata = null,
         IConnectionBindingService? bindings = null, IBenchRepository? benches = null) => new(
-        runtime.GetRequiredService<CommandContext>(), benches is null
-            ? runtime.GetRequiredService<CurrentBenchResolver>()
-            : new CurrentBenchResolver(benches, new DefaultBenchSelectors(runtime.GetRequiredService<IIterationService>())),
-        runtime.GetRequiredService<IWorkItemRepository>(),
-        metadata ?? runtime.GetRequiredService<IFieldDefinitionStore>(), runtime.GetRequiredService<IAuthenticationProvider>(),
-        bindings ?? Bindings, runtime.GetRequiredService<TwigPaths>(), runtime.GetRequiredService<IWorkItemLinkRepository>(),
+        runtime.GetRequiredService<CommandContext>(), new BrowserOperationModule(
+            runtime.GetRequiredService<CommandContext>(), benches is null
+                ? runtime.GetRequiredService<CurrentBenchResolver>()
+                : new CurrentBenchResolver(benches, new DefaultBenchSelectors(runtime.GetRequiredService<IIterationService>())),
+            runtime.GetRequiredService<IWorkItemRepository>(), runtime.GetRequiredService<IAuthenticationProvider>(),
+            bindings ?? Bindings, runtime.GetRequiredService<TwigPaths>()),
+        runtime.GetRequiredService<IWorkItemRepository>(), metadata ?? runtime.GetRequiredService<IFieldDefinitionStore>(),
+        runtime.GetRequiredService<IWorkItemLinkRepository>(),
         runtime.GetRequiredService<IPendingChangeStore>(), runtime.GetRequiredService<StatusFieldConfigReader>(),
         runtime.GetRequiredService<SyncCoordinatorFactory>(), runtime.GetRequiredService<IProcessConfigurationProvider>(),
         runtime.GetRequiredService<SpectreTheme>());
@@ -197,11 +200,13 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
             }
             return Reply(HttpStatusCode.OK, new
             {
-                id, rev = 7,
+                id,
+                rev = 7,
                 fields = new Dictionary<string, object>
                 {
                     ["System.Title"] = secret == RenewedPat ? "Renewed selected item" : "Remote selected item",
-                    ["System.WorkItemType"] = "Task", ["System.State"] = "To Do",
+                    ["System.WorkItemType"] = "Task",
+                    ["System.State"] = "To Do",
                     ["System.Description"] = "<p>Remote description</p>",
                 },
                 relations = new[] { new { rel = "System.LinkTypes.Related", url = $"https://dev.azure.com/{Organization}/{Project}/_apis/wit/workItems/99" } },

@@ -48,6 +48,15 @@ jobs:
         run: |
           python tools/tui-candidate.py build --directory "artifacts/tui-candidate/${{ matrix.rid }}" --commit "${{ github.sha }}" --rid "${{ matrix.rid }}"
           if ($LASTEXITCODE -ne 0) { throw 'Source-pinned candidate build failed.' }
+      - name: Execute the actual native platform image
+        shell: pwsh
+        run: |
+          $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
+          $image = Join-Path (Resolve-Path "artifacts/tui-candidate/${{ matrix.rid }}/bin") $name
+          & $image --version
+          if ($LASTEXITCODE -ne 0) { throw 'Native image version execution failed.' }
+          & $image bench browser --help
+          if ($LASTEXITCODE -ne 0) { throw 'Native browser declaration execution failed.' }
       - name: Require the approved signing configuration
         if: matrix.rid == 'win-x64'
         env:

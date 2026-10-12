@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
+using Twig.Browser;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
@@ -106,7 +107,9 @@ public static class CommandRegistrationModule
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<BenchSyncCommand>();
         services.AddSingleton<BenchConfigurationCommand>();
+        services.AddSingleton<BrowserReadModule>();
         services.AddSingleton<BenchDetailCommand>();
+        services.AddSingleton<BenchNativeDetailCommand>();
         services.AddSingleton<BenchAreaCandidatesCommand>();
         // 'twig save' is deprecated but still dispatches to SaveCommand
         // (Program.cs Save handler); without this it throws at runtime.

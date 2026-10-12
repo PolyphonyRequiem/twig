@@ -23,13 +23,20 @@ ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
 };
 
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
-try
+// The opt-in interactive route owns encoding in its terminal scope, so it must
+// capture the inherited code page before any CLI bootstrap changes it. Help stays
+// on the ordinary offline CLI path, including its existing UTF-8 output contract.
+if (!(args.Length >= 2 && args[0] == "bench" && args[1] == "native-detail"
+    && !ProgressiveHelp.IsHelpRequest(args)))
 {
-    Console.OutputEncoding = System.Text.Encoding.UTF8;
-}
-catch (Exception)
-{
-    // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
+    try
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+    }
+    catch (Exception)
+    {
+        // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
+    }
 }
 
 // TICKET-0018: startup side effects (binary cleanup, companion first-run check)
@@ -1255,6 +1262,12 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, CancellationToken ct = default)
         => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct);
 
+    /// <summary>Open the opt-in Windows native full-detail viewport (not the default Bench browser or final platform cutover).</summary>
+    /// <param name="id">Cached work item ID or local seed ID; never changes the active item. R reads cache; S explicitly pulls only this positive item and links. Arrows/j/k, wheel, Page/Home/End scroll; Esc cancels work; Q quits. Authority changes clear detail and require quitting then explicit reconnect/restart.</param>
+    [Command("bench native-detail")]
+    public async Task<int> BenchNativeDetail([Argument] int id, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchNativeDetailCommand>().ExecuteAsync(id, ct);
+
     /// <summary>Read the current Bench configuration and raw settings digest.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
@@ -1853,6 +1866,7 @@ internal static class GroupedHelp
         "bench switch",
         "bench delete",
         "bench detail",
+        "bench native-detail",
         "bench configuration",
         "bench configuration area candidates",
         "bench configuration area add",

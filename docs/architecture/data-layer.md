@@ -195,6 +195,32 @@ of dirty items and items with pending changes), then skips any item in that set.
 
 Batch operations accept pre-computed protected IDs to avoid N+1 queries.
 
+### Admitted Browser Reads
+
+`BrowserReadModule` (`src/Twig/Browser/BrowserReadModule.cs`) owns the complete
+selected-detail operation used by the CLI and the opt-in native terminal adapter.
+It admits the bound provider and repository operation, captures the current
+Bench and its complete selector digest, reads cached facts, renders full native
+Show detail, and rechecks the mutable native origin before returning. Explicit
+pull uses `ReadOnly.SyncLinksAsync` for the selected root and edge metadata only;
+it never flushes pending changes or materializes related targets.
+
+Origin checks include binding/selection revisions, stable principal evidence,
+storage generation, and fresh split-configuration observations. Credential
+renewal for the same principal is not an actor switch. Failures distinguish
+retryable same-origin unavailability from authority invalidation and cancellation;
+native registry lock codes remain typed, not interpreted from diagnostic wording.
+An admitted context retained on failure is a refusal fence for later actions,
+not an authorization or a successful data observation.
+
+Returned observations keep private copies of item, related cached facts,
+metadata, pending changes and theme. Width reflow uses those retained facts and
+the existing native Show renderer without store, provider, shell or network I/O.
+Leases are disposed before returning and are never held during terminal idle.
+Callers serialize operations on the shared SQLite runtime and reject late
+results; these checks do not claim a physically atomic transaction across
+registry, configuration files, mirror and durable stores.
+
 ---
 
 ## 4. Sync Coordination

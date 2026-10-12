@@ -38,6 +38,23 @@ internal sealed class SpectreTheme
         _connection = connection;
     }
 
+    /// <summary>Freezes process appearance and endpoint text for retained, I/O-free rendering.</summary>
+    internal SpectreTheme Snapshot() => new(this);
+
+    private SpectreTheme(SpectreTheme source)
+    {
+        _iconMode = source._iconMode;
+        _typeIconIds = source._typeIconIds is null ? null : new(source._typeIconIds, StringComparer.OrdinalIgnoreCase);
+        _typeColors = source._typeColors is null ? null : new(source._typeColors, StringComparer.OrdinalIgnoreCase);
+        _appearanceColors = source._appearanceColors is null ? null : new(source._appearanceColors, StringComparer.OrdinalIgnoreCase);
+        _stateEntries = source._stateEntries?.ToArray();
+        _connection = source._connection is null ? null : new TwigConfiguration
+        {
+            Organization = source._connection.Organization,
+            Project = source._connection.Project,
+        };
+    }
+
     internal string FormatWorkItemLink(WorkItem item, string markup)
     {
         if (item.IsSeed || item.Id <= 0 || _connection is null

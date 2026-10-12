@@ -379,13 +379,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock);
         var attachment = await attachmentStore.ReadWithRevisionAsync(ct).ConfigureAwait(false);
         if (!attachment.IsSuccess)
-            throw new InvalidOperationException($"Managed attachment validation refused: {attachment.Error}");
+            throw new ConnectionBindingResolutionException(attachment.Error, $"Managed attachment validation refused: {attachment.Error}");
         if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out var anchorFailure))
             throw new InvalidOperationException(
                 $"Current directory is not an attached managed worktree ({anchorFailure}). Run 'twig init' to attach, or use the bootstrap provider for explicit init.");
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
-        if (!worktreeRow.IsSuccess) throw new InvalidOperationException($"Registry refused worktree lookup: {worktreeRow.Error}");
+        if (!worktreeRow.IsSuccess) throw new ConnectionBindingResolutionException(worktreeRow.Error, $"Registry refused worktree lookup: {worktreeRow.Error}");
         if (worktreeRow.Value is not { } wt)
             throw new InvalidOperationException(
                 $"Managed worktree at {anchor.WorktreeRoot} is not registered in system.db. Run 'twig init' to attach it before issuing work HTTP.");
@@ -403,7 +403,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (selectedId is null)
         {
             var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
-            if (!defaultRow.IsSuccess) throw new InvalidOperationException($"Registry refused default lookup: {defaultRow.Error}");
+            if (!defaultRow.IsSuccess) throw new ConnectionBindingResolutionException(defaultRow.Error, $"Registry refused default lookup: {defaultRow.Error}");
             if (defaultRow.Value is not { } d)
                 throw new InvalidOperationException($"No explicit default binding is selected for {configuration.Organization}/{configuration.Project}. Set a connection default or explicitly pin this checkout; no account fallback is admitted.");
             selectedId = d.BindingId;
@@ -412,13 +412,13 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         }
 
         var bindingRes = await _registry.FindBindingByIdAsync(selectedId, ct).ConfigureAwait(false);
-        if (!bindingRes.IsSuccess) throw new InvalidOperationException($"Registry refused binding lookup: {bindingRes.Error}");
+        if (!bindingRes.IsSuccess) throw new ConnectionBindingResolutionException(bindingRes.Error, $"Registry refused binding lookup: {bindingRes.Error}");
         if (bindingRes.Value is not { } b)
             throw new InvalidOperationException($"Selected binding {selectedId} is missing. Repair the explicit pin/default; no account fallback is admitted.");
         if (!string.Equals(b.ConnectionRef, connectionRef, StringComparison.Ordinal))
             throw new InvalidOperationException("Selected binding belongs to another declared connection; refusing account crossover.");
         var identityRes = await _registry.FindIdentityByIdAsync(b.IdentityId, ct).ConfigureAwait(false);
-        if (!identityRes.IsSuccess) throw new InvalidOperationException($"Registry refused identity lookup: {identityRes.Error}");
+        if (!identityRes.IsSuccess) throw new ConnectionBindingResolutionException(identityRes.Error, $"Registry refused identity lookup: {identityRes.Error}");
         if (identityRes.Value is not { } idRow)
             throw new InvalidOperationException(
                 $"Binding {b.BindingId} references a missing identity row — the identity registry is inconsistent.");

@@ -25,6 +25,7 @@ command means the same thing in a pipe as at a prompt.
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
 |`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
 |`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
+|`bench native-detail <id>`|Opt-in Windows terminal for full native in-process cached detail; not a stable TUI replacement.|none unless explicit S pull|
 
 Listing, creating a named Bench and switching read existing arrangements as stored
 metadata, without identity-profile discovery or query evaluation. First-use default
@@ -72,6 +73,32 @@ JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `title`, and complete renderer-generated `ansi`. The optional `--expect-bench`,
 `--expect-binding`, and `--expect-identity` refuse retargeting. Minimal output is
 complete unstyled detail; `ids` is not meaningful for this single-item view.
+
+### Opt-in Native Detail Terminal
+
+`twig bench native-detail 42` runs a bounded Windows detail viewport in an actual
+console/ConPTY. It consumes the same admitted browser-read module as `bench detail`,
+not a CLI subprocess or a second authority implementation. It is an opt-in
+implementation slice, not full Bench configuration/navigation parity or a
+replacement for `twig tui`, the standalone Go browser, or the registered Herdr
+plugin. Existing launch paths and supported release platforms remain unchanged.
+
+Arrows, j/k, Page Up/Down, Home/End and mouse wheel scroll retained content.
+Resize reflows retained full Show facts without another read. R requests cached
+detail; S explicitly pulls only the captured positive root and links, protecting
+pending work and refusing seed sync. Esc cancels an active read; Q exits. A
+superseded result cannot repaint data, and a known authority invalidation clears
+visible and retained content even if that completion was canceled or superseded.
+R/S then remain disabled until the user quits and explicitly reconnects/restarts.
+An initial cache miss retains its admitted context so a later R/S cannot adopt
+a different Bench. Retryable same-origin cache or registry contention does not
+masquerade as an identity change. No automatic push, rebind or permanent idle
+operation lease is introduced.
+
+The footer stays on the bottom visible row and clips horizontally at narrow
+widths. The native input/output modes and inherited console encoding are
+restored on exit. This Windows input slice does not qualify Linux/macOS or
+choose the final cross-platform terminal strategy.
 
 ### Configure the current Bench
 

@@ -387,6 +387,11 @@ internal static class CommandExamples
             "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
             "twig bench detail 42 --sync           Pull only this item and its links; never publish local edits",
         ],
+        ["bench native-detail"] =
+        [
+            "twig bench native-detail 42            Open the opt-in Windows native cached detail viewport",
+            "twig bench native-detail -1            Read a local seed without publishing it; R cache, S root/links, Q quit",
+        ],
         ["bench configuration area candidates"] =
         [
             "twig bench configuration area candidates   List the configured team's official area paths",

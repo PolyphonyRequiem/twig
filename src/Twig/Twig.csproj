@@ -9,6 +9,7 @@
     <TrimMode>full</TrimMode>
     <StripSymbols>true</StripSymbols>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InvariantGlobalization>true</InvariantGlobalization>
     <TwigGitHubRepo>PolyphonyRequiem/twig</TwigGitHubRepo>
   </PropertyGroup>

@@ -74,10 +74,14 @@ public sealed class CurrentBenchResolver
     public Task<Bench> ResolveStoredAsync(CancellationToken ct = default, string? expectBench = null)
         => ResolveCoreAsync(normalizeDefaultSelf: false, ct, expectBench);
 
+    /// <summary>Reads the stored current/default arrangement without initialization or identity discovery.</summary>
+    internal async Task<Bench?> TryResolveStoredAsync(CancellationToken ct = default)
+        => await _benchRepository.GetCurrentAsync(ct)
+            ?? await _benchRepository.GetByNameAsync(Bench.DefaultName, ct);
+
     private async Task<Bench> ResolveCoreAsync(bool normalizeDefaultSelf, CancellationToken ct, string? expectBench)
     {
-        var current = await _benchRepository.GetCurrentAsync(ct)
-            ?? await _benchRepository.GetByNameAsync(Bench.DefaultName, ct);
+        var current = await TryResolveStoredAsync(ct);
         if (expectBench is not null)
         {
             // A stale browser must not even create the first-use default Bench.

@@ -58,7 +58,7 @@ def compatibility():
     return {"mirrorSchema": constant(cache, "SchemaVersion"),
             "durableSchema": constant(cache, "DurableSchemaVersion"),
             "registrySchema": constant(registry, "SchemaVersion"),
-            "controlProtocol": 2, "herdrProtocol": 22}
+            "controlProtocol": 3, "herdrProtocol": 22}
 
 
 def write_json(path, value):

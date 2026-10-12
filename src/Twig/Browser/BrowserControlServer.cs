@@ -16,7 +16,7 @@ internal sealed class BrowserControlServer : IAsyncDisposable
     {
         _application = application;
         _path = BrowserControlProtocol.PathFor(root, source);
-        _owned = new("twig-browser-aot-" + BrowserControlProtocol.NewToken(), BrowserControlProtocol.NewToken(),
+        _owned = new(BrowserControlProtocol.NewPipeName(), BrowserControlProtocol.NewToken(),
             Environment.ProcessId, BrowserControlProtocol.ProcessStarted(Environment.ProcessId), hostPane, source, launchNonce);
         // Bind before exposing the exclusive registration; a pipe collision never owns that file.
         var listener = CreateListener();
@@ -129,10 +129,19 @@ internal static class BrowserRouteLock
             timeout.Token.ThrowIfCancellationRequested();
             try
             {
-                var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None };
-                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-                var stream = new FileStream(registrationPath + ".lock", options);
-                try { BrowserPrivateDirectory.ValidateFile(registrationPath + ".lock"); return stream; }
+                var path = registrationPath + ".lock";
+                FileStream stream;
+                try { stream = BrowserPrivateDirectory.CreateExclusive(path); }
+                catch (IOException) when (File.Exists(path))
+                {
+                    stream = new FileStream(path, new FileStreamOptions
+                    {
+                        Mode = FileMode.Open,
+                        Access = FileAccess.ReadWrite,
+                        Share = FileShare.None,
+                    });
+                }
+                try { BrowserPrivateDirectory.ValidateFile(path); return stream; }
                 catch { stream.Dispose(); throw; }
             }
             catch (IOException) { await Task.Delay(25, timeout.Token); }

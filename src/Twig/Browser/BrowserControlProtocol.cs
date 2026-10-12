@@ -29,9 +29,10 @@ internal sealed record BrowserLaunchTicket(string Nonce, int Pid, long Started, 
 /// <summary>Explicit UTF-8 writer/reader, with no reflection serializer or second source-generated context.</summary>
 internal static class BrowserControlProtocol
 {
-    private const int Version = 2;
+    private const int Version = 3;
     internal const int MaximumFrame = 65536;
     internal static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    internal static string NewPipeName() => "twa" + Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     internal static bool EqualToken(string left, string right) => left.Length == 64 && right.Length == 64 &&
         CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(left), Encoding.ASCII.GetBytes(right));
 
@@ -64,9 +65,9 @@ internal static class BrowserControlProtocol
         using var document = ReadFile(path);
         var node = document.RootElement;
         Only(node, "version", "pipe", "token", "pid", "started", "hostPane", "source", "launchNonce");
-        if (node.GetProperty("version").GetInt32() != Version) throw new InvalidDataException("Unsupported browser control protocol; version 2 acknowledgement is required.");
+        if (node.GetProperty("version").GetInt32() != Version) throw new InvalidDataException("Unsupported browser control protocol; version 3 portable acknowledged delivery is required.");
         var pipe = String(node, "pipe", 96); var token = String(node, "token", 64); Token(token);
-        if (!pipe.StartsWith("twig-browser-aot-", StringComparison.Ordinal) || pipe.Length != 81 || !pipe.AsSpan(17).ToString().All(Uri.IsHexDigit))
+        if (!pipe.StartsWith("twa", StringComparison.Ordinal) || pipe.Length != 35 || !pipe.AsSpan(3).ToString().All(Uri.IsHexDigit))
             throw new InvalidDataException("Unrecognized native browser pipe.");
         var pid = node.GetProperty("pid").GetInt32(); var started = node.GetProperty("started").GetInt64();
         if (pid <= 0 || started <= 0) throw new InvalidDataException("Invalid native process identity.");

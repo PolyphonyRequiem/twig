@@ -95,9 +95,24 @@ internal static partial class BrowserPrivateDirectory
 
     internal static FileStream CreateExclusive(string path)
     {
-        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        return new FileStream(path, options);
+        if (OperatingSystem.IsWindows())
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var user = identity.User ?? throw new IOException("Cannot establish current-user control file ownership.");
+            var security = new FileSecurity();
+            security.SetOwner(user);
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            security.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.FullControl, AccessControlType.Allow));
+            return new FileInfo(path).Create(FileMode.CreateNew, FileSystemRights.FullControl,
+                FileShare.None, 4096, FileOptions.None, security);
+        }
+        return new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+        });
     }
 
     [LibraryImport("libc", EntryPoint = "stat", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]

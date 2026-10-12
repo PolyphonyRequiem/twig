@@ -120,9 +120,10 @@ contract: plugin-pane open/close, opaque owner metadata, pane get/list/process-i
 captured source topology and no-focus launch. Display IDs alone are not authority.
 Both manifest pane entries launch the native image directly, including Windows;
 the exact reported native root PID (or a positive foreground PID) is required.
-Control protocol 2 acknowledges a nonce/owner/source-validated complete reply before
-the server disconnects or completes close delivery. Version-1 registrations refuse
-rather than being adopted, and recovery requires the same control/store contract.
+Control protocol 3 uses short unpredictable pipe identifiers within standard macOS temp-path
+limits and acknowledges a nonce/owner/source-validated complete reply before disconnect
+or close delivery. Version-1/2 registrations refuse rather than being adopted; recovery
+requires the same control/store contract. Authentication tokens and nonces remain 256-bit.
 An uncatchable kill may leave a stale private registration; explicit proved-dead
 owner recovery never steals a slow live peer. Supported legacy migration requires
 explicitly closing the candidate host; no native quiescence exemption is invented.

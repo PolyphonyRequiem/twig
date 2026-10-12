@@ -127,7 +127,7 @@ public sealed class BrowserControlSecurityTests
     }
 
     private static BrowserSource Source() => BrowserSource.Create(Path.Combine(Path.GetTempPath(), "herdr.sock"), "workspace", "tab", "source-pane", Path.GetTempPath());
-    private static BrowserHostRegistration Owner(BrowserSource source) => new("twig-browser-aot-" + BrowserControlProtocol.NewToken(),
+    private static BrowserHostRegistration Owner(BrowserSource source) => new(BrowserControlProtocol.NewPipeName(),
         BrowserControlProtocol.NewToken(), Environment.ProcessId, BrowserControlProtocol.ProcessStarted(Environment.ProcessId), "host-pane", source, BrowserControlProtocol.NewToken());
     private static string PrivateRoot() => BrowserPrivateDirectory.Open(Path.Combine(Path.GetTempPath(), "twig-native-control-" + Guid.NewGuid().ToString("N")));
 }

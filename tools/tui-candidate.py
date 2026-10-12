@@ -104,12 +104,16 @@ def build(args):
     if target.exists():
         raise ValueError("Build output must be a new isolated directory; previous evidence is never overwritten.")
     target.mkdir(parents=True)
+    version = "0.0.0-tui-candidate"
     argv = ["dotnet", "publish", REPO / "src/Twig/Twig.csproj", "-c", "Release", "-r", args.rid,
             "--self-contained", "true", "-p:PublishAot=true", "-p:PublishTrimmed=true", "-p:TrimMode=full",
-            f"-p:MinVerVersionOverride=0.0.0-tui-candidate+{args.commit}",
+            f"-p:MinVerVersionOverride={version}+{args.commit}",
             "-p:IncludeSourceRevisionInInformationalVersion=false", "-o", target / "bin"]
     output = run(argv, REPO)
     source_pin(args.commit)
+    # Candidates intentionally omit classic companions. Package their canonical
+    # current-version marker so normal startup cannot download or mutate the seal.
+    (target / "bin" / ".twig-version").write_text(version, encoding="utf-8")
     host = REPO / "integrations/herdr-aot"
     shutil.copy2(host / "herdr-plugin.toml", target / "herdr-plugin.toml")
     shutil.copytree(host / "scripts", target / "scripts")

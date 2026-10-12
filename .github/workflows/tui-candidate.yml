@@ -93,6 +93,24 @@ jobs:
           $receipt = python tools/tui-candidate.py seal --directory "artifacts/tui-candidate/${{ matrix.rid }}" --commit "${{ github.sha }}" --rid "${{ matrix.rid }}"
           if ($LASTEXITCODE -ne 0) { throw 'Candidate trust/checksum sealing failed.' }
           $receipt | Set-Content -Encoding utf8 "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json"
+      - name: Verify sealed inventory after normal native startup
+        shell: pwsh
+        env:
+          TWIG_USER_HOME: ${{ runner.temp }}/tui-candidate-startup-home-${{ matrix.rid }}
+        run: |
+          $directory = (Resolve-Path "artifacts/tui-candidate/${{ matrix.rid }}").Path
+          $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
+          $image = Join-Path $directory "bin/$name"
+          $receipt = Get-Content "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json" -Raw | ConvertFrom-Json
+          $workspace = Join-Path '${{ runner.temp }}' 'tui-candidate-uninitialized-${{ matrix.rid }}'
+          New-Item -ItemType Directory -Path $workspace | Out-Null
+          Push-Location $workspace
+          try {
+            & $image connection status -o json
+            if ($LASTEXITCODE -ne 1) { throw 'Fresh uninitialized native workspace was not refused.' }
+          } finally { Pop-Location }
+          python tools/tui-candidate.py inspect --directory $directory --commit '${{ github.sha }}' --rid '${{ matrix.rid }}' --manifest-sha256 $receipt.manifestSha256
+          if ($LASTEXITCODE -ne 0) { throw 'Normal native startup changed the sealed candidate inventory.' }
       - name: Archive Unix payload with executable permissions intact
         if: matrix.rid != 'win-x64'
         shell: bash
@@ -106,6 +124,7 @@ jobs:
             artifacts/tui-candidate/${{ matrix.rid }}/
             artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json
           if-no-files-found: error
+          include-hidden-files: true
       - name: Preserve exact Unix archive and independent digest receipt
         if: matrix.rid != 'win-x64'
         uses: actions/upload-artifact@v4

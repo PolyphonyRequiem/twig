@@ -1,6 +1,9 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Json.Nodes;
 using Shouldly;
 using Twig.Browser;
 using Xunit;
@@ -39,9 +42,52 @@ public sealed class BrowserControlSecurityTests
     [Fact]
     public void PidReuseCannotQualifyARegistrationAsLive()
     {
-        var started = BrowserControlProtocol.ProcessStarted(Environment.ProcessId);
+        var started = BrowserControlProtocol.ProcessBirthId(Environment.ProcessId);
         BrowserControlProtocol.Alive(Environment.ProcessId, started).ShouldBeTrue();
         BrowserControlProtocol.Alive(Environment.ProcessId, started + 1).ShouldBeFalse();
+    }
+
+    [LinuxFact]
+    public async Task IndependentProcessKernelBirthQualifiesTheSameLiveOwner()
+    {
+        var pid = Environment.ProcessId;
+        var captured = BrowserControlProtocol.ProcessBirthId(pid);
+        var start = new ProcessStartInfo("/bin/sh")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("-c");
+        start.ArgumentList.Add("cat /proc/sys/kernel/random/boot_id; cat /proc/" + pid.ToString(CultureInfo.InvariantCulture) + "/stat");
+        using var peer = Process.Start(start)!;
+        var output = await peer.StandardOutput.ReadToEndAsync();
+        await peer.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        peer.ExitCode.ShouldBe(0, await peer.StandardError.ReadToEndAsync());
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var boot = Guid.Parse(lines[0]).ToString("N");
+        var fields = lines[1][(lines[1].LastIndexOf(')') + 2)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var observed = "linux:" + boot + ":" + ulong.Parse(fields[19], CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+        captured.ShouldBe(observed);
+        BrowserControlProtocol.Alive(pid, observed).ShouldBeTrue();
+        BrowserControlProtocol.Alive(pid, "linux:" + Guid.NewGuid().ToString("N") + ":" + fields[19]).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void PreviousProtocolCannotReclaimEvenItsOwnLiveRegistration()
+    {
+        var root = PrivateRoot();
+        try
+        {
+            var source = Source(); var owner = Owner(source); var path = BrowserControlProtocol.PathFor(root, source);
+            var previous = JsonNode.Parse(BrowserControlProtocol.Registration(owner))!.AsObject();
+            previous["version"] = 3;
+            var bytes = Encoding.UTF8.GetBytes(previous.ToJsonString());
+            BrowserControlProtocol.Publish(path, bytes);
+            Should.Throw<InvalidDataException>(() => BrowserControlProtocol.RemoveOwned(path, owner));
+            File.ReadAllBytes(path).ShouldBe(bytes);
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     [Fact]
@@ -79,7 +125,7 @@ public sealed class BrowserControlSecurityTests
             deadline.CancelAfter(TimeSpan.FromMilliseconds(100));
             await Should.ThrowAsync<OperationCanceledException>(() => pending);
             BrowserControlProtocol.ReadRegistration(path)!.Token.ShouldBe(owner.Token);
-            BrowserControlProtocol.Alive(owner.Pid, owner.Started).ShouldBeTrue();
+            BrowserControlProtocol.Alive(owner.Pid, owner.BirthId).ShouldBeTrue();
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -100,13 +146,13 @@ public sealed class BrowserControlSecurityTests
                 var nonce = BrowserControlProtocol.NewToken();
                 await pipe.ConnectAsync(deadline.Token);
                 await BrowserControlProtocol.WriteFrame(pipe, BrowserControlProtocol.Request(new BrowserControlRequest(
-                    owner.Token, nonce, owner.Pid, owner.Started, owner.HostPane, source, new("status"))), deadline.Token);
+                    owner.Token, nonce, owner.Pid, owner.BirthId, owner.HostPane, source, new("status"))), deadline.Token);
                 // Let the real server finish its small reply before consuming any buffered bytes.
                 await Task.Delay(TimeSpan.FromMilliseconds(250), deadline.Token);
                 var reply = BrowserControlProtocol.Reply(await BrowserControlProtocol.ReadFrame(pipe, deadline.Token));
                 BrowserControlProtocol.EqualToken(reply.Nonce, nonce).ShouldBeTrue();
                 reply.Pid.ShouldBe(owner.Pid);
-                reply.Started.ShouldBe(owner.Started);
+                reply.BirthId.ShouldBe(owner.BirthId);
                 reply.HostPane.ShouldBe(owner.HostPane);
                 reply.Source.Matches(source).ShouldBeTrue();
                 reply.Result.Ok.ShouldBeFalse();
@@ -152,7 +198,7 @@ public sealed class BrowserControlSecurityTests
             // Availability and ownership are the contract; no browser or tracker operation is needed.
             var reply = await BrowserControlServer.SendAsync(owner, source, new("status"), deadline.Token);
             reply.Pid.ShouldBe(owner.Pid);
-            reply.Started.ShouldBe(owner.Started);
+            reply.BirthId.ShouldBe(owner.BirthId);
             BrowserControlProtocol.ReadRegistration(path).ShouldBe(owner);
         }
         finally { Directory.Delete(root, recursive: true); }
@@ -160,6 +206,14 @@ public sealed class BrowserControlSecurityTests
 
     private static BrowserSource Source() => BrowserSource.Create(Path.Combine(Path.GetTempPath(), "herdr.sock"), "workspace", "tab", "source-pane", Path.GetTempPath());
     private static BrowserHostRegistration Owner(BrowserSource source) => new(BrowserControlProtocol.NewPipeName(),
-        BrowserControlProtocol.NewToken(), Environment.ProcessId, BrowserControlProtocol.ProcessStarted(Environment.ProcessId), "host-pane", source, BrowserControlProtocol.NewToken());
+        BrowserControlProtocol.NewToken(), Environment.ProcessId, BrowserControlProtocol.ProcessBirthId(Environment.ProcessId), "host-pane", source, BrowserControlProtocol.NewToken());
     private static string PrivateRoot() => BrowserPrivateDirectory.Open(Path.Combine(Path.GetTempPath(), "twig-native-control-" + Guid.NewGuid().ToString("N")));
+
+    private sealed class LinuxFactAttribute : FactAttribute
+    {
+        public LinuxFactAttribute()
+        {
+            if (!OperatingSystem.IsLinux()) Skip = "This contract uses the Linux kernel's process and boot identities.";
+        }
+    }
 }

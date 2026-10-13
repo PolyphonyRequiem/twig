@@ -39,7 +39,7 @@ internal static class BrowserHerdrHost
         while (!File.Exists(ticketPath)) await Task.Delay(50, timeout.Token);
         var ticket = BrowserControlProtocol.Ticket(ticketPath);
         if (!BrowserControlProtocol.EqualToken(ticket.Nonce, nonce) || !ticket.Source.Matches(source) || ticket.HostPane != hostPane ||
-            ticket.Expires < DateTime.UtcNow.Ticks || !BrowserControlProtocol.Alive(ticket.Pid, ticket.Started))
+            ticket.Expires < DateTime.UtcNow.Ticks || !BrowserControlProtocol.Alive(ticket.Pid, ticket.BirthId))
             throw new InvalidOperationException("Native pane lacks a current source-scoped launch admission.");
         var pluginRoot = Required("HERDR_PLUGIN_ROOT");
         await ValidatePluginAsync(source.Socket, pluginRoot, timeout.Token);
@@ -95,7 +95,7 @@ internal static class BrowserHerdrHost
         if (record is not null)
         {
             if (!record.Source.Matches(source)) throw new InvalidOperationException("Tab is registered to a different captured source; refusing implicit retarget.");
-            if (BrowserControlProtocol.Alive(record.Pid, record.Started))
+            if (BrowserControlProtocol.Alive(record.Pid, record.BirthId))
             {
                 await ValidateTopologyAsync(source, record.HostPane, record.Pid, ct);
                 // Authentication/timeout failures from a live peer always refuse, never reclaim.
@@ -110,12 +110,12 @@ internal static class BrowserHerdrHost
                 throw new InvalidOperationException("Closed native process still has its owned pane. Explicitly use --intent close before recovery; it is not stolen.");
             if (survivingPane)
             {
-                if (BrowserControlProtocol.Alive(record.Pid, record.Started)) throw new InvalidOperationException("Native owner is live; dead-owner cleanup refused.");
+                if (BrowserControlProtocol.Alive(record.Pid, record.BirthId)) throw new InvalidOperationException("Native owner is live; dead-owner cleanup refused.");
                 using var closed = await ExecuteAsync(source.Socket, ["plugin", "pane", "close", record.HostPane], ct);
             }
             BrowserControlProtocol.RemoveOwned(path, record);
             if (command == "close")
-                return new(BrowserControlProtocol.NewToken(), record.Pid, record.Started, record.HostPane, source,
+                return new(BrowserControlProtocol.NewToken(), record.Pid, record.BirthId, record.HostPane, source,
                     new(true, "Removed only the proven-dead native host's owned pane/registration.", "closed", false, 0));
         }
         if (command is not ("open" or "tree" or "table" or "review")) throw new InvalidOperationException("No native candidate host is open for this captured source.");
@@ -124,7 +124,7 @@ internal static class BrowserHerdrHost
         if (File.Exists(ticketPath))
         {
             var previous = BrowserControlProtocol.Ticket(ticketPath);
-            if (!previous.Source.Matches(source) || BrowserControlProtocol.Alive(previous.Pid, previous.Started))
+            if (!previous.Source.Matches(source) || BrowserControlProtocol.Alive(previous.Pid, previous.BirthId))
                 throw new InvalidOperationException("Existing launch owner is live or different; no slow launch is stolen.");
             File.Delete(ticketPath);
         }
@@ -155,7 +155,7 @@ internal static class BrowserHerdrHost
                 Get(pane, "workspace_id") != source.Workspace || Get(pane, "tab_id") != source.Tab || !PathEquals(Get(pane, "cwd"), source.Cwd))
             { created = null; throw new InvalidDataException("Herdr returned a pane owned by another context/plugin; no arbitrary pane is closed."); }
             BrowserControlProtocol.Publish(ticketPath, BrowserControlProtocol.Ticket(new BrowserLaunchTicket(nonce, Environment.ProcessId,
-                BrowserControlProtocol.ProcessStarted(Environment.ProcessId), DateTime.UtcNow.AddSeconds(20).Ticks, created, source)));
+                BrowserControlProtocol.ProcessBirthId(Environment.ProcessId), DateTime.UtcNow.AddSeconds(20).Ticks, created, source)));
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct); deadline.CancelAfter(TimeSpan.FromSeconds(15));
             while (true)
             {

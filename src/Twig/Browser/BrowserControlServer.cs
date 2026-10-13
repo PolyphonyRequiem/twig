@@ -17,7 +17,7 @@ internal sealed class BrowserControlServer : IAsyncDisposable
         _application = application;
         _path = BrowserControlProtocol.PathFor(root, source);
         _owned = new(BrowserControlProtocol.NewPipeName(), BrowserControlProtocol.NewToken(),
-            Environment.ProcessId, BrowserControlProtocol.ProcessStarted(Environment.ProcessId), hostPane, source, launchNonce);
+            Environment.ProcessId, BrowserControlProtocol.ProcessBirthId(Environment.ProcessId), hostPane, source, launchNonce);
         // Bind before exposing the exclusive registration; a pipe collision never owns that file.
         var listener = CreateListener();
         try { BrowserControlProtocol.Publish(_path, BrowserControlProtocol.Registration(_owned)); }
@@ -44,13 +44,13 @@ internal sealed class BrowserControlServer : IAsyncDisposable
                 try
                 {
                     var request = BrowserControlProtocol.Request(await BrowserControlProtocol.ReadFrame(listener, deadline.Token));
-                    if (!BrowserControlProtocol.EqualToken(request.Token, _owned.Token) || request.Pid != _owned.Pid || request.Started != _owned.Started ||
+                    if (!BrowserControlProtocol.EqualToken(request.Token, _owned.Token) || request.Pid != _owned.Pid || request.BirthId != _owned.BirthId ||
                         request.HostPane != _owned.HostPane || !request.Source.Matches(_owned.Source))
                         throw new InvalidDataException("Control authentication/context mismatch.");
                     if (request.Intent.Command == "close")
                     { close = new(TaskCreationOptions.RunContinuationsAsynchronously); Volatile.Write(ref _closeReply, close); }
                     var result = await _application.DispatchAsync(request.Intent, deadline.Token);
-                    var reply = new BrowserControlReply(request.Nonce, _owned.Pid, _owned.Started, _owned.HostPane, _owned.Source, result);
+                    var reply = new BrowserControlReply(request.Nonce, _owned.Pid, _owned.BirthId, _owned.HostPane, _owned.Source, result);
                     await BrowserControlProtocol.WriteFrame(listener, BrowserControlProtocol.Reply(reply), deadline.Token);
                     await listener.ReadExactlyAsync(acknowledgement, deadline.Token);
                     if (acknowledgement[0] != ReplyAcknowledgement[0]) throw new InvalidDataException("Invalid control reply acknowledgement.");
@@ -104,15 +104,15 @@ internal sealed class BrowserControlServer : IAsyncDisposable
     {
         BrowserControlProtocol.ValidateIntent(intent);
         if (!record.Source.Matches(source)) throw new InvalidOperationException("This tab belongs to a different captured source; refusing implicit retarget.");
-        if (!BrowserControlProtocol.Alive(record.Pid, record.Started)) throw new InvalidOperationException("Native host is closed/replaced; no control was dispatched.");
+        if (!BrowserControlProtocol.Alive(record.Pid, record.BirthId)) throw new InvalidOperationException("Native host is closed/replaced; no control was dispatched.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(6));
         using var pipe = new NamedPipeClientStream(".", record.Pipe, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         var nonce = BrowserControlProtocol.NewToken();
         await pipe.ConnectAsync(deadline.Token);
-        await BrowserControlProtocol.WriteFrame(pipe, BrowserControlProtocol.Request(new BrowserControlRequest(record.Token, nonce, record.Pid, record.Started, record.HostPane, source, intent)), deadline.Token);
+        await BrowserControlProtocol.WriteFrame(pipe, BrowserControlProtocol.Request(new BrowserControlRequest(record.Token, nonce, record.Pid, record.BirthId, record.HostPane, source, intent)), deadline.Token);
         var reply = BrowserControlProtocol.Reply(await BrowserControlProtocol.ReadFrame(pipe, deadline.Token));
-        if (!BrowserControlProtocol.EqualToken(reply.Nonce, nonce) || reply.Pid != record.Pid || reply.Started != record.Started ||
+        if (!BrowserControlProtocol.EqualToken(reply.Nonce, nonce) || reply.Pid != record.Pid || reply.BirthId != record.BirthId ||
             reply.HostPane != record.HostPane || !reply.Source.Matches(source)) throw new InvalidDataException("Control reply failed nonce/owner/source checks.");
         await pipe.WriteAsync(ReplyAcknowledgement, deadline.Token);
         await pipe.FlushAsync(deadline.Token);

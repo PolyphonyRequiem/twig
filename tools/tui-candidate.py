@@ -50,6 +50,7 @@ def source_pin(commit):
 def compatibility():
     cache = (REPO / "src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs").read_text(encoding="utf-8")
     registry = (REPO / "src/Twig.Infrastructure/Persistence/SqliteSystemWorktreeRegistry.cs").read_text(encoding="utf-8")
+    control = (REPO / "src/Twig/Browser/BrowserControlProtocol.cs").read_text(encoding="utf-8")
     def constant(text, name):
         found = re.search(r"\bconst int " + name + r"\s*=\s*(\d+)\s*;", text)
         if not found:
@@ -58,7 +59,7 @@ def compatibility():
     return {"mirrorSchema": constant(cache, "SchemaVersion"),
             "durableSchema": constant(cache, "DurableSchemaVersion"),
             "registrySchema": constant(registry, "SchemaVersion"),
-            "controlProtocol": 3, "herdrProtocol": 22}
+            "controlProtocol": constant(control, "Version"), "herdrProtocol": 22}
 
 
 def write_json(path, value):

@@ -128,10 +128,14 @@ contract: plugin-pane open/close, opaque owner metadata, pane get/list/process-i
 captured source topology and no-focus launch. Display IDs alone are not authority.
 Both manifest pane entries launch the native image directly, including Windows;
 the exact reported native root PID (or a positive foreground PID) is required.
-Control protocol 3 uses short unpredictable pipe identifiers within standard macOS temp-path
-limits and acknowledges a nonce/owner/source-validated complete reply before disconnect
-or close delivery. Version-1/2 registrations refuse rather than being adopted; recovery
-requires the same control/store contract. Authentication tokens and nonces remain 256-bit.
+Control protocol 4 uses exact process birth identifiers as well as short unpredictable
+pipe names and acknowledged nonce/owner/source-qualified replies. Linux identifies a
+process by its kernel boot UUID and `/proc` start ticks; a per-process reconstructed
+wall-clock timestamp is not portable evidence of the same live owner. Windows and
+macOS use the kernel-reported UTC creation stamp. PID-only checks and time tolerances
+are not substitutes. Version-1/2/3 registrations refuse rather than being adopted;
+recovery requires the same control/store contract. Authentication tokens and nonces
+remain 256-bit.
 Malformed, truncated or disconnected clients do not retire the owner registration.
 Accepted pipes disconnect even after EOF marks them broken; OS-default buffers avoid
 retuning an already-disconnected Unix peer during accept. The next authenticated request

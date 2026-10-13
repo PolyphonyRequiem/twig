@@ -113,7 +113,7 @@ internal static class Program
         // Sink A declares System.State, so nothing about the sink's own declaration can be
         // what refuses the move below — the refusal has to come from the process rules.
         var sink = new TwigTuiSinkA();
-        var capability = new EditCapability(sink, Fixture.Type, Fixture.Process);
+        var capability = new EditCapability(sink, Fixture.Type, isSeed: false, Fixture.Process);
 
         // 0. Precondition, asserted rather than assumed: the sink CAN hold a workflow field.
         //    If it ever stopped declaring System.State, arm 2's refusal would still pass —
@@ -181,7 +181,7 @@ internal static class Program
         //    are exercising the process rules rather than something the capability does
         //    unconditionally — a capability that refused this move too would mean arm 2 never
         //    depended on the configuration at all.
-        var unconfigured = new EditCapability(sink, Fixture.Type);
+        var unconfigured = new EditCapability(sink, Fixture.Type, isSeed: false);
         if (unconfigured.OfferedStates(Fixture.CurrentState).Count != 0)
         {
             failures.Add(
@@ -228,8 +228,8 @@ internal static class Program
         var sinkB = new ReviewQueueSink(
             Fixture.ReadRevision, Fixture.AdvancedRemoteRevision, Fixture.RemoteValues);
 
-        var capabilityA = new EditCapability(sinkA, Fixture.Type);
-        var capabilityB = new EditCapability(sinkB, Fixture.Type);
+        var capabilityA = new EditCapability(sinkA, Fixture.Type, isSeed: false);
+        var capabilityB = new EditCapability(sinkB, Fixture.Type, isSeed: false);
 
         var paneA = new HostPane(width: 76, height: 22);
         paneA.Load(document, Fixture.Appearance, capabilityA);

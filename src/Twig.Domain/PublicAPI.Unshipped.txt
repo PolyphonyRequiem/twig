@@ -1,4 +1,6 @@
 #nullable enable
+*REMOVED*Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
+Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, bool isSeed, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
 Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>!
 Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.init -> void
 Twig.Domain.Interfaces.IBenchRepository.TrySetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
@@ -459,7 +461,6 @@ Twig.Domain.Services.Plan.PlanLatestResult.Found.init -> void
 Twig.Domain.Services.Plan.PlanLatestResult.PlanLatestResult() -> void
 Twig.Domain.Services.Plan.PlanLatestResult.State.get -> Twig.Domain.Services.Plan.PlanOperationState?
 Twig.Domain.Services.Plan.PlanLatestResult.State.init -> void
-
 Twig.Domain.Services.Plan.PlanStatusResult
 Twig.Domain.Services.Plan.PlanStatusResult.<Clone>$() -> Twig.Domain.Services.Plan.PlanStatusResult!
 Twig.Domain.Services.Plan.PlanStatusResult.Digest.get -> string?

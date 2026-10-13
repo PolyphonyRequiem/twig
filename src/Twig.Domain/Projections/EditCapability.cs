@@ -27,12 +27,14 @@ public sealed class EditCapability
     private readonly IChangeSink _sink;
     private readonly ProcessConfiguration? _processConfiguration;
     private readonly WorkItemType _workItemType;
+    private readonly bool _isSeed;
 
     /// <summary>
     /// Builds a capability over <paramref name="sink"/>.
     /// </summary>
     /// <param name="sink">The destination whose declaration decides what may be edited.</param>
     /// <param name="workItemType">The item's type, used to select transition rules.</param>
+    /// <param name="isSeed">Whether the captured item is a local seed rather than a published item.</param>
     /// <param name="processConfiguration">
     /// Optional process configuration. Without it, <see cref="OfferedStates"/> returns empty and
     /// <see cref="Validate"/> accepts any state move — Twig cannot honestly claim a transition
@@ -42,12 +44,14 @@ public sealed class EditCapability
     public EditCapability(
         IChangeSink sink,
         WorkItemType workItemType,
+        bool isSeed,
         ProcessConfiguration? processConfiguration = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
 
         _sink = sink;
         _workItemType = workItemType;
+        _isSeed = isSeed;
         _processConfiguration = processConfiguration;
     }
 
@@ -72,18 +76,24 @@ public sealed class EditCapability
     /// <remarks>
     /// 🔴 <b>ADVISORY, NOT AUTHORITATIVE. The server is final.</b> Azure DevOps' real
     /// per-process transition graph requires process-admin permission to fetch, and most twig
-    /// users are contributors rather than admins. Twig therefore infers legality from the
-    /// standard process templates, so the server can refuse a transition offered here. A host
-    /// that treats this list as a guarantee will render a legitimate refusal as a bug.
+    /// users are contributors rather than admins. Twig judges offered transitions using the
+    /// discovered process configuration; the server can still refuse an offered transition.
+    /// A host must preserve that refusal rather than treating this list as a guarantee.
     /// Returns empty when no process configuration was supplied.
+    /// A local seed without a current state offers the discovered type's state catalog for
+    /// authoring. An empty state on a published item does not grant seed initialization.
     /// </remarks>
     public IReadOnlyList<string> OfferedStates(string fromState)
     {
-        if (_processConfiguration is null || string.IsNullOrEmpty(fromState))
+        if (_processConfiguration is null)
             return [];
 
         if (!_processConfiguration.TypeConfigs.TryGetValue(_workItemType, out var typeConfig))
             return [];
+
+        // Choosing a draft's first state is authoring, not a transition from an existing state.
+        if (string.IsNullOrEmpty(fromState))
+            return _isSeed ? typeConfig.States : [];
 
         var offered = new List<string>();
         foreach (var candidate in typeConfig.States)
@@ -130,6 +140,14 @@ public sealed class EditCapability
             // it cannot justify; the server remains the authority either way.
             if (_processConfiguration is null)
                 return new Accepted();
+
+            if (_isSeed && string.IsNullOrEmpty(move.FromState))
+            {
+                return _processConfiguration.TypeConfigs.TryGetValue(_workItemType, out var typeConfig)
+                    && typeConfig.States.Contains(move.ToState, StringComparer.OrdinalIgnoreCase)
+                    ? new Accepted()
+                    : new Rejected($"State '{move.ToState}' is not defined for type '{_workItemType}'.");
+            }
 
             var result = StateTransitionService.Evaluate(
                 _processConfiguration, _workItemType, move.FromState, move.ToState);

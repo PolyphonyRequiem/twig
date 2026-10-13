@@ -57,6 +57,49 @@ public sealed class BrowserEditingModuleTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task UninitializedSeedStagesStateAndFieldsAtomicallyAndRestoresAfterRestart()
+    {
+        const int seedId = -1;
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(new Twig.Domain.Aggregates.WorkItem
+        {
+            Id = seedId,
+            IsSeed = true,
+            Type = WorkItemType.Task,
+            Title = "Draft seed",
+            State = string.Empty,
+        });
+        var module = Module(runtime);
+        var session = await Open(runtime, module, seedId);
+        var changes = new Dictionary<string, string>
+        {
+            ["System.Title"] = "Retained seed title",
+            ["System.State"] = "To Do",
+            ["System.AssignedTo"] = "Person",
+        };
+
+        var result = await module.StageAsync(session, changes);
+        result.Failure.ShouldBeNull();
+        result.Value.ShouldBeUnionCase<Saved>();
+        (await module.StageAsync(session, changes)).Value.ShouldBeUnionCase<Saved>();
+        runtime.Dispose();
+
+        var restarted = await _fixture.CreateRuntimeAsync();
+        var restored = await Open(restarted, Module(restarted), seedId);
+        restored.CurrentValues["System.Title"].ShouldBe("Retained seed title");
+        restored.CurrentValues["System.State"].ShouldBe("To Do");
+        restored.CurrentValues["System.AssignedTo"].ShouldBe("Person");
+        (await restarted.GetRequiredService<IPendingChangeStore>().GetChangesAsync(seedId))
+            .ShouldBe(new PendingChangeRecord[]
+            {
+                new(seedId, "state", "System.State", string.Empty, "To Do"),
+                new(seedId, "field", "System.Title", "Draft seed", "Retained seed title"),
+                new(seedId, "field", "System.AssignedTo", null, "Person"),
+            });
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
     public async Task ServedHeaderFieldsStageLocallyWithoutAddingAbsentPageFields()
     {
         var runtime = await _fixture.CreateRuntimeAsync();
@@ -208,10 +251,10 @@ public sealed class BrowserEditingModuleTests : IAsyncLifetime
         store ?? runtime.GetRequiredService<IPendingChangeStore>(), new DetailDocumentSource(null),
         runtime.GetRequiredService<IProcessConfigurationProvider>());
 
-    private async Task<BrowserEditingSession> Open(ServiceProvider runtime, BrowserEditingModule module)
+    private async Task<BrowserEditingSession> Open(ServiceProvider runtime, BrowserEditingModule module, int id = 42)
     {
-        var capture = (await _fixture.CreateModule(runtime).ReadDetailAsync(new(42))).Capture!;
-        var result = await module.OpenAsync(42, capture);
+        var capture = (await _fixture.CreateModule(runtime).ReadDetailAsync(new(id))).Capture!;
+        var result = await module.OpenAsync(id, capture);
         result.Failure.ShouldBeNull();
         return result.Value!;
     }

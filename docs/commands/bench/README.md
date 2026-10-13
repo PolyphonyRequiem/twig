@@ -112,6 +112,10 @@ not a Go UI or read subprocess. This candidate does not redirect `twig tui`,
   Unsupported/missing values or invalid transitions refuse; failed saves retain input.
   Esc returns without discarding; Ctrl+D explicitly discards only unsaved input.
   Saved pending values survive viewer restart. No UI action publishes them.
+  A seed with no initial state can stage a state from its discovered type's catalog
+  in the same batch as Title/Assigned To. Unknown configured state names refuse the
+  entire batch and retain input; this does not grant published items an empty-state
+  transition or authorize seed publication.
 - **Review:** 3 opens the latest qualified unresolved native proposal, or start with
   `--file <proposal>` to capture one explicit file. D details, B brief and Esc/c back
   remain read-only. Original digest/file/journal origin are rechecked; a changed

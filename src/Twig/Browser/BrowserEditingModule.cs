@@ -33,7 +33,7 @@ internal sealed class BrowserEditingModule(BrowserOperationModule operations, IW
         catch (InvalidOperationException) { configuration = null; }
         var sink = new PendingChangeStoreSink(pendingChanges).BoundTo(id, snapshot.Revision);
         var session = new BrowserEditingSession(capture, snapshot, notes, pending, document,
-            new EditCapability(sink, item.Type, configuration));
+            new EditCapability(sink, item.Type, item.IsSeed, configuration));
         if (!await MatchesBaselineAsync(session, token))
             throw new BrowserReadException(BrowserReadFailureKind.Unavailable, "Local work changed while the editor opened. Reopen it; nothing was staged.");
         return session;

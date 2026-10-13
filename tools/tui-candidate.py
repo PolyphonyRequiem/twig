@@ -19,6 +19,8 @@ ROOT_MARKER = ".twig-tui-candidate-root.json"
 RIDS = {"win-x64": ("Windows", "twig.exe", "e_sqlite3.dll"),
         "linux-x64": ("Linux", "twig", "libe_sqlite3.so"),
         "osx-arm64": ("Darwin", "twig", "libe_sqlite3.dylib")}
+NATIVE_ALIASES = {"win-x64": ("twig-tui.exe", "twig-bench-tui.exe"),
+                  "linux-x64": ("twig-tui", "twig-bench-tui")}
 
 
 def run(argv, cwd=None):
@@ -32,6 +34,16 @@ def run(argv, cwd=None):
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def native_launch_files(root, rid):
+    for name in (*RIDS[rid][1:], *NATIVE_ALIASES.get(rid, ())):
+        if not (root / "bin" / name).is_file():
+            raise ValueError(f"Missing native dependency or launch file: {name}")
+    image_sha = digest(root / "bin" / RIDS[rid][1])
+    for name in NATIVE_ALIASES.get(rid, ()):
+        if digest(root / "bin" / name) != image_sha:
+            raise ValueError(f"Native launch file is not the exact shared Twig image: {name}")
 
 
 def commit_value(value):
@@ -112,8 +124,10 @@ def build(args):
             "-p:IncludeSourceRevisionInInformationalVersion=false", "-o", target / "bin"]
     output = run(argv, REPO)
     source_pin(args.commit)
-    # Candidates intentionally omit classic companions. Package their canonical
-    # current-version marker so normal startup cannot download or mutate the seal.
+    for name in NATIVE_ALIASES.get(args.rid, ()):
+        shutil.copy2(target / "bin" / RIDS[args.rid][1], target / "bin" / name)
+    # Seal startup state alongside same-image native entry points. macOS candidates
+    # still omit their legacy companion; startup must not download or mutate the seal.
     (target / "bin" / ".twig-version").write_text(version, encoding="utf-8")
     host = REPO / "integrations/herdr-aot"
     shutil.copy2(host / "herdr-plugin.toml", target / "herdr-plugin.toml")
@@ -121,7 +135,7 @@ def build(args):
     write_json(target / "build-receipt.json", {"sourceCommit": args.commit, "rid": args.rid,
                "sdk": run(["dotnet", "--version"], REPO), "publishArguments": [str(x) for x in argv],
                "compatibility": compatibility(), "result": output,
-               "status": "Built only: sign the exact Windows image with the approved profile, then seal. No installation occurred."})
+               "status": "Built only: sign the exact Windows image with the approved profile and copy its signed bytes to the existing native launch files, then seal. No installation occurred."})
     return {"built": str(target), "sourceCommit": args.commit, "sealed": False, "installed": False}
 
 
@@ -131,9 +145,7 @@ def seal(args):
     receipt = json.loads((root / "build-receipt.json").read_text(encoding="utf-8"))
     if receipt["sourceCommit"] != args.commit or receipt["rid"] != args.rid or receipt["compatibility"] != compatibility():
         raise ValueError("Build receipt/source/store contract mismatch; do not relabel a prior payload.")
-    for name in RIDS[args.rid][1:]:
-        if not (root / "bin" / name).is_file():
-            raise ValueError(f"Missing native dependency: {name}")
+    native_launch_files(root, args.rid)
     trust = signature(root, args.rid, args.commit)
     files = payload_files(root)
     manifest = {"version": 1, "repository": "PolyphonyRequiem/twig", "sourceCommit": args.commit,
@@ -177,9 +189,10 @@ def inspect(root, expected_commit, expected_rid, expected_manifest_sha):
         raise ValueError("The native Herdr manifest is missing from the qualified payload.")
     if "bin/.twig-version" not in files:
         raise ValueError("Candidate lacks sealed startup state; rebuild a marked artifact before installation or recovery.")
-    for name in RIDS[expected_rid][1:]:
+    for name in (*RIDS[expected_rid][1:], *NATIVE_ALIASES.get(expected_rid, ())):
         if f"bin/{name}" not in files:
-            raise ValueError(f"Missing native dependency: {name}")
+            raise ValueError(f"Missing native dependency or launch file: {name}")
+    native_launch_files(root, expected_rid)
     verified_trust = signature(root, expected_rid, expected_commit)
     if expected_rid == "win-x64" and verified_trust != manifest.get("trust"):
         raise ValueError("Candidate trusted signature evidence changed.")

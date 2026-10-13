@@ -1,9 +1,9 @@
 # Evaluation only: pass HERDR_CONFIG_PATH to a separate named Herdr session.
-# Never copy this over the normal Herdr configuration or replace twig-herdr.
+# Isolated proof configuration; use this stable action ID for Windows/Linux replacement hosts.
 onboarding = false
 
 [[keys.command]]
 key = "prefix+t"
 type = "plugin_action"
-command = "twig-herdr-aot-candidate.open"
-description = "Open Twig bench (native candidate)"
+command = "twig-herdr.open"
+description = "Open Twig bench"

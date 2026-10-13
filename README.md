@@ -70,6 +70,32 @@ twig nav history                # show recent navigation history
 
 > **Shorthand:** `up`, `down`, `next`, and `prev` also work without the `nav` prefix — e.g. `twig up` is the same as `twig nav up`.
 
+### Native full-screen TUI
+
+On Windows and Linux, `twig tui` opens the native Bench browser in-process, with
+the same workspace, authority checks and terminal lifecycle as `twig bench browser`.
+Tree, Table, local editing and read-only proposal Review share one application:
+
+```bash
+twig tui --cwd /path/to/workspace --view tree
+twig-tui --cwd /path/to/workspace --view table
+twig-bench-tui --cwd /path/to/workspace --view tree
+```
+
+The release archive contains identical NativeAOT executable bytes under `twig`,
+`twig-tui` and `twig-bench-tui` (with `.exe` on Windows), plus the platform SQLite
+native library. Standalone names select the TUI by executable basename; they are
+not subprocess wrappers or separate UI builds. Windows aliases carry the exact
+signed primary image when release signing is configured. The Windows/Linux Herdr
+host is `twig-herdr` and launches this same native application directly, preserving
+its action and pane IDs.
+
+macOS keeps its existing `twig tui` / `twig-tui` Terminal.Gui companion and legacy
+Go/Herdr paths. `Twig.Tui`, shared domain/infrastructure sources and their required
+dependencies remain for macOS; they do not represent a second Windows/Linux UI.
+See the [TUI command guide](docs/commands/experimental/tui.md) for platform behavior
+and the [Bench browser guide](docs/commands/bench/README.md) for controls and trust.
+
 ### Mutating Work Items
 
 ```bash
@@ -254,6 +280,11 @@ twig upgrade
 ```
 
 Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent — safe to run again to reinstall or repair.
+
+Windows and Linux installers require the three same-image native entry points
+from the downloaded archive; `twig tui` does not require a legacy companion or
+fall back to one. Apple Silicon macOS still installs the legacy `twig-tui`
+companion alongside the native CLI. Intel macOS release builds remain unavailable.
 
 ### Verifying downloads
 

@@ -19,10 +19,22 @@ ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
     TypeInfoResolver = ArgumentBinderJsonContext.Default,
 };
 
-var isBrowserCommand = args.Length >= 2 && args[0] == "bench" && args[1] == "browser";
+// Windows/Linux launch aliases are copies of this same native executable, not
+// companion processes. Normalize before help and argument guards so every entry
+// has the canonical tui options and lifecycle.
+var nativeTuiPlatform = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
+var executableName = Path.GetFileName(Environment.ProcessPath);
+if (nativeTuiPlatform && (OperatingSystem.IsWindows()
+    ? string.Equals(executableName, "twig-tui.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(executableName, "twig-bench-tui.exe", StringComparison.OrdinalIgnoreCase)
+    : executableName is "twig-tui" or "twig-bench-tui"))
+    args = ["tui", .. args];
+
+var isBrowserCommand = (args.Length >= 2 && args[0] == "bench" && args[1] == "browser")
+    || (nativeTuiPlatform && args.Length > 0 && args[0] == "tui");
 
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
-// The opt-in interactive route owns encoding in its terminal scope, so it must
+// The native interactive route owns encoding in its terminal scope, so it must
 // capture the inherited code page before any CLI bootstrap changes it. Help stays
 // on the ordinary offline CLI path, including its existing UTF-8 output contract.
 if (!isBrowserCommand || ProgressiveHelp.IsHelpRequest(args))
@@ -1143,13 +1155,13 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, CancellationToken ct = default)
         => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct);
 
-    /// <summary>Open the opt-in native Bench browser standalone or route a captured native Herdr action; stable TUI defaults are unchanged.</summary>
+    /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
     /// <param name="view">Initial tree or table view (default tree).</param>
     /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
     /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
     /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
-    /// <param name="intent">Herdr control: open, status, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
+    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
     /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
     /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
     /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
@@ -1538,9 +1550,35 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
 
-    /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
-    public Task<int> Tui()
+    /// <summary>Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.</summary>
+    /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
+    /// <param name="view">Native initial tree or table view (default tree).</param>
+    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
+    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
+    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
+    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
+    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
+    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
+    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
+    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
+    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
+    public Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
+        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
+        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            return services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
+                intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct, commandName: "tui");
+
+        if (cwd is not null || view != "tree" || file is not null || herdr || hostEntry || intent is not null ||
+            sourceWorkspace is not null || sourceTab is not null || sourcePane is not null || sourceSocket is not null || output != "human")
+        {
+            CommandError.Write(services.GetRequiredService<Twig.Rendering.RendererFactory>(), Console.Error, output,
+                "Native TUI options require Windows or Linux. On macOS, invoke twig tui without options for the legacy companion.");
+            return Task.FromResult(2);
+        }
+
         return Task.FromResult(BinaryLauncher.Launch("twig-tui", "Twig.Tui"));
     }
 

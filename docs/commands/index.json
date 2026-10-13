@@ -258,7 +258,7 @@
   {
     "command": "bench browser",
     "group": "bench",
-    "summary": "Open the opt-in native Bench browser or route an authenticated isolated Herdr control.",
+    "summary": "Open the native Bench browser or route authenticated source-scoped Herdr controls.",
     "stability": "experimental",
     "mutates": "local",
     "path": "bench/README.md"
@@ -1050,7 +1050,7 @@
   {
     "command": "tui",
     "group": "experimental",
-    "summary": "Launch the full-screen interactive TUI (requires twig-tui companion binary).",
+    "summary": "Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.",
     "stability": "experimental",
     "mutates": "local",
     "path": "experimental/tui.md"

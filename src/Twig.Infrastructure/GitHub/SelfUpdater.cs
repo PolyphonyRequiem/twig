@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace Twig.Infrastructure.GitHub;
 
@@ -76,6 +77,7 @@ public sealed class SelfUpdater : ICompanionInstaller
             var exeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
             var extractedBinary = FindBinary(tempExtractDir, exeName)
                 ?? throw new InvalidOperationException($"Could not find '{exeName}' in downloaded archive.");
+            ValidateNativeLaunchArchive(tempExtractDir, extractedBinary, companionExeNames);
 
             // Stage everything first, commit second: a failure while copying leaves every
             // live binary untouched rather than producing a mixed-version install.
@@ -113,12 +115,67 @@ public sealed class SelfUpdater : ICompanionInstaller
         var tempExtractDir = ExtractArchive(tempArchive, archiveName);
         try
         {
+            var nativeImage = FindBinary(tempExtractDir, CompanionTools.GetExeName("twig"));
+            if (companionExeNames.Any(CompanionTools.IsNativeLaunchExecutable))
+                ValidateNativeLaunchArchive(tempExtractDir, nativeImage
+                    ?? throw new InvalidOperationException("Native update archive lacks its main image."), companionExeNames);
             return CommitCompanions(StageCompanions(tempExtractDir, companionExeNames, installDir));
         }
         finally
         {
             CleanupTempFiles(tempArchive, tempExtractDir);
         }
+    }
+
+    /// <summary>Repairs missing or mismatched native launch files from the installed image without downloading or changing that image.</summary>
+    public IReadOnlyList<CompanionUpdateResult> RepairNativeLaunchFiles(
+        IReadOnlyList<string> names, string installDir, bool force = false)
+    {
+        var source = _processPath ?? throw new InvalidOperationException("Cannot determine the installed native image.");
+        Span<byte> sourceHash = stackalloc byte[32];
+        using (var stream = _fileSystem.FileOpenRead(source))
+            SHA256.HashData(stream, sourceHash);
+        var needed = new List<string>();
+        foreach (var name in names)
+        {
+            if (!CompanionTools.IsNativeLaunchExecutable(name))
+                throw new InvalidOperationException("Only native launch files can be repaired from the installed image.");
+            var target = Path.Combine(installDir, name);
+            if (!_fileSystem.FileExists(target) || !FileMatchesHash(target, sourceHash))
+                needed.Add(name);
+        }
+        if (needed.Count == 0) return Array.Empty<CompanionUpdateResult>();
+        EnsurePeersWritable(installDir, needed, force);
+        var staged = new List<(CompanionUpdateResult, StagedBinary?)>(needed.Count);
+        foreach (var name in needed)
+        {
+            var target = Path.Combine(installDir, name);
+            StageBinary(source, target);
+            staged.Add((new CompanionUpdateResult(name, Found: true, InstalledPath: target), new StagedBinary(target)));
+        }
+        return CommitCompanions(staged);
+    }
+
+    private void ValidateNativeLaunchArchive(string directory, string source, IReadOnlyList<string>? names)
+    {
+        if (names is null || !names.Any(CompanionTools.IsNativeLaunchExecutable)) return;
+        Span<byte> sourceHash = stackalloc byte[32];
+        using (var stream = _fileSystem.FileOpenRead(source))
+            SHA256.HashData(stream, sourceHash);
+        foreach (var name in CompanionTools.UpdateTargets)
+        {
+            var alias = FindBinary(directory, CompanionTools.GetExeName(name));
+            if (alias is null || !FileMatchesHash(alias, sourceHash))
+                throw new InvalidOperationException("Update archive does not contain the matching native launch files; legacy downgrade is refused.");
+        }
+    }
+
+    private bool FileMatchesHash(string path, ReadOnlySpan<byte> expected)
+    {
+        Span<byte> actual = stackalloc byte[32];
+        using var stream = _fileSystem.FileOpenRead(path);
+        SHA256.HashData(stream, actual);
+        return actual.SequenceEqual(expected);
     }
 
     /// <summary>
@@ -128,7 +185,7 @@ public sealed class SelfUpdater : ICompanionInstaller
     /// </summary>
     public static void CleanupOldBinary()
     {
-        CleanupOldBinaryCore(new DefaultFileSystem(), Environment.ProcessPath, CompanionTools.All);
+        CleanupOldBinaryCore(new DefaultFileSystem(), Environment.ProcessPath, CompanionTools.UpdateTargets);
     }
 
     /// <summary>
@@ -313,7 +370,11 @@ public sealed class SelfUpdater : ICompanionInstaller
 
         foreach (var companionExe in companionExeNames)
         {
-            var extracted = FindBinary(extractDir, companionExe);
+            // Canonical Windows/Linux TUI names always receive the main native bytes.
+            // Never install an obsolete independently built TUI from the archive.
+            var sourceName = CompanionTools.IsNativeLaunchExecutable(companionExe)
+                ? CompanionTools.GetExeName("twig") : companionExe;
+            var extracted = FindBinary(extractDir, sourceName);
             if (extracted is null)
             {
                 staged.Add((new CompanionUpdateResult(companionExe, Found: false, InstalledPath: null), null));

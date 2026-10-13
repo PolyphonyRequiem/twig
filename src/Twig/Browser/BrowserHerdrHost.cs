@@ -6,7 +6,7 @@ namespace Twig.Browser;
 /// <summary>Installed CLI topology adapter. Never consults the focused pane or implements browser logic.</summary>
 internal static class BrowserHerdrHost
 {
-    internal const string PluginId = "twig-herdr-aot-candidate";
+    internal const string PluginId = "twig-herdr";
     private static string EntryPoint => OperatingSystem.IsWindows() ? "bench-windows" : "bench";
     internal static string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
         ? value : throw new InvalidOperationException(name + " is required; focused-context fallback is forbidden.");
@@ -57,10 +57,10 @@ internal static class BrowserHerdrHost
         {
             if (Get(plugin, "plugin_id") != PluginId) continue;
             if (!plugin.GetProperty("enabled").GetBoolean() || (expectedRoot is not null && !PathEquals(Get(plugin, "plugin_root"), expectedRoot)))
-                throw new InvalidOperationException("Candidate plugin registration is disabled or belongs to another root.");
+                throw new InvalidOperationException("Native Twig plugin registration is disabled or belongs to another root.");
             return;
         }
-        throw new InvalidOperationException("The isolated native candidate plugin is not registered. Stable twig-herdr is never substituted.");
+        throw new InvalidOperationException("The native Twig plugin is not registered.");
     }
 
     internal static async Task ValidateTopologyAsync(BrowserSource source, string hostPane, int pid, CancellationToken ct)

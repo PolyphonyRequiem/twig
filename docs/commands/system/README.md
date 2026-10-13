@@ -12,7 +12,7 @@ binary itself, and GitHub Releases.
 | [`twig auth status`](auth-status.md) | Inspect the refresh-token store and cached access token: audience, expiry, tenant, and principal. Never prints the token. |
 | [`twig auth clear`](auth-clear.md) | Wipe both the cached access token (`~/.twig/.token-cache`) and the refresh-token store (`~/.twig/.refresh-token`), and invalidate the in-process copy. |
 | [`twig version`](version.md) | Print the installed twig version. |
-| [`twig upgrade`](upgrade.md) | Check GitHub Releases for a newer twig and apply the update, including companion binaries (`twig-mcp`, `twig-tui`). |
+| [`twig upgrade`](upgrade.md) | Check GitHub Releases and update twig plus same-image native TUI launch names on Windows/Linux or the legacy TUI companion on macOS. |
 | [`twig changelog`](changelog.md) | Display recent release notes from GitHub Releases. |
 
 ## Group conventions

@@ -10,7 +10,8 @@ namespace Twig.Infrastructure.GitHub;
 internal sealed class CompanionFirstRunCheck(
     IGitHubReleaseService releaseService,
     ICompanionInstaller companionInstaller,
-    IFileSystem fileSystem)
+    IFileSystem fileSystem,
+    IReadOnlyList<string>? companionNames = null)
 {
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
 
@@ -53,7 +54,7 @@ internal sealed class CompanionFirstRunCheck(
 
         var versionFile = Path.Combine(dir, ".twig-version");
 
-        var missingCompanions = CompanionTools.All
+        var missingCompanions = (companionNames ?? CompanionTools.All)
             .Select(CompanionTools.GetExeName)
             .Where(exe => !fileSystem.FileExists(Path.Combine(dir, exe)))
             .ToList();

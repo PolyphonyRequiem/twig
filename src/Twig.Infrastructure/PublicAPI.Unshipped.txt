@@ -1,4 +1,5 @@
 #nullable enable
+Twig.Infrastructure.GitHub.SelfUpdater.RepairNativeLaunchFiles(System.Collections.Generic.IReadOnlyList<string!>! names, string! installDir, bool force = false) -> System.Collections.Generic.IReadOnlyList<Twig.Infrastructure.GitHub.CompanionUpdateResult!>!
 Twig.Infrastructure.Persistence.SqliteBenchRepository.TrySetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
 Twig.Infrastructure.Persistence.SqliteBenchRepository.TryDeleteAsync(long benchId, string! expectedContentsDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
 *REMOVED*Twig.Infrastructure.Services.Mutation.BenchWorkflow.SwitchAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!

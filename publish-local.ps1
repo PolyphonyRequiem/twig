@@ -36,31 +36,44 @@ if "%parent%"=="%dir%" goto fallback
 set "dir=%parent%"
 goto loop
 :fallback
-"%~dp0{1}" %*
+"%~dp0{1}" {2}%*
 exit /b %ERRORLEVEL%
 '@
 
-function Install-Shim($exeName, $coreName) {
+function Install-Shim($exeName, $coreName, $entryArguments = '') {
     $shimPath = Join-Path $globalDir "$([System.IO.Path]::GetFileNameWithoutExtension($exeName)).cmd"
-    $content  = $shimTemplate -f $exeName, $coreName
+    $content  = $shimTemplate -f $exeName, $coreName, $entryArguments
     Set-Content -Path $shimPath -Value $content -Encoding ASCII
     Write-Host "  Installed shim: $shimPath" -ForegroundColor DarkGray
 }
 
 function Enable-Shims {
+    $releaseCli = Join-Path $globalDir 'twig-core.exe'
+    if (-not (Test-Path $releaseCli)) { $releaseCli = Join-Path $globalDir 'twig.exe' }
+    $releaseTui = Join-Path $globalDir 'twig-tui-core.exe'
+    if (-not (Test-Path $releaseTui)) { $releaseTui = Join-Path $globalDir 'twig-tui.exe' }
+    $nativeRelease = (Test-Path $releaseCli) -and (Test-Path $releaseTui) -and
+        ((Get-FileHash $releaseCli -Algorithm SHA256).Hash -eq (Get-FileHash $releaseTui -Algorithm SHA256).Hash)
     # Rename release binaries so the .cmd shims take precedence via PATHEXT.
-    foreach ($name in @('twig', 'twig-tui')) {
+    foreach ($name in @('twig', 'twig-tui', 'twig-bench-tui')) {
+        if ($name -ne 'twig' -and -not $nativeRelease) {
+            Write-Host "  Retaining existing global $name launch; native aliases are repo-local until the global release is qualified." -ForegroundColor DarkGray
+            continue
+        }
         $exe  = Join-Path $globalDir "$name.exe"
         $core = Join-Path $globalDir "$name-core.exe"
         if ((Test-Path $exe) -and -not (Test-Path $core)) {
             Rename-Item $exe $core
             Write-Host "  Renamed $name.exe -> $name-core.exe" -ForegroundColor DarkGray
         }
-        Install-Shim "$name.exe" "$name-core.exe"
+        # Renamed aliases no longer have dispatch basenames. Invoke the release
+        # CLI's canonical tui command instead; repo-local aliases launch directly.
+        $entryArguments = if ($name -eq 'twig') { '' } else { 'tui ' }
+        Install-Shim "$name.exe" 'twig-core.exe' $entryArguments
     }
 }
 
-function Disable-Shims([string[]]$Names = @('twig', 'twig-tui', 'twig-mcp')) {
+function Disable-Shims([string[]]$Names = @('twig', 'twig-tui', 'twig-bench-tui', 'twig-mcp')) {
     foreach ($name in $Names) {
         $shim = Join-Path $globalDir "$name.cmd"
         $core = Join-Path $globalDir "$name-core.exe"
@@ -106,12 +119,17 @@ if ($Restore) {
 
 # --- Build & deploy (repo-local) ---
 
-if (-not (Test-Path $localDir)) {
-    New-Item -ItemType Directory -Path $localDir -Force | Out-Null
+# This directory contains generated publish output. Recreate it so a prior
+# Terminal.Gui publish cannot leave a second Windows UI/runtime in the payload.
+if (Test-Path $localDir) {
+    Remove-Item $localDir -Recurse -Force
 }
+New-Item -ItemType Directory -Path $localDir -Force | Out-Null
 
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
-Invoke-Publish "twig-tui" "src\Twig.Tui\Twig.Tui.csproj" "SingleFile"
+foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+    Copy-Item (Join-Path $localDir 'twig.exe') (Join-Path $localDir "$alias.exe")
+}
 
 # Retire only the old repo-local MCP launcher; preserve any installed release binary.
 Disable-Shims @('twig-mcp')
@@ -122,7 +140,7 @@ Enable-Shims
 
 Write-Host ""
 Write-Host "Local publish complete!" -ForegroundColor Green
-foreach ($name in @('twig', 'twig-tui')) {
+foreach ($name in @('twig', 'twig-tui', 'twig-bench-tui')) {
     $exe = Join-Path $localDir "$name.exe"
     if (Test-Path $exe) {
         $v = & $exe --version 2>&1

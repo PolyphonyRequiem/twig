@@ -25,7 +25,7 @@ command means the same thing in a pipe as at a prompt.
 |[`bench delete`](./delete.md)|Delete a Bench — one holding pins refuses without `--confirm`.|local|
 |`bench detail <id>`|Read full cached work-item or seed detail without changing context.|none|
 |`bench configuration area candidates`|Read official configured-team paths and Exact/Under semantics.|none|
-|`bench browser`|Opt-in shared native Bench terminal, local editing and read-only Review; stable TUI defaults remain unchanged.|local only; explicit S pulls selected root/links|
+|`bench browser`|Shared native Bench terminal, local editing and read-only Review; Windows/Linux `twig tui` uses the same application.|local only; explicit S pulls selected root/links|
 
 Listing, creating a named Bench and switching read existing arrangements as stored
 metadata, without identity-profile discovery or query evaluation. First-use default
@@ -81,12 +81,13 @@ JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `--expect-binding`, and `--expect-identity` refuse retargeting. Minimal output is
 complete unstyled detail; `ids` is not meaningful for this single-item view.
 
-### Opt-in Native Bench Browser
+### Native Bench Browser
 
 `twig bench browser --cwd <workspace> --view tree` opens the shared native terminal
 application; `--view table` selects Table. It uses admitted native modules in-process,
-not a Go UI or read subprocess. This candidate does not redirect `twig tui`,
-`twig-tui`, the stable standalone Go browser, or the installed Herdr plugin.
+not a Go UI or read subprocess. On Windows/Linux, canonical `twig tui`, `twig-tui`
+and `twig-bench-tui` enter this same application with the same options. macOS
+`twig tui` and its Terminal.Gui companion remain unchanged.
 
 - **Browse:** 1 Tree, 2 Table, arrows/j/k select locally; Left/Right/Space fold;
   Enter opens or closes full inline Show beneath all wrapped lines of the item.
@@ -133,10 +134,11 @@ and native-row policy. A cluster too wide for the current viewport remains in th
 retained text for later wider reflow; font-specific rendering still needs qualification.
 
 `--herdr --intent open|status|tree|table|view|review|exit-review|reconnect|close`
-routes authenticated bounded controls to the same application in an opt-in native
-manifest-owned pane. The isolated manifest is `integrations/herdr-aot/herdr-plugin.toml`
-(`twig-herdr-aot-candidate`); evaluation configs belong only to a separate named
-session, never the normal config. Installed protocol22 was the measured capability
+routes authenticated bounded controls to the same application in a native
+manifest-owned pane. Windows/Linux uses the canonical `twig-herdr` host, preserving
+existing action and pane IDs; the manifest source is
+`integrations/herdr-aot/herdr-plugin.toml`. macOS's existing launch paths remain.
+Installed protocol22 was the measured capability
 contract: plugin-pane open/close, opaque owner metadata, pane get/list/process-info,
 captured source topology and no-focus launch. Display IDs alone are not authority.
 Both manifest pane entries launch the native image directly, including Windows;
@@ -155,19 +157,20 @@ retuning an already-disconnected Unix peer during accept. The next authenticated
 uses the same owner, without replacing the terminal or relaxing control checks.
 An uncatchable kill may leave a stale private registration; explicit proved-dead
 owner recovery never steals a slow live peer. Supported legacy migration requires
-explicitly closing the candidate host; no native quiescence exemption is invented.
+explicitly closing the native host; no native quiescence exemption is invented.
 
-Candidate delivery is separate from default replacement. `tools/tui-candidate.py`
-builds/seals source-pinned artifacts and installs/restores only an explicit private
+Source-pinned delivery remains independently sealed. `tools/tui-candidate.py`
+builds/seals artifacts and installs/restores only an explicit private
 candidate root. Inspect/install/restore require a manifest SHA-256 from an independently
 trusted receipt; payload-supplied hashes alone are not trust. Windows also requires the
 approved publisher/public-trust profile, timestamp and signed complete source commit.
 
 The package seals the canonical `bin/.twig-version` marker for its native version.
-Candidates deliberately omit classic companion binaries, so ordinary CLI startup must
-not attempt a companion download or add files to the sealed installation. The hosted
-gate executes a normal command in an uninitialized workspace and rechecks the complete
-seal afterward; Windows artifact transport also preserves this required hidden file.
+Windows/Linux includes same-image `twig-tui` and `twig-bench-tui` launch files before
+sealing, not classic companions. Native startup does not discover or download
+separately built TUI companions. The hosted gate executes a normal command in an
+uninitialized workspace and rechecks the complete seal afterward; Windows artifact
+transport also preserves the required hidden marker.
 Earlier unmarked packages are not supported recovery payloads, even when their store
 versions match. Do not run `twig upgrade` inside a candidate installation: use an
 independently verified source-pinned package instead.
@@ -183,8 +186,9 @@ the tar archive before inspect/install (for example, `tar -xzf linux-x64.tar.gz`
 do not upload or copy the raw Unix payload through a mode-stripping ZIP service.
 The archive preserves executable permissions for the native image and launchers.
 Rollback accepts only retained identical store/control contracts; no credential,
-pending/journal mutation or incompatible downgrade is performed. Final default/plugin
-switches and retirement require the epic's separate qualified owner cutover gate.
+pending/journal mutation or incompatible downgrade is performed. Installed default/plugin
+selection and legacy retirement require qualified owner-authorized cutover; changing
+source defaults does not itself publish a public release or mutate registration.
 
 ### Configure the current Bench
 

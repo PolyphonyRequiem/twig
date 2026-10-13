@@ -10,9 +10,11 @@ mutates: local
 
 Fetches the latest release from GitHub, compares it to the running version
 using twig's SemVer comparer, and applies the update by downloading the
-platform-specific archive and installing the main binary and every known
-companion tool (`twig-mcp`, `twig-tui`). When already current, it only
-installs missing companions from the current release archive. Reach for it
+platform-specific archive. Windows/Linux synchronizes `twig`, `twig-tui` and
+`twig-bench-tui` from the archive's main native image; macOS installs `twig` and
+its legacy `twig-tui` companion. When already current, Windows/Linux repairs
+missing or mismatched native launch files from the installed main image without
+downloading a different image; macOS installs missing legacy companions. MCP is withdrawn and is not discovered or installed. Reach for it
 to keep an installation self-updating in place, without invoking `install.sh`
 or `install.ps1` a second time.
 
@@ -34,7 +36,7 @@ twig upgrade [-f | --force]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-| `-f, --force` | bool | `false` | Terminate any process holding a peer binary open (typically a running `twig-mcp` server) before applying the update. Without this flag the update fails fast with a diagnostic pointing at the blocking PIDs. |
+| `-f, --force` | bool | `false` | Terminate any process holding a peer binary open (for example, a standalone TUI) before applying the update. Without this flag the update fails fast with a diagnostic pointing at the blocking PIDs. |
 
 ## Behavior
 
@@ -51,15 +53,16 @@ twig upgrade [-f | --force]
 3. If there is no release at all, print "No releases found." and exit `0`.
 4. Compare the latest tag to the current version via `SemVerComparer`. When
    the running version is greater than or equal to the latest tag, twig is
-   already current and falls through to `InstallMissingCompanionsAsync`,
-   which installs any companion binary (`twig-mcp`, `twig-tui`) that is
-   missing from the install directory
-   (`src/Twig/Commands/SelfUpdateCommand.cs:50-53`,
-   `src/Twig.Infrastructure/GitHub/CompanionTool.cs:10-17`).
+   already current. Windows/Linux repairs missing or mismatched native launch files
+   from the installed main image, preserving its version and bytes without an archive
+   download. macOS installs missing legacy companions from the current release archive.
 5. Otherwise, detect the platform RID via `PlatformHelper.DetectRid()` and
    locate the matching asset on the release. If no RID matches, or no asset
    matches the RID, the command exits `1` with "Manual download required."
 6. Call `SelfUpdater.UpdateBinaryAsync(assetUrl, archiveName, companionExeNames, ct, force)`.
+   Windows/Linux requires the archive's `twig-tui` and `twig-bench-tui` images to
+   match its main native image before staging any binary. Older independently built
+   TUI archives are refused, leaving the installed native product unchanged.
    On success it replaces the main binary in place and returns per-companion
    installation results, then prints the release body verbatim as "Release
    notes:" followed by "Update complete. Restart to use `<tag>`."
@@ -86,8 +89,8 @@ Current version: 1.4.2
 Checking for updates...
 New version available: 1.5.0
 Downloading twig-1.5.0-win-x64.zip (7834KB)...
-twig-mcp: installed at C:\Users\alice\.twig\bin\twig-mcp.exe
-twig-tui: installed at C:\Users\alice\.twig\bin\twig-tui.exe
+  twig-tui.exe installed
+  twig-bench-tui.exe installed
 
 Release notes:
 - Added `workspace area sync` (#1234)
@@ -96,15 +99,15 @@ Release notes:
 Update complete. Restart to use 1.5.0.
 ```
 
-Force through a running `twig-mcp` companion:
+Force through a running standalone TUI:
 
 ```
 $ twig upgrade
 Current version: 1.4.2
 Checking for updates...
 New version available: 1.5.0
-error: twig-mcp.exe is held open by PID 8721.
-Re-run with --force to terminate the blocking process before applying the update.
+error: Update blocked — one or more peer binaries are in use by another process.
+  twig-tui.exe (held by PID 8721)
 
 $ twig upgrade --force
 Current version: 1.4.2

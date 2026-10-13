@@ -145,7 +145,19 @@ jobs:
 
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 
-      - run: dotnet publish src/Twig.Tui/Twig.Tui.csproj -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishTrimmed=false /p:PublishAot=false -o ./publish/${{ matrix.rid }}
+      - name: Publish legacy macOS TUI companion
+        if: startsWith(matrix.rid, 'osx-')
+        run: dotnet publish src/Twig.Tui/Twig.Tui.csproj -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishTrimmed=false /p:PublishAot=false -o ./publish/${{ matrix.rid }}
+
+      - name: Package native Windows and Linux TUI entry points
+        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
+        shell: pwsh
+        run: |
+          $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+          $directory = './publish/${{ matrix.rid }}'
+          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+            Copy-Item (Join-Path $directory "twig$extension") (Join-Path $directory "$alias$extension")
+          }
 
       # Sign Windows binaries via Azure Trusted Signing (AB#3047). Runs only on
       # the win-x64 leg, and only when the AZURE_SIGNING_* repo variables are
@@ -168,11 +180,18 @@ jobs:
           endpoint: https://wus2.codesigning.azure.net/
           trusted-signing-account-name: polyphonyrequiem
           certificate-profile-name: public-trust
-          files-folder: ${{ github.workspace }}/publish/${{ matrix.rid }}
-          files-folder-filter: exe
+          files: ${{ github.workspace }}/publish/${{ matrix.rid }}/twig.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+
+      - name: Share the exact signed Windows image with native TUI entry points
+        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        shell: pwsh
+        run: |
+          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+            Copy-Item './publish/${{ matrix.rid }}/twig.exe' "./publish/${{ matrix.rid }}/$alias.exe" -Force
+          }
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'

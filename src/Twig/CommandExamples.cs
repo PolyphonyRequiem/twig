@@ -389,10 +389,10 @@ internal static class CommandExamples
         ],
         ["bench browser"] =
         [
-            "twig bench browser                    Open the opt-in native Bench Tree view; normal TUI launchers stay unchanged",
+            "twig bench browser                    Open the native Bench Tree view (same application as Windows/Linux twig tui)",
             "twig bench browser --cwd C:\\work\\twig --view table  Use the captured source workspace in a standalone terminal",
             "twig bench browser --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
-            "twig bench browser --herdr --intent tree -o json  Open or reuse the isolated native Herdr browser pane",
+            "twig bench browser --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
         ],
         ["bench configuration area candidates"] =
         [
@@ -580,8 +580,10 @@ internal static class CommandExamples
         ],
         ["tui"] =
         [
-            "twig tui                   Launch the interactive terminal UI",
-            "twig tui                   Navigate tree, status, and context interactively",
+            "twig tui                   Open the native Tree view on Windows/Linux; legacy companion on macOS",
+            "twig tui --cwd C:\\work\\twig --view table  Open the native Table view from this source workspace",
+            "twig tui --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
+            "twig tui --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
         ],
         ["mcp"] =
         [

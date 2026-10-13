@@ -1,99 +1,142 @@
 ---
 command: tui
 group: experimental
-summary: Launch the full-screen interactive TUI (requires twig-tui companion binary).
+summary: Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.
 stability: experimental
 mutates: local
 ---
 
 # `twig tui`
 
-`twig tui` hands control to the `twig-tui` companion binary, a full-screen
-Terminal.Gui application that renders the workspace tree in a left pane and the
-selected work item's form in a right pane. Reach for it when you want to
-browse a workspace and stage field edits interactively without leaving the
-terminal. Edits made in the form are captured as pending changes in the local
-SQLite cache — the TUI never PATCHes ADO directly. Flush them with
-[`twig sync`](../getting-started/sync.md) when you are done.
+On Windows and Linux, `twig tui` opens the native Bench browser in the current
+process. It is the same application as `twig bench browser`, with the same
+captured source, authority checks, local editing and read-only proposal Review.
+No companion download or Go/read subprocess is part of native startup.
+
+On macOS, `twig tui` without options still launches the existing Terminal.Gui
+`twig-tui` companion. This cutover does not replace macOS's legacy terminal UI.
 
 ## Synopsis
 
+```text
+twig tui [--cwd <directory>] [--view tree|table] [--file <proposal>]
+twig tui --herdr [--intent open|status|view|tree|table|review|exit-review|reconnect|close]
+         [--view tree|table] [--file <proposal>] [--cwd <directory>]
+         [--source-workspace <id>] [--source-tab <id>] [--source-pane <id>]
+         [--source-socket <path>] [-o human|json|minimal]
+twig tui --herdr --host-entry
+twig tui --help
 ```
-twig tui [-h|--help] [--version]
+
+Windows/Linux packages contain identical native executable bytes under `twig`,
+`twig-tui` and `twig-bench-tui` (`.exe` on Windows). The standalone names select
+`tui` before argument parsing; pass flags directly, not another `tui` subcommand:
+
+```text
+twig-tui --cwd <directory> --view table
+twig-bench-tui --file <proposal>
 ```
 
 ## Arguments
 
-|Argument|Required|Description|
-| --- | --- | --- |
-| — | — | — |
+No positional arguments. All native options below are Windows/Linux options for
+`twig tui`; `twig bench browser` retains its existing native entry surface.
 
 ## Flags
 
 |Flag|Type|Default|Description|
-| --- | --- | --- | --- |
-|`-h`, `--help`|switch|—|Print help and exit.|
-|`--version`|switch|—|Print the `twig` version and exit.|
+|---|---|---|---|
+|`--cwd`|string|Invocation CWD|Capture a source directory; never select an authentication identity.|
+|`--view`|string|`tree`|Initial `tree` or `table` view; also used by Herdr `view` intent.|
+|`--file`|string|None|Explicit read-only proposal; standalone opens Review, Herdr requires `review` intent. Relative paths resolve from the captured source directory.|
+|`--herdr`|bool|`false`|Route source-scoped native Herdr controls instead of opening a standalone terminal.|
+|`--host-entry`|bool|`false`|Manifest-owned entry; requires `--herdr` and a valid private launch admission.|
+|`--intent`|string|`open` for Herdr|`open`, `status`, `view`, `tree`, `table`, `review`, `exit-review`, `reconnect` or `close`.|
+|`--source-workspace`|string|Captured environment|Source workspace validated against the actual Herdr socket topology.|
+|`--source-tab`|string|Captured environment|Source tab validated against the actual Herdr socket topology.|
+|`--source-pane`|string|Captured environment|Source pane validated against the actual Herdr socket topology.|
+|`--source-socket`|string|Captured environment|Herdr socket path; display IDs alone do not grant authority.|
+|`-o`, `--output`|string|`human`|Herdr control result: `human`, `json` or `minimal`. Interactive terminal entry requires `human`.|
+|`-h`, `--help`|switch|None|Print offline help and exit before workspace services or startup side effects.|
 
 ## Behavior
 
-- The CLI delegates to `BinaryLauncher.Launch("twig-tui", "Twig.Tui")` at
-  [`src/Twig/Program.cs:1338`](../../../src/Twig/Program.cs). No flags are
-  forwarded; the companion inherits stdin, stdout, and stderr, and its exit
-  code becomes the calling shell's exit code.
-- The companion binary is resolved in this order: adjacent to the running
-  `twig` executable (via `AppContext.BaseDirectory`, then `Environment.ProcessPath`),
-  then each entry of `PATH`
-  ([`src/Twig/Program.cs:1848-1887`](../../../src/Twig/Program.cs)).
-- Once launched, `twig-tui` discovers the workspace (`.twig/` or `twig.json`)
-  from the current working directory, loads split configuration, and boots a
-  full-screen `Terminal.Gui` `Application` with a menu bar, `TreeNavigatorView`
-  in the left pane, and `WorkItemFormView` in the right pane
-  ([`src/Twig.Tui/Program.cs:14-154`](../../../src/Twig.Tui/Program.cs)).
-- Form edits are captured through `PendingChangeStoreSink` and written to the
-  local pending change store — the same queue surfaced by
-  [`twig pending`](../plans/pending.md). No ADO REST call is issued by the TUI
-  itself.
-- The window title reflects the active organization and project.
-  `Esc` quits the application; the process exits with `0` on clean shutdown.
+### Windows/Linux native entry
+
+- The command resolves `BrowserHostCommand` and `BrowserRuntimeFactory` in-process
+  through the same lightweight service registration as `twig bench browser`.
+  Native startup skips companion first-run installation and binary cleanup.
+- Terminal admission preserves inherited encoding, console modes and POSIX termios,
+  restoring them on exit. The interactive entry requires a real terminal; redirected
+  input/output is not a headless UI mode.
+- Tree and Table browse admitted native data; selection does not change CLI context.
+  R reads cache only. S explicitly pulls the captured positive item and links,
+  never flushes pending edits or fetches unrelated targets. Seed S refuses.
+- Editing stages local pending changes through the shared native sink. No browser
+  action publishes pending work. Review is read-only: opening a proposal does not
+  authorize, apply or replace its digest, file or journal origin.
+- Authority changes stop operations and clear actor data. Explicit reconnect creates
+  a fresh native runtime; source IDs and override flags are never identity selectors.
+- Herdr controls require `--herdr`; only `review` accepts `--file`. `--host-entry`
+  accepts no cwd/file/intent/source overrides and requires private native launch
+  admission. It does not turn caller-supplied source IDs into authority.
+- The canonical Herdr host is `twig-herdr`; existing action and pane IDs remain
+  unchanged. Windows/Linux entries launch the native image directly, not a wrapper.
+  See [the native Bench browser](../bench/README.md#native-bench-browser) for gestures
+  and authenticated host lifecycle details.
+
+### macOS legacy entry
+
+- `twig tui` without native options delegates to
+  `BinaryLauncher.Launch("twig-tui", "Twig.Tui")`.
+- The companion resolves adjacent to `twig` first (`AppContext.BaseDirectory`, then
+  the process directory), then on `PATH`. Standard streams and its exit code are
+  inherited. The companion discovers the workspace and opens its Terminal.Gui
+  tree/form application; local form edits enter the pending change store.
+- Nondefault native options on `twig tui` refuse with a usage error on macOS rather
+  than being silently ignored. The separately built macOS companion remains eligible for the
+  existing first-run companion installation and explicit upgrade.
 
 ## Examples
 
-Launch the TUI from a workspace root:
+Open the default UI from a workspace on any supported platform:
 
-```console
-$ twig tui
-┌ Twig TUI — contoso/Twig (Esc to quit) ──────────────────────────────────┐
-│ File   View                                                             │
-│┌─ Tree ──────────────────────┐┌─ Work Item ──────────────────────────┐  │
-││ ▸ Epic  #4712 Onboarding    ││ Title:  Add device-code login        │  │
-││   ▸ Feature #4718 Sign-in   ││ State:  Doing                        │  │
-│└─────────────────────────────┘└──────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+```sh
+twig tui
 ```
 
-Discover a missing companion binary:
+Open a native Table view from a captured Windows/Linux source directory:
 
-```console
-$ twig tui
-error: 'twig-tui' not found. Ensure the Twig.Tui project is built and on PATH or in the same directory as 'twig'.
-$ echo $?
-1
+```sh
+twig tui --cwd /work/twig --view table
+```
+
+Review an explicit proposal without authorizing or applying it:
+
+```sh
+twig-tui --file .twig/proposals/review.json
+```
+
+Request the source-scoped Herdr Tree view and read its control result:
+
+```sh
+twig tui --herdr --intent tree -o json
 ```
 
 ## Exit codes and failure modes
 
 |Condition|Result|
 |---|---|
-|TUI ran and the user quit normally|`0`|
-|`twig-tui` binary not found on PATH or adjacent to `twig`|`1`, stderr message names the missing binary|
-|Process failed to start (spawn error)|`1`, stderr `error: Failed to start 'twig-tui'.`|
-|Companion process launched but threw before init|`1`, stderr `error: Failed to launch 'twig-tui': <message>`|
-|Companion process exited with a non-zero code|That exit code (propagated verbatim)|
+|Native UI quits normally or Herdr control succeeds|`0`|
+|Invalid view/output or incompatible control/host-entry options|`2`|
+|Nondefault native options passed to macOS's legacy `twig tui`|`2`|
+|Terminal, source admission or runtime fails; Herdr control refuses|`1`|
+|macOS companion missing or cannot launch|`1` with a diagnostic naming the companion|
+|macOS companion exits|Its exit code is propagated|
 
 ## See also
 
-- [`twig mcp`](./mcp.md) — the sibling companion-binary launcher.
-- [`twig nav`](../navigation/nav.md) — the non-TUI interactive tree navigator.
-- [`twig pending`](../plans/pending.md) — inspect the pending changes the TUI produces.
-- [`twig sync`](../getting-started/sync.md) — flush pending changes to ADO.
+- [Native Bench browser](../bench/README.md#native-bench-browser).
+- [`twig pending`](../plans/pending.md) — inspect local pending changes.
+- [`twig sync`](../getting-started/sync.md) — explicitly synchronize pending work.
+- [`twig upgrade`](../system/upgrade.md) — synchronize native launch names or the macOS companion.

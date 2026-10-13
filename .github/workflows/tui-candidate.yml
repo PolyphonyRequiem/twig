@@ -57,6 +57,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native image version execution failed.' }
           & $image bench browser --help
           if ($LASTEXITCODE -ne 0) { throw 'Native browser declaration execution failed.' }
+          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+            & $image tui --help
+            if ($LASTEXITCODE -ne 0) { throw 'Canonical native tui help failed.' }
+            $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+            foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+              & (Join-Path (Split-Path $image) "$alias$extension") --help
+              if ($LASTEXITCODE -ne 0) { throw "Native $alias help failed." }
+            }
+          }
       - name: Require the approved signing configuration
         if: matrix.rid == 'win-x64'
         env:
@@ -82,11 +91,17 @@ jobs:
           endpoint: https://wus2.codesigning.azure.net/
           trusted-signing-account-name: polyphonyrequiem
           certificate-profile-name: public-trust
-          files-folder: ${{ github.workspace }}/artifacts/tui-candidate/${{ matrix.rid }}/bin
-          files-folder-filter: exe
+          files: ${{ github.workspace }}/artifacts/tui-candidate/${{ matrix.rid }}/bin/twig.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      - name: Share exact signed image across existing native launch files
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+            Copy-Item 'artifacts/tui-candidate/${{ matrix.rid }}/bin/twig.exe' "artifacts/tui-candidate/${{ matrix.rid }}/bin/$alias.exe" -Force
+          }
       - name: Seal checksums and publisher/profile/source evidence
         shell: pwsh
         run: |
@@ -102,6 +117,15 @@ jobs:
           $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
           $image = Join-Path $directory "bin/$name"
           $receipt = Get-Content "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json" -Raw | ConvertFrom-Json
+          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+            & $image tui --help
+            if ($LASTEXITCODE -ne 0) { throw 'Sealed canonical native tui help failed.' }
+            $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+            foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+              & (Join-Path $directory "bin/$alias$extension") --help
+              if ($LASTEXITCODE -ne 0) { throw "Sealed native $alias help failed." }
+            }
+          }
           $workspace = Join-Path '${{ runner.temp }}' 'tui-candidate-uninitialized-${{ matrix.rid }}'
           New-Item -ItemType Directory -Path $workspace | Out-Null
           Push-Location $workspace

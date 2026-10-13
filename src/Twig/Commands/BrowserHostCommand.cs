@@ -6,13 +6,14 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Opt-in shared native browser, standalone or in a source-scoped native Herdr pane.</summary>
+/// <summary>Shared native TUI, standalone or in a source-scoped native Herdr pane.</summary>
 internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRuntimeFactory factory,
     Twig.Domain.Interfaces.ITelemetryClient? telemetryClient = null)
 {
     internal async Task<int> ExecuteAsync(string? cwd = null, string view = "tree", string? file = null,
         bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
-        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null, string output = "human", CancellationToken ct = default)
+        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null, string output = "human", CancellationToken ct = default,
+        string commandName = "bench-browser")
     {
         var started = Stopwatch.GetTimestamp(); var exit = 1; var interrupted = 0;
         try
@@ -75,7 +76,7 @@ internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRunti
         {
             telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
             {
-                ["command"] = "bench-browser",
+                ["command"] = commandName,
                 ["output_format"] = output,
                 ["exit_code"] = exit.ToString(CultureInfo.InvariantCulture),
                 ["twig_version"] = VersionHelper.GetVersion().Split('+')[0],

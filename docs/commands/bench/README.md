@@ -62,6 +62,13 @@ or **Esc** collapses the detail and restores the previous Bench selection, folds
 viewport. CLI detail returns the same open-right status frame without a duplicate
 summary line; ordinary `twig show` retains its existing presentation.
 
+Resizing retained detail keeps its reading position within the native field or HTML
+section, including literal diagrams, rather than retaining a rendered row number.
+Near the end, widening may leave blank rows below the retained content; **End** still
+selects the normal last full page. Wheel and Page keys scroll that surface, while
+arrows/j/k continue to select Bench items. Private rendering source markers are
+removed before painting and are not part of public CLI ANSI output.
+
 In the browser, **S** explicitly pulls only the captured positive item and its links;
 **R** reloads its cached presentation. `--sync` is the CLI equivalent of S. Neither
 action changes the active work item, flushes pending edits, or fetches related targets.
@@ -96,7 +103,9 @@ not a Go UI or read subprocess. This candidate does not redirect `twig tui`,
   uncached IDs shown as unverified. Areas use a/d, x Exact/u Under, and an explicit t
   configured-team candidate read. Sprints use a/d and native expressions. Benches use
   n create, Enter switch, and d guarded delete; Default is protected and stale contents
-  require a new confirmation. These operations preserve pending work.
+  require a new confirmation. Nonempty deletion lists preserve selector kinds, so
+  Single (`Item`) and Subtree pins for the same ID remain distinct review consequences.
+  These operations preserve pending work.
 - **Edit:** E opens the served document, including server header controls before pages.
   Typing is limited by the shared local sink (Title/State/Assigned To), not server
   read-only metadata. Enter edits; Tab accepts/moves; Ctrl+S stages one local batch.

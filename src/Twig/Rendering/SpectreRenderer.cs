@@ -1148,7 +1148,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<WorkItem>? children = null,
         int cacheStaleMinutes = 5,
         Domain.ValueObjects.GitContext? gitContext = null,
-        bool fullContent = false)
+        bool fullContent = false,
+        Func<string, IRenderable, IRenderable>? sourceSection = null)
     {
         var pending = await getPendingChanges();
 
@@ -1163,14 +1164,20 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var dirty = item.IsDirty ? " [yellow]●[/]" : "";
         var budget = new WidthBudget(_console.Profile.Width);
         var itemGrid = new Grid().AddColumn().AddColumn();
-        itemGrid.AddRow("[dim]Type:[/]", summaryBadge + " " + SafeMarkup(item.Type.ToString()));
-        itemGrid.AddRow("[dim]State:[/]", summaryState);
-        itemGrid.AddRow("[dim]Assigned:[/]", SafeMarkup(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
-        itemGrid.AddRow("[dim]Area:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
-        itemGrid.AddRow("[dim]Iteration:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
+        AddSourceRow("System.WorkItemType", "[dim]Type:[/]", summaryBadge + " " + SafeMarkup(item.Type.ToString()));
+        AddSourceRow("System.State", "[dim]State:[/]", summaryState);
+        AddSourceRow("System.AssignedTo", "[dim]Assigned:[/]", SafeMarkup(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
+        AddSourceRow("System.AreaPath", "[dim]Area:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
+        AddSourceRow("System.IterationPath", "[dim]Iteration:[/]", SafeMarkup(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
+
+        void AddSourceRow(string key, string label, string value)
+        {
+            if (sourceSection is null) itemGrid.AddRow(label, value);
+            else itemGrid.AddRow(new Markup(label), sourceSection(key, new Markup(value)));
+        }
 
         // Extended fields from the Fields dictionary
-        AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries, fullContent);
+        AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries, fullContent, sourceSection);
 
         if (childProgress is { Total: > 0 } cp)
         {
@@ -1254,9 +1261,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var content = new List<IRenderable> { itemGrid };
         if (item.IsSeed)
-            content.Add(new Markup("[dim]Read-only local seed · unpublished[/]"));
+            content.Add(Source("$seed", new Markup("[dim]Read-only local seed · unpublished[/]")));
         if (item.Fields.TryGetValue("System.Description", out var rawDescription))
-            AddHtmlSection("Description", rawDescription);
+            AddHtmlSection("System.Description", "Description", rawDescription);
         if (fullContent)
         {
             var htmlDefinitions = fieldDefinitions?.Where(definition =>
@@ -1265,15 +1272,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             if (htmlDefinitions is not null)
                 foreach (var definition in htmlDefinitions)
                     if (item.Fields.TryGetValue(definition.ReferenceName, out var html))
-                        AddHtmlSection(definition.DisplayName, html);
+                        AddHtmlSection(definition.ReferenceName, definition.DisplayName, html);
         }
 
-        void AddHtmlSection(string label, string? html)
+        IRenderable Source(string key, IRenderable value) => sourceSection?.Invoke(key, value) ?? value;
+
+        void AddHtmlSection(string key, string label, string? html)
         {
             var markup = fullContent ? RichHtmlRenderer.ToMarkup(html) : FormatterHelpers.HtmlToSpectreMarkup(html);
             if (string.IsNullOrWhiteSpace(markup)) return;
             content.Add(new Rule($"[dim]{SafeMarkup(label)}[/]").LeftJustified().RuleStyle("dim"));
-            content.Add(new Markup(markup));
+            content.Add(Source(key, new Markup(markup)));
         }
 
 
@@ -1281,7 +1290,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var dirtyVisibleLen = item.IsDirty ? 2 : 0;
         var cacheAgeVisibleLen = cacheAge is not null ? cacheAge.Length + 1 : 0;
         if (fullContent)
-            content.Insert(0, new Markup($"[bold]{SafeMarkup(item.Title)}[/]"));
+            content.Insert(0, Source("System.Title", new Markup($"[bold]{SafeMarkup(item.Title)}[/]")));
         var headerTitleText = fullContent ? string.Empty : FormatterHelpers.TruncateTitle(
             item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen));
         IRenderable panelContent = content.Count == 1 ? itemGrid : new Rows(content);
@@ -1439,7 +1448,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Grid grid, WorkItem item,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
-        bool fullContent = false)
+        bool fullContent = false,
+        Func<string, IRenderable, IRenderable>? sourceSection = null)
     {
         if (item.Fields.Count == 0)
             return;
@@ -1467,7 +1477,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var formatted = Formatters.FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: fullContent ? int.MaxValue : 60);
 
                 if (!string.IsNullOrWhiteSpace(formatted))
-                    grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
+                {
+                    if (sourceSection is null) grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
+                    else grid.AddRow(new Markup($"[dim]{SafeMarkup(displayName)}:[/]"),
+                        sourceSection(entry.ReferenceName, new Markup(SafeMarkup(formatted))));
+                }
             }
             return;
         }
@@ -1494,7 +1508,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
             if (!string.IsNullOrWhiteSpace(formatted))
             {
-                grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
+                if (sourceSection is null) grid.AddRow($"[dim]{SafeMarkup(displayName)}:[/]", SafeMarkup(formatted));
+                else grid.AddRow(new Markup($"[dim]{SafeMarkup(displayName)}:[/]"),
+                    sourceSection(kvp.Key, new Markup(SafeMarkup(formatted))));
                 count++;
             }
         }

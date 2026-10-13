@@ -8,6 +8,88 @@ namespace Twig.Cli.Tests.Browser;
 public sealed class BrowserTerminalTextTests
 {
     [Fact]
+    public async Task DetailContentAnchorKeepsTheSameParagraphWhenNativeHtmlRewraps()
+    {
+        var item = new Twig.Domain.Aggregates.WorkItem
+        {
+            Id = 42,
+            Type = Twig.Domain.ValueObjects.WorkItemType.Task,
+            Title = "Retained detail",
+            AssignedTo = new string('A', 20),
+            AreaPath = Twig.Domain.ValueObjects.AreaPath.Parse(new string('B', 60)).Value,
+            IterationPath = Twig.Domain.ValueObjects.IterationPath.Parse(new string('C', 60)).Value,
+        };
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>No publication.</p>" + string.Concat(Enumerable.Range(0, 24).Select(i =>
+                $"<p>Paragraph {i}: cached native HTML field tail; safe literal text, café é 中文 👩‍💻 🇨🇦 with wrapped content retained.</p>")),
+        });
+        var snapshot = new BrowserDetailSnapshot(item, null, [], [], null, [], [], null, 15,
+            new Twig.Rendering.SpectreTheme(new Twig.Infrastructure.Config.DisplayConfig()));
+        var current = await snapshot.RenderRowsAsync(78);
+        var anchor = current.Single(row => row.Text.Contains("Paragraph 19:", StringComparison.Ordinal));
+
+        foreach (var width in new[] { 43, 118, 78 })
+        {
+            var reflowed = await snapshot.RenderRowsAsync(width);
+            var restored = reflowed.Last(row => row.Source == anchor.Source && row.Offset <= anchor.Offset);
+            restored.Text.ShouldContain("Paragraph 19:");
+            var plain = BrowserTerminalText.Rows((await snapshot.RenderAsync(width, ansi: true)).Ansi, width);
+            reflowed.Select(row => StripSgr(row.Text)).ShouldBe(plain.Select(StripSgr));
+            reflowed.ShouldAllBe(row => !row.Text.Contains("twig-source", StringComparison.Ordinal));
+            anchor = restored;
+        }
+    }
+
+    [Fact]
+    public async Task LiteralBoxDrawingRowsRemainDistinctSourcePositions()
+    {
+        var item = NativeBrowserFixture.Item(42, "Literal diagram");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<pre>┌──┐\n│  │\n└──┘</pre><p>After diagram.</p>",
+        });
+        var snapshot = new BrowserDetailSnapshot(item, null, [], [], null, [], [], null, 15,
+            new Twig.Rendering.SpectreTheme(new Twig.Infrastructure.Config.DisplayConfig()));
+        var original = await snapshot.RenderRowsAsync(78);
+        var anchor = original.Single(row => row.Text.Contains("┌──┐", StringComparison.Ordinal));
+        foreach (var width in new[] { 43, 118, 78 })
+        {
+            var rows = await snapshot.RenderRowsAsync(width);
+            var restored = rows.Last(row => row.Source == anchor.Source && row.Offset <= anchor.Offset);
+            restored.Text.ShouldContain("┌──┐");
+            restored.Text.ShouldNotContain("After diagram.");
+            anchor = restored;
+        }
+    }
+
+    [Fact]
+    public async Task WrappedFieldLabelsDoNotAdvanceValueSourcePositions()
+    {
+        var item = NativeBrowserFixture.Item(42, "Wrapped label");
+        const string key = "Custom.LongValue";
+        var value = string.Join(" ", Enumerable.Range(0, 80).Select(i => $"VALUE{i:00}"));
+        item.ImportFields(new Dictionary<string, string?> { [key] = value });
+        var snapshot = new BrowserDetailSnapshot(item, null, [],
+            [new(key, "Long field display label wrapping across multiple narrow rows", "string", false)],
+            null, [], [], null, 15, new Twig.Rendering.SpectreTheme(new Twig.Infrastructure.Config.DisplayConfig()));
+        foreach (var width in new[] { 43, 118 })
+        {
+            var rows = await snapshot.RenderRowsAsync(width);
+            foreach (var row in rows.Where(row => row.Source == key))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(StripSgr(row.Text), @"VALUE\d{2}");
+                match.Success.ShouldBeTrue();
+                var sourceIndex = value.IndexOf(match.Value, StringComparison.Ordinal);
+                value[..sourceIndex].Count(character => !char.IsWhiteSpace(character)).ShouldBe(row.Offset);
+            }
+        }
+    }
+
+    private static string StripSgr(string value)
+        => System.Text.RegularExpressions.Regex.Replace(value, @"\x1b\[[0-9;]*m", "");
+
+    [Fact]
     public void WordWrappingPreservesEverySpaceAndCompleteGrapheme()
     {
         const string text = "one  two é 👩‍💻 中 final";

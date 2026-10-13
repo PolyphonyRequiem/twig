@@ -377,12 +377,12 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
 
         // Validate the local attachment before selecting an identity.
         using var attachmentStore = new WorktreeLocalAttachmentStore(paths, configuration, _clock);
-        var attachment = await attachmentStore.ReadWithRevisionAsync(ct).ConfigureAwait(false);
-        if (!attachment.IsSuccess)
-            throw new ConnectionBindingResolutionException(attachment.Error, $"Managed attachment validation refused: {attachment.Error}");
-        if (!WorktreeAnchorDetector.TryDetect(paths.StartDir ?? paths.TwigDir, out var anchor, out var anchorFailure))
-            throw new InvalidOperationException(
-                $"Current directory is not an attached managed worktree ({anchorFailure}). Run 'twig init' to attach, or use the bootstrap provider for explicit init.");
+        var read = await attachmentStore.ReadForBindingAsync(ct).ConfigureAwait(false);
+        if (!read.IsSuccess)
+            throw new ConnectionBindingResolutionException(read.Error, $"Managed attachment validation refused: {read.Error}");
+        // This anchor was freshly discovered and validated against this attachment.
+        var attachment = read.Value.Attachment;
+        var anchor = read.Value.Anchor;
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
         if (!worktreeRow.IsSuccess) throw new ConnectionBindingResolutionException(worktreeRow.Error, $"Registry refused worktree lookup: {worktreeRow.Error}");
@@ -397,9 +397,9 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
                 $"Attached worktree is bound to a different connection (expected {connectionRef}, stored {wt.ConnectionRef}). Refusing to project across connection boundaries.");
 
         MirrorAdmission.ValidateNoUnfinishedTransition(RegistryPath, fingerprint);
-        var selectedId = attachment.Value.Attachment.BindingPin;
+        var selectedId = attachment.Attachment.BindingPin;
         var selectionSource = "checkout-binding-pin";
-        var selectionRevision = attachment.Value.Revision;
+        var selectionRevision = attachment.Revision;
         if (selectedId is null)
         {
             var defaultRow = await _registry.FindDefaultBindingAsync(connectionRef, ct).ConfigureAwait(false);
@@ -432,7 +432,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             SelectionRevision: selectionRevision,
             Operation: new ConnectionOperationSnapshot(
                 configuration.Organization, configuration.Project, configuration.Team,
-                fingerprint, attachment.Value.Revision,
+                fingerprint, attachment.Revision,
                 configuration.IsLegacyMode ? paths.ConfigPath : paths.RepoConfigPath,
                 File.Exists(paths.ConfigPath) ? paths.ConfigPath : "built-in-defaults",
                 configuration.Display.Icons,

@@ -75,6 +75,14 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
         return Result.Ok(new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision));
     }
 
+    internal async Task<Result<(VersionedPrimaryScopeAttachment Attachment, WorktreeAnchor Anchor)>> ReadForBindingAsync(CancellationToken ct)
+    {
+        var res = await ReadInternalAsync(ct).ConfigureAwait(false);
+        if (!res.IsSuccess)
+            return Result.Fail<(VersionedPrimaryScopeAttachment, WorktreeAnchor)>(res.Error);
+        return Result.Ok((new VersionedPrimaryScopeAttachment(res.Value.Projection, res.Value.Document.Revision), res.Value.Anchor));
+    }
+
     public Task<Result> WriteAsync(PrimaryScopeAttachment attachment, long expectedRevision = -1, CancellationToken ct = default)
         => MutateAsync(
             expectedRevision: expectedRevision,
@@ -165,7 +173,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
 
     // ── Internals ────────────────────────────────────────────────────
 
-    private readonly record struct ReadOutcome(PrimaryScopeAttachment Projection, AttachmentDocument Document);
+    private readonly record struct ReadOutcome(PrimaryScopeAttachment Projection, AttachmentDocument Document, WorktreeAnchor Anchor);
 
     private async Task<Result<ReadOutcome>> ReadInternalAsync(CancellationToken ct)
     {
@@ -245,7 +253,7 @@ internal sealed class WorktreeLocalAttachmentStore : IPrimaryScopeAttachmentStor
             claim = new ActiveClaimReference(ac.ClaimId, mintedAt);
         }
 
-        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim, doc.BindingPin), doc));
+        return Result.Ok(new ReadOutcome(new PrimaryScopeAttachment(doc.ConnectionRef, scope, claim, doc.BindingPin), doc, anchor));
     }
 
     private async Task<Result> MutateAsync(

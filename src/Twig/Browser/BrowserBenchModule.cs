@@ -58,9 +58,7 @@ internal sealed class BrowserBenchModule(BrowserOperationModule operations, Curr
             return new BrowserBenchObservation(capture, BenchQueryRule.SettingsDigest(stored.Selectors),
                 items.Values.OrderBy(i => i.Id).ToArray(), rules.SelectMany(r => r.Areas).Distinct().ToArray(),
                 rules.SelectMany(r => r.Sprints).Select(s => s.Raw).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-                (await benches.GetAllAsync(token)).Select(b => new BrowserBenchChoice(b.Id.ToString(CultureInfo.InvariantCulture),
-                    b.Name, b.IsDefault, BenchQueryRule.ContentsDigest(b.Selectors), b.Selectors.Select(s => s.Kind == SelectorKind.Query
-                        ? s.Payload : $"{s.Kind} #{s.AsWorkItemId()}").ToArray())).ToArray(),
+                (await benches.GetAllAsync(token)).Select(DescribeBench).ToArray(),
                 string.Join("; ", rules.Select(r => r.UniqueName ?? r.AssignedTo ?? "All assignees").Distinct()));
         }, ct);
 
@@ -141,14 +139,18 @@ internal sealed class BrowserBenchModule(BrowserOperationModule operations, Curr
     private static BrowserCapture Capture(BrowserCapture origin, Twig.Domain.Aggregates.Bench bench)
         => new(bench.Id.ToString(CultureInfo.InvariantCulture), bench.Name, origin.Origin, BenchQueryRule.ContentsDigest(bench.Selectors));
 
+    internal static BrowserBenchChoice DescribeBench(Twig.Domain.Aggregates.Bench bench)
+        => new(bench.Id.ToString(CultureInfo.InvariantCulture), bench.Name, bench.IsDefault,
+            BenchQueryRule.ContentsDigest(bench.Selectors), bench.Selectors.Select(s => s.Kind == SelectorKind.Query
+                ? s.Payload : $"{s.Kind} #{s.AsWorkItemId()}").ToArray());
+
     private static BrowserBenchChange Describe(BenchOutcome outcome) => outcome switch
     {
         BenchOutcome.Created c => new($"Created empty Bench '{c.Bench.Name}'. Select it explicitly to switch."),
         BenchOutcome.Switched s => new($"Switched to '{s.Bench.Name}'."),
         BenchOutcome.Deleted d => new($"Deleted arrangement '{d.Bench.Name}'; pending work is untouched."),
         BenchOutcome.HoldsWork h => new($"'{h.Bench.Name}' holds saved selectors. Read the contents and retype the name to delete.",
-            new(h.Bench.Id.ToString(CultureInfo.InvariantCulture), h.Bench.Name, h.Bench.IsDefault,
-                BenchQueryRule.ContentsDigest(h.Bench.Selectors), h.Bench.Selectors.Select(s => s.Payload).ToArray()), false),
+            DescribeBench(h.Bench), false),
         BenchOutcome.DefaultBenchCannotBeDeleted => new("Default is protected and cannot be deleted.", Changed: false),
         BenchOutcome.NameAlreadyExists e => new($"Bench '{e.Existing.Name}' already exists; nothing was created.", Changed: false),
         BenchOutcome.NameRejected r => new(r.Reason, Changed: false),

@@ -87,6 +87,7 @@ internal sealed class BrowserDetailObservation
     internal BrowserRenderedDetail InitialPresentation { get; }
     internal Task<BrowserRenderedDetail> RenderAsync(int width, bool ansi = true)
         => _snapshot.RenderAsync(width, ansi);
+    internal Task<IReadOnlyList<BrowserSourceRow>> RenderRowsAsync(int width) => _snapshot.RenderRowsAsync(width);
 }
 
 internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
@@ -96,6 +97,12 @@ internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
     int CacheStaleMinutes, SpectreTheme Theme)
 {
     internal async Task<BrowserRenderedDetail> RenderAsync(int width, bool ansi)
+        => new(await RenderAnsiAsync(width, ansi, false), RichHtmlRenderer.SafeText(Item.Title));
+
+    internal async Task<IReadOnlyList<BrowserSourceRow>> RenderRowsAsync(int width)
+        => BrowserTerminalText.ContentRows(await RenderAnsiAsync(width, true, true), width);
+
+    private async Task<string> RenderAnsiAsync(int width, bool ansi, bool sourceSections)
     {
         if (width < 1 || width > 10000)
             throw new ArgumentException("Width must be between 1 and 10000 columns.");
@@ -116,8 +123,38 @@ internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
         var view = await new SpectreRenderer(console, Theme).BuildStatusViewAsync(Item,
             () => Task.FromResult(Changes), fieldDefinitions: Definitions, statusFieldEntries: StatusFields,
             childProgress: ChildProgress, links: Links, parent: Parent, children: Children,
-            cacheStaleMinutes: CacheStaleMinutes, fullContent: true);
+            cacheStaleMinutes: CacheStaleMinutes, fullContent: true,
+            sourceSection: sourceSections ? static (key, value) => new SourceSection(key, value) : null);
         console.Write(view);
-        return new(writer.ToString(), RichHtmlRenderer.SafeText(Item.Title));
+        return writer.ToString();
+    }
+
+    private sealed class SourceSection(string key, Spectre.Console.Rendering.IRenderable inner) : Spectre.Console.Rendering.IRenderable
+    {
+        private readonly Spectre.Console.Rendering.Segment _start = Spectre.Console.Rendering.Segment.Control(BrowserTerminalText.SourceMarker(key));
+        private static readonly Spectre.Console.Rendering.Segment End = Spectre.Console.Rendering.Segment.Control(BrowserTerminalText.SourceMarker(null));
+
+        public Spectre.Console.Rendering.Measurement Measure(Spectre.Console.Rendering.RenderOptions options, int maxWidth)
+            => inner.Measure(options, maxWidth);
+
+        public IEnumerable<Spectre.Console.Rendering.Segment> Render(Spectre.Console.Rendering.RenderOptions options, int maxWidth)
+        {
+            var marked = false;
+            foreach (var segment in inner.Render(options, maxWidth))
+            {
+                if (segment.IsLineBreak)
+                {
+                    if (marked) yield return End;
+                    marked = false;
+                    yield return segment;
+                }
+                else
+                {
+                    if (!marked) { yield return _start; marked = true; }
+                    yield return segment;
+                }
+            }
+            if (marked) yield return End;
+        }
     }
 }

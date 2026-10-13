@@ -8,7 +8,8 @@ namespace Twig.Browser;
 /// are not. Graphemes remain indivisible; ambiguous/font-specific widths remain a
 /// terminal qualification gate, as in the bounded Windows 1143 evidence slice.
 /// </summary>
-internal sealed record BrowserTextChunk(int Offset, string Text);
+internal readonly record struct BrowserTextChunk(int Offset, string Text);
+internal readonly record struct BrowserSourceRow(string Source, int Offset, string Text);
 
 internal static class BrowserTerminalText
 {
@@ -64,7 +65,9 @@ internal static class BrowserTerminalText
         return rows;
     }
 
-    internal static IReadOnlyList<string> Rows(string text, int width)
+    internal static IReadOnlyList<string> Rows(string text, int width) => RowsCore(text, width, false);
+
+    private static IReadOnlyList<string> RowsCore(string text, int width, bool sourceMarkers)
     {
         width = Math.Max(1, width);
         var rows = new List<string>();
@@ -82,6 +85,7 @@ internal static class BrowserTerminalText
                     if (escape.SequenceEqual("\x1b[0m") || escape.SequenceEqual("\x1b[m")) style.Clear();
                     else style.Append(escape);
                 }
+                else if (sourceMarkers && IsSourceMarker(escape)) row.Append(escape);
                 i = end;
             }
             else if (text[i] == '\n')
@@ -98,6 +102,60 @@ internal static class BrowserTerminalText
         }
         if (row.Length > 0) AddRows(rows, row.ToString(), width);
         return rows;
+    }
+
+    private const string SourcePrefix = "\x1b]777;twig-source;";
+
+    internal static string SourceMarker(string? source)
+        => SourcePrefix + (source is null ? "" : Convert.ToBase64String(Encoding.UTF8.GetBytes(source))) + "\x1b\\";
+
+    private static bool IsSourceMarker(ReadOnlySpan<char> escape)
+        => escape.StartsWith(SourcePrefix, StringComparison.Ordinal) && escape.EndsWith("\x1b\\", StringComparison.Ordinal);
+
+    internal static IReadOnlyList<BrowserSourceRow> ContentRows(string text, int width)
+    {
+        var rows = RowsCore(text, width, true);
+        var result = new BrowserSourceRow[rows.Count];
+        var offsets = new Dictionary<string, int>(StringComparer.Ordinal);
+        string? active = null;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var clean = new StringBuilder(row.Length);
+            string? source = null;
+            var offset = 0;
+            var visible = 0;
+            var start = 0;
+            while (start < row.Length && row[start] == '\x1b') start = EscapeEnd(row, start);
+            var framePrefix = row.AsSpan(start).StartsWith("│ ", StringComparison.Ordinal) ? 2 : 0;
+            for (var j = 0; j < row.Length;)
+            {
+                if (row[j] == '\x1b')
+                {
+                    var end = EscapeEnd(row, j);
+                    var escape = row.AsSpan(j, end - j);
+                    if (IsSourceMarker(escape))
+                    {
+                        var encoded = escape[SourcePrefix.Length..^2];
+                        active = encoded.IsEmpty ? null : Encoding.UTF8.GetString(Convert.FromBase64String(encoded.ToString()));
+                        if (active is not null && !offsets.ContainsKey(active)) offsets[active] = 0;
+                    }
+                    else clean.Append(escape);
+                    j = end;
+                    continue;
+                }
+                clean.Append(row[j]);
+                if (active is not null && visible >= framePrefix && !char.IsWhiteSpace(row[j]))
+                {
+                    if (source is null) { source = active; offset = offsets[active]; }
+                    offsets[active]++;
+                }
+                visible++;
+                j++;
+            }
+            result[i] = new(source ?? "$layout", source is null ? i : offset, clean.ToString());
+        }
+        return result;
     }
 
     private static void AddRows(List<string> rows, string text, int width)
@@ -122,8 +180,11 @@ internal static class BrowserTerminalText
                 var end = EscapeEnd(text, i);
                 var escape = text.AsSpan(i, end - i);
                 row.Append(escape);
-                if (escape.SequenceEqual("\x1b[0m") || escape.SequenceEqual("\x1b[m")) style.Clear();
-                else style.Append(escape);
+                if (IsSgr(escape))
+                {
+                    if (escape.SequenceEqual("\x1b[0m") || escape.SequenceEqual("\x1b[m")) style.Clear();
+                    else style.Append(escape);
+                }
                 i = end;
                 continue;
             }

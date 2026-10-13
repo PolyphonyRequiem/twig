@@ -27,7 +27,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private IReadOnlyList<Twig.Domain.ValueObjects.AreaPathFilter> _candidates = [];
     private BrowserDetailObservation? _renderedDetail;
     private int _renderedWidth;
-    private IReadOnlyList<string> _detailRows = [];
+    private IReadOnlyList<BrowserSourceRow> _detailRows = [];
     private List<Line> _rows = [];
     private List<DetailControl> _fields = [];
     private Task _operationTail = Task.CompletedTask;
@@ -619,7 +619,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         else if (first >= _top + ContentHeight) _top = Math.Max(0, first - ContentHeight + 1);
         _dirty = true;
     }
-    private void Scroll(int delta) { _top = Math.Clamp(_top + delta, 0, Math.Max(0, _rows.Count - ContentHeight)); _dirty = true; }
+    private void Scroll(int delta) { _top = Math.Clamp(_top + delta, 0, Math.Max(_top, _rows.Count - ContentHeight)); _dirty = true; }
     private void Fold(bool fold)
     {
         if (_view != "tree" || _index?.HasChildren(_selected) != true) return;
@@ -632,12 +632,13 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     }
     private void Restore(Anchor? anchor)
     {
+        var limit = Math.Max(0, _rows.Count - ContentHeight);
         if (anchor is not null)
         {
             var index = _rows.FindLastIndex(r => r.Key == anchor.Key && r.Offset <= anchor.Offset);
-            if (index >= 0) _top = index - anchor.ScreenRow;
+            if (index >= 0) { _top = index - anchor.ScreenRow; limit = Math.Max(limit, _top); }
         }
-        _top = Math.Clamp(_top, 0, Math.Max(0, _rows.Count - ContentHeight)); _dirty = true;
+        _top = Math.Clamp(_top, 0, limit); _dirty = true;
     }
     private int Depth(int id) => _view == "table" ? 0 : _index?.Depth(id, _width) ?? 0;
     private int DetailWidth(int id) => Math.Max(1, _width - Depth(id) * 2 - 2);
@@ -684,11 +685,11 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
                     var detailWidth = DetailWidth(item.Id);
                     if (!ReferenceEquals(_renderedDetail, _detail) || _renderedWidth != detailWidth)
                     {
-                        _detailRows = BrowserTerminalText.Rows(_detail.RenderAsync(detailWidth).GetAwaiter().GetResult().Ansi, detailWidth);
+                        _detailRows = _detail.RenderRowsAsync(detailWidth).GetAwaiter().GetResult();
                         _renderedDetail = _detail; _renderedWidth = detailWidth;
                     }
                     var lines = _detailRows;
-                    for (var i = 0; i < lines.Count; i++) next.Add(new("detail:" + item.Id, i, inset + lines[i], item.Id));
+                    foreach (var line in lines) next.Add(new("detail:" + item.Id + ":" + line.Source, line.Offset, inset + line.Text, item.Id));
                 }
                 else
                 {

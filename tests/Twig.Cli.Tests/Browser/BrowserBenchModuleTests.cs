@@ -87,3 +87,20 @@ public sealed class BrowserBenchModuleTests : IAsyncLifetime
         return result.Value.ShouldNotBeNull();
     }
 }
+
+public sealed class BrowserBenchDescriptionTests
+{
+    [Fact]
+    public void DeletionReviewContentsDistinguishBothPinKindsForTheSameItem()
+    {
+        var target = new Bench
+        {
+            Id = 4,
+            Name = "finished",
+            Selectors = [BenchSelector.ForItem(42), BenchSelector.ForSubtree(42)],
+        };
+        var confirmation = BrowserBenchModule.DescribeBench(target);
+        confirmation.Contents.Distinct(StringComparer.Ordinal).Count().ShouldBe(2,
+            "the confirmation must distinguish single-item and subtree consequences");
+    }
+}

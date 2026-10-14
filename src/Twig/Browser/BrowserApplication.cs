@@ -607,6 +607,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     {
         if (_screen == "bench")
         {
+            if (_expanded is not null) { Scroll(delta); return; }
             var ids = _rows.Where(r => r.Item.HasValue && r.Key.StartsWith("item:", StringComparison.Ordinal)).Select(r => r.Item!.Value).Distinct().ToArray();
             if (ids.Length == 0) return;
             var position = Array.IndexOf(ids, _selected); _selected = ids[Math.Clamp(position + delta, 0, ids.Length - 1)]; Reflow();

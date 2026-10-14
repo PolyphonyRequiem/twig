@@ -115,6 +115,67 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task ExpandedDetailKeyboardScrollVisitsEveryMiddleRowAndCollapseRestoresBenchViewport()
+    {
+        var observer = await PopulateAsync();
+        var repository = observer.GetRequiredService<IWorkItemRepository>();
+        var item = (await repository.GetByIdAsync(42))!;
+        var markers = Enumerable.Range(1, 60).Select(index => $"SCROLL-ROW-{index:000}").ToArray();
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = string.Join("", markers.Select(marker => $"<p>{marker}</p>"))
+        });
+        await repository.SaveAsync(item);
+        var baseline = await CaptureStoredRowsAsync(observer);
+        var application = Application();
+        using var terminal = new ScriptedBrowserTerminal(80, 12);
+        using var lifetime = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = application.RunAsync(terminal, _fixture.Paths.StartDir!, ct: lifetime.Token);
+        try
+        {
+            var bench = await ReadyAsync(terminal, "Selected cached item", deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Enter));
+            var paint = await ReadyAsync(terminal, markers[^1], deadline.Token);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            void Observe(BrowserPaint frame)
+            {
+                var visible = string.Join("\n", frame.VisibleRows);
+                foreach (var marker in markers)
+                    if (visible.Contains(marker, StringComparison.Ordinal)) visited.Add(marker);
+            }
+            Observe(paint);
+            while (paint.Top < Math.Max(0, paint.Rows.Count - (paint.Height - 2)))
+            {
+                var prior = paint;
+                terminal.Enqueue(Key(BrowserKey.Down));
+                paint = await terminal.ReadUntilAsync(frame => frame.Sequence > prior.Sequence && !frame.Working, deadline.Token);
+                paint.Top.ShouldBe(prior.Top + 1);
+                Observe(paint);
+            }
+            visited.Order(StringComparer.Ordinal).ShouldBe(markers);
+            terminal.Enqueue(Key(BrowserKey.Up));
+            var previousTop = paint.Top;
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Top == previousTop - 1, deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            var restored = await terminal.ReadUntilAsync(frame => !frame.Working && !frame.Content.Contains(markers[0], StringComparison.Ordinal), deadline.Token);
+            restored.Rows.ShouldBe(bench.Rows);
+            restored.Top.ShouldBe(bench.Top);
+            (await CaptureStoredRowsAsync(observer)).ShouldBe(baseline);
+            terminal.Enqueue(Character('q'));
+            (await running.WaitAsync(deadline.Token)).ShouldBe(0);
+            _fixture.Transport.RequestedItems.ShouldBeEmpty();
+            _fixture.Transport.Mutations.ShouldBe(0);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.EndOfInput));
+            await running.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [HostMigrationFact]
     public async Task SeedSyncGesturePreservesDisplayedAndDurableStateWithoutRemoteCalls()
     {
         var observer = await PopulateAsync();

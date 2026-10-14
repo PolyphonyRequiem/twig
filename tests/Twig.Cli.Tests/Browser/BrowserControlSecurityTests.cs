@@ -204,6 +204,36 @@ public sealed class BrowserControlSecurityTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    [Fact]
+    public async Task QualifiedReplyCanUseAllBoundedServerPhasesAfterRequestWriteCompletes()
+    {
+        var source = Source();
+        var owner = Owner(source);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        using var pipe = new NamedPipeServerStream(owner.Pipe, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, 65536, 65536);
+        var peer = Task.Run(async () =>
+        {
+            await pipe.WaitForConnectionAsync(deadline.Token);
+            // Buffered client writes do not finish the server's authentication phase.
+            await Task.Delay(TimeSpan.FromSeconds(4), deadline.Token);
+            var request = BrowserControlProtocol.Request(await BrowserControlProtocol.ReadFrame(pipe, deadline.Token));
+            // Both dispatch and reply transport remain within their separate five-second bounds.
+            await Task.Delay(TimeSpan.FromSeconds(4), deadline.Token);
+            await Task.Delay(TimeSpan.FromSeconds(4), deadline.Token);
+            var reply = new BrowserControlReply(request.Nonce, owner.Pid, owner.BirthId, owner.HostPane, source,
+                new BrowserIntentResult(true, "Ready", "tree", false, 1));
+            await BrowserControlProtocol.WriteFrame(pipe, BrowserControlProtocol.Reply(reply), deadline.Token);
+            var acknowledgement = new byte[1];
+            await pipe.ReadExactlyAsync(acknowledgement, deadline.Token);
+            acknowledgement[0].ShouldBe((byte)0x06);
+        });
+        var response = BrowserControlServer.SendAsync(owner, source, new("status"), deadline.Token);
+        await Task.WhenAll(peer, response);
+        var qualified = await response;
+        qualified.Result.Ok.ShouldBeTrue();
+    }
+
     private static BrowserSource Source() => BrowserSource.Create(Path.Combine(Path.GetTempPath(), "herdr.sock"), "workspace", "tab", "source-pane", Path.GetTempPath());
     private static BrowserHostRegistration Owner(BrowserSource source) => new(BrowserControlProtocol.NewPipeName(),
         BrowserControlProtocol.NewToken(), Environment.ProcessId, BrowserControlProtocol.ProcessBirthId(Environment.ProcessId), "host-pane", source, BrowserControlProtocol.NewToken());

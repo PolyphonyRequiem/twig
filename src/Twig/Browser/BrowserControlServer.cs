@@ -5,6 +5,9 @@ namespace Twig.Browser;
 internal sealed class BrowserControlServer : IAsyncDisposable
 {
     private static readonly byte[] ReplyAcknowledgement = [0x06];
+    private static readonly TimeSpan TransportTimeout = TimeSpan.FromSeconds(5);
+    private static TimeSpan DispatchTimeout(BrowserIntent intent)
+        => intent.Command == "reconnect" ? TimeSpan.FromSeconds(15) : TransportTimeout;
     private readonly BrowserApplication _application;
     private readonly BrowserHostRegistration _owned;
     private readonly string _path;
@@ -39,7 +42,7 @@ internal sealed class BrowserControlServer : IAsyncDisposable
                 try { await listener.WaitForConnectionAsync(_stop.Token); }
                 catch (OperationCanceledException) when (_stop.IsCancellationRequested) { break; }
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-                deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                deadline.CancelAfter(TransportTimeout);
                 TaskCompletionSource? close = null;
                 try
                 {
@@ -49,7 +52,11 @@ internal sealed class BrowserControlServer : IAsyncDisposable
                         throw new InvalidDataException("Control authentication/context mismatch.");
                     if (request.Intent.Command == "close")
                     { close = new(TaskCreationOptions.RunContinuationsAsynchronously); Volatile.Write(ref _closeReply, close); }
+                    // Authentication, cold runtime rebuild and reply delivery have separate budgets.
+                    // A legitimate reconnect must not inherit time already spent reading its request.
+                    deadline.CancelAfter(DispatchTimeout(request.Intent));
                     var result = await _application.DispatchAsync(request.Intent, deadline.Token);
+                    deadline.CancelAfter(TransportTimeout);
                     var reply = new BrowserControlReply(request.Nonce, _owned.Pid, _owned.BirthId, _owned.HostPane, _owned.Source, result);
                     await BrowserControlProtocol.WriteFrame(listener, BrowserControlProtocol.Reply(reply), deadline.Token);
                     await listener.ReadExactlyAsync(acknowledgement, deadline.Token);
@@ -106,14 +113,17 @@ internal sealed class BrowserControlServer : IAsyncDisposable
         if (!record.Source.Matches(source)) throw new InvalidOperationException("This tab belongs to a different captured source; refusing implicit retarget.");
         if (!BrowserControlProtocol.Alive(record.Pid, record.BirthId)) throw new InvalidOperationException("Native host is closed/replaced; no control was dispatched.");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(TimeSpan.FromSeconds(6));
+        deadline.CancelAfter(TransportTimeout);
         using var pipe = new NamedPipeClientStream(".", record.Pipe, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         var nonce = BrowserControlProtocol.NewToken();
         await pipe.ConnectAsync(deadline.Token);
         await BrowserControlProtocol.WriteFrame(pipe, BrowserControlProtocol.Request(new BrowserControlRequest(record.Token, nonce, record.Pid, record.BirthId, record.HostPane, source, intent)), deadline.Token);
+        // A buffered write may finish before server authentication; include that phase too.
+        deadline.CancelAfter(TransportTimeout + DispatchTimeout(intent) + TransportTimeout);
         var reply = BrowserControlProtocol.Reply(await BrowserControlProtocol.ReadFrame(pipe, deadline.Token));
         if (!BrowserControlProtocol.EqualToken(reply.Nonce, nonce) || reply.Pid != record.Pid || reply.BirthId != record.BirthId ||
             reply.HostPane != record.HostPane || !reply.Source.Matches(source)) throw new InvalidDataException("Control reply failed nonce/owner/source checks.");
+        deadline.CancelAfter(TransportTimeout);
         await pipe.WriteAsync(ReplyAcknowledgement, deadline.Token);
         await pipe.FlushAsync(deadline.Token);
         return reply;

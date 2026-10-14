@@ -22,8 +22,8 @@ namespace Twig.Cli.Tests.Formatters;
 /// </para>
 ///
 /// <para>
-/// Uses <see cref="BuildFixture"/> (shared with <c>AotSmokeTests</c>) so the binary is built once
-/// before the class runs, regardless of xUnit execution order.
+/// Runs the same product dependency loaded by this test assembly. The project reference
+/// builds and copies its executable assets in the selected test configuration.
 /// </para>
 ///
 /// <para>
@@ -33,25 +33,16 @@ namespace Twig.Cli.Tests.Formatters;
 /// very failure this file exists to correct.
 /// </para>
 /// </summary>
-public sealed class OutputFormatEntrypointTests : IClassFixture<BuildFixture>
+public sealed class OutputFormatEntrypointTests
 {
-    private readonly BuildFixture _build;
-
-    public OutputFormatEntrypointTests(BuildFixture build)
-    {
-        _build = build;
-    }
 
     /// <summary>
     /// Runs the built <c>twig</c> assembly via <c>dotnet</c>, so no AOT publish is required.
     /// </summary>
     private (string Stdout, string Stderr, int ExitCode, bool Exited) RunTwig(string arguments)
     {
-        _build.BuildSucceeded.ShouldBeTrue(
-            $"Build failed or timed out; cannot exercise the entrypoint.\nstdout:\n{_build.BuildStdout}\nstderr:\n{_build.BuildStderr}");
-
-        var dll = Path.Combine(_build.RepoRoot, "src", "Twig", "bin", "Debug", "net11.0", "twig.dll");
-        File.Exists(dll).ShouldBeTrue($"Built twig.dll not found at {dll} — update this fixture.");
+        var dll = typeof(OutputFormatArgumentValidator).Assembly.Location;
+        File.Exists(dll).ShouldBeTrue($"The test project's Twig dependency is missing at {dll}");
 
         return BuildFixture.RunProcess("dotnet", $"\"{dll}\" {arguments}", timeoutMinutes: 2);
     }

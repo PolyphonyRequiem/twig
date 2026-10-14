@@ -199,7 +199,13 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         _operationTail = Task.Run(async () =>
         {
             BrowserRuntime? runtime = null; Exception? failure = null;
-            try { await predecessor; old?.Dispose(); _lifetime.ThrowIfCancellationRequested(); requestCt.ThrowIfCancellationRequested(); runtime = factory.Open(_cwd); }
+            try
+            {
+                await predecessor;
+                old?.Dispose();
+                _lifetime.ThrowIfCancellationRequested(); requestCt.ThrowIfCancellationRequested();
+                runtime = factory.Open(_cwd);
+            }
             catch (Exception ex) { failure = ex; }
             _events.Enqueue(() =>
             {

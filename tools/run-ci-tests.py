@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -251,6 +252,7 @@ class Runner:
         log = self.logs / f"{name}.log"
         with log.open("w", encoding="utf-8") as stream:
             # VSTest keeps its unchanged watchdog; the outer deadline also bounds discovery/startup.
+            started = time.monotonic()
             with subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT) as process:
                 try:
                     exit_code = process.wait(timeout=SESSION_TIMEOUT / 1000)
@@ -258,6 +260,8 @@ class Runner:
                     stop_session(process, elevated)
                     stream.write("\nTest Run Aborted: runner process deadline of 300000ms exceeded.\n")
                     exit_code = 1
+        elapsed = time.monotonic() - started
+        print(f"TWIG-TIMING {name}: {elapsed:.3f}s wall", flush=True)
         output = log.read_text(encoding="utf-8", errors="replace").replace("\r", "\n")
         print(output, end="" if output.endswith("\n") else "\n", flush=True)
         return output, exit_code

@@ -84,6 +84,11 @@ No positional arguments. All native options below are Windows/Linux options for
   unchanged. Windows/Linux entries launch the native image directly, not a wrapper.
   See [the native Bench browser](../bench/README.md#native-bench-browser) for gestures
   and authenticated host lifecycle details.
+- Authenticated Herdr reconnect has a separate bounded cold-runtime dispatch
+  budget of 15 seconds. Request authentication and reply/acknowledgement transport
+  each remain bounded at five seconds; other control dispatches retain their
+  five-second budget. Caller cancellation and owner shutdown still cancel work.
+  No timeout triggers an automatic retry, retarget or replacement host.
 
 ### macOS legacy entry
 

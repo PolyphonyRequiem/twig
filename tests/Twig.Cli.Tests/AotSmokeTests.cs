@@ -6,31 +6,20 @@ using Xunit;
 namespace Twig.Cli.Tests;
 
 /// <summary>
-/// Builds the Twig project once before any tests in this class run,
-/// ensuring the binary exists for run tests regardless of xUnit execution order.
+/// Resolves repository paths for the explicit build and publish smoke tests.
+/// Entrypoint tests use the product dependency built with their test project instead.
 /// </summary>
-public class BuildFixture : IDisposable
+public sealed class BuildFixture
 {
     public string ProjectPath { get; }
     public string RepoRoot { get; }
-    public bool BuildSucceeded { get; }
-    public string BuildStdout { get; }
-    public string BuildStderr { get; }
 
     public BuildFixture()
     {
         RepoRoot = FindRepoRoot();
         ProjectPath = Path.Combine(RepoRoot, "src", "Twig", "Twig.csproj");
-
-        var (stdout, stderr, exitCode, exited) = RunProcess(
-            "dotnet", $"build \"{ProjectPath}\" -warnaserror", timeoutMinutes: 5);
-
-        BuildStdout = stdout;
-        BuildStderr = stderr;
-        BuildSucceeded = exited && exitCode == 0;
     }
 
-    public void Dispose() { }
 
     internal static string FindRepoRoot()
     {
@@ -75,7 +64,7 @@ public class BuildFixture : IDisposable
     /// blocked indefinitely on a pipe held open by a surviving grandchild. The
     /// 5-minute timeout was guarding the one call that was never going to hang.
     ///
-    /// Because this runs in a fixture CONSTRUCTOR, xUnit's <c>CreateClassFixture</c>
+    /// Because this ran in a fixture CONSTRUCTOR, xUnit's <c>CreateClassFixture</c>
     /// never returned, the test host stopped dispatching tests entirely, and the run
     /// died at the 300 s vstest session timeout printing a false-green summary.
     ///
@@ -180,10 +169,13 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
     [Fact]
     public void DotnetBuild_ProducesZeroWarnings()
     {
-        _build.BuildSucceeded.ShouldBeTrue(
-            $"Build failed or timed out.\nstdout:\n{_build.BuildStdout}\nstderr:\n{_build.BuildStderr}");
-        _build.BuildStdout.ShouldNotContain(" warning ", Case.Insensitive,
-            $"Build produced warnings:\n{_build.BuildStdout}");
+        var (stdout, stderr, exitCode, exited) = BuildFixture.RunProcess(
+            "dotnet", $"build \"{_build.ProjectPath}\" -warnaserror", timeoutMinutes: 5);
+
+        (exited && exitCode == 0).ShouldBeTrue(
+            $"Build failed or timed out.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        stdout.ShouldNotContain(" warning ", Case.Insensitive,
+            $"Build produced warnings:\n{stdout}");
     }
 
     [Fact]

@@ -74,7 +74,7 @@ public sealed class BrowserTerminalInputTests
     public void FooterOccupiesTheOnlyVisibleRowAndClipsHorizontally()
     {
         using var writer = new StringWriter();
-        BrowserTerminalFrame.Paint(writer, ["content"], 0, 4, 1, "header", "status");
+        BrowserTerminalFrame.Paint(writer, ["content"], 0, 4, 1, new("header", "context", "notice", "status"));
         writer.ToString().ShouldContain("\x1b[1;1H");
         writer.ToString().ShouldContain("stat");
         writer.ToString().ShouldNotContain("header");

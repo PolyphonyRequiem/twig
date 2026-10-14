@@ -80,8 +80,8 @@ internal sealed partial class BrowserUnixTerminal : IBrowserTerminal
         return _parser.TryRead(out input);
     }
 
-    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, string header, string status)
-        => BrowserTerminalFrame.Paint(_output, rows, top, width, height, header, status);
+    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, BrowserChrome chrome)
+        => BrowserTerminalFrame.Paint(_output, rows, top, width, height, chrome);
 
     public unsafe void Dispose()
     {

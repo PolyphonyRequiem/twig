@@ -375,21 +375,31 @@ internal sealed class PromptStateWriter : IPromptStateWriter
 }
 
 /// <summary>
-/// Reads the current git branch from <c>.git/HEAD</c> via file I/O (no subprocess).
-/// Used by <see cref="PromptStateWriter"/> to populate the <c>branch</c> field in <c>prompt.json</c>.
+/// Reads the current Git branch from ordinary or linked-worktree HEAD via file I/O (no subprocess).
+/// Shared by prompt, Show and retained browser context observations.
 /// </summary>
 internal static class GitBranchReader
 {
     private const string RefPrefix = "ref: refs/heads/";
 
     /// <summary>
-    /// Returns the current branch name, or null for detached HEAD, missing <c>.git/</c>, or I/O errors.
+    /// Returns the current branch name, or null for detached HEAD, missing Git metadata, or I/O errors.
     /// </summary>
     internal static string? GetCurrentBranch(string workingDirectory)
     {
         try
         {
-            var headPath = Path.Combine(workingDirectory, ".git", "HEAD");
+            var gitDirectory = Path.Combine(workingDirectory, ".git");
+            if (File.Exists(gitDirectory))
+            {
+                var pointer = File.ReadAllText(gitDirectory).Trim();
+                const string prefix = "gitdir:";
+                if (!pointer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+                var target = pointer[prefix.Length..].Trim();
+                if (target.Length == 0) return null;
+                gitDirectory = Path.GetFullPath(target, workingDirectory);
+            }
+            var headPath = Path.Combine(gitDirectory, "HEAD");
             if (!File.Exists(headPath))
                 return null;
 
@@ -405,6 +415,10 @@ internal static class GitBranchReader
             return null;
         }
         catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
         {
             return null;
         }

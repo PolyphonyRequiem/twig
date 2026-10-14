@@ -65,8 +65,9 @@ summary line; ordinary `twig show` retains its existing presentation.
 Resizing retained detail keeps its reading position within the native field or HTML
 section, including literal diagrams, rather than retaining a rendered row number.
 Near the end, widening may leave blank rows below the retained content; **End** still
-selects the normal last full page. Wheel and Page keys scroll that surface, while
-arrows/j/k continue to select Bench items. Private rendering source markers are
+selects the normal last full page. While detail is expanded, arrows/j/k, wheel and
+Page keys scroll physical content rows, including the middle of long items. When
+collapsed, arrows/j/k select Bench items. Private rendering source markers are
 removed before painting and are not part of public CLI ANSI output.
 
 In the browser, **S** explicitly pulls only the captured positive item and its links;
@@ -89,24 +90,37 @@ not a Go UI or read subprocess. On Windows/Linux, canonical `twig tui`, `twig-tu
 and `twig-bench-tui` enter this same application with the same options. macOS
 `twig tui` and its Terminal.Gui companion remain unchanged.
 
-- **Browse:** 1 Tree, 2 Table, arrows/j/k select locally; Left/Right/Space fold;
+- **Browse:** 1 Tree, 2 Table; arrows/j/k select locally. Left folds or selects the
+  parent; Right unfolds or selects the first child; Space toggles a fold. Tree
+  connectors, disclosures and a `›` selection marker remain visible without color.
   Enter opens or closes full inline Show beneath all wrapped lines of the item.
   Mouse disclosure/click/double-click and wheel use the same continuous surface.
-  Page/Home/End scroll; resize reflows retained data. Selection never calls `twig set`.
+  Page/Home/End scroll; resize reflows retained data. View switches keep a renderable
+  selection visible. Selection never calls `twig set`. The native 1 Tree / 2 Table
+  mapping is unchanged; it differs from the original Go browser's digit mapping.
 - **Read:** R is cache-only. S explicitly pulls the captured positive item and links,
   never pushes pending work or fetches unrelated targets. Seed S refuses. Retryable
   native checkout-lease or registry contention retains cached content without admitting
   a read or write; retry after release rechecks the captured origin. Confirmed authority
   changes clear visible/hidden state and stop operations until explicit Ctrl+R reconnect
   creates a fresh native runtime. Other retryable same-origin failures retain content too.
-- **Configure:** c opens Pins/Areas/Sprints/Benches; digits or Tab select a section.
-  Pins use independent p/P Single/Subtree toggles; a/A accepts manual IDs, including
-  uncached IDs shown as unverified. Areas use a/d, x Exact/u Under, and an explicit t
+  Lowercase **s** is separate: it explicitly pulls the captured Bench's selectors
+  and permitted relationship context through the same native operation as
+  `twig workspace sync`. It protects pending work, skips seed publication and
+  rechecks the captured Bench/origin before publishing the result. No navigation,
+  configuration entry or repaint implicitly runs either sync action.
+- **Configure:** b or c opens Pins/Areas/Sprints/Benches. Tab/Shift+Tab or digits
+  choose a section; arrows select sections until Enter/Right focuses entries;
+  Left returns to sections. Pins use independent p/P Single/Subtree toggles;
+  i/I or a/A opens a visible manual-ID field, including uncached IDs shown as
+  unverified. Areas use a/d, x Exact/u Under, and an explicit t
   configured-team candidate read. Sprints use a/d and native expressions. Benches use
   n create, Enter switch, and d guarded delete; Default is protected and stale contents
   require a new confirmation. Nonempty deletion lists preserve selector kinds, so
   Single (`Item`) and Subtree pins for the same ID remain distinct review consequences.
-  These operations preserve pending work.
+  These operations preserve pending work. Creating a Bench highlights it without
+  switching. Esc cancels a form first, then restores the previous Bench selection,
+  folds and reading viewport when leaving configuration.
 - **Edit:** E opens the served document, including server header controls before pages.
   Typing is limited by the shared local sink (Title/State/Assigned To), not server
   read-only metadata. Enter edits; Tab accepts/moves; Ctrl+S stages one local batch.
@@ -122,10 +136,24 @@ and `twig-bench-tui` enter this same application with the same options. macOS
   remain read-only. Original digest/file/journal origin are rechecked; a changed
   proposal clears old content rather than silently substituting a replacement.
 
-The footer stays on the last visible row and clips horizontally. q quits when no
-unsaved buffer needs a decision. Modes, inherited code pages and POSIX termios are
-restored on exit. Native terminal code targets win-x64/linux-x64/osx-arm64; source or
-an unsigned smoke build is not signed installed-platform qualification.
+The header identifies the captured connection, team, Bench and user; the context
+row identifies the view, worktree and admitted branch. Clickable view buttons use
+the same key path. Narrow panes abbreviate labels with an ellipsis and use compact
+view buttons; **?** opens scrollable help with complete captured context and all
+gesture/configuration guidance. Esc returns to the same Bench viewport.
+
+Runtime process appearance and user overrides supply work-item badges/type colors;
+state categories supply redundant state badges. Selection and chrome own their
+backgrounds, and configuration has a distinct surface. `NO_COLOR` or `TERM=dumb`
+removes styling without removing the selection marker or gesture labels.
+
+The footer stays on the last visible row, with a separate notice row above it.
+Named, fully visible action buttons are mouse-clickable; clipped controls cannot
+execute hidden actions. Pin/Unpin reflects cached explicit Single/Subtree pins,
+not inherited membership. q quits from the Bench when no unsaved buffer needs a
+decision. Modes, inherited code pages and POSIX termios are restored on exit.
+Native terminal code targets win-x64/linux-x64/osx-arm64; source or an unsigned
+smoke build is not signed installed-platform qualification or owner baseline acceptance.
 
 Wrapping keeps extended graphemes intact. Windows budgets their per-rune console-cell
 advances and reflows overflowing native Show/Review ANSI rows before viewport clipping,

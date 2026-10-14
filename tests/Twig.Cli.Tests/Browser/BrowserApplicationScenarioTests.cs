@@ -75,17 +75,37 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             scrolledRestored.Rows.ShouldBe(scrolled.Rows);
             scrolledRestored.Top.ShouldBe(scrolled.Top);
             scrolledRestored.VisibleRows.ShouldBe(scrolled.VisibleRows);
+            ClickFooter(terminal, scrolledRestored, "[b Bench]");
+            var configuration = await terminal.ReadUntilAsync(paint => paint.Context.Contains("BENCH CONFIGURATION", StringComparison.Ordinal), deadline.Token);
+            configuration.Content.ShouldContain("[1 Pins]");
+            configuration.Content.ShouldContain("[2 Areas]");
+            configuration.Content.ShouldContain("[3 Sprints]");
+            configuration.Content.ShouldContain("[4 Benches]");
+            ClickFooter(terminal, configuration, "[i ID]");
+            var manualPin = await terminal.ReadUntilAsync(paint => paint.Status.Contains("[Esc Cancel]", StringComparison.Ordinal), deadline.Token);
+            string.Join("\n", manualPin.VisibleRows).ShouldContain("> ▏");
+            terminal.Enqueue(Character('9'), Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(paint => paint.Sequence > manualPin.Sequence && !paint.Status.Contains("[Esc Cancel]", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            var configurationRestored = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            configurationRestored.Rows.ShouldBe(scrolled.Rows);
+            configurationRestored.Top.ShouldBe(scrolled.Top);
+            terminal.Enqueue(Character('c'));
+            await terminal.ReadUntilAsync(paint => paint.Context.Contains("BENCH CONFIGURATION", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            var aliasRestored = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            aliasRestored.Top.ShouldBe(scrolled.Top);
             terminal.Resize(100, 120);
             await terminal.ReadUntilAsync(paint => paint.Height == 120 && !paint.Working, deadline.Token);
             terminal.Enqueue(Key(BrowserKey.Tab));
-            var table = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Header.Contains("TABLE", StringComparison.Ordinal), deadline.Token);
+            var table = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.Contains("TABLE", StringComparison.Ordinal), deadline.Token);
             table.Content.ShouldContain("TYPE");
             table.Content.ShouldContain("Child cached item");
             terminal.Enqueue(Character('1'));
-            var again = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Header.Contains("TREE", StringComparison.Ordinal), deadline.Token);
+            var again = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.Contains("TREE", StringComparison.Ordinal), deadline.Token);
             again.Rows.ShouldBe(folded.Rows);
             terminal.Enqueue(Character('2'));
-            await terminal.ReadUntilAsync(paint => !paint.Working && paint.Header.Contains("TABLE", StringComparison.Ordinal), deadline.Token);
+            await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.Contains("TABLE", StringComparison.Ordinal), deadline.Token);
             (await CaptureStoredRowsAsync(observer)).ShouldBe(original);
 
             terminal.Enqueue(Key(BrowserKey.Enter));
@@ -103,6 +123,107 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             terminal.Enqueue(Character('q'));
             (await running.WaitAsync(deadline.Token)).ShouldBe(0);
             (await CaptureStoredRowsAsync(observer)).ShouldBe(refreshedBaseline);
+            _fixture.Transport.RequestedItems.ShouldBeEmpty();
+            _fixture.Transport.Mutations.ShouldBe(0);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.EndOfInput));
+            await running.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [HostMigrationFact]
+    public async Task ViewSwitchKeepsSelectedItemVisibleAfterLongWrappedPredecessor()
+    {
+        var observer = await PopulateAsync();
+        await observer.GetRequiredService<IWorkItemRepository>().SaveAsync(NativeBrowserFixture.Item(20, new string('x', 800)));
+        var benches = observer.GetRequiredService<IBenchRepository>();
+        await benches.AddSelectorAsync((await benches.GetCurrentAsync())!.Id, BenchSelector.ForItem(20));
+        var baseline = await CaptureStoredRowsAsync(observer);
+        var application = Application();
+        using var terminal = new ScriptedBrowserTerminal(100, 10);
+        using var lifetime = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = application.RunAsync(terminal, _fixture.Paths.StartDir!, ct: lifetime.Token);
+        try
+        {
+            await ReadyAsync(terminal, "Selected cached item", deadline.Token);
+            terminal.Enqueue(Character('j'));
+            await terminal.ReadUntilAsync(paint => !paint.Working && paint.VisibleRows.Any(row => row.Contains("#42", StringComparison.Ordinal)), deadline.Token);
+
+            terminal.Enqueue(Key(BrowserKey.Tab));
+            var table = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.StartsWith("TABLE", StringComparison.Ordinal), deadline.Token);
+
+            string.Join("\n", table.VisibleRows).ShouldContain("#42");
+            (await CaptureStoredRowsAsync(observer)).ShouldBe(baseline);
+            _fixture.Transport.RequestedItems.ShouldBeEmpty();
+            _fixture.Transport.Mutations.ShouldBe(0);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.EndOfInput));
+            await running.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [HostMigrationFact]
+    public async Task HierarchyArrowsAndVisibleFooterActionsPreserveIndependentPinsAndHelpViewport()
+    {
+        var observer = await PopulateAsync();
+        var benches = observer.GetRequiredService<IBenchRepository>();
+        var bench = (await benches.GetCurrentAsync())!;
+        var pending = await CaptureStoredRowsAsync(observer, durableOnly: true);
+        var application = Application();
+        using var terminal = new ScriptedBrowserTerminal(140, 14);
+        using var lifetime = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = application.RunAsync(terminal, _fixture.Paths.StartDir!, ct: lifetime.Token);
+        try
+        {
+            await ReadyAsync(terminal, "Selected cached item", deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Right));
+            var child = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Status.Contains("[P Pin subtree]", StringComparison.Ordinal), deadline.Token);
+            ClickFooter(terminal, child, "[? Help]");
+            await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("BROWSER HELP", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.End));
+            await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("BROWSER HELP", StringComparison.Ordinal) && paint.Top > 0, deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            var helpRestored = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            helpRestored.Rows.ShouldBe(child.Rows);
+            helpRestored.Top.ShouldBe(child.Top);
+            ClickContext(terminal, helpRestored, "[2 Table]");
+            var table = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TABLE", StringComparison.Ordinal), deadline.Token);
+            ClickContext(terminal, table, "[1 Tree]");
+            var tree = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            tree.Rows.ShouldBe(child.Rows);
+            ClickFooter(terminal, tree, "[p Pin single]");
+            var pinned = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Status.Contains("[p Unpin single]", StringComparison.Ordinal), deadline.Token);
+            var selectors = (await benches.GetByNameAsync(bench.Name))!.Selectors;
+            selectors.ShouldContain(BenchSelector.ForItem(43));
+            selectors.ShouldContain(BenchSelector.ForSubtree(42));
+            ClickFooter(terminal, pinned, "[p Unpin single]");
+            await terminal.ReadUntilAsync(paint => !paint.Working && paint.Status.Contains("[p Pin single]", StringComparison.Ordinal), deadline.Token);
+            selectors = (await benches.GetByNameAsync(bench.Name))!.Selectors;
+            selectors.ShouldNotContain(BenchSelector.ForItem(43));
+            selectors.ShouldContain(BenchSelector.ForSubtree(42));
+            terminal.Enqueue(Key(BrowserKey.Enter));
+            await ReadyAsync(terminal, "DETAIL43-NEWER", deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(paint => !paint.Content.Contains("DETAIL43-NEWER", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Left), Key(BrowserKey.Enter));
+            await ReadyAsync(terminal, "DETAIL42-ORIGINAL", deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(paint => !paint.Content.Contains("DETAIL42-ORIGINAL", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Left));
+            await terminal.ReadUntilAsync(paint => !paint.Content.Contains("Child cached item", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Right));
+            await ReadyAsync(terminal, "Child cached item", deadline.Token);
+            (await CaptureStoredRowsAsync(observer, durableOnly: true)).ShouldBe(pending);
+            terminal.Enqueue(Character('q'));
+            (await running.WaitAsync(deadline.Token)).ShouldBe(0);
             _fixture.Transport.RequestedItems.ShouldBeEmpty();
             _fixture.Transport.Mutations.ShouldBe(0);
         }
@@ -145,7 +266,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
                     if (visible.Contains(marker, StringComparison.Ordinal)) visited.Add(marker);
             }
             Observe(paint);
-            while (paint.Top < Math.Max(0, paint.Rows.Count - (paint.Height - 2)))
+            while (paint.Top < Math.Max(0, paint.Rows.Count - BrowserTerminalFrame.ContentHeight(paint.Height)))
             {
                 var prior = paint;
                 terminal.Enqueue(Key(BrowserKey.Down));
@@ -301,7 +422,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             status.Generation.ShouldBeGreaterThan(originalGeneration);
             var changedView = await application.DispatchAsync(new("view", "table"), deadline.Token);
             changedView.RequiresReconnect.ShouldBeTrue();
-            var unavailableTable = await terminal.ReadUntilAsync(paint => paint.Header.Contains("TABLE", StringComparison.Ordinal) && paint.Status.StartsWith("STOPPED", StringComparison.Ordinal), deadline.Token);
+            var unavailableTable = await terminal.ReadUntilAsync(paint => paint.Context.Contains("TABLE", StringComparison.Ordinal) && paint.Status.StartsWith("STOPPED", StringComparison.Ordinal), deadline.Token);
             unavailableTable.Content.ShouldNotContain("Selected cached item");
             (await CaptureStoredRowsAsync(observer)).ShouldBe(changedBaseline);
 
@@ -359,6 +480,20 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
     private static BrowserInput Key(BrowserKey key) => new(BrowserInputKind.Key, key);
     private static BrowserInput Character(char character, BrowserModifiers modifiers = BrowserModifiers.None)
         => new(BrowserInputKind.Key, Character: character, Modifiers: modifiers);
+    private static void ClickFooter(ScriptedBrowserTerminal terminal, BrowserPaint paint, string label)
+    {
+        var start = paint.Status.IndexOf(label, StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0);
+        (start + label.Length).ShouldBeLessThanOrEqualTo(paint.Width);
+        terminal.Enqueue(new BrowserInput(BrowserInputKind.Mouse, X: start + 1, Y: paint.Height - 1, ButtonDown: true));
+    }
+    private static void ClickContext(ScriptedBrowserTerminal terminal, BrowserPaint paint, string label)
+    {
+        var start = paint.Context.IndexOf(label, StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0);
+        (start + label.Length).ShouldBeLessThanOrEqualTo(paint.Width);
+        terminal.Enqueue(new BrowserInput(BrowserInputKind.Mouse, X: start + 1, Y: 1, ButtonDown: true));
+    }
     private static Task<BrowserPaint> ReadyAsync(ScriptedBrowserTerminal terminal, string content, CancellationToken ct)
         => terminal.ReadUntilAsync(paint => !paint.Working && paint.Content.Contains(content, StringComparison.Ordinal), ct);
 

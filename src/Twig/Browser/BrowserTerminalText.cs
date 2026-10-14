@@ -203,6 +203,18 @@ internal static class BrowserTerminalText
         rows.Add(row.ToString());
     }
 
+    internal static string PlainText(string text)
+    {
+        if (!text.Contains('\x1b')) return text;
+        var result = new StringBuilder(text.Length);
+        for (var i = 0; i < text.Length;)
+        {
+            if (text[i] == '\x1b') i = EscapeEnd(text, i);
+            else result.Append(text[i++]);
+        }
+        return result.ToString();
+    }
+
     internal static string Clip(string text, int width)
     {
         var result = new StringBuilder();

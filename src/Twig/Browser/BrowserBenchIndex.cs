@@ -20,9 +20,31 @@ internal sealed class BrowserBenchIndex
     }
 
     internal bool HasChildren(int id) => _children.ContainsKey(id);
+    internal int? Parent(int id) => _byId.TryGetValue(id, out var item) && item.ParentId is { } parent && parent != id && _byId.ContainsKey(parent) ? parent : null;
+    internal int? FirstChild(int id) => _children.TryGetValue(id, out var children) ? children.FirstOrDefault(child => child.Id != id)?.Id : null;
+
+    internal string Prefix(int id, int width, IReadOnlySet<int> folded)
+    {
+        var ancestry = new List<BrowserBenchItem>();
+        var seen = new HashSet<int> { id };
+        if (!_byId.TryGetValue(id, out var current)) return "  ";
+        while (current.ParentId is { } parent && seen.Add(parent) && _byId.TryGetValue(parent, out var ancestor))
+        { ancestry.Add(current); current = ancestor; }
+        ancestry.Reverse();
+        var depth = Math.Min(ancestry.Count, Math.Max(0, (width - 12) / 2));
+        var prefix = new System.Text.StringBuilder(depth * 2 + 2);
+        for (var i = 0; i < depth; i++)
+        {
+            var node = ancestry[i];
+            var last = node.ParentId is not { } parent || !_children.TryGetValue(parent, out var siblings) || siblings[^1].Id == node.Id;
+            prefix.Append(i == depth - 1 ? last ? "└─" : "├─" : last ? "  " : "│ ");
+        }
+        prefix.Append(HasChildren(id) ? folded.Contains(id) ? "▸ " : "▾ " : "  ");
+        return prefix.ToString();
+    }
     internal int Depth(int id, int width)
     {
-        var seen = new HashSet<int>(); var depth = 0;
+        var seen = new HashSet<int> { id }; var depth = 0;
         if (!_byId.TryGetValue(id, out var current)) return 0;
         while (current.ParentId is { } parent && seen.Add(parent) && _byId.TryGetValue(parent, out current)) depth++;
         return Math.Min(depth, Math.Max(0, (width - 12) / 2));

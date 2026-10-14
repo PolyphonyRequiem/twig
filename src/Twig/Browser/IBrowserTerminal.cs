@@ -4,7 +4,7 @@ internal interface IBrowserTerminal : IDisposable
 {
     (int Width, int Height) Geometry();
     bool TryRead(out BrowserInput input);
-    void Paint(IReadOnlyList<string> rows, int top, int width, int height, string header, string status);
+    void Paint(IReadOnlyList<string> rows, int top, int width, int height, BrowserChrome chrome);
 }
 
 internal enum BrowserInputKind { Key, Mouse, EndOfInput }

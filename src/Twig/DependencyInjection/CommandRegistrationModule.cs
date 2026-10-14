@@ -106,6 +106,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<BenchSyncCommand>();
+        services.AddSingleton<BenchSyncOperation>();
         services.AddSingleton<BenchConfigurationCommand>();
         services.AddSingleton<BrowserOperationModule>();
         services.AddSingleton<BrowserBenchModule>();

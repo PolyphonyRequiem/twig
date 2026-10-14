@@ -70,8 +70,15 @@ No positional arguments. All native options below are Windows/Linux options for
   restoring them on exit. The interactive entry requires a real terminal; redirected
   input/output is not a headless UI mode.
 - Tree and Table browse admitted native data; selection does not change CLI context.
+  Runtime badges/type colors, hierarchy connectors, owned chrome and selected-row
+  backgrounds restore the browser presentation. Header/footer actions share guarded
+  key/mouse dispatch; **?** exposes full captured context and scrollable guidance.
   R reads cache only. S explicitly pulls the captured positive item and links,
   never flushes pending edits or fetches unrelated targets. Seed S refuses.
+  Lowercase s separately pulls the captured Bench's selectors and permitted context
+  through the native workspace-sync operation, preserving protected pending work.
+  View switches keep selection visible; Help/configuration exit restores the Bench
+  reading viewport, and expanded arrows/j/k scroll physical content rows.
 - Editing stages local pending changes through the shared native sink. No browser
   action publishes pending work. Review is read-only: opening a proposal does not
   authorize, apply or replace its digest, file or journal origin.

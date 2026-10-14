@@ -34,8 +34,8 @@ internal sealed class ScriptedBrowserTerminal : IBrowserTerminal
 
     public bool TryRead(out BrowserInput input) => _input.TryDequeue(out input);
 
-    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, string header, string status)
-        => _paints.Writer.TryWrite(new(++_sequence, rows.ToArray(), top, width, height, header, status));
+    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, BrowserChrome chrome)
+        => _paints.Writer.TryWrite(new(++_sequence, rows.ToArray(), top, width, height, chrome));
 
     internal async Task<BrowserPaint> ReadUntilAsync(Func<BrowserPaint, bool> predicate, CancellationToken ct)
     {
@@ -50,10 +50,13 @@ internal sealed class ScriptedBrowserTerminal : IBrowserTerminal
     public void Dispose() => _paints.Writer.TryComplete();
 }
 
-internal sealed record BrowserPaint(long Sequence, IReadOnlyList<string> Rows, int Top, int Width, int Height,
-    string Header, string Status)
+internal sealed record BrowserPaint(long Sequence, IReadOnlyList<string> Rows, int Top, int Width, int Height, BrowserChrome Chrome)
 {
+    internal string Header => Chrome.Header;
+    internal string Context => Chrome.Context;
+    internal string Status => Chrome.Footer;
+    internal string Notice => Chrome.Notice;
     internal string Content => string.Join("\n", Rows);
-    internal IReadOnlyList<string> VisibleRows => Rows.Skip(Top).Take(Math.Max(0, Height - 2)).ToArray();
+    internal IReadOnlyList<string> VisibleRows => Rows.Skip(Top).Take(BrowserTerminalFrame.ContentHeight(Height)).ToArray();
     internal bool Working => Header.Contains("◌ working", StringComparison.Ordinal);
 }

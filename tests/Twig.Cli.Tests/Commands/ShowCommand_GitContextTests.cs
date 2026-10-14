@@ -135,6 +135,31 @@ public sealed class ShowCommand_GitContextTests : IDisposable
         output.ShouldContain("\"linkedPullRequests\": []");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Show_WithLinkedWorktree_IncludesItsBranchRatherThanMainRepositoryBranch(bool relativePointer)
+    {
+        var repoDir = CreateGitRepo("main");
+        var worktree = Path.Combine(_tempDir, "linked-worktree");
+        var metadata = Path.Combine(repoDir, ".git", "worktrees", "linked-worktree");
+        Directory.CreateDirectory(worktree);
+        Directory.CreateDirectory(metadata);
+        await File.WriteAllTextAsync(Path.Combine(metadata, "HEAD"), "ref: refs/heads/feature/linked-browser\n");
+        var pointer = relativePointer ? Path.GetRelativePath(worktree, metadata) : metadata;
+        await File.WriteAllTextAsync(Path.Combine(worktree, ".git"), "gitdir: " + pointer + "\n");
+        var twigDir = Path.Combine(worktree, ".twig");
+        Directory.CreateDirectory(twigDir);
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+        SetupCachedItem(new WorkItemBuilder(42, "Linked worktree item").Build());
+
+        var command = CreateCommand(paths: paths, gitService: null);
+        var output = await CaptureStdout(() => command.ExecuteAsync(42, "json"));
+
+        output.ShouldContain("\"currentBranch\": \"feature/linked-browser\"");
+        output.ShouldNotContain("\"currentBranch\": \"main\"");
+    }
+
     [Fact]
     public async Task Show_WithGitRepo_IncludesBranchInHumanOutput()
     {

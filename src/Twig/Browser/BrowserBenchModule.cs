@@ -5,6 +5,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Rendering;
 
@@ -16,14 +17,14 @@ internal sealed record BrowserBenchChoice(string Id, string Name, bool IsDefault
     IReadOnlyList<string> Contents);
 internal sealed record BrowserBenchObservation(BrowserCapture Capture, string SettingsDigest,
     IReadOnlyList<BrowserBenchItem> Items, IReadOnlyList<AreaPathFilter> Areas, IReadOnlyList<string> Sprints,
-    IReadOnlyList<BrowserBenchChoice> Benches, string Ownership);
+    IReadOnlyList<BrowserBenchChoice> Benches, string Ownership, SpectreTheme Theme, string Branch);
 internal sealed record BrowserBenchChange(string Message, BrowserBenchChoice? Confirmation = null, bool Changed = true,
     BrowserCapture? NextCapture = null);
 
 /// <summary>Immutable local memberships and native arrangement workflows. No active-item writes or presync.</summary>
 internal sealed class BrowserBenchModule(BrowserOperationModule operations, CurrentBenchResolver resolver,
     BenchEvaluator evaluator, IWorkItemRepository repository, IBenchRepository benches, DefaultBenchSelectors defaults,
-    BenchWorkflow workflow, PinWorkflow pins, IIterationService iterations)
+    BenchWorkflow workflow, PinWorkflow pins, IIterationService iterations, SpectreTheme theme, BenchSyncOperation sync)
 {
     internal Task<BrowserOperationResult<BrowserBenchObservation>> ReadAsync(BrowserCapture? captured = null, CancellationToken ct = default)
         => operations.ExecuteAsync(captured, async (capture, token) =>
@@ -59,7 +60,16 @@ internal sealed class BrowserBenchModule(BrowserOperationModule operations, Curr
                 items.Values.OrderBy(i => i.Id).ToArray(), rules.SelectMany(r => r.Areas).Distinct().ToArray(),
                 rules.SelectMany(r => r.Sprints).Select(s => s.Raw).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
                 (await benches.GetAllAsync(token)).Select(DescribeBench).ToArray(),
-                string.Join("; ", rules.Select(r => r.UniqueName ?? r.AssignedTo ?? "All assignees").Distinct()));
+                string.Join("; ", rules.Select(r => r.UniqueName ?? r.AssignedTo ?? "All assignees").Distinct()),
+                theme.Snapshot(), GitBranchReader.GetCurrentBranch(capture.Origin.WorktreeRoot) ?? "");
+        }, ct);
+
+    internal Task<BrowserOperationResult<BenchSyncCounts>> SyncAsync(BrowserCapture captured, CancellationToken ct = default)
+        => operations.ExecuteAsync(captured, async (capture, token) =>
+        {
+            var (effective, _) = await resolver.ResolveCapturedAsync(token, capture.BenchId);
+            await operations.EnsureCurrentAsync(capture, token);
+            return await sync.PullAsync(effective, token);
         }, ct);
 
     internal Task<BrowserOperationResult<IReadOnlyList<AreaPathFilter>>> ReadAreaCandidatesAsync(BrowserCapture capture, CancellationToken ct = default)

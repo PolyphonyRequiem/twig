@@ -114,8 +114,8 @@ internal sealed partial class BrowserWindowsTerminal : IBrowserTerminal
         ((state & 3) != 0 ? BrowserModifiers.Alt : 0) |
         ((state & 0x10) != 0 ? BrowserModifiers.Shift : 0);
 
-    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, string header, string status)
-        => BrowserTerminalFrame.Paint(Console.Out, rows, top, width, height, header, status);
+    public void Paint(IReadOnlyList<string> rows, int top, int width, int height, BrowserChrome chrome)
+        => BrowserTerminalFrame.Paint(Console.Out, rows, top, width, height, chrome);
 
     public void Dispose()
     {

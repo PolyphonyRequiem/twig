@@ -182,8 +182,9 @@ public sealed class BenchSyncCommandTests : RefreshCommandTestBase
             Stderr: new StringWriter());
         var command = new BenchSyncCommand(commandContext,
             new CurrentBenchResolver(_benches, new DefaultBenchSelectors(_iterationService)),
-            new BenchEvaluator(_workItemRepo, _calendar, _pendingChangeStore), _calendar, _iterationService,
-            _adoService, _workItemRepo, _protectedCacheWriter, _links, _authentication, _contextStore, _bindings, _paths, new RendererFactory());
+            new BenchSyncOperation(commandContext, new BenchEvaluator(_workItemRepo, _calendar, _pendingChangeStore),
+                _calendar, _iterationService, _adoService, _workItemRepo, _protectedCacheWriter, _links, _contextStore),
+            _workItemRepo, _authentication, _bindings, _paths, new RendererFactory());
         var original = Console.Out;
         using var output = new StringWriter();
         try

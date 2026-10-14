@@ -81,6 +81,26 @@ public sealed class BrowserBenchModuleTests : IAsyncLifetime
         _fixture.Transport.Mutations.ShouldBe(0);
     }
 
+    [HostMigrationFact]
+    public async Task BenchSyncRefusesChangedSelectorsBeforeAnyRemoteRead()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        var benches = runtime.GetRequiredService<IBenchRepository>();
+        var bench = (await benches.CreateAsync("captured sync"))!;
+        await benches.SetCurrentAsync(bench.Id);
+        await benches.AddSelectorAsync(bench.Id, BenchSelector.ForItem(42));
+        var module = runtime.GetRequiredService<BrowserBenchModule>();
+        var observed = Success(await module.ReadAsync());
+        await benches.AddSelectorAsync(bench.Id, BenchSelector.ForSubtree(99));
+
+        var refused = await module.SyncAsync(observed.Capture);
+
+        refused.Failure.ShouldNotBeNull().Kind.ShouldBe(BrowserReadFailureKind.AuthorityInvalidated);
+        _fixture.Transport.RequestedItems.ShouldBeEmpty();
+        _fixture.Transport.Mutations.ShouldBe(0);
+        (await benches.GetCurrentAsync())!.Selectors.ShouldContain(BenchSelector.ForSubtree(99));
+    }
+
     private static BrowserBenchObservation Success(BrowserOperationResult<BrowserBenchObservation> result)
     {
         result.Failure.ShouldBeNull();

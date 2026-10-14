@@ -199,6 +199,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             ClickContext(terminal, table, "[1 Tree]");
             var tree = await terminal.ReadUntilAsync(paint => paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
             tree.Rows.ShouldBe(child.Rows);
+            (await CaptureStoredRowsAsync(observer, durableOnly: true)).ShouldBe(pending);
             ClickFooter(terminal, tree, "[p Pin single]");
             var pinned = await terminal.ReadUntilAsync(paint => !paint.Working && paint.Status.Contains("[p Unpin single]", StringComparison.Ordinal), deadline.Token);
             var selectors = (await benches.GetByNameAsync(bench.Name))!.Selectors;
@@ -209,6 +210,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             selectors = (await benches.GetByNameAsync(bench.Name))!.Selectors;
             selectors.ShouldNotContain(BenchSelector.ForItem(43));
             selectors.ShouldContain(BenchSelector.ForSubtree(42));
+            selectors.ShouldBe(bench.Selectors);
             terminal.Enqueue(Key(BrowserKey.Enter));
             await ReadyAsync(terminal, "DETAIL43-NEWER", deadline.Token);
             terminal.Enqueue(Key(BrowserKey.Escape));
@@ -221,7 +223,11 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             await terminal.ReadUntilAsync(paint => !paint.Content.Contains("Child cached item", StringComparison.Ordinal), deadline.Token);
             terminal.Enqueue(Key(BrowserKey.Right));
             await ReadyAsync(terminal, "Child cached item", deadline.Token);
-            (await CaptureStoredRowsAsync(observer, durableOnly: true)).ShouldBe(pending);
+            // Pin/unpin intentionally advances this selector allocator; every other
+            // durable row, including selectors, pending work and other allocators, is conserved.
+            var selectorAllocator = "pending.sqlite_sequence:text:" + Convert.ToBase64String(Encoding.UTF8.GetBytes("bench_selectors")) + "|";
+            (await CaptureStoredRowsAsync(observer, durableOnly: true)).Where(row => !row.StartsWith(selectorAllocator, StringComparison.Ordinal))
+                .ShouldBe(pending.Where(row => !row.StartsWith(selectorAllocator, StringComparison.Ordinal)));
             terminal.Enqueue(Character('q'));
             (await running.WaitAsync(deadline.Token)).ShouldBe(0);
             _fixture.Transport.RequestedItems.ShouldBeEmpty();
@@ -431,7 +437,9 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             reconnected.Content.ShouldContain("Child cached item");
             reconnected.Content.ShouldNotContain("DETAIL42-ORIGINAL");
             (await application.DispatchAsync(new("status"), deadline.Token)).RequiresReconnect.ShouldBeFalse();
-            terminal.Enqueue(Key(BrowserKey.Down), Key(BrowserKey.Enter));
+            var childRow = Enumerable.Range(0, reconnected.VisibleRows.Count).First(index =>
+                BrowserTerminalText.PlainText(reconnected.VisibleRows[index]).TrimStart(' ', '›').StartsWith("#43 ", StringComparison.Ordinal));
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.Mouse, X: 20, Y: BrowserTerminalFrame.ContentStart(reconnected.Height) + childRow, ButtonDown: true), Key(BrowserKey.Enter));
             await ReadyAsync(terminal, "DETAIL43-NEWER", deadline.Token);
             terminal.Enqueue(Character('q'));
             (await running.WaitAsync(deadline.Token)).ShouldBe(0);

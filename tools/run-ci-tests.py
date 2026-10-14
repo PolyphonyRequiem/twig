@@ -26,6 +26,8 @@ ASSEMBLIES = ("Cli", "Domain", "Infrastructure", "RenderTree", "Tui")
 HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.ConnectionBindingTransitionConsumerTests",
     "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
+    "Twig.Cli.Tests.Commands.SeedLifecycleIntegrationTests",
+    "Twig.Cli.Tests.Browser.BrowserApplicationScenarioTests",
     "Twig.Cli.Tests.Browser.BrowserBenchModuleTests",
     "Twig.Cli.Tests.Browser.BrowserEditingModuleTests",
     "Twig.Cli.Tests.Browser.BrowserReadModuleTests",

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Shouldly;
 using Xunit;
 
@@ -167,6 +168,26 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
     }
 
     [Fact]
+    public void AotPublish_WhenProjectIsMissing_RejectsFailedPublishWithoutBinary()
+    {
+        // A real MSBuild publication failure, independent of native toolchain availability.
+        // Both this counterexample and the binary smoke cross the same publish boundary.
+        var directory = Path.Combine(Path.GetTempPath(), $"twig-aot-missing-{Guid.NewGuid():N}");
+        var projectPath = Path.Combine(directory, "missing.csproj");
+        try
+        {
+            File.Exists(projectPath).ShouldBeFalse();
+            Should.Throw<ShouldAssertException>(() =>
+                PublishAot(projectPath, Path.Combine(directory, "publish"), timeoutMinutes: 1));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DotnetBuild_ProducesZeroWarnings()
     {
         var (stdout, stderr, exitCode, exited) = BuildFixture.RunProcess(
@@ -178,42 +199,13 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
             $"Build produced warnings:\n{stdout}");
     }
 
-    [Fact]
+    [NativeAotFact]
     [Trait("Category", "AOT")]
     public void AotPublish_ProducesWorkingBinaryUnder30MB()
     {
-        var rid = RuntimeInformation.RuntimeIdentifier;
         var publishDir = Path.Combine(_build.RepoRoot, "artifacts", "aot-smoke");
 
-        if (Directory.Exists(publishDir))
-            Directory.Delete(publishDir, recursive: true);
-
-        var (stdout, stderr, exitCode, exited) = BuildFixture.RunProcess(
-            "dotnet",
-            $"publish \"{_build.ProjectPath}\" -r {rid} -c Release -o \"{publishDir}\" /p:PublishAot=true",
-            timeoutMinutes: 10);
-
-        exited.ShouldBeTrue("AOT publish timed out after 10 minutes");
-
-        // If the native toolchain is missing, skip gracefully rather than failing.
-        // Check for absence of the output binary as the most reliable signal,
-        // supplemented by known error strings for diagnostics.
-        var binaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "twig.exe" : "twig";
-        var binaryPath = Path.Combine(publishDir, binaryName);
-
-        if (exitCode != 0 && !File.Exists(binaryPath))
-        {
-            // MSVC C++ build tools or platform linker not available — skip gracefully
-            return;
-        }
-
-        exitCode.ShouldBe(0, $"AOT publish failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
-
-        // ILC/MSBuild may emit AOT warnings (IL2xxx, IL3xxx) to either stream
-        stdout.ShouldNotContain("AOT analysis warning");
-        stderr.ShouldNotContain("AOT analysis warning");
-
-        File.Exists(binaryPath).ShouldBeTrue($"AOT binary not found at {binaryPath}");
+        var binaryPath = PublishAot(_build.ProjectPath, publishDir);
 
         var binarySize = new FileInfo(binaryPath).Length;
         var binarySizeMb = binarySize / (1024.0 * 1024.0);
@@ -227,5 +219,113 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
         smokeExitCode.ShouldBe(0, $"AOT binary --version command failed with stderr: {smokeStderr}");
         System.Text.RegularExpressions.Regex.IsMatch(smokeStdout.Trim(), @"^\d+\.\d+\.\d+(-[\w.]+)?$")
             .ShouldBeTrue($"Expected a valid SemVer version but got: '{smokeStdout.Trim()}'");
+    }
+
+    private static string PublishAot(string projectPath, string publishDirectory, int timeoutMinutes = 10)
+    {
+        if (Directory.Exists(publishDirectory))
+            Directory.Delete(publishDirectory, recursive: true);
+
+        var result = BuildFixture.RunProcess(
+            "dotnet",
+            $"publish \"{projectPath}\" -r {RuntimeInformation.RuntimeIdentifier} -c Release -o \"{publishDirectory}\" /p:PublishAot=true -warnaserror",
+            timeoutMinutes);
+        var binaryPath = Path.Combine(publishDirectory, OperatingSystem.IsWindows() ? "twig.exe" : "twig");
+        var diagnostics = $"stdout:\n{result.Stdout}\nstderr:\n{result.Stderr}";
+        result.Exited.ShouldBeTrue($"AOT publish timed out.\n{diagnostics}");
+        result.ExitCode.ShouldBe(0, $"AOT publish failed.\n{diagnostics}");
+
+        // Compile, source-generation, trim and AOT diagnostics may use either stream.
+        result.Stdout.ShouldNotContain(" warning ", Case.Insensitive, diagnostics);
+        result.Stderr.ShouldNotContain(" warning ", Case.Insensitive, diagnostics);
+        File.Exists(binaryPath).ShouldBeTrue($"AOT binary not found at {binaryPath}.\n{diagnostics}");
+        return binaryPath;
+    }
+
+    // xUnit v2 reports FactAttribute.Skip as an actual skipped case. Its runtime
+    // SkipException is only supported by v3+, so capability is established at discovery.
+    private sealed class NativeAotFactAttribute : FactAttribute
+    {
+        public NativeAotFactAttribute()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                if (string.Equals(Environment.GetEnvironmentVariable("IlcUseEnvironmentalTools"), "true",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!IsOnPath("link.exe"))
+                        Skip = "NativeAOT toolchain unavailable: IlcUseEnvironmentalTools=true but link.exe is absent from PATH.";
+                    return;
+                }
+
+                // A preconfigured toolchain may be valid without the normal installer.
+                // Do not turn that uncertainty into a skip; let publish establish its verdict.
+                if (IsOnPath("link.exe"))
+                    return;
+
+                // Match the SDK's Windows lookup, including Build Tools and prerelease
+                // installations. A broken or incomplete probe fails instead of skipping.
+                var programFilesX86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
+                programFilesX86.ShouldNotBeNullOrWhiteSpace("NativeAOT SDK toolchain probe requires ProgramFiles(x86).");
+                var vswhere = Path.Combine(programFilesX86,
+                    "Microsoft Visual Studio", "Installer", "vswhere.exe");
+                if (!File.Exists(vswhere))
+                {
+                    Skip = $"NativeAOT toolchain unavailable: SDK prerequisite vswhere.exe is absent at '{vswhere}' and link.exe is absent from PATH.";
+                    return;
+                }
+
+                var toolsSuffix = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "ARM64" : "x86.x64";
+                var component = $"Microsoft.VisualStudio.Component.VC.Tools.{toolsSuffix}";
+                var result = BuildFixture.RunProcess(vswhere,
+                    $"-latest -prerelease -products * -requires {component} -format xml",
+                    timeoutMinutes: 1);
+                result.Exited.ShouldBeTrue("NativeAOT vswhere capability probe timed out.");
+                result.ExitCode.ShouldBe(0,
+                    $"NativeAOT vswhere capability probe failed.\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}");
+                result.Stderr.ShouldBeEmpty("NativeAOT vswhere capability probe produced unexpected diagnostics.");
+                // XML gives an explicit empty inventory; discarded/empty pipe output
+                // must not masquerade as a successful zero-installation response.
+                var inventory = XDocument.Parse(result.Stdout).Root;
+                inventory.ShouldNotBeNull("NativeAOT vswhere capability inventory has no root.");
+                inventory.Name.ShouldBe(XName.Get("instances"));
+                foreach (var instance in inventory.Elements())
+                    instance.Name.ShouldBe(XName.Get("instance"));
+                if (!inventory.Elements().Any())
+                {
+                    string.IsNullOrWhiteSpace(inventory.Value).ShouldBeTrue("NativeAOT vswhere capability inventory is invalid.");
+                    Skip = $"NativeAOT toolchain unavailable: vswhere successfully reported no Visual Studio installation with {component}, and link.exe is absent from PATH.";
+                }
+            }
+            else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                var configuredLinker = Environment.GetEnvironmentVariable("CppCompilerAndLinker");
+                if (!string.IsNullOrEmpty(configuredLinker))
+                {
+                    if (!IsOnPath(configuredLinker))
+                        Skip = $"NativeAOT toolchain unavailable: configured linker '{configuredLinker}' is absent from PATH.";
+                }
+                else if (!IsOnPath("clang") && (OperatingSystem.IsMacOS() || !IsOnPath("gcc")))
+                {
+                    Skip = OperatingSystem.IsMacOS()
+                        ? "NativeAOT toolchain unavailable: clang is absent from PATH."
+                        : "NativeAOT toolchain unavailable: both clang and the SDK's gcc fallback are absent from PATH.";
+                }
+            }
+        }
+
+        private static bool IsOnPath(string fileName)
+        {
+            if (Path.IsPathRooted(fileName) || fileName.Contains(Path.DirectorySeparatorChar)
+                || fileName.Contains(Path.AltDirectorySeparatorChar))
+                return File.Exists(fileName);
+
+            foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator))
+            {
+                if (File.Exists(Path.Combine(directory.Trim('"'), fileName)))
+                    return true;
+            }
+            return false;
+        }
     }
 }

@@ -71,7 +71,7 @@ internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRunti
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && Volatile.Read(ref interrupted) != 0) { return exit = 0; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
-        { CommandError.Write(renderers, Console.Error, output, ex.Message); return exit; }
+        { CommandError.Write(renderers, Console.Error, output, ex.Message); return exit = 1; }
         finally
         {
             telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>

@@ -90,7 +90,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         return new TwigPaths(paths.TwigDir, paths.ConfigPath, paths.DbPath, paths.StartDir, Path.Combine(Home, "display.json"));
     }
 
-    internal async Task<ServiceProvider> CreateRuntimeAsync()
+    internal async Task<ServiceProvider> CreateRuntimeAsync(Func<IFieldDefinitionStore, IFieldDefinitionStore>? fieldDefinitions = null)
     {
         var paths = CurrentPaths();
         var services = new ServiceCollection();
@@ -103,6 +103,9 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();
+        if (fieldDefinitions is not null)
+            services.AddSingleton<IFieldDefinitionStore>(sp => fieldDefinitions(
+                new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>())));
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         await runtime.GetRequiredService<IProcessTypeStore>().SaveAsync(new ProcessTypeRecord

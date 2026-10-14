@@ -1,7 +1,11 @@
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Twig.Cli.Tests.Browser;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Workspace;
@@ -19,10 +23,10 @@ using Xunit;
 namespace Twig.Cli.Tests.Commands;
 
 /// <summary>
-/// Integration tests verifying the full seed lifecycle:
-/// new → edit → view → discard.
-/// Each step uses mocked dependencies to catch cross-command regressions.
+/// Seed lifecycle coverage through native command runtimes and reopened file-backed stores,
+/// with isolated adapter cases for storage errors and publication command behavior.
 /// </summary>
+[Trait("Category", "HostInventory")]
 public class SeedLifecycleIntegrationTests : IDisposable
 {
     private readonly IContextStore _contextStore;
@@ -31,7 +35,6 @@ public class SeedLifecycleIntegrationTests : IDisposable
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
-    private readonly IConsoleInput _consoleInput;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemLinkRepository _workItemLinkRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
@@ -59,7 +62,6 @@ public class SeedLifecycleIntegrationTests : IDisposable
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
-        _consoleInput = Substitute.For<IConsoleInput>();
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
         _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
         _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
@@ -86,112 +88,224 @@ public class SeedLifecycleIntegrationTests : IDisposable
     public void Dispose() => Console.SetOut(_originalOut);
 
     /// <summary>
-    /// Happy-path lifecycle: create a seed, edit it, view the dashboard, then discard.
-    /// Verifies each command exits with 0 and that the repository is called correctly at each step.
+    /// Native create/edit/view/discard survives fresh runtimes without publishing;
+    /// cascade cleanup removes only the selected seed graph and its staged work.
     /// </summary>
-    [Fact]
-    public async Task FullSeedLifecycle_NewEditViewDiscard_AllSucceed()
+    [HostMigrationFact]
+    public async Task FullSeedLifecycle_NewEditViewDiscard_PersistsAcrossReopenedRuntimes()
     {
-        // ── Arrange shared ─────────────────────────────────────────────
-        var parent = new WorkItem
+        await using var fixture = new NativeBrowserFixture();
+        await fixture.InitializeAsync();
+        var mutationsBefore = fixture.Transport.Mutations;
+        WorkItem seed;
+        WorkItem child;
+        WorkItem retainedSeed;
+        WorkItem parent;
+        WorkItem unrelated;
+        SeedLink[] originalLinks;
+        var note = new PendingChangeRecord(0, "add_note", null, null, "Target staged note");
+        var childNote = new PendingChangeRecord(0, "add_note", null, null, "Child staged note");
+        var retainedEdit = new PendingChangeRecord(0, "set_field", "System.Title", "Keep this seed", "Unrelated staged title");
+        PendingChangeRecord[] unrelatedChanges = [new(42, "add_note", null, null, "Keep published-item note")];
+
+        using (var runtime = await fixture.CreateRuntimeAsync())
         {
-            Id = 100,
-            Type = WorkItemType.Feature,
-            Title = "Parent Feature",
-            State = "Active",
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-        };
+            var items = runtime.GetRequiredService<IWorkItemRepository>();
+            await items.SaveAsync(new WorkItemBuilder(100, "Parent item")
+                .WithIterationPath("Work\\Sprint 1").WithAreaPath("Work\\Area").Build());
+            await items.SaveAsync(new WorkItemBuilder(42, "Unrelated published item").Build());
+            parent = (await items.GetByIdAsync(100))!;
+            unrelated = (await items.GetByIdAsync(42))!;
+            await runtime.GetRequiredService<IFieldDefinitionStore>().SaveBatchAsync(
+                [.. DefaultFieldDefs, new("System.AssignedTo", "Assigned To", "String", false)]);
 
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(100);
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+            seed = await CreatePersistedSeedAsync(runtime, "My Lifecycle Seed", parent.Id);
+            child = await CreatePersistedSeedAsync(runtime, "Child seed", seed.Id);
+            retainedSeed = await CreatePersistedSeedAsync(runtime, "Keep this seed", parent.Id);
+            seed.StagedIdentity.ShouldNotBeNull();
+            child.StagedIdentity.ShouldNotBe(seed.StagedIdentity);
+            retainedSeed.StagedIdentity.ShouldNotBe(seed.StagedIdentity);
 
-        // ── Step 1: twig seed new ──────────────────────────────────────
-        var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
-        var stagedIdentityRegistry = new FakeStagedIdentityRegistry();
-        var seedNewCmd = new SeedNewCommand(
-            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
-            _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
-            new SeedFactory(), stagedIdentityRegistry, _seedLinkRepo, _iterationService);
+            var links = runtime.GetRequiredService<ISeedLinkRepository>();
+            await links.AddLinkAsync(new SeedLink(seed.Id, unrelated.Id, SeedLinkTypes.Related, DateTimeOffset.UtcNow));
+            await links.AddLinkAsync(new SeedLink(retainedSeed.Id, seed.Id, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow));
+            await links.AddLinkAsync(new SeedLink(retainedSeed.Id, unrelated.Id, SeedLinkTypes.Related, DateTimeOffset.UtcNow));
+            originalLinks = (await links.GetAllSeedLinksAsync()).ToArray();
+            note = note with { WorkItemId = seed.Id };
+            childNote = childNote with { WorkItemId = child.Id };
+            retainedEdit = retainedEdit with { WorkItemId = retainedSeed.Id };
+            var pending = runtime.GetRequiredService<IPendingChangeStore>();
+            foreach (var change in new[] { note, childNote, retainedEdit }.Concat(unrelatedChanges))
+                await pending.AddChangeAsync(change.WorkItemId, change.ChangeType, change.FieldName, change.OldValue, change.NewValue);
+            await runtime.GetRequiredService<IContextStore>().SetActiveWorkItemIdAsync(child.Id);
+        }
 
-        Console.SetOut(new StringWriter());
-        var newResult = await seedNewCmd.ExecuteAsync("My Lifecycle Seed");
-
-        newResult.ShouldBe(0);
-        await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed && w.Title == "My Lifecycle Seed"),
-            Arg.Any<CancellationToken>());
-
-        // Capture the saved seed to use in subsequent steps
-        var savedSeed = (WorkItem)_workItemRepo.ReceivedCalls()
-            .First(c => c.GetMethodInfo().Name == "SaveAsync")
-            .GetArguments()[0]!;
-
-        // ── Step 2: twig seed edit <id> ────────────────────────────────
-        _workItemRepo.GetByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>()).Returns(savedSeed);
-        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns("# Title\nUpdated Title\n\n# Description\nAdded description\n");
-
-        var seedEditCmd = new SeedEditCommand(
-            _workItemRepo, _fieldDefStore, _editorLauncher, _formatterFactory);
-
-        Console.SetOut(new StringWriter());
-        var editResult = await seedEditCmd.ExecuteAsync(savedSeed.Id);
-
-        editResult.ShouldBe(0);
-        await _workItemRepo.Received().SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id == savedSeed.Id && w.Title == "Updated Title"),
-            Arg.Any<CancellationToken>());
-
-        // ── Step 3: twig seed view ─────────────────────────────────────
-        var updatedSeed = new WorkItem
+        using (var runtime = await fixture.CreateRuntimeAsync())
         {
-            Id = savedSeed.Id,
-            Type = savedSeed.Type,
-            Title = "Updated Title",
-            State = savedSeed.State,
-            IsSeed = true,
-            IterationPath = savedSeed.IterationPath,
-            AreaPath = savedSeed.AreaPath,
-        };
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<WorkItem> { updatedSeed });
+            var items = runtime.GetRequiredService<IWorkItemRepository>();
+            AssertWorkItemUnchanged((await items.GetByIdAsync(seed.Id))!, seed);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(child.Id))!, child);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(retainedSeed.Id))!, retainedSeed);
+            var registry = runtime.GetRequiredService<IStagedIdentityRegistry>();
+            (await registry.FindAliasAsync(seed.StagedIdentity!.Value))!.Value.Value.ShouldBe(seed.Id);
+            (await runtime.GetRequiredService<ISeedLinkRepository>().GetAllSeedLinksAsync())
+                .ShouldBe(originalLinks, ignoreOrder: true);
+            (await runtime.GetRequiredService<IContextStore>().GetActiveWorkItemIdAsync()).ShouldBe(child.Id);
 
-        var renderingPipelineFactory = new RenderingPipelineFactory(
-            _formatterFactory,
-            Substitute.For<IAsyncRenderer>(),
-            isOutputRedirected: () => true);
+            _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns("# Title\nUpdated Title\n\n# Description\nAdded description\n");
+            var edit = ActivatorUtilities.CreateInstance<SeedEditCommand>(runtime, _editorLauncher);
+            var (exit, output) = await CaptureCommandAsync(() => edit.ExecuteAsync(seed.Id, "json"));
+            exit.ShouldBe(0);
+            using var result = JsonDocument.Parse(output);
+            result.RootElement.GetProperty("id").GetInt32().ShouldBe(seed.Id);
+            result.RootElement.GetProperty("title").GetString().ShouldBe("Updated Title");
+        }
 
-        var seedViewCmd = new SeedViewCommand(
-            _workItemRepo, _fieldDefStore,
-            Substitute.For<ISeedLinkRepository>(),
-            new TwigConfiguration(), renderingPipelineFactory, new RendererFactory());
+        using (var runtime = await fixture.CreateRuntimeAsync())
+        {
+            var items = runtime.GetRequiredService<IWorkItemRepository>();
+            var edited = (await items.GetByIdAsync(seed.Id))!;
+            AssertSeedMetadataUnchanged(edited, seed);
+            edited.Title.ShouldBe("Updated Title");
+            edited.Fields["System.Description"].ShouldBe("Added description");
+            var pending = runtime.GetRequiredService<IPendingChangeStore>();
+            (await pending.GetChangesAsync(seed.Id)).ShouldBe([note]);
+            (await pending.GetChangesAsync(child.Id)).ShouldBe([childNote]);
+            (await pending.GetChangesAsync(retainedSeed.Id)).ShouldBe([retainedEdit]);
+            (await pending.GetChangesAsync(unrelated.Id)).ShouldBe(unrelatedChanges);
+            (await runtime.GetRequiredService<ISeedLinkRepository>().GetAllSeedLinksAsync())
+                .ShouldBe(originalLinks, ignoreOrder: true);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(retainedSeed.Id))!, retainedSeed);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(parent.Id))!, parent);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(unrelated.Id))!, unrelated);
 
-        var viewWriter = new StringWriter();
-        Console.SetOut(viewWriter);
-        var viewResult = await seedViewCmd.ExecuteAsync("human");
+            var (viewExit, viewOutput) = await CaptureCommandAsync(
+                () => runtime.GetRequiredService<SeedViewCommand>().ExecuteAsync("json"));
+            viewExit.ShouldBe(0);
+            using (var view = JsonDocument.Parse(viewOutput))
+            {
+                var seeds = view.RootElement.GetProperty("groups").EnumerateArray()
+                    .SelectMany(group => group.GetProperty("children").EnumerateArray())
+                    .SelectMany(group => group.GetProperty("seeds").EnumerateArray()).ToArray();
+                seeds.Select(item => item.GetProperty("id").GetInt32())
+                    .ShouldBe([seed.Id, child.Id, retainedSeed.Id], ignoreOrder: true);
+                var displayed = seeds.Single(item => item.GetProperty("id").GetInt32() == seed.Id);
+                displayed.GetProperty("title").GetString().ShouldBe("Updated Title");
+                displayed.GetProperty("parentId").GetInt32().ShouldBe(parent.Id);
+                displayed.GetProperty("links").EnumerateArray().Select(link => (
+                    link.GetProperty("sourceId").GetInt32(), link.GetProperty("targetId").GetInt32(),
+                    link.GetProperty("linkType").GetString()))
+                    .ShouldBe(originalLinks.Where(link => link.SourceId == seed.Id || link.TargetId == seed.Id)
+                        .Select(link => (link.SourceId, link.TargetId, (string?)link.LinkType)), ignoreOrder: true);
+            }
 
-        viewResult.ShouldBe(0);
-        viewWriter.ToString().ShouldContain("Updated Title");
+            var (discardExit, _) = await CaptureCommandAsync(() => runtime.GetRequiredService<SeedDiscardCommand>()
+                .ExecuteAsync(seed.Id, yes: true, outputFormat: "json"));
+            discardExit.ShouldBe(0);
+        }
 
-        // ── Step 4: twig seed discard <id> ────────────────────────────
-        _workItemRepo.GetByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>()).Returns(updatedSeed);
+        using (var runtime = await fixture.CreateRuntimeAsync())
+        {
+            var items = runtime.GetRequiredService<IWorkItemRepository>();
+            (await items.GetByIdAsync(seed.Id)).ShouldBeNull();
+            (await items.GetByIdAsync(child.Id)).ShouldBeNull();
+            AssertWorkItemUnchanged((await items.GetByIdAsync(retainedSeed.Id))!, retainedSeed);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(parent.Id))!, parent);
+            AssertWorkItemUnchanged((await items.GetByIdAsync(unrelated.Id))!, unrelated);
+            var pending = runtime.GetRequiredService<IPendingChangeStore>();
+            (await pending.GetChangesAsync(seed.Id)).ShouldBeEmpty();
+            (await pending.GetChangesAsync(child.Id)).ShouldBeEmpty();
+            (await pending.GetChangesAsync(retainedSeed.Id)).ShouldBe([retainedEdit]);
+            (await pending.GetChangesAsync(unrelated.Id)).ShouldBe(unrelatedChanges);
+            (await pending.GetDirtyItemIdsAsync()).ShouldBe([retainedSeed.Id, unrelated.Id]);
+            (await runtime.GetRequiredService<ISeedLinkRepository>().GetAllSeedLinksAsync())
+                .ShouldBe(originalLinks.Where(link => link.SourceId != seed.Id && link.TargetId != seed.Id
+                    && link.SourceId != child.Id && link.TargetId != child.Id).ToArray(), ignoreOrder: true);
+            (await runtime.GetRequiredService<IContextStore>().GetActiveWorkItemIdAsync()).ShouldBeNull();
+            var (exit, output) = await CaptureCommandAsync(
+                () => runtime.GetRequiredService<SeedViewCommand>().ExecuteAsync("json"));
+            exit.ShouldBe(0);
+            using (var view = JsonDocument.Parse(output))
+            {
+                var displayed = view.RootElement.GetProperty("groups").EnumerateArray()
+                    .SelectMany(group => group.GetProperty("children").EnumerateArray())
+                    .SelectMany(group => group.GetProperty("seeds").EnumerateArray()).Single();
+                displayed.GetProperty("id").GetInt32().ShouldBe(retainedSeed.Id);
+                displayed.GetProperty("title").GetString().ShouldBe(retainedSeed.Title);
+            }
 
-        var seedLinkRepo = Substitute.For<ISeedLinkRepository>();
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([updatedSeed]);
+            var registry = runtime.GetRequiredService<IStagedIdentityRegistry>();
+            (await registry.FindAliasAsync(seed.StagedIdentity!.Value))!.Value.Value.ShouldBe(seed.Id);
+            (await registry.FindAliasAsync(retainedSeed.StagedIdentity!.Value))!.Value.Value.ShouldBe(retainedSeed.Id);
+            var replacement = await CreatePersistedSeedAsync(runtime, "Replacement seed", parent.Id);
+            replacement.Id.ShouldBeLessThan(retainedSeed.Id);
+            replacement.StagedIdentity.ShouldNotBe(seed.StagedIdentity);
+        }
 
-        var orchestrator = new SeedDiscardOrchestrator(
-            _workItemRepo, seedLinkRepo, _contextStore, Substitute.For<IPendingChangeStore>());
+        fixture.Transport.RequestedItems.ShouldBeEmpty();
+        fixture.Transport.Mutations.ShouldBe(mutationsBefore);
+    }
 
-        var seedDiscardCmd = new SeedDiscardCommand(
-            _workItemRepo, orchestrator, _consoleInput, _formatterFactory);
+    private static async Task<WorkItem> CreatePersistedSeedAsync(ServiceProvider runtime, string title, int parentId)
+    {
+        var (exit, output) = await CaptureCommandAsync(() => runtime.GetRequiredService<SeedNewCommand>()
+            .ExecuteAsync(title, parent: parentId,
+                fields: [$"System.AssignedTo={IdentityStubs.DefaultCanonicalPrincipal}"], outputFormat: "json"));
+        exit.ShouldBe(0);
+        using var result = JsonDocument.Parse(output);
+        var id = result.RootElement.GetProperty("id").GetInt32();
+        id.ShouldBeLessThan(0);
+        result.RootElement.GetProperty("title").GetString().ShouldBe(title);
+        result.RootElement.GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+        var stored = (await runtime.GetRequiredService<IWorkItemRepository>().GetByIdAsync(id)).ShouldNotBeNull();
+        stored.Title.ShouldBe(title);
+        stored.ParentId.ShouldBe(parentId);
+        stored.IsSeed.ShouldBeTrue();
+        stored.StagedIdentity.ShouldNotBeNull();
+        return stored;
+    }
 
-        Console.SetOut(new StringWriter());
-        var discardResult = await seedDiscardCmd.ExecuteAsync(savedSeed.Id, yes: true);
+    private static void AssertSeedMetadataUnchanged(WorkItem actual, WorkItem expected)
+    {
+        actual.Id.ShouldBe(expected.Id);
+        actual.StagedIdentity.ShouldBe(expected.StagedIdentity);
+        actual.IsSeed.ShouldBe(expected.IsSeed);
+        actual.SeedCreatedAt.ShouldBe(expected.SeedCreatedAt);
+        actual.Type.ShouldBe(expected.Type);
+        actual.State.ShouldBe(expected.State);
+        actual.ParentId.ShouldBe(expected.ParentId);
+        actual.AssignedTo.ShouldBe(expected.AssignedTo);
+        actual.AssignedToUniqueName.ShouldBe(expected.AssignedToUniqueName);
+        actual.IterationPath.ShouldBe(expected.IterationPath);
+        actual.AreaPath.ShouldBe(expected.AreaPath);
+        actual.Revision.ShouldBe(expected.Revision);
+        actual.IsDirty.ShouldBe(expected.IsDirty);
+    }
 
-        discardResult.ShouldBe(0);
-        await _workItemRepo.Received().DeleteByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>());
+    private static void AssertWorkItemUnchanged(WorkItem actual, WorkItem expected)
+    {
+        AssertSeedMetadataUnchanged(actual, expected);
+        actual.LastSyncedAt.ShouldBe(expected.LastSyncedAt);
+        actual.Title.ShouldBe(expected.Title);
+        actual.Fields.ToArray().ShouldBe(expected.Fields.ToArray(), ignoreOrder: true);
+        actual.PendingNotes.ShouldBe(expected.PendingNotes);
+    }
+
+    private static async Task<(int Exit, string Output)> CaptureCommandAsync(Func<Task<int>> command)
+    {
+        var original = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            var exit = await command();
+            return (exit, output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
     }
 
     /// <summary>

@@ -108,13 +108,17 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
                 new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>())));
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
-        await runtime.GetRequiredService<IProcessTypeStore>().SaveAsync(new ProcessTypeRecord
+        var processTypes = runtime.GetRequiredService<IProcessTypeStore>();
+        if (await processTypes.GetByNameAsync("Task") is null)
         {
-            TypeName = "Task",
-            States = [new("To Do", StateCategory.Proposed, null), new("Doing", StateCategory.InProgress, null), new("Done", StateCategory.Completed, null)],
-            DefaultChildType = "Task",
-            ValidChildTypes = ["Task"],
-        });
+            await processTypes.SaveAsync(new ProcessTypeRecord
+            {
+                TypeName = "Task",
+                States = [new("To Do", StateCategory.Proposed, null), new("Doing", StateCategory.InProgress, null), new("Done", StateCategory.Completed, null)],
+                DefaultChildType = "Task",
+                ValidChildTypes = ["Task"],
+            });
+        }
         await runtime.GetRequiredService<IBenchRepository>().GetOrCreateDefaultAsync([]);
         return runtime;
     }

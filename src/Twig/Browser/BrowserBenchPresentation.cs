@@ -7,6 +7,46 @@ using Twig.Rendering;
 
 namespace Twig.Browser;
 
+/// <summary>Retains only physical rows for one immutable observation and the current terminal width.</summary>
+internal sealed class BrowserBenchProjection(BrowserBenchObservation observation)
+{
+    private readonly Dictionary<(int Id, bool Table), ItemProjection> _items = [];
+    private int _width;
+
+    internal IReadOnlyList<BrowserSourceRow> Rows(BrowserBenchItem item, string prefix, int width, bool selected, bool table)
+    {
+        width = Math.Clamp(width, 1, 10000);
+        if (_width != width)
+        {
+            _items.Clear();
+            _width = width;
+        }
+
+        var key = (item.Id, table);
+        if (!_items.TryGetValue(key, out var projection) || !ReferenceEquals(projection.Item, item))
+        {
+            projection = new ItemProjection(item);
+            _items[key] = projection;
+        }
+        var retained = selected ? projection.Selected : projection.Normal;
+        if (retained is not null && retained.Prefix == prefix) return retained.Rows;
+
+        var rows = BrowserBenchPresentation.Rows(observation, item, prefix, width, selected, table);
+        var rendered = new PhysicalRows(prefix, rows);
+        if (selected) projection.Selected = rendered;
+        else projection.Normal = rendered;
+        return rows;
+    }
+
+    private sealed record PhysicalRows(string Prefix, IReadOnlyList<BrowserSourceRow> Rows);
+    private sealed class ItemProjection(BrowserBenchItem item)
+    {
+        internal BrowserBenchItem Item { get; } = item;
+        internal PhysicalRows? Normal { get; set; }
+        internal PhysicalRows? Selected { get; set; }
+    }
+}
+
 /// <summary>Pure physical-row projection of an admitted Bench and its retained native theme.</summary>
 internal static class BrowserBenchPresentation
 {

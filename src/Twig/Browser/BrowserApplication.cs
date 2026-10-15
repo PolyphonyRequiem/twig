@@ -20,6 +20,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
     private BrowserRuntime? _runtime;
     private BrowserBenchObservation? _bench;
     private BrowserBenchIndex? _index;
+    private BrowserBenchProjection? _benchProjection;
     private BrowserCapture? _capture;
     private BrowserDetailObservation? _detail;
     private BrowserEditingSession? _editor;
@@ -30,6 +31,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
     private int _renderedWidth;
     private IReadOnlyList<BrowserSourceRow> _detailRows = [];
     private List<Line> _rows = [];
+    private IReadOnlyList<string> _paintRows = [];
     private List<DetailControl> _fields = [];
     private Task _operationTail = Task.CompletedTask;
     private CancellationTokenSource? _loading;
@@ -92,7 +94,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
                 while (count++ < 128 && terminal.TryRead(out var input)) Input(input);
                 if (_dirty)
                 {
-                    terminal.Paint(_rows.Select(r => r.Text).ToArray(), _top, _width, _height, new(Header(), ContextHeader(), _message, Footer(), hostContext, _screen == "config"));
+                    terminal.Paint(_paintRows, _top, _width, _height, new(Header(), ContextHeader(), _message, Footer(), hostContext, _screen == "config"));
                     _dirty = false;
                 }
                 await Task.Delay(8, ct);
@@ -144,7 +146,9 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
         _bench = null; _capture = null; _detail = null; _editor = null; _review = null;
         _editorDetail = null;
         _index = null;
+        _benchProjection = null;
         _rows.Clear(); _fields.Clear(); _folded.Clear(); _edits.Clear(); _candidates = [];
+        _paintRows = [];
         _renderedDetail = null; _renderedWidth = 0; _detailRows = [];
         _saved = null; _configurationViewport = null; _helpViewport = null; _expanded = null; _buffer = null; _prompt = null; _deletion = null;
         _focused = null; _editorItemAnchor = null;
@@ -238,6 +242,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
         {
             _bench = result.Value; _message = "Cache-only Bench · selection does not change the active work item";
             _index = _bench is null ? null : new BrowserBenchIndex(_bench.Items);
+            _benchProjection = _bench is null ? null : new BrowserBenchProjection(_bench);
             EnsureVisibleSelection();
             after?.Invoke();
         }, failed: () => Reply(failedReply, false, _message), requestCt: requestCt);
@@ -922,7 +927,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
                 var indent = new string(' ', Depth(item.Id) * 2);
                 var prefix = _view == "tree" ? _index!.Prefix(item.Id, _width, _folded) : "";
                 if (_view == "tree" && item.Id == _selected && prefix.EndsWith(' ')) prefix = prefix[..^1] + "›";
-                foreach (var row in BrowserBenchPresentation.Rows(_bench, item, prefix, _width, item.Id == _selected, _view == "table"))
+                foreach (var row in _benchProjection!.Rows(item, prefix, _width, item.Id == _selected, _view == "table"))
                     next.Add(new("item:" + item.Id, row.Offset, row.Text, item.Id));
                 if (_expanded != item.Id) continue;
                 var inset = indent + "  ";
@@ -944,6 +949,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
         if (_screen == "bench" && _bench is { Items.Count: 0 })
             Add(next, "empty-bench", "This Bench has no cached members. b/c opens configuration: add a pin by ID or choose area and sprint selectors. Seeds and owed work remain visible regardless of selectors.");
         _rows = next;
+        _paintRows = next.Select(row => row.Text).ToArray();
         if (preserve) Restore(anchor); else _top = Math.Clamp(_top, 0, Math.Max(0, next.Count - ContentHeight));
         _dirty = true;
     }

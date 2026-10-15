@@ -118,6 +118,50 @@ public sealed class BrowserBenchPresentationTests
         Contrast(selected.Foreground, selected.Background).ShouldBeGreaterThanOrEqualTo(4.5);
     }
 
+    [Fact]
+    public void RetainedRowsKeepExactStylesAndLogicalAnchorsAcrossSelectionViewsWidthsAndPrefixes()
+    {
+        var item = Item("Wrapped 表e\u0301👩‍💻 title with a long visible tail") with
+        {
+            Owed = true, SinglePin = true, TreePin = true, SubtreeOwners = [42, 7],
+        };
+        var observation = Observation(item, new SpectreTheme(new DisplayConfig { Icons = "unicode" },
+            [new() { Name = "Nebula", IconId = "icon_diamond", Color = "7BD8EA" }],
+            [new("Teleporting", StateCategory.Removed, null)]));
+        var retained = new BrowserBenchProjection(observation);
+        foreach (var width in new[] { 80, 45, 120, 80 })
+            foreach (var table in new[] { false, true, false })
+                foreach (var prefix in new[] { "│ └▾ ", "  └▸ ", "│ └▾ " })
+                    foreach (var selected in new[] { false, true, false })
+                        retained.Rows(item, prefix, width, selected, table).ShouldBe(
+                            BrowserBenchPresentation.Rows(observation, item, prefix, width, selected, table));
+    }
+
+    [Fact]
+    public void ReplacementObservationCannotReuseOldTextOrAppearanceForTheSameItemId()
+    {
+        var original = Item("ORIGINAL-TITLE") with { SinglePin = true };
+        var observation = Observation(original, new SpectreTheme(new DisplayConfig
+        {
+            Icons = "unicode", TypeColors = new() { ["Nebula"] = "7BD8EA" },
+        }));
+        var retained = new BrowserBenchProjection(observation);
+        var before = string.Join("\n", retained.Rows(original, "", 80, false, false).Select(row => row.Text));
+        var changed = original with { Title = "REPLACED-TITLE", SinglePin = false, Owed = true };
+        var next = Observation(changed, new SpectreTheme(new DisplayConfig
+        {
+            Icons = "unicode", TypeColors = new() { ["Nebula"] = "DA2244" },
+        }));
+        var after = string.Join("\n", new BrowserBenchProjection(next).Rows(changed, "", 80, false, false).Select(row => row.Text));
+
+        Plain(after).ShouldContain("REPLACED-TITLE");
+        Plain(after).ShouldNotContain("ORIGINAL-TITLE");
+        Plain(after).ShouldNotContain("single pin");
+        Plain(after).ShouldContain("owed");
+        after.ShouldContain("38;2;218;34;68");
+        before.ShouldContain("38;2;123;216;234");
+    }
+
     private static BrowserBenchItem Item(string title) => new(42, null, "Nebula", "Teleporting", title,
         true, true, false, false, false, false, []);
 

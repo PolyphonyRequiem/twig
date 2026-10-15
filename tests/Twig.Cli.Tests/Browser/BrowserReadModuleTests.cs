@@ -24,6 +24,21 @@ public sealed class BrowserReadModuleTests : IAsyncLifetime
     public async Task DisposeAsync() => await _fixture.DisposeAsync();
 
     [HostMigrationFact]
+    public async Task UncapturedDetailWithoutBenchMetadataCannotInitializeTheDefault()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync(initializeBench: false);
+        var benches = runtime.GetRequiredService<IBenchRepository>();
+        await runtime.GetRequiredService<IWorkItemRepository>().SaveAsync(NativeBrowserFixture.Item(42, "Cached detail"));
+        (await benches.GetAllAsync()).ShouldBeEmpty();
+
+        Failure(await _fixture.CreateModule(runtime).ReadDetailAsync(new(42)), BrowserReadFailureKind.Unavailable);
+
+        (await benches.GetAllAsync()).ShouldBeEmpty();
+        _fixture.Transport.RequestedItems.ShouldBeEmpty();
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
     public async Task ReturnedDetailReflowsAfterRealStoresChangeAndRuntimeRetiresWithoutHoldingIdleLeases()
     {
         var runtime = await _fixture.CreateRuntimeAsync();

@@ -132,17 +132,6 @@ jobs:
         if: matrix.rid == 'linux-x64'
         run: python3 tools/verify-proposal-presenters.py --binary src/Twig/bin/Debug/net11.0/twig.dll --output artifacts/proposal-presenter-smoke
 
-      - name: Preserve full validation evidence on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-validation-${{ matrix.rid }}
-          path: |
-            artifacts/trace-311/
-            artifacts/test-logs/ci/
-            artifacts/proposal-presenter-smoke/
-          if-no-files-found: warn
-
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 
       - name: Publish legacy macOS TUI companion
@@ -159,14 +148,22 @@ jobs:
             Copy-Item (Join-Path $directory "twig$extension") (Join-Path $directory "$alias$extension")
           }
 
-      # Sign Windows binaries via Azure Trusted Signing (AB#3047). Runs only on
-      # the win-x64 leg, and only when the AZURE_SIGNING_* repo variables are
-      # set — keeps the workflow shipping unsigned Windows builds (today's
-      # behaviour) until the Trusted Signing account is provisioned, then
-      # automatically picks up signing once vars exist. OIDC federated
-      # credential means no client secret in the repo.
+      # Require the existing approved public-trust signing configuration. A release
+      # must fail closed rather than silently publish unsigned Windows binaries.
+      - name: Require the approved Windows signing configuration
+        if: matrix.rid == 'win-x64'
+        env:
+          SIGNING_CLIENT: ${{ vars.AZURE_SIGNING_CLIENT_ID }}
+          SIGNING_TENANT: ${{ vars.AZURE_SIGNING_TENANT_ID }}
+          SIGNING_SUBSCRIPTION: ${{ vars.AZURE_SIGNING_SUBSCRIPTION_ID }}
+        shell: pwsh
+        run: |
+          foreach ($value in @($env:SIGNING_CLIENT, $env:SIGNING_TENANT, $env:SIGNING_SUBSCRIPTION)) {
+            if ([string]::IsNullOrWhiteSpace($value)) { throw 'Signed release is held: approved OIDC signing configuration is missing.' }
+          }
+
       - name: Azure login (OIDC) for Trusted Signing
-        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        if: matrix.rid == 'win-x64'
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_SIGNING_CLIENT_ID }}
@@ -174,7 +171,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SIGNING_SUBSCRIPTION_ID }}
 
       - name: Sign Windows binaries (Azure Trusted Signing)
-        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        if: matrix.rid == 'win-x64'
         uses: azure/trusted-signing-action@v0.5.1
         with:
           endpoint: https://wus2.codesigning.azure.net/
@@ -186,12 +183,44 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Share the exact signed Windows image with native TUI entry points
-        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        if: matrix.rid == 'win-x64'
         shell: pwsh
         run: |
           foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
             Copy-Item './publish/${{ matrix.rid }}/twig.exe' "./publish/${{ matrix.rid }}/$alias.exe" -Force
           }
+
+      - name: Verify the final published native image offline
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'artifacts/release-image-verification' -Force | Out-Null
+          $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+          $primary = (Resolve-Path "./publish/${{ matrix.rid }}/twig$extension").Path
+          python tools/verify-build.py --binary $primary --timeout 15 2>&1 | Tee-Object -FilePath 'artifacts/release-image-verification/offline-smoke.txt'
+          if ($LASTEXITCODE -ne 0) { throw 'Final published native image failed the existing offline smoke.' }
+
+      - name: Verify native alias identity and startup
+        if: matrix.rid == 'win-x64' || matrix.rid == 'linux-x64'
+        shell: pwsh
+        run: |
+          $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+          $directory = (Resolve-Path './publish/${{ matrix.rid }}').Path
+          $primaryHash = (Get-FileHash -LiteralPath (Join-Path $directory "twig$extension") -Algorithm SHA256).Hash
+          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+            $image = Join-Path $directory "$alias$extension"
+            $hash = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash
+            "$alias$extension $hash" | Add-Content 'artifacts/release-image-verification/alias-sha256.txt'
+            if ($hash -ne $primaryHash) { throw "Native $alias is not the exact final Twig image." }
+            & $image --help 2>&1 | Tee-Object -FilePath "artifacts/release-image-verification/$alias-help.txt"
+            if ($LASTEXITCODE -ne 0) { throw "Final native $alias help failed." }
+          }
+
+      - name: Verify the final Windows publisher profile and source
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          $primary = (Resolve-Path './publish/win-x64/twig.exe').Path
+          & ./tools/verify-tui-candidate.ps1 -Executable $primary -SourceCommit '${{ github.sha }}' | Tee-Object -FilePath 'artifacts/release-image-verification/windows-trust.json'
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'
@@ -219,6 +248,18 @@ jobs:
           path: |
             ./twig-${{ matrix.rid }}.${{ matrix.archive }}
             ./twig-${{ matrix.rid }}.${{ matrix.archive }}.sha256
+
+      - name: Preserve full validation evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ matrix.rid }}
+          path: |
+            artifacts/trace-311/
+            artifacts/test-logs/ci/
+            artifacts/proposal-presenter-smoke/
+            artifacts/release-image-verification/
+          if-no-files-found: warn
 
   release:
     needs: build

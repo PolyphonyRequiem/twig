@@ -22,6 +22,52 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
     public async Task DisposeAsync() => await _fixture.DisposeAsync();
 
     [HostMigrationFact]
+    public async Task FirstAdmittedLaunchCreatesCanonicalDefaultAndEnablesConfigurationReviewAndReconnect()
+    {
+        var observer = await _fixture.CreateRuntimeAsync(initializeBench: false);
+        var benches = observer.GetRequiredService<IBenchRepository>();
+        (await benches.GetAllAsync()).ShouldBeEmpty();
+        var context = observer.GetRequiredService<IContextStore>();
+        var active = await context.GetActiveWorkItemIdAsync();
+        var application = new BrowserApplication(new BrowserRuntimeFactory(_ => new BrowserRuntime(
+            _fixture.CreateRuntimeAsync(initializeBench: false).GetAwaiter().GetResult())));
+        using var terminal = new ScriptedBrowserTerminal(100, 30);
+        using var lifetime = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = application.RunAsync(terminal, _fixture.Paths.StartDir!, ct: lifetime.Token);
+        try
+        {
+            var first = await terminal.ReadUntilAsync(paint => !paint.Working, deadline.Token);
+            first.Header.ShouldContain(Twig.Domain.Aggregates.Bench.DefaultName);
+            var created = (await benches.GetAllAsync()).Single();
+            created.IsDefault.ShouldBeTrue();
+            created.Selectors.Single().QueryAssignedToUniqueName.ShouldBe(NativeBrowserFixture.Actor + "@fixture.invalid");
+
+            terminal.Enqueue(Character('b'));
+            await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.StartsWith("BENCH CONFIGURATION", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            (await application.DispatchAsync(new("review"), deadline.Token)).Ok.ShouldBeTrue();
+            (await application.DispatchAsync(new("exit-review"), deadline.Token)).Ok.ShouldBeTrue();
+            var reconnected = await application.DispatchAsync(new("reconnect"), deadline.Token);
+            reconnected.Ok.ShouldBeTrue();
+            reconnected.RequiresReconnect.ShouldBeFalse();
+            (await benches.GetAllAsync()).Single().Id.ShouldBe(created.Id);
+            (await context.GetActiveWorkItemIdAsync()).ShouldBe(active);
+            _fixture.Transport.RequestedItems.ShouldBeEmpty();
+            _fixture.Transport.Mutations.ShouldBe(0);
+            terminal.Enqueue(Character('q'));
+            (await running.WaitAsync(deadline.Token)).ShouldBe(0);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.EndOfInput));
+            await running.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [HostMigrationFact]
     public async Task EnterEscapeViewsResizeAndCacheRefreshConserveDurableWorkAndFoldedViewport()
     {
         var observer = await PopulateAsync();

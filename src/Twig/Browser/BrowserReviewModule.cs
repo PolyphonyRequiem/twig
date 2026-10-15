@@ -51,10 +51,17 @@ internal sealed class BrowserReviewModule(BrowserOperationModule operations, IPl
         var result = await operations.ExecuteAsync(observation.Capture, async (_, token) =>
         {
             if (!observation.IsEmpty)
-                await ValidateExactAsync(observation.FilePath!, observation.Digest!, observation.Origin!, token);
+            {
+                try { await ValidateExactAsync(observation.FilePath!, observation.Digest!, observation.Origin!, token); }
+                catch (BrowserReadException invalid)
+                {
+                    observation.Invalidate(invalid.Message);
+                    throw;
+                }
+            }
             return true;
         }, ct);
-        if (result.Failure is { Kind: not BrowserReadFailureKind.Canceled })
+        if (result.Failure is { Kind: BrowserReadFailureKind.AuthorityInvalidated })
             observation.Invalidate(result.Failure.Message);
         return result;
     }

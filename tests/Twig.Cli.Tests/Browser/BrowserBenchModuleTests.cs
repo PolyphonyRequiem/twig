@@ -101,6 +101,26 @@ public sealed class BrowserBenchModuleTests : IAsyncLifetime
         (await benches.GetCurrentAsync())!.Selectors.ShouldContain(BenchSelector.ForSubtree(99));
     }
 
+    [HostMigrationFact]
+    public async Task MissingCapturedBenchCannotInitializeOrAdoptANewDefault()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync(initializeBench: false);
+        var benches = runtime.GetRequiredService<IBenchRepository>();
+        var bench = (await benches.CreateAsync("captured"))!;
+        await benches.SetCurrentAsync(bench.Id);
+        var module = runtime.GetRequiredService<BrowserBenchModule>();
+        var original = Success(await module.ReadAsync());
+        await benches.DeleteAsync(bench.Id);
+        (await benches.GetAllAsync()).ShouldBeEmpty();
+
+        var refused = await module.ReadAsync(original.Capture);
+
+        refused.Failure!.Kind.ShouldBe(BrowserReadFailureKind.AuthorityInvalidated);
+        (await benches.GetAllAsync()).ShouldBeEmpty();
+        _fixture.Transport.RequestedItems.ShouldBeEmpty();
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
     private static BrowserBenchObservation Success(BrowserOperationResult<BrowserBenchObservation> result)
     {
         result.Failure.ShouldBeNull();

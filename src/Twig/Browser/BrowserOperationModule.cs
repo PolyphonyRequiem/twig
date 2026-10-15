@@ -20,19 +20,20 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
 {
     internal Task<BrowserOperationResult<T>> ExecuteAsync<T>(BrowserCapture? expected,
         Func<BrowserCapture, CancellationToken, Task<T>> action, CancellationToken ct = default,
-        string? expectedBench = null, string? expectedBinding = null, string? expectedIdentity = null)
-        => ExecuteCoreAsync(expected, action, null, ct, expectedBench, expectedBinding, expectedIdentity);
+        string? expectedBench = null, string? expectedBinding = null, string? expectedIdentity = null,
+        bool initializeBench = false)
+        => ExecuteCoreAsync(expected, action, null, ct, expectedBench, expectedBinding, expectedIdentity, initializeBench);
 
     // Native workflows supply the exact committed arrangement. Never adopt whatever
     // Bench happens to be current after a mutation or relabel a concurrent change.
     internal Task<BrowserOperationResult<T>> ChangeBenchAsync<T>(BrowserCapture expected,
         Func<BrowserCapture, CancellationToken, Task<T>> action, Func<T, BrowserCapture> committed,
         CancellationToken ct = default)
-        => ExecuteCoreAsync(expected, action, committed, ct, null, null, null);
+        => ExecuteCoreAsync(expected, action, committed, ct, null, null, null, false);
 
     private async Task<BrowserOperationResult<T>> ExecuteCoreAsync<T>(BrowserCapture? expected,
         Func<BrowserCapture, CancellationToken, Task<T>> action, Func<T, BrowserCapture>? committed, CancellationToken ct,
-        string? expectedBench, string? expectedBinding, string? expectedIdentity)
+        string? expectedBench, string? expectedBinding, string? expectedIdentity, bool initializeBench)
     {
         IDisposable? admission = null;
         IDisposable? operation = null;
@@ -57,7 +58,9 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
                 throw Changed(ex.Message);
             }
             if (capture is not null && !capture.Matches(origin)) throw Changed();
-            var bench = await resolver.TryResolveStoredAsync(ct);
+            var bench = initializeBench && capture is null && expectedBench is null
+                ? await resolver.ResolveStoredAsync(ct)
+                : await resolver.TryResolveStoredAsync(ct);
             ct.ThrowIfCancellationRequested();
             if (bench is null)
             {

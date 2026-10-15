@@ -90,7 +90,8 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         return new TwigPaths(paths.TwigDir, paths.ConfigPath, paths.DbPath, paths.StartDir, Path.Combine(Home, "display.json"));
     }
 
-    internal async Task<ServiceProvider> CreateRuntimeAsync(Func<IFieldDefinitionStore, IFieldDefinitionStore>? fieldDefinitions = null)
+    internal async Task<ServiceProvider> CreateRuntimeAsync(Func<IFieldDefinitionStore, IFieldDefinitionStore>? fieldDefinitions = null,
+        bool initializeBench = true)
     {
         var paths = CurrentPaths();
         var services = new ServiceCollection();
@@ -119,7 +120,8 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
                 ValidChildTypes = ["Task"],
             });
         }
-        await runtime.GetRequiredService<IBenchRepository>().GetOrCreateDefaultAsync([]);
+        if (initializeBench)
+            await runtime.GetRequiredService<IBenchRepository>().GetOrCreateDefaultAsync([]);
         return runtime;
     }
 
@@ -183,6 +185,8 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = actor, providerDisplayName = "Fixture reader" } });
+            if (path.EndsWith("/_apis/profile/profiles/me", StringComparison.Ordinal))
+                return Reply(HttpStatusCode.OK, new { displayName = "Fixture reader", emailAddress = actor + "@fixture.invalid" });
             const string segment = "/_apis/wit/workitems/";
             var offset = path.IndexOf(segment, StringComparison.OrdinalIgnoreCase);
             if (offset < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });

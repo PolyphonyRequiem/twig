@@ -62,7 +62,7 @@ internal sealed class BrowserBenchModule(BrowserOperationModule operations, Curr
                 (await benches.GetAllAsync(token)).Select(DescribeBench).ToArray(),
                 string.Join("; ", rules.Select(r => r.UniqueName ?? r.AssignedTo ?? "All assignees").Distinct()),
                 theme.Snapshot(), GitBranchReader.GetCurrentBranch(capture.Origin.WorktreeRoot) ?? "");
-        }, ct);
+        }, ct, initializeBench: captured is null);
 
     internal Task<BrowserOperationResult<BenchSyncCounts>> SyncAsync(BrowserCapture captured, CancellationToken ct = default)
         => operations.ExecuteAsync(captured, async (capture, token) =>

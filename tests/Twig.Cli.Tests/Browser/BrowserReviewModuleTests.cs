@@ -5,6 +5,7 @@ using Twig.Browser;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Plan;
+using Twig.Infrastructure.Auth;
 using Twig.Rendering;
 using Xunit;
 
@@ -54,6 +55,62 @@ public sealed class BrowserReviewModuleTests : IAsyncLifetime
         result.Failure!.Kind.ShouldBe(BrowserReadFailureKind.Canceled);
         observation.Render(200, true).ShouldContain("CAPTURED-BODY");
         (await module.ValidateAsync(observation)).Failure.ShouldBeNull();
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task CheckoutLeaseContentionRetainsCapturedReviewForRetry()
+    {
+        var runtime = await Runtime();
+        var file = await WriteProposal("lease.json", "Captured proposal", "CAPTURED-BODY");
+        var module = Module(runtime);
+        var observation = await Open(runtime, module, file);
+        var brief = observation.BriefAnsi;
+        var full = observation.FullAnsi;
+
+        using (ConnectionOperationGate.Acquire(_fixture.Paths.StartDir!, exclusive: true))
+        {
+            Task<BrowserOperationResult<bool>> blocked;
+            using (ExecutionContext.SuppressFlow())
+                blocked = Task.Run(() => module.ValidateAsync(observation));
+            (await blocked).Failure!.Kind.ShouldBe(BrowserReadFailureKind.Unavailable);
+            observation.BriefAnsi.ShouldBe(brief);
+            observation.FullAnsi.ShouldBe(full);
+            observation.Model!.Operations.SelectMany(operation => operation.Consequences)
+                .Single(effect => effect.Field == "System.Title").To.ShouldBe("Captured proposal");
+        }
+
+        var retried = await module.ValidateAsync(observation);
+        retried.Failure.ShouldBeNull();
+        retried.Value.ShouldBeTrue();
+        observation.FullAnsi.ShouldBe(full);
+        observation.Render(120, true).ShouldContain("CAPTURED-BODY");
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task RetryableOriginReadFailureRetainsCapturedReviewForRetry()
+    {
+        var runtime = await Runtime();
+        var file = await WriteProposal("retry.json", "Captured proposal", "CAPTURED-BODY");
+        var observation = await Open(runtime, Module(runtime), file);
+        var full = observation.FullAnsi;
+        var origin = await runtime.GetRequiredService<IPlanOriginProvider>().GetOriginAsync();
+        var origins = Substitute.For<IPlanOriginProvider>();
+        var failNext = true;
+        origins.GetOriginAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (!failNext) return Task.FromResult(origin);
+            failNext = false;
+            return Task.FromException<PlanOrigin>(new IOException("Temporary origin read failure"));
+        });
+        var module = Module(runtime, origins: origins);
+
+        (await module.ValidateAsync(observation)).Failure!.Kind.ShouldBe(BrowserReadFailureKind.Unavailable);
+        observation.FullAnsi.ShouldBe(full);
+        (await module.ValidateAsync(observation)).Failure.ShouldBeNull();
+        observation.FullAnsi.ShouldBe(full);
+        observation.Render(120, true).ShouldContain("CAPTURED-BODY");
         _fixture.Transport.Mutations.ShouldBe(0);
     }
 

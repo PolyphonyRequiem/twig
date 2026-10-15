@@ -168,6 +168,40 @@ Runs on `ubuntu-latest` after all platform builds succeed:
 3. Create GitHub release via `softprops/action-gh-release@v2` with the
    three platform archives, checksums and generated release notes.
 
+#### Native browser responsiveness policy for v0.98.0
+
+**Epic #1165 — Make the native Bench browser consistently responsive**, published
+in `PolyphonyRequiem/Twig`, owns the lasting goals, retained evidence and progressive
+tightening of native browser responsiveness.
+
+| Validated-ready latency | Lasting goal | Temporary v0.98.0 advisory |
+|-------------------------|--------------|---------------------------|
+| Cached Bench/item read p95 | ≤750 ms | ≤1000 ms |
+| 80-column Table-switch p95 | ≤50 ms | ≤75 ms |
+
+The temporary targets are advisory for this release, not replacement goals or
+unconditional publication blockers. Report every miss explicitly and retain all
+historical RED observations. Passing a synthetic custom-Bench workload does not
+qualify the original default-self workload or production population tails.
+
+Release evidence must show forward progress, including improved observed
+80-column Table validated p95, without accepting regression. Use the predeclared
+balanced signed-baseline/candidate ABBA full matrices; report p50 and nearest-rank
+p95 separately for every operation/width group. An increase beyond
+`max(5 ms, 5% of the baseline statistic)` is an unresolved possible-regression flag
+that requires investigation. This observational noise margin is not permission to
+deliberately slow code or proof of population equivalence. Do not average away a
+slow subgroup, widen the plan after seeing results, or claim non-regression from
+the earlier noisy sequential runs.
+
+No concession applies to correctness, refusal behavior, identity/source/lease
+checks, pending-work conservation, approved signing/trust, exact native alias
+identity or all supported-platform full CI gates. The final tag-version payload
+must pass its existing offline smoke, Windows signature verification and applicable
+native alias checks before irreversible GitHub/NuGet publication; a pretag
+candidate is a different build and does not establish the final payload's byte
+identity or startup qualification.
+
 ---
 
 ## 4. Native Entry Points and Legacy macOS Companion

@@ -230,12 +230,18 @@ public sealed class SeedPublishOrchestrator
         // match anything already in ADO.
         int newId;
         var identity = seed.StagedIdentity;
-        var intentIsTracked = false;
+        SeedPublishCorrelation? publishCorrelation = null;
 
         if (_publishIntentRepo is not null && identity is { } intentIdentity)
         {
             var intent = await _publishIntentRepo.RecordIntentAsync(
                 intentIdentity, seed.Title, seed.Type.Value, ct);
+            publishCorrelation = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt)
+            {
+                OwnsIntentTag = !seed.Fields.TryGetValue("System.Tags", out var humanTags)
+                    || humanTags is null || !humanTags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                        .Contains(PublishIntent.IntentTag, StringComparer.OrdinalIgnoreCase),
+            };
 
             // A prior attempt may have created the item before dying. Two places can hold that
             // evidence, and BOTH must be consulted before creating anything.
@@ -245,9 +251,8 @@ public sealed class SeedPublishOrchestrator
             //    strictly more reliable than re-deriving it from ADO — and it is the read path
             //    this ledger was built to serve. (Before review, nothing read it: the ledger was
             //    write-only, which is precisely why the rollback path duplicated.)
-            // 2. Failing that, ask ADO. The tag is a single constant, so it only NARROWS to what
-            //    twig had in flight; title + type + the intent's own RecordedAt identify which
-            //    item is this create.
+            // Shared tag narrows candidates; immutable revision-one Description proves
+            // the exact staged identity. Native unresolved writes still prohibit replay.
             var alreadyLanded = intent.PublishedId
                 ?? await _adoService.FindPublishedIntentAsync(intent, ct);
 
@@ -256,7 +261,7 @@ public sealed class SeedPublishOrchestrator
                     seed.ToCreateRequest() with
                     {
                         StampIntentTag = true,
-                        SeedCorrelation = new SeedPublishCorrelation(intent.Identity, intent.RecordedAt)
+                        SeedCorrelation = publishCorrelation
                     },
                     ct);
 
@@ -270,7 +275,6 @@ public sealed class SeedPublishOrchestrator
             // window it exists to protect: a rollback at step 10 left an orphan with no tag, so
             // the recovery query could not narrow to it and the retry duplicated. See the
             // post-commit strip after step 10.
-            intentIsTracked = true;
         }
         else
         {
@@ -336,36 +340,30 @@ public sealed class SeedPublishOrchestrator
             await tx.DisposeAsync();
         }
 
-        // Step 10h: the local half is COMMITTED, so the publish is no longer in flight — only
-        // now is it safe to drop the in-flight tag.
-        //
-        // Ordering is the whole point. Stripping it before the transaction (as an earlier
-        // version did) disarms the guard for precisely the window it exists to protect: a
-        // rollback above would leave a real ADO item carrying no tag, `FindPublishedIntentAsync`
-        // could not narrow to it, and the retry would create a duplicate — #270, reintroduced
-        // through its own fix.
-        //
-        // Best-effort: the publish has succeeded by now, so a failure here must not fail it. A
-        // leftover tag is cosmetic, and the ledger row (which survives independently) still
-        // names the id, so recovery does not depend on this succeeding.
-        if (intentIsTracked)
+        // The intent and ID map are durable before metadata cleanup. The native guard
+        // additionally requires the original create outcome receipt; a lost-response
+        // recovery leaves the marker until explicit native reconciliation records it.
+        string? metadataCleanupWarning = null;
+        if (publishCorrelation is not null)
         {
             try
             {
-                await _adoService.ClearIntentTagAsync(newId, ct);
+                await _adoService.ClearPublishMetadataAsync(newId, publishCorrelation, ct);
             }
             catch (OperationCanceledException)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                // Intentionally swallowed — see above.
+                metadataCleanupWarning = $"Work item #{newId} is published; temporary publication metadata cleanup remains pending: {ex.Message}";
             }
         }
 
         // Step 11: Promote seed links to ADO relations
         var linkWarnings = await _linkPromoter.PromoteLinksAsync(newId, ct);
+        if (metadataCleanupWarning is not null)
+            linkWarnings = [.. linkWarnings, metadataCleanupWarning];
 
         if (parentPersistenceError is not null)
         {

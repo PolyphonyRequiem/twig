@@ -11,6 +11,7 @@ using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Claims;
@@ -799,7 +800,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         _transport.CreateCount.ShouldBe(1);
         var publishIntent = (await origin.GetRequiredService<IPublishIntentRepository>().GetIntentAsync(identity))!;
         publishIntent.IsOpen.ShouldBeTrue();
-        var correlation = new SeedPublishCorrelation(identity, publishIntent.RecordedAt);
+        var correlation = new SeedPublishCorrelation(identity, publishIntent.RecordedAt) { OwnsIntentTag = true };
         origin.Dispose();
         _runtimes.Remove(origin);
 
@@ -814,6 +815,11 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
             unknown.Digest, authorizer, "Native publication has not yet recovered");
         premature.Receipt.ShouldBeNull("server creation alone does not complete this exact native seed intent/map");
         (await _transitions.PreviewAsync(_configuration, CurrentPaths(), _siblingBinding.BindingId)).CanApply.ShouldBeFalse();
+
+        _transport.HideCorrelatedSeedFromQueries = true;
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            reconnected.GetRequiredService<SeedPublishOrchestrator>().PublishAsync(seed.Id));
+        _transport.CreateCount.ShouldBe(1, "empty discovery cannot authorize replay of an admitted unknown create");
 
         // A same-title/type/time candidate with only the legacy constant tag cannot adopt this seed.
         _transport.AddLegacySeedCandidate(title);
@@ -833,10 +839,14 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         completed.PublishedId.ShouldBe(recovered.NewId);
         (await reconnected.GetRequiredService<IPublishIdMapRepository>().GetNewIdAsync(identity)).ShouldBe(recovered.NewId);
         (await reconnected.GetRequiredService<IWorkItemRepository>().GetSeedsAsync()).ShouldBeEmpty();
-        _transport.CreateCount.ShouldBe(1, "native recovery finds the original exact server tag and finishes its durable mapping without create replay");
+        _transport.CreateCount.ShouldBe(1, "native recovery finds the exact Description origin and finishes mapping without create replay");
+        var beforeConfirmation = await reconnected.GetRequiredService<IAdoWorkItemService>().FetchAsync(recovered.NewId);
+        correlation.ContainsDescriptionMarker(beforeConfirmation.Fields.GetValueOrDefault("System.Description")).ShouldBeTrue(
+            "lost-response create metadata cannot be cleaned before the original native outcome receipt");
         (await _transitions.PreviewAsync(_configuration, CurrentPaths(), _siblingBinding.BindingId)).CanApply.ShouldBeFalse(
             "the completed seed ledger alone cannot silently settle a distinct native HTTP uncertainty record");
 
+        _transport.RejectNextCleanupPatch = true;
         var settled = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
             intent: unknown.IntentId, confirm: unknown.Digest, authorizer: authorizer);
         settled.Exit.ShouldBe(0, settled.Error + settled.Output);
@@ -845,7 +855,21 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         receipt.Kind.ShouldBe("native-published-seed-readback");
         receipt.RequestDigest.ShouldBe(unknown.Digest);
         using (var evidence = JsonDocument.Parse(receipt.EvidenceJson))
-            evidence.RootElement.GetProperty("correlationTag").GetString().ShouldBe(correlation.Tag);
+            evidence.RootElement.GetProperty("descriptionMarker").GetString().ShouldBe(correlation.DescriptionMarkerText);
+        var pendingCleanup = await reconnected.GetRequiredService<IAdoWorkItemService>().FetchAsync(recovered.NewId);
+        correlation.ContainsDescriptionMarker(pendingCleanup.Fields.GetValueOrDefault("System.Description")).ShouldBeTrue();
+        var cleanupRetry = await InvokeWritesAsync(reconnected, reconciliation, reconcile: true,
+            intent: unknown.IntentId, confirm: unknown.Digest, authorizer: authorizer);
+        cleanupRetry.Exit.ShouldBe(0, cleanupRetry.Error + cleanupRetry.Output);
+        (await reconciliation.InspectAsync(_configuration, CurrentPaths()))
+            .Single(x => x.IntentId == unknown.IntentId).Receipt.ShouldBe(receipt,
+                "cleanup retry must preserve the original settled receipt and never create again");
+        var afterConfirmation = await reconnected.GetRequiredService<IAdoWorkItemService>().FetchAsync(recovered.NewId);
+        correlation.ContainsDescriptionMarker(afterConfirmation.Fields.GetValueOrDefault("System.Description")).ShouldBeFalse();
+        afterConfirmation.Fields.GetValueOrDefault("System.Tags").ShouldBe("twig");
+        var initial = await reconnected.GetRequiredService<IRevisionBoundAdoWorkItemService>().FetchAtRevisionAsync(recovered.NewId, 1);
+        correlation.ContainsDescriptionMarker(initial.Fields.GetValueOrDefault("System.Description")).ShouldBeTrue(
+            "current metadata cleanup must not erase original creation history");
         await ApplyPinAsync(_siblingBinding.BindingId);
         var switched = await CreateRuntimeAsync();
         (await switched.GetRequiredService<IWorkItemRepository>().GetByIdAsync(recovered.NewId)).ShouldBeNull();
@@ -853,6 +877,30 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         (await switched.GetRequiredService<IPublishIdMapRepository>().GetNewIdAsync(identity)).ShouldBe(recovered.NewId);
         AssertTitle(await ShowAsync(switched, 73, refresh: true), "Sibling-only release plan");
         _transport.CreateCount.ShouldBe(1);
+    }
+
+    [HostMigrationFact]
+    public async Task AcknowledgedCreateBeforeIntentCompletionRecoversWithoutDiscoveryOrAnotherCreate()
+    {
+        var runtime = await CreateRuntimeAsync();
+        var seed = await StageSeedAsync(runtime, "Acknowledged before durable mapping");
+        var identity = seed.StagedIdentity!.Value;
+        var intents = runtime.GetRequiredService<IPublishIntentRepository>();
+        var intent = await intents.RecordIntentAsync(identity, seed.Title, seed.Type.Value);
+        var correlation = new SeedPublishCorrelation(identity, intent.RecordedAt) { OwnsIntentTag = true };
+        var ado = runtime.GetRequiredService<IAdoWorkItemService>();
+        var id = await ado.CreateAsync(seed.ToCreateRequest() with { StampIntentTag = true, SeedCorrelation = correlation });
+        (await intents.GetIntentAsync(identity))!.PublishedId.ShouldBeNull();
+        _transport.HideCorrelatedSeedFromQueries = true;
+        var recovered = await runtime.GetRequiredService<SeedPublishOrchestrator>().PublishAsync(seed.Id);
+        recovered.Status.ShouldBe(SeedPublishStatus.Created, recovered.ErrorMessage);
+        recovered.NewId.ShouldBe(id);
+        _transport.CreateCount.ShouldBe(1);
+        (await intents.GetIntentAsync(identity))!.PublishedId.ShouldBe(id);
+        (await runtime.GetRequiredService<IPublishIdMapRepository>().GetNewIdAsync(identity)).ShouldBe(id);
+        var current = await ado.FetchAsync(id);
+        current.Fields.GetValueOrDefault("System.Tags").ShouldBe("twig");
+        correlation.ContainsDescriptionMarker(current.Fields.GetValueOrDefault("System.Description")).ShouldBeFalse();
     }
 
     private static void AssertNoReceipt(JsonElement report) =>
@@ -1050,6 +1098,7 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
         internal bool HideLostPatchReadback { get; set; }
         private int? _hiddenLostPatchItem;
         internal bool LoseNextCreateResponse { get; set; }
+        internal bool RejectNextCleanupPatch { get; set; }
         internal bool HideCorrelatedSeedFromQueries { get; set; }
         internal int CreateCount { get; private set; }
         internal void AddLegacySeedCandidate(string title)
@@ -1108,8 +1157,8 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
                     && pair.Value.Fields.GetValueOrDefault("System.Tags") is string itemTags
                     && tags.All(tag => itemTags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                         .Contains(tag, StringComparer.Ordinal))
-                    && (!HideCorrelatedSeedFromQueries || !itemTags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                        .Any(tag => tag.StartsWith("twig-publishing-", StringComparison.Ordinal))));
+                    && (!HideCorrelatedSeedFromQueries || !(pair.Value.Fields.GetValueOrDefault("System.Description") is string description
+                        && description.Contains("Twig publish origin v1:", StringComparison.Ordinal))));
                 return Reply(HttpStatusCode.OK, new { queryType = "flat", workItems = candidates.Select(pair => new { id = pair.Key }).ToArray() });
             }
             if (!path.Contains("/_apis/wit/workitems/", StringComparison.OrdinalIgnoreCase))
@@ -1182,6 +1231,12 @@ public sealed partial class ConnectionBindingTransitionConsumerTests : IAsyncLif
             if (request.Method == HttpMethod.Patch)
             {
                 using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+                if (RejectNextCleanupPatch && body.RootElement.EnumerateArray()
+                    .Any(operation => operation.GetProperty("path").GetString() == "/fields/System.Description"))
+                {
+                    RejectNextCleanupPatch = false;
+                    return Reply(HttpStatusCode.PreconditionFailed, new { message = "Fixture cleanup CAS contention" });
+                }
                 foreach (var operation in body.RootElement.EnumerateArray())
                     if (operation.GetProperty("path").GetString() == "/rev" && operation.GetProperty("value").GetInt32() != item.Revision)
                         return Reply(HttpStatusCode.PreconditionFailed, new { message = "Revision mismatch" });

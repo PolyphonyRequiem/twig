@@ -108,6 +108,14 @@ plus a defensive parse of `ResultJson` and (as a fallback for `expectedRevision`
 | `code` | `verified`, `field-mismatch`, `missing-required-fields`, `revision-not-advanced`, `revision-conflict`, `readback-unavailable`, or `null` |
 | `fields[].classification` | `exact`, `cleared`, `canonicalized-html`, `canonicalized-identity`, `server-generated`, `mismatch`, `clear-failed` |
 
+For HTML fields, `canonicalized-html` can explain server-added trailing ASCII
+whitespace at ordinary block edges. Styling or locally rendered void elements
+keep their entire top-level subtree strict, without disabling normalization of
+unrelated ordinary sibling blocks. Inline word boundaries, preformatted text,
+links, and field clears remain significant; unknown or ambiguous markup and
+stylesheet elements retain conservative comparison. An existing indeterminate
+operation still requires native readback reconciliation, not replay of its write.
+
 When ADO refuses a stale revision without disclosing its current revision,
 `observedRevision` is `null` and the summary labels it unknown. The adapter's
 zero sentinel is not a server revision. The operation remains `failed`; this

@@ -25,6 +25,9 @@ internal static class HtmlStructuralComparer
         StringBuilder? normalized = null;
         var openTags = new Stack<string>();
         var supportsNormalization = true;
+        var rootSupportsNormalization = true;
+        var canonicalRootStart = 0;
+        var normalizedRootStart = 0;
         var anchorDepth = 0;
         var index = 0;
 
@@ -39,16 +42,30 @@ internal static class HtmlStructuralComparer
 
             // Supported nesting guarantees a block cannot have an inline/preformatted
             // ancestor. Never trim before an inline closing tag: that can join words.
-            var trimBlockEdge = supportsNormalization && openTags.Count > 0
+            var trimBlockEdge = supportsNormalization && rootSupportsNormalization && openTags.Count > 0
                 && IsBlockElement(openTags.Peek())
                 && source.AsSpan(tagStart).StartsWith("</", StringComparison.Ordinal);
             AppendText(builder, ref normalized, source.AsSpan(index, tagStart - index), trimBlockEdge);
             index = tagStart;
             var tokenStart = builder.Length;
-            if (!TryAppendTag(source, ref index, builder, openTags, ref supportsNormalization, ref anchorDepth))
+            if (openTags.Count == 0)
+            {
+                rootSupportsNormalization = true;
+                canonicalRootStart = tokenStart;
+                normalizedRootStart = normalized?.Length ?? tokenStart;
+            }
+            var rootWasSupported = rootSupportsNormalization;
+            if (!TryAppendTag(source, ref index, builder, openTags, ref supportsNormalization, ref rootSupportsNormalization, ref anchorDepth))
                 return false;
             if (!supportsNormalization)
                 normalized = null;
+            else if (rootWasSupported && !rootSupportsNormalization && normalized is not null)
+            {
+                // Styling or replaced elements make this root's whitespace uncertain.
+                // Roll back only this subtree; unrelated safe roots keep their normalization.
+                normalized.Length = normalizedRootStart;
+                normalized.Append(builder, canonicalRootStart, builder.Length - canonicalRootStart);
+            }
             else
                 normalized?.Append(builder, tokenStart, builder.Length - tokenStart);
         }
@@ -68,6 +85,7 @@ internal static class HtmlStructuralComparer
         StringBuilder builder,
         Stack<string> openTags,
         ref bool supportsNormalization,
+        ref bool rootSupportsNormalization,
         ref int anchorDepth)
     {
         var length = source.Length;
@@ -125,9 +143,15 @@ internal static class HtmlStructuralComparer
         if (!TryReadName(source, ref cursor, out var tagName))
             return false;
 
-        // Unknown rendering contexts retain the existing exact text comparison.
-        supportsNormalization &= SupportsBlockEdgeNormalization(
-            tagName, openTags.Count == 0 ? null : openTags.Peek(), anchorDepth);
+        // Only local rendered voids may isolate their root; stylesheet/metadata elements
+        // and tokens inside raw/preformatted or list-container contexts stay conservative.
+        var parent = openTags.Count == 0 ? null : openTags.Peek();
+        if (tagName is "input" or "img" or "hr" or "wbr"
+            && parent is not ("pre" or "textarea" or "ul" or "ol"))
+            rootSupportsNormalization = false;
+        else
+            supportsNormalization &= SupportsBlockEdgeNormalization(
+                tagName, openTags.Count == 0 ? null : openTags.Peek(), anchorDepth);
 
         var attributes = new List<(string Name, string? Value)>();
         var selfClosing = false;
@@ -168,7 +192,7 @@ internal static class HtmlStructuralComparer
 
             attributes.Add((attributeName, attributeValue));
             if (attributeName is "style" or "class")
-                supportsNormalization = false;
+                rootSupportsNormalization = false;
         }
 
         if (selfClosing && !IsVoidElement(tagName))

@@ -387,15 +387,12 @@ public sealed class AdoResponseMapperTests
 
         var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/myorg");
 
-        result.ShouldNotBeEmpty();
         result.ShouldContain(op => op.Path == "/fields/System.Title" && op.Value != null && op.Value.GetValue<string>() == "New Task");
         result.ShouldContain(op => op.Path == "/fields/System.Tags" && op.Value!.GetValue<string>() == "twig");
         result.ShouldNotContain(op => op.Path == "/relations/-");
     }
 
-    // Wayfinder 0015: the stamped tag is what lets twig ask ADO "did my create already happen?"
-    // after an ambiguous failure. If it never reaches the payload, the recovery query has
-    // nothing to narrow on and #270's duplicate comes back.
+    // Shared tags index candidates; the immutable revision-one Description attributes native creates.
     [Fact]
     public void MapSeedToCreatePayload_WhenStamping_AddsTheIntentTagAlongsideTheTwigTag()
     {
@@ -405,27 +402,128 @@ public sealed class AdoResponseMapperTests
         var result = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/myorg");
 
         var tags = result.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
-        tags.ShouldContain("twig");
-        tags.ShouldContain(PublishIntent.IntentTag);
+        tags.ShouldBe("twig; " + PublishIntent.IntentTag);
     }
 
     // The tag vocabulary is a SHARED project resource with a finite cap, so twig's contribution
     // to it must not scale with the number of items published.
     [Fact]
-    public void MapSeedToCreatePayload_StampsTheSameTag_ForEverySeed()
+    public void MapSeedToCreatePayload_ManyNativeIdentities_UseOnlySharedTagsAndDistinctDescriptions()
     {
-        static string TagsFor(string title)
+        const string humanHtml = "<div><p>Human <strong>content</strong> &amp; details.</p></div>";
+        var descriptions = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 1; index <= 32; index++)
         {
-            var seed = new WorkItemBuilder(-1, title).AsSeed().Build();
-            var request = seed.ToCreateRequest() with { StampIntentTag = true };
-            return AdoResponseMapper
-                .MapSeedToCreatePayload(request, "https://dev.azure.com/myorg")
-                .Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>();
-        }
+            var correlation = new SeedPublishCorrelation(
+                StagedIdentity.FromGuid(Guid.Parse($"019a0000-0000-7000-8000-{index:x12}")),
+                DateTimeOffset.UnixEpoch);
+            var request = new CreateWorkItemRequest
+            {
+                TypeName = "Task",
+                Title = "Identical human title",
+                StampIntentTag = true,
+                SeedCorrelation = correlation,
+                Fields = new Dictionary<string, string?>
+                {
+                    ["System.Description"] = humanHtml,
+                    ["System.Tags"] = "frontend; API",
+                },
+            };
 
-        // Two different seeds, byte-identical tag strings: publishing N items adds at most two
-        // entries to the project's tag vocabulary, not N.
-        TagsFor("First seed").ShouldBe(TagsFor("Second seed"));
+            var payload = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org");
+            payload.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>()
+                .ShouldBe("frontend; API; twig; " + PublishIntent.IntentTag);
+            var description = payload.Single(op => op.Path == "/fields/System.Description").Value!.GetValue<string>();
+            description.ShouldBe(humanHtml + correlation.DescriptionMarkerHtml);
+            correlation.ContainsDescriptionMarker(description).ShouldBeTrue();
+            descriptions.Add(description).ShouldBeTrue();
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("<p>Keep this HTML &amp; whitespace.</p>\r\n")]
+    public void MapSeedToCreatePayload_CaseInsensitiveDescription_RestampingDoesNotMutateHumanInput(string? humanHtml)
+    {
+        var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch);
+        var request = new CreateWorkItemRequest
+        {
+            TypeName = "Task",
+            Title = "Native create",
+            StampIntentTag = true,
+            SeedCorrelation = correlation,
+            Fields = new Dictionary<string, string?> { ["system.description"] = humanHtml },
+        };
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var payload = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org");
+            var description = payload.Single(op => op.Path == "/fields/System.Description")
+                .Value!.GetValue<string>();
+            description.ShouldBe((humanHtml ?? "") + correlation.DescriptionMarkerHtml);
+            correlation.TryRemoveDescriptionMarker(description, out var remaining).ShouldBeTrue();
+            remaining.ShouldBe(humanHtml ?? "");
+        }
+        request.Fields["system.description"].ShouldBe(humanHtml);
+    }
+
+    [Theory]
+    [InlineData("<p>Twig publish origin v1: {id}</p>")]
+    [InlineData("<p>Twig publish origin v2: {id}</p>")]
+    [InlineData("<p>Twig publish origin v1: not-a-guid</p>")]
+    [InlineData("<p>Twig <strong>publish</strong> origin v1: {id}</p>")]
+    [InlineData("<!-- Twig publish origin v1: {id} -->")]
+    [InlineData("<p>Twig&nbsp;publish&#32;origin v1: {id}</p>")]
+    public void MapSeedToCreatePayload_ReservedHumanDescription_IsNotAdopted(string humanHtml)
+    {
+        var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch);
+        var request = new CreateWorkItemRequest
+        {
+            TypeName = "Task",
+            Title = "Native create",
+            StampIntentTag = true,
+            SeedCorrelation = correlation,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.Description"] = humanHtml.Replace("{id}", correlation.Identity.ToString(), StringComparison.Ordinal),
+            },
+        };
+
+        Should.Throw<InvalidOperationException>(() => AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org"));
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_UnclosedHumanMarkup_CannotHideTheOriginMarker()
+    {
+        var request = new CreateWorkItemRequest
+        {
+            TypeName = "Task",
+            Title = "Native create",
+            SeedCorrelation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch),
+            Fields = new Dictionary<string, string?> { ["System.Description"] = "<div hidden>Human content" },
+        };
+
+        Should.Throw<InvalidOperationException>(() => AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org"));
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_NativeCorrelationAlwaysHasSharedRecoveryTag()
+    {
+        var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch);
+        var request = new CreateWorkItemRequest
+        {
+            TypeName = "Task",
+            Title = "Native create",
+            SeedCorrelation = correlation,
+        };
+
+        var payload = AdoResponseMapper.MapSeedToCreatePayload(request, "https://dev.azure.com/org");
+
+        payload.Single(op => op.Path == "/fields/System.Tags").Value!.GetValue<string>()
+            .ShouldBe("twig; " + PublishIntent.IntentTag);
+        correlation.ContainsDescriptionMarker(payload.Single(op => op.Path == "/fields/System.Description")
+            .Value!.GetValue<string>()).ShouldBeTrue();
     }
 
     [Fact]

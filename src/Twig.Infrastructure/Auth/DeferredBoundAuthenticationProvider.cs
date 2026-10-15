@@ -19,7 +19,7 @@ namespace Twig.Infrastructure.Auth;
 /// failure, never a silent swap).
 /// </para>
 /// </summary>
-internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
+internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, ISeedPublishConfirmationGuard, IDisposable
 {
     private readonly Func<CancellationToken, Task<IAuthenticationProvider>> _factory;
     private readonly bool _initializationMetadataOnly;
@@ -81,6 +81,21 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
         if (provider is not IConnectionRemoteWriteGuard guard)
             throw new InvalidOperationException("remote-write-admission-required: reconnect through the attached native binding before publication.");
         return await guard.BeginRemoteWriteAsync(request, ct).ConfigureAwait(false);
+    }
+
+    public async Task<bool> CanCleanPublishedSeedAsync(int id, Twig.Domain.ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default)
+    {
+        if (_initializationMetadataOnly) return false;
+        var provider = await GetProviderAsync(ct).ConfigureAwait(false);
+        return provider is ISeedPublishConfirmationGuard guard
+            && await guard.CanCleanPublishedSeedAsync(id, correlation, ct).ConfigureAwait(false);
+    }
+
+    public async Task<int?> FindAcknowledgedPublishedSeedAsync(Twig.Domain.ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default)
+    {
+        var provider = await GetProviderAsync(ct).ConfigureAwait(false);
+        return provider is ISeedPublishConfirmationGuard guard
+            ? await guard.FindAcknowledgedPublishedSeedAsync(correlation, ct).ConfigureAwait(false) : null;
     }
 
     public void InvalidateToken()

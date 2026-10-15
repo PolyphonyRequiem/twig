@@ -55,6 +55,7 @@ internal static class CommandExamples
             "twig show-batch --batch 1234,5678,9012 --output json  Batch lookup as JSON array",
             "twig show-batch --batch 42             Single item batch lookup",
             "twig show-batch 1234,5678 -o json --fields System.State  Read selected fields, disclosing misses",
+            "twig show-batch --batch 42,-1 --include-fields -o json  Export complete stored targets only",
         ],
         ["query"] =
         [

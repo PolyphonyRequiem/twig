@@ -1,4 +1,9 @@
 using Shouldly;
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Serialization;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Attachment;
 using Twig.Domain.Services.Claims;
@@ -26,6 +31,74 @@ public sealed class SqliteSystemWorktreeRegistryTests : IDisposable
         _registry.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
+
+    [Fact]
+    public async Task HistoricalTaggedSeedIntentCanAppendReceiptWithoutRewritingOriginalJson()
+    {
+        var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch);
+        var origin = PublicationOrigin();
+        var request = new ConnectionRemoteWriteRequest("workitem-create", "POST", "https://dev.azure.com/fixture/Work/_apis/wit/workitems/$Task",
+            "[{\"op\":\"add\",\"path\":\"/fields/System.Tags\",\"value\":\"twig-publishing; " + correlation.Tag + "\"}]", null, correlation);
+        var intent = new ConnectionRemoteWriteIntent(1, "historical-create", ConnectionRemoteWriteAdmission.RequestDigest(origin, request), "publication-fixture", origin, request, DateTimeOffset.UnixEpoch);
+        var serialized = JsonSerializer.Serialize(intent, TwigJsonContext.Default.ConnectionRemoteWriteIntent);
+        using var document = JsonDocument.Parse(serialized);
+        var oldCorrelation = document.RootElement.GetProperty("request").GetProperty("seedCorrelation");
+        // Preserve raw wire values: reserializing DateTime strings through JsonNode changes
+        // escaping and would manufacture an unrelated immutable-byte CAS mismatch.
+        var historicalCorrelation = "{" + string.Join(",", oldCorrelation.EnumerateObject()
+            .Where(property => property.Name is not ("descriptionMarkerText" or "descriptionMarkerHtml" or "ownsIntentTag"))
+            .Select(property => "\"" + property.Name + "\":" + property.Value.GetRawText())) + "}";
+        var historicalJson = serialized.Replace(oldCorrelation.GetRawText(), historicalCorrelation, StringComparison.Ordinal);
+        (await _registry.ReadConnectionRemoteWritesAsync(intent.Fingerprint)).IsSuccess.ShouldBeTrue();
+        using var db = new SqliteConnection($"Data Source={Path.Combine(_dir, "system.db")}");
+        await db.OpenAsync();
+        using (var insert = db.CreateCommand())
+        {
+            insert.CommandText = "INSERT INTO connection_remote_write_intents(intent_id,request_digest,worktree_fingerprint,intent_json) VALUES($id,$digest,$fp,$json)";
+            insert.Parameters.AddWithValue("$id", intent.IntentId);
+            insert.Parameters.AddWithValue("$digest", intent.RequestDigest);
+            insert.Parameters.AddWithValue("$fp", intent.Fingerprint);
+            insert.Parameters.AddWithValue("$json", historicalJson);
+            await insert.ExecuteNonQueryAsync();
+        }
+        var history = (await _registry.ReadConnectionRemoteWritesAsync(intent.Fingerprint)).Value.ShouldHaveSingleItem();
+        var receipt = new ConnectionRemoteWriteReceipt(1, "historical-receipt", intent.IntentId, intent.RequestDigest,
+            "native-published-seed-readback", null, "{\"publishedId\":333}", origin, origin.Identity.IdentityId, "Original historical evidence", DateTimeOffset.UtcNow);
+        var appended = await _registry.AppendConnectionRemoteWriteReceiptAsync(history.Intent, receipt);
+        appended.IsSuccess.ShouldBeTrue(appended.Error);
+        (await _registry.ReadConnectionRemoteWritesAsync(intent.Fingerprint)).Value.ShouldHaveSingleItem().Receipt.ShouldBe(receipt);
+        using var read = db.CreateCommand();
+        read.CommandText = "SELECT intent_json FROM connection_remote_write_intents WHERE intent_id='historical-create'";
+        (await read.ExecuteScalarAsync()).ShouldBe(historicalJson);
+    }
+
+    [Fact]
+    public void RejectedAttemptCannotSupplyCleanupOwnershipForAnotherSuccessfulAttempt()
+    {
+        var correlation = new SeedPublishCorrelation(StagedIdentity.New(), DateTimeOffset.UnixEpoch) { OwnsIntentTag = true };
+        var origin = PublicationOrigin();
+        var rejected = PublicationHistory(origin, correlation, "rejected", 333);
+        MigrationBoundAuthenticationProvider.CanUseCleanupReceipt(rejected, origin, correlation, 333).ShouldBeFalse();
+        var successful = PublicationHistory(origin, correlation with { OwnsIntentTag = false }, "native-published-seed-readback", 333);
+        MigrationBoundAuthenticationProvider.CanUseCleanupReceipt(successful, origin, correlation, 333).ShouldBeFalse();
+        MigrationBoundAuthenticationProvider.CanUseCleanupReceipt(successful, origin, correlation with { OwnsIntentTag = false }, 333).ShouldBeTrue();
+        MigrationBoundAuthenticationProvider.CanUseCleanupReceipt(successful, origin, correlation with { OwnsIntentTag = false }, 444).ShouldBeFalse();
+    }
+
+    private static ConnectionRemoteWriteHistory PublicationHistory(ResolvedConnectionBinding origin, SeedPublishCorrelation correlation, string receiptKind, int id)
+    {
+        var request = new ConnectionRemoteWriteRequest("workitem-create", "POST", "https://dev.azure.com/fixture/Work/_apis/wit/workitems/$Task", "[]", null, correlation);
+        var intent = new ConnectionRemoteWriteIntent(1, "ownership-create", "ownership-digest", "publication-fixture", origin, request, DateTimeOffset.UnixEpoch);
+        var receipt = new ConnectionRemoteWriteReceipt(1, "ownership-receipt", intent.IntentId, intent.RequestDigest,
+            receiptKind, null, "{\"publishedId\":" + id + "}", origin, origin.Identity.IdentityId, "Original outcome", DateTimeOffset.UtcNow);
+        return new ConnectionRemoteWriteHistory(intent, [], receipt);
+    }
+
+    private static ResolvedConnectionBinding PublicationOrigin() => new(
+        new IdentityBinding("fixture-binding", "fixture-connection", "fixture-actor", 1),
+        new AuthenticationIdentity("fixture-actor", "actor", "fixture-tenant", "fixture-object", "fixture-issuer", "login.microsoftonline.com", "fixture-credential", null),
+        "/fixture-checkout", "connection-default-binding", 1,
+        new ConnectionOperationSnapshot("fixture", "Work", "", "publication-fixture", 1, "/fixture/twig.json", "/fixture/display.json", "ascii", "default"));
 
     [Fact]
     public async Task Find_returns_null_for_an_unknown_fingerprint()

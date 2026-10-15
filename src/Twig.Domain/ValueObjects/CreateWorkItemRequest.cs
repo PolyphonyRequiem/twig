@@ -24,14 +24,14 @@ public sealed record CreateWorkItemRequest
     /// organisation's process template, unlike a custom field.
     /// </para>
     /// <para>
-    /// Native staged creates also carry an opaque, stable correlation tag. Recovery must
-    /// observe that exact tag; a shared marker plus title/type/time cannot attribute an
-    /// unknown create or authorize its replay.
+    /// Native staged creates carry their exact durable GUID in a visible Description
+    /// paragraph, atomically in the original create payload. Shared tags are candidate
+    /// indexes, not attribution; new creates never emit per-seed unique tags.
     /// </para>
     /// </summary>
     public bool StampIntentTag { get; init; }
 
-    /// <summary>Exact native staged identity/intent time, captured by the publisher before HTTP admission.</summary>
+    /// <summary>Exact native staged identity/intent time and intent-tag ownership, captured before HTTP admission.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public SeedPublishCorrelation? SeedCorrelation { get; init; }
 

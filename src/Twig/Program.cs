@@ -140,6 +140,15 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
 if (ProgressiveHelp.TryShow(args, helpArgs => app.Run(helpArgs)))
     return;
 
+// Target-only export rejects incompatible/unknown options before DI or repository reads.
+var showBatchExportError = ShowBatchExportArguments.Validate(args);
+if (showBatchExportError is not null)
+{
+    Console.Error.WriteLine(showBatchExportError);
+    Environment.ExitCode = 2;
+    return;
+}
+
 // AB#79: the check above only inspects args[0], so a known GROUP prefix let any compound
 // verb through — `twig link bogus 5` printed top-level usage and exited 0, and `twig seed
 // bogus` did not even print usage, it created a seed titled "bogus". Every rc == 0 check,
@@ -193,6 +202,15 @@ if (outputFormatError is not null)
 // or run binary cleanup/companion installation for this command family.
 if (args.Length > 0 && args[0] == "skills")
 {
+    app.Run(args);
+    return;
+}
+
+// A validated target-only export is an offline read. Keep update cleanup and
+// companion installation unreachable, including on its first apphost invocation.
+if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-fields"))
+{
+    SQLitePCL.Batteries.Init();
     app.Run(args);
     return;
 }
@@ -490,8 +508,9 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
+    /// <param name="includeFields">Export every stored target field, core and link metadata; requires -o json, no fields/sections/refresh.</param>
     [Command("show-batch")]
-    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null)
+    public async Task<int> ShowBatch([Argument] string? batchArg = null, string? batch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? fields = null, string? sections = null, bool includeFields = false)
     {
         var resolved = ResolveBatch(batch, batchArg);
 
@@ -505,7 +524,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             return 1;
         }
 
-        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections);
+        return await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(resolved, output, ct, fields: fields, sections: sections, includeFields: includeFields);
     }
 
     /// <summary>
@@ -1520,7 +1539,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> ConnectionWrites(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConnectionWritesCommand>().ExecuteAsync(false, output: output, ct: ct);
 
-    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, replay or inferred outcome.</summary>
+    /// <summary>Reconcile an exact native request through original-actor authoritative readback. Confirmed seeds can retry revision-guarded temporary metadata cleanup without replacing their receipt. Missing attribution, a live operation or unexhausted CAS stays blocked; no force, create replay or inferred outcome.</summary>
     /// <param name="intent">Opaque native write intent ID from connection writes; required.</param>
     /// <param name="confirm">Exact immutable request digest from connection writes; required.</param>
     /// <param name="authorize">Original registered identity ID, not a display name or a replacement actor; required.</param>

@@ -25,6 +25,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
+    // Browser callers lend only the origin from their still-live admitted provider lease.
+    internal IDisposable? AcquireAdmittedOperation(Auth.ResolvedConnectionBinding origin)
+        => _store.AcquireOperation(origin);
+
     public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();

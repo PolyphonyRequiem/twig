@@ -4,6 +4,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Browser;
 
@@ -45,9 +46,10 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
                 admission = await ConnectionOperationAdmission.AcquireAsync(authentication, ct);
                 ct.ThrowIfCancellationRequested();
                 if (admission is null) throw new BrowserReadException(BrowserReadFailureKind.Unavailable, "Browser requires an admitted native connection.");
-                operation = repository.AcquireOperation();
-                origin = (admission as IAdmittedConnectionOperation)?.GetOrigin(bindings, ctx.Config, paths)
-                    ?? await bindings.ResolveAsync(ctx.Config, paths, ct);
+                origin = (admission as IAdmittedConnectionOperation)?.GetOrigin(bindings, ctx.Config, paths);
+                operation = origin is not null && repository is SqliteWorkItemRepository native
+                    ? native.AcquireAdmittedOperation(origin) : repository.AcquireOperation();
+                origin ??= await bindings.ResolveAsync(ctx.Config, paths, ct);
                 BrowserOriginGuard.EnsureExpected(origin, expectedBinding, expectedIdentity);
             }
             catch (InvalidOperationException ex) when (ex is not BrowserReadException && ex is not ConnectionBindingResolutionException { IsUnavailable: true })

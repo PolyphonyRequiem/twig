@@ -122,6 +122,38 @@ public sealed class BrowserReadModuleTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task LiveOriginBorrowCannotReadCachedDataAfterStorageMarkerChanges()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        var repository = (SqliteWorkItemRepository)runtime.GetRequiredService<IWorkItemRepository>();
+        await repository.SaveAsync(NativeBrowserFixture.Item(42, "Marker-owned private detail"));
+        var paths = TwigPaths.BuildPaths(_fixture.Paths.TwigDir, new TwigConfiguration(), _fixture.Paths.StartDir);
+        var configuration = await TwigConfiguration.LoadSplitAsync(paths);
+        using (var admission = await ConnectionOperationAdmission.AcquireAsync(runtime.GetRequiredService<IAuthenticationProvider>(), default))
+        {
+            var origin = ((IAdmittedConnectionOperation)admission!).GetOrigin(_fixture.Bindings, configuration, paths).ShouldNotBeNull();
+            async Task<string> Read()
+            {
+                using var operation = repository.AcquireAdmittedOperation(origin);
+                return (await repository.GetByIdAsync(42))!.Title;
+            }
+            (await Read()).ShouldBe("Marker-owned private detail");
+            var marker = Path.Combine(paths.TwigDir, "cache", MirrorAdmission.MarkerFile);
+            var originalBytes = await File.ReadAllBytesAsync(marker);
+            var changed = MirrorAdmission.ReadDocument(marker) with { Generation = Guid.NewGuid().ToString("N") };
+            try
+            {
+                await File.WriteAllTextAsync(marker, System.Text.Json.JsonSerializer.Serialize(changed,
+                    Twig.Infrastructure.Serialization.TwigJsonContext.Default.MirrorAdmissionDocument));
+                await Should.ThrowAsync<InvalidOperationException>(() => Read());
+            }
+            finally { await File.WriteAllBytesAsync(marker, originalBytes); }
+            (await Read()).ShouldBe("Marker-owned private detail");
+        }
+        await _fixture.SwitchAsync(_fixture.SiblingBinding.BindingId);
+    }
+
+    [HostMigrationFact]
     public async Task DifferentDisplayPreferenceSourceDoesNotBorrowAnotherOriginsProvenance()
     {
         await new GlobalDisplayPreferences { Icons = "nerd" }.SaveAsync(_fixture.Paths.GlobalDisplayPath);

@@ -231,6 +231,14 @@ independent resolution. Disposed leases and scopes whose owner has ended cannot
 lend evidence; later operations and the final origin/Bench fence still resolve
 afresh.
 
+The same live origin can lend Git fingerprint evidence to the initial native
+repository lease when its canonical root, fingerprint, connection, binding and
+generation match that mirror. This skips only duplicate Git discovery: current
+marker, unfinished transition, declared endpoint, registry generation and mirror
+path checks still run. Standalone repository acquisitions and different origins
+continue to discover independently; no startup or returned browser capture can
+substitute for the live provider lease at the browser call site.
+
 Returned observations keep private copies of item, related cached facts,
 metadata, pending changes and theme. Width reflow uses those retained facts and
 the existing native Show renderer without store, provider, shell or network I/O.

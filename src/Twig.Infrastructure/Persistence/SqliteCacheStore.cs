@@ -155,13 +155,13 @@ public sealed class SqliteCacheStore : IDisposable
     }
 
 
-    internal IDisposable? AcquireOperation()
+    internal IDisposable? AcquireOperation(Auth.ResolvedConnectionBinding? admittedOrigin = null)
     {
         if (_admission is null) return null;
         var prior = _operationScope.Value;
         if (prior is not null && prior.TryRetain())
             return new OperationLease(this, prior, null, owner: false);
-        var scope = new OperationScope(_admission.AcquireOperation());
+        var scope = new OperationScope(_admission.AcquireOperation(admittedOrigin));
         _operationScope.Value = scope;
         return new OperationLease(this, scope, prior, owner: true);
     }

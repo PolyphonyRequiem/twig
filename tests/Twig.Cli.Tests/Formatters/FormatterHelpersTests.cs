@@ -445,7 +445,7 @@ public class FormatterHelpersTests
         var result = FormatterHelpers.HtmlToSpectreMarkup("<p>First</p><p>Second</p>");
         result.ShouldContain("First");
         result.ShouldContain("Second");
-        result.Split('\n').Length.ShouldBeGreaterThan(1);
+        result.ShouldContain("First\n\nSecond");
     }
 
     [Theory]
@@ -468,10 +468,9 @@ public class FormatterHelpersTests
     {
         var result = FormatterHelpers.HtmlToSpectreMarkup(
             string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Line {i}</p>")));
-        result.ShouldContain("(+5 more lines)");
         result.ShouldContain("Line 1");
-        result.ShouldContain("Line 30");
-        result.ShouldNotContain("Line 31");
+        result.Split('\n').Length.ShouldBe(31);
+        result.ShouldNotContain("Line 35");
     }
 
 

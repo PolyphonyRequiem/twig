@@ -805,7 +805,11 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
             Reveal("item:" + _selected);
         }
         else if (_screen == "editor")
-        { _field = Math.Clamp(_field + delta, 0, Math.Max(0, _fields.Count - 1)); Reflow(); Reveal("field:" + _field); }
+        {
+            _field = Math.Clamp(_field + delta, 0, Math.Max(0, _fields.Count - 1)); Reflow();
+            var row = _rows.FirstOrDefault(line => line.Choice == _field);
+            if (row is not null) Reveal(row.Key);
+        }
         else if (_screen == "config")
         {
             if (_sectionsFocused) { SelectSection(Math.Clamp(_configSection + delta, 0, 3), true); return; }
@@ -989,8 +993,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserH
                 var edge = text.IndexOf("│ ", StringComparison.Ordinal);
                 if (edge >= 0) text = text.Remove(edge, 1).Insert(edge, "›");
             }
-            rows.Add(new(field >= 0 ? "field:" + field : "detail:" + _editor.WorkItemId + ":" + row.Source,
-                row.Offset, text, Choice: field));
+            rows.Add(new("detail:" + _editor.WorkItemId + ":" + row.Source, row.Offset, text, Choice: field));
         }
         var missing = Enumerable.Range(0, _fields.Count).Where(index => !carried.Contains(_fields[index].Id)).ToArray();
         if (missing.Length == 0) return;

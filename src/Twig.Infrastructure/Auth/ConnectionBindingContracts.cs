@@ -59,6 +59,12 @@ internal interface IConnectionOperationGuard
     Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default);
 }
 
+/// <summary>Fresh origin evidence usable only by the same source during this live operation.</summary>
+internal interface IAdmittedConnectionOperation : IDisposable
+{
+    ResolvedConnectionBinding? GetOrigin(IConnectionBindingService resolver, TwigConfiguration configuration, TwigPaths paths);
+}
+
 internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Method, string Target, string Payload, string? IfMatch,
     SeedPublishCorrelation? SeedCorrelation = null);
 

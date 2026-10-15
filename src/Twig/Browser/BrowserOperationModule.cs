@@ -46,7 +46,8 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
                 ct.ThrowIfCancellationRequested();
                 if (admission is null) throw new BrowserReadException(BrowserReadFailureKind.Unavailable, "Browser requires an admitted native connection.");
                 operation = repository.AcquireOperation();
-                origin = await bindings.ResolveAsync(ctx.Config, paths, ct);
+                origin = (admission as IAdmittedConnectionOperation)?.GetOrigin(bindings, ctx.Config, paths)
+                    ?? await bindings.ResolveAsync(ctx.Config, paths, ct);
                 BrowserOriginGuard.EnsureExpected(origin, expectedBinding, expectedIdentity);
             }
             catch (InvalidOperationException ex) when (ex is not BrowserReadException && ex is not ConnectionBindingResolutionException { IsUnavailable: true })

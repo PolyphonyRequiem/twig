@@ -6,10 +6,12 @@ using Twig.Browser;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
+using Twig.Commands;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Cli.Tests.Browser;
 
@@ -82,6 +84,60 @@ public sealed class BrowserReadModuleTests : IAsyncLifetime
         Failure(await read, BrowserReadFailureKind.AuthorityInvalidated);
         (await benches.GetCurrentAsync())!.Id.ShouldBe(replacement.Id);
         Success(await _fixture.CreateModule(runtime).ReadDetailAsync(new(42))).Title.ShouldBe("Private original");
+        await _fixture.SwitchAsync(_fixture.SiblingBinding.BindingId);
+    }
+
+    [HostMigrationFact]
+    public async Task FreshReadUsesCurrentAttachmentRevisionWhileOldCaptureRemainsInvalid()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        await repository.SaveAsync(NativeBrowserFixture.Item(42, "Same-binding private detail"));
+        var matchingPaths = TwigPaths.BuildPaths(_fixture.Paths.TwigDir, new TwigConfiguration(), _fixture.Paths.StartDir);
+        var matchingConfiguration = await TwigConfiguration.LoadSplitAsync(matchingPaths);
+        var context = runtime.GetRequiredService<CommandContext>() with { Config = matchingConfiguration };
+        var operations = new BrowserOperationModule(context, runtime.GetRequiredService<CurrentBenchResolver>(), repository,
+            runtime.GetRequiredService<IAuthenticationProvider>(), _fixture.Bindings, matchingPaths);
+        Task<BrowserOperationResult<string>> Read(BrowserCapture? capture = null) => operations.ExecuteAsync(capture,
+            async (_, token) => (await repository.GetByIdAsync(42, token))!.Title);
+        var original = await Read();
+        original.Failure.ShouldBeNull();
+        var originalCapture = original.Capture.ShouldNotBeNull();
+        var attachment = runtime.GetRequiredService<IPrimaryScopeAttachmentStore>();
+        var before = (await attachment.ReadWithRevisionAsync()).Value;
+        var scope = new PrimaryScope(42,
+            AdoWorkItemUrlValidator.BuildWorkItemUrl(NativeBrowserFixture.Organization, NativeBrowserFixture.Project, 42),
+            DateTimeOffset.UtcNow);
+        (await attachment.WriteAsync(before.Attachment.WithPrimaryScope(scope), before.Revision)).IsSuccess.ShouldBeTrue();
+
+        (await Read(originalCapture)).Failure!.Kind.ShouldBe(BrowserReadFailureKind.AuthorityInvalidated);
+        var fresh = await Read();
+        fresh.Failure.ShouldBeNull();
+        fresh.Value.ShouldBe("Same-binding private detail");
+        var freshCapture = fresh.Capture.ShouldNotBeNull();
+        freshCapture.Origin.Operation.AttachmentRevision.ShouldBe(before.Revision + 1);
+        freshCapture.BindingId.ShouldBe(originalCapture.BindingId);
+        _fixture.Transport.RequestedItems.ShouldBeEmpty();
+        await _fixture.SwitchAsync(_fixture.SiblingBinding.BindingId);
+    }
+
+    [HostMigrationFact]
+    public async Task DifferentDisplayPreferenceSourceDoesNotBorrowAnotherOriginsProvenance()
+    {
+        await new GlobalDisplayPreferences { Icons = "nerd" }.SaveAsync(_fixture.Paths.GlobalDisplayPath);
+        var runtime = await _fixture.CreateRuntimeAsync();
+        var repository = runtime.GetRequiredService<IWorkItemRepository>();
+        await repository.SaveAsync(NativeBrowserFixture.Item(42, "Configured-source private detail"));
+        var configuration = await TwigConfiguration.LoadSplitAsync(_fixture.Paths);
+        var context = runtime.GetRequiredService<CommandContext>() with { Config = configuration };
+        var operations = new BrowserOperationModule(context, runtime.GetRequiredService<CurrentBenchResolver>(), repository,
+            runtime.GetRequiredService<IAuthenticationProvider>(), _fixture.Bindings, _fixture.Paths);
+        var result = await operations.ExecuteAsync<string>(null,
+            async (_, token) => (await repository.GetByIdAsync(42, token))!.Title);
+
+        result.Failure.ShouldBeNull();
+        result.Value.ShouldBe("Configured-source private detail");
+        _fixture.Transport.RequestedItems.ShouldBeEmpty();
         await _fixture.SwitchAsync(_fixture.SiblingBinding.BindingId);
     }
 

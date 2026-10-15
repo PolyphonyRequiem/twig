@@ -69,7 +69,7 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
                 || current.Operation.Team != _binding.Operation.Team || current.Operation.WorktreeFingerprint != _binding.Operation.WorktreeFingerprint
                 || !SameAuthority(current.Identity, _binding.Identity))
                 throw Changed();
-            scope.MarkValidated();
+            scope.MarkValidated(current, paths);
             return new OperationLease(this, scope, prior, owner: true);
         }
         catch
@@ -83,19 +83,43 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
     private sealed class OperationScope(IDisposable physicalLease)
     {
         private bool _active = true;
-        private bool _validated;
+        private ResolvedConnectionBinding? _origin;
+        private TwigPaths? _paths;
         private int _references = 1;
 
-        internal void MarkValidated()
+        internal void MarkValidated(ResolvedConnectionBinding origin, TwigPaths paths)
         {
-            lock (this) _validated = true;
+            lock (this) { _paths = paths; _origin = origin; }
+        }
+
+        internal ResolvedConnectionBinding? GetOrigin(TwigConfiguration configuration, TwigPaths paths)
+        {
+            lock (this)
+            {
+                if (!_active || _origin is null || _paths is null) return null;
+                var comparer = SqlitePlanJournalRepository.CreateDefaultSourcePathComparer();
+                if (!comparer.Equals(Path.GetFullPath(paths.StartDir), Path.GetFullPath(_paths.StartDir))
+                    || !comparer.Equals(Path.GetFullPath(paths.TwigDir), Path.GetFullPath(_paths.TwigDir))
+                    || !comparer.Equals(Path.GetFullPath(paths.DbPath), Path.GetFullPath(_paths.DbPath))
+                    || !comparer.Equals(Path.GetFullPath(paths.ConfigPath), Path.GetFullPath(_paths.ConfigPath))
+                    || !comparer.Equals(Path.GetFullPath(paths.GlobalDisplayPath), Path.GetFullPath(_paths.GlobalDisplayPath))) return null;
+                if (_origin.Operation.Organization != configuration.Organization
+                    || _origin.Operation.Project != configuration.Project
+                    || _origin.Operation.Team != configuration.Team
+                    || _origin.Operation.DisplayIcons != configuration.Display.Icons
+                    || !comparer.Equals(_origin.Operation.PortableConfigurationSource,
+                        configuration.IsLegacyMode ? paths.ConfigPath : paths.RepoConfigPath)
+                    || (configuration.Display.IconsOverride is not null) != comparer.Equals(
+                        _origin.Operation.DisplayIconsSource, paths.ConfigPath)) return null;
+                return _origin;
+            }
         }
 
         internal bool TryRetain()
         {
             lock (this)
             {
-                if (!_active || !_validated) return false;
+                if (!_active || _origin is null) return false;
                 _references++;
                 return true;
             }
@@ -113,9 +137,16 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         }
     }
 
-    private sealed class OperationLease(MigrationBoundAuthenticationProvider provider, OperationScope scope, OperationScope? prior, bool owner) : IDisposable
+    private sealed class OperationLease(MigrationBoundAuthenticationProvider provider, OperationScope scope, OperationScope? prior, bool owner) : IAdmittedConnectionOperation
     {
         private int _disposed;
+
+        public ResolvedConnectionBinding? GetOrigin(IConnectionBindingService resolver, TwigConfiguration configuration, TwigPaths paths)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || !ReferenceEquals(resolver, provider._bindings)) return null;
+            return scope.GetOrigin(configuration, paths);
+        }
+
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;

@@ -221,6 +221,16 @@ duplicate Git subprocesses without caching authority across operations. Registry
 marker, endpoint, generation and selection checks remain fresh, as do standalone
 storage validation and the browser's final origin/Bench fence.
 
+The provider's live operation lease may also lend its freshly validated origin to
+the browser's initial check, but only for the same resolver, canonical workspace,
+database, configuration and global-display paths, and matching caller endpoint
+and display configuration. It lends the current resolution, not the provider's
+startup capture: a same-binding attachment revision invalidates an old browser
+capture without preventing a new uncaptured read. Different sources fall back to
+independent resolution. Disposed leases and scopes whose owner has ended cannot
+lend evidence; later operations and the final origin/Bench fence still resolve
+afresh.
+
 Returned observations keep private copies of item, related cached facts,
 metadata, pending changes and theme. Width reflow uses those retained facts and
 the existing native Show renderer without store, provider, shell or network I/O.

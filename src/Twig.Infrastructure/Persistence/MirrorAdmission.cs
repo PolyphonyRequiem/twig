@@ -41,7 +41,10 @@ internal sealed class MirrorAdmission
         return Path.Combine(twigDir, "cache", document.MirrorFile);
     }
 
-    internal static MirrorAdmission? Acquire(TwigPaths paths, string? registryPath = null)
+    // A binding resolution may supply the anchor its attachment read just validated.
+    // It is evidence for this call only; every other acquisition discovers it afresh.
+    internal static MirrorAdmission? Acquire(TwigPaths paths, string? registryPath = null,
+        WorktreeAnchor? validatedAttachmentAnchor = null)
     {
         var marker = Path.Combine(paths.TwigDir, "cache", MarkerFile);
         if (!File.Exists(marker))
@@ -50,9 +53,10 @@ internal sealed class MirrorAdmission
             // Absence is not host-quiescence evidence and never activates migration.
             var registry = registryPath ?? Path.Combine(Auth.ConnectionBindingService.ResolveUserHome(), "system.db");
             if (!File.Exists(registry) || !HasMigrationIntents(registry)) return null;
-            if (!WorktreeAnchorDetector.TryDetect(paths.StartDir, out var anchor, out _))
+            var anchor = validatedAttachmentAnchor ?? WorktreeAnchorDetector.Detect(paths.StartDir);
+            if (anchor is null)
                 throw new InvalidOperationException("migration-fingerprint-unavailable: native migration intent exists but checkout identity cannot be verified; restore the worktree before access.");
-            if (ReadNativeState(registry, WorktreeFingerprintProvider.CanonicalJson(anchor)) is not null)
+            if (ReadNativeState(registry, WorktreeFingerprintProvider.CanonicalJson(anchor.Value)) is not null)
                 throw new InvalidOperationException("migration-incomplete: resume 'twig connection migrate' with the original identity; no legacy or partial-generation access is admitted.");
             return null;
         }
@@ -63,22 +67,28 @@ internal sealed class MirrorAdmission
             throw new InvalidOperationException("migration-authority-mismatch: the mirror belongs to another metadata home. Reconnect using the original explicit binding authority; no cache or work request is admitted.");
         if (!SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(Path.GetFullPath(paths.DbPath), Path.GetFullPath(Path.Combine(paths.TwigDir, "cache", document.MirrorFile))))
             throw new InvalidOperationException("legacy-store-retired: reconnect using freshly resolved workspace paths.");
-        if (!WorktreeAnchorDetector.TryDetect(paths.StartDir, out var current, out _)
-            || document.Fingerprint != WorktreeFingerprintProvider.CanonicalJson(current))
+        var current = validatedAttachmentAnchor ?? WorktreeAnchorDetector.Detect(paths.StartDir);
+        if (current is null || document.Fingerprint != WorktreeFingerprintProvider.CanonicalJson(current.Value))
             throw new InvalidOperationException("migration-fingerprint-mismatch: the admitted store belongs to another checkout.");
         var admission = new MirrorAdmission(paths.TwigDir, document);
-        admission.Validate();
+        // Reuse this discovery for the root only when it is the same canonical root.
+        // An aliased or different path still needs its own fresh Git proof.
+        var sameRoot = SqlitePlanJournalRepository.CreateDefaultSourcePathComparer().Equals(
+            current.Value.WorktreeRoot, WorktreeAnchorDetector.CanonicalPath(admission.WorktreeRoot, paths.StartDir));
+        admission.Validate(sameRoot ? current : null);
         return admission;
     }
 
-    internal void Validate()
+    internal void Validate() => Validate(null);
+
+    private void Validate(WorktreeAnchor? validatedAnchor)
     {
         var current = ReadDocument(Path.Combine(_twigDir, "cache", MarkerFile));
         if (current != _document)
             throw new InvalidOperationException("binding-changed: storage admission changed. Explicitly reconnect; the old generation is unavailable.");
         ValidateNoUnfinishedTransition(_document.RegistryPath, _document.Fingerprint);
-        if (!WorktreeAnchorDetector.TryDetect(WorktreeRoot, out var anchor, out _)
-            || WorktreeFingerprintProvider.CanonicalJson(anchor) != _document.Fingerprint)
+        var anchor = validatedAnchor ?? WorktreeAnchorDetector.Detect(WorktreeRoot);
+        if (anchor is null || WorktreeFingerprintProvider.CanonicalJson(anchor.Value) != _document.Fingerprint)
             throw new InvalidOperationException("binding-changed: checkout fingerprint changed. Explicitly reconnect before reading or writing cached data.");
         var paths = TwigPaths.BuildPaths(_twigDir, new TwigConfiguration(), WorktreeRoot);
         if (ConnectionRefResolver.Compute(TwigConfiguration.LoadSplit(paths)) != _document.ConnectionRef)

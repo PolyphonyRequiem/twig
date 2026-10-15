@@ -213,6 +213,14 @@ native registry lock codes remain typed, not interpreted from diagnostic wording
 An admitted context retained on failure is a refusal fence for later actions,
 not an authorization or a successful data observation.
 
+Binding resolution discovers the Git anchor through its validated attachment read
+and shares that evidence with mirror admission only within the same resolution.
+Mirror admission reuses source/root discovery only when their canonical roots match;
+different or aliased paths still receive an independent root check. This removes
+duplicate Git subprocesses without caching authority across operations. Registry,
+marker, endpoint, generation and selection checks remain fresh, as do standalone
+storage validation and the browser's final origin/Bench fence.
+
 Returned observations keep private copies of item, related cached facts,
 metadata, pending changes and theme. Width reflow uses those retained facts and
 the existing native Show renderer without store, provider, shell or network I/O.

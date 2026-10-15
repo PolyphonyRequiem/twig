@@ -372,7 +372,6 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(paths);
-        var storageAdmission = MirrorAdmission.Acquire(paths, Path.Combine(_userHome, SystemDbFileName));
         var connectionRef = ConnectionRefResolver.Compute(configuration);
 
         // Validate the local attachment before selecting an identity.
@@ -383,6 +382,7 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         // This anchor was freshly discovered and validated against this attachment.
         var attachment = read.Value.Attachment;
         var anchor = read.Value.Anchor;
+        var storageAdmission = MirrorAdmission.Acquire(paths, RegistryPath, anchor);
         var fingerprint = WorktreeFingerprintProvider.CanonicalJson(anchor);
         var worktreeRow = await _registry.FindWorktreeAsync(fingerprint, ct).ConfigureAwait(false);
         if (!worktreeRow.IsSuccess) throw new ConnectionBindingResolutionException(worktreeRow.Error, $"Registry refused worktree lookup: {worktreeRow.Error}");

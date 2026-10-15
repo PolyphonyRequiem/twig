@@ -23,7 +23,6 @@ internal static class RichHtmlRenderer
         var output = new StringBuilder();
         foreach (var node in Render(html, 1))
         {
-            if (node is RenderNode.Text { Content: "" }) continue;
             if (output.Length > 0) output.Append('\n');
             if (node is RenderNode.Markup markup) output.Append(markup.Content);
             else if (node is RenderNode.Text text) output.Append(Markup.Escape(text.Content));

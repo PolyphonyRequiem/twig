@@ -11,7 +11,7 @@ mutates: local
 On Windows and Linux, `twig tui` opens the native Bench browser in the current
 process. It is the same application as `twig bench browser`, with the same
 captured source, authority checks, local editing and read-only proposal Review.
-No companion download or Go/read subprocess is part of native startup.
+No companion download or Go/work-item-read subprocess is part of native startup.
 
 On macOS, `twig tui` without options still launches the existing Terminal.Gui
 `twig-tui` companion. This cutover does not replace macOS's legacy terminal UI.
@@ -79,6 +79,11 @@ No positional arguments. All native options below are Windows/Linux options for
   through the native workspace-sync operation, preserving protected pending work.
   View switches keep selection visible; Help/configuration exit restores the Bench
   reading viewport, and expanded arrows/j/k scroll physical content rows.
+  v opens a focused full-width item view; E enters its guarded editor, and Esc
+  returns through the same item reading position to the original Bench/inline view.
+  Full detail uses separated title, metadata, long-form and relationship sections.
+  The top-right header captures display-only terminal-host context automatically;
+  Herdr labels use bounded read-only host queries, not work-item subprocess reads.
 - Editing stages local pending changes through the shared native sink. No browser
   action publishes pending work. Review is read-only: opening a proposal does not
   authorize, apply or replace its digest, file or journal origin.

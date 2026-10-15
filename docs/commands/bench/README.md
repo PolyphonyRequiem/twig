@@ -62,6 +62,21 @@ or **Esc** collapses the detail and restores the previous Bench selection, folds
 viewport. CLI detail returns the same open-right status frame without a duplicate
 summary line; ordinary `twig show` retains its existing presentation.
 
+Full detail separates the complete title, metadata, long-form fields and relationships
+with headings and spacing. Metadata labels sit above their wrapped values; assignee,
+paths and related titles remain complete even in narrow panes.
+Markdown/HTML descriptions retain blank-line separation before, after and between
+headings, as well as between paragraphs; flattening rich content no longer removes
+those spacers.
+
+**v** opens the selected work item in a focused, full-width read-only view, without
+surrounding Bench rows. This is item inspection, not proposal Review. Scrolling and
+resize retain the same field/HTML reading anchor. **E** enters the existing guarded
+editor for that item; **Esc** returns to its reading position, then another **Esc**
+restores the original Bench or inline-detail viewport. Unsaved editor buffers remain
+retained until explicitly discarded or staged. R/S retain their cache/pull-only meaning.
+Multi-select and shared-field batch editing are not part of this view.
+
 Resizing retained detail keeps its reading position within the native field or HTML
 section, including literal diagrams, rather than retaining a rendered row number.
 Near the end, widening may leave blank rows below the retained content; **End** still
@@ -121,9 +136,12 @@ and `twig-bench-tui` enter this same application with the same options. macOS
   These operations preserve pending work. Creating a Bench highlights it without
   switching. Esc cancels a form first, then restores the previous Bench selection,
   folds and reading viewport when leaving configuration.
-- **Edit:** E opens the served document, including server header controls before pages.
+- **Edit:** E keeps the rendered item presentation: title, metadata, rich descriptions
+  and relationships, with the selected field highlighted. Enter changes that field
+  into an inline text input; Tab retains it and moves to the next served field.
+  Additional unsupported/not-carried document controls remain identified below the item.
   Typing is limited by the shared local sink (Title/State/Assigned To), not server
-  read-only metadata. Enter edits; Tab accepts/moves; Ctrl+S stages one local batch.
+  read-only metadata. Ctrl+S stages one local batch.
   Unsupported/missing values or invalid transitions refuse; failed saves retain input.
   Esc returns without discarding; Ctrl+D explicitly discards only unsaved input.
   Saved pending values survive viewer restart. No UI action publishes them.
@@ -142,10 +160,23 @@ the same key path. Narrow panes abbreviate labels with an ellipsis and use compa
 view buttons; **?** opens scrollable help with complete captured context and all
 gesture/configuration guidance. Esc returns to the same Bench viewport.
 
+The top-right header automatically shows captured terminal-host context. Herdr
+workspace/tab labels and the current pane come from bounded, read-only installed
+Herdr CLI queries; compact panes retain the host/pane label. Help exposes the full
+capture, including the source pane for admitted hosting. tmux/Zellij environment
+hints are display-only and explicitly unverified. None of this metadata selects an
+identity, changes routing authority, or changes the registered extension. Unavailable
+host metadata does not prevent the browser from opening.
+
 Runtime process appearance and user overrides supply work-item badges/type colors;
 state categories supply redundant state badges. Selection and chrome own their
 backgrounds, and configuration has a distinct surface. `NO_COLOR` or `TERM=dumb`
 removes styling without removing the selection marker or gesture labels.
+Full item and inline detail use the same dark content surface across plain text,
+headings and emphasis, without reverting individual spans to the terminal's default
+background. Secondary text does not depend on faint rendering. Edit-field focus uses
+the restrained blue selection surface rather than inverted blocks; the `›` marker
+and input caret remain visible without color.
 
 The footer stays on the last visible row, with a separate notice row above it.
 Named, fully visible action buttons are mouse-clickable; clipped controls cannot

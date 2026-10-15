@@ -86,6 +86,35 @@ public sealed class BrowserTerminalTextTests
         }
     }
 
+    [Fact]
+    public async Task EditingOverlayKeepsRichItemContentAndDoesNotMutateTheReadObservation()
+    {
+        var item = NativeBrowserFixture.Item(42, "Original title");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<h2>Readable section</h2><p>Complete original description tail.</p>",
+        });
+        var snapshot = new BrowserDetailSnapshot(item, null, [], [], null, [], [], null, 15,
+            new Twig.Rendering.SpectreTheme(new Twig.Infrastructure.Config.DisplayConfig()));
+        var original = await snapshot.RenderRowsAsync(78);
+        var baseline = new Twig.Domain.Services.WorkItemMapper().ToSnapshot(item);
+        var editing = await snapshot.RenderEditingRowsAsync(78, baseline, new Dictionary<string, string?>
+        {
+            ["System.Title"] = "Draft [red] title ▏",
+            ["System.AssignedTo"] = "New assignee",
+            ["System.State"] = "Draft state",
+        });
+        var visible = string.Join("\n", editing.Select(row => BrowserTerminalText.PlainText(row.Text)));
+        visible.ShouldContain("Draft [red] title ▏");
+        visible.ShouldContain("New assignee");
+        visible.ShouldContain("Draft state");
+        visible.ShouldContain("Readable section");
+        visible.ShouldContain("Complete original description tail.");
+        visible.ShouldNotContain("<h2>");
+        editing.ShouldContain(row => row.Source == "System.Title" && row.Text.Contains("Draft", StringComparison.Ordinal));
+        (await snapshot.RenderRowsAsync(78)).ShouldBe(original);
+    }
+
     private static string StripSgr(string value)
         => System.Text.RegularExpressions.Regex.Replace(value, @"\x1b\[[0-9;]*m", "");
 

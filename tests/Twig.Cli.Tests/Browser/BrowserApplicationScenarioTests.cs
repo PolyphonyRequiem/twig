@@ -108,7 +108,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             await terminal.ReadUntilAsync(paint => !paint.Working && paint.Context.Contains("TABLE", StringComparison.Ordinal), deadline.Token);
             (await CaptureStoredRowsAsync(observer)).ShouldBe(original);
 
-            terminal.Enqueue(Key(BrowserKey.Enter));
+            terminal.Enqueue(Character('v'));
             await ReadyAsync(terminal, "DETAIL42-ORIGINAL", deadline.Token);
             // The only permitted durable delta is this explicit external cache write.
             var repository = observer.GetRequiredService<IWorkItemRepository>();
@@ -302,8 +302,133 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
         }
     }
 
-    [HostMigrationFact]
-    public async Task SeedSyncGesturePreservesDisplayedAndDurableStateWithoutRemoteCalls()
+    [HostMigrationTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FocusedItemScrollResizeAndRetainedEditorRestoreExactBenchOrInlineContext(bool inline)
+    {
+        var observer = await PopulateAsync();
+        var repository = observer.GetRequiredService<IWorkItemRepository>();
+        var item = (await repository.GetByIdAsync(42))!;
+        var markers = Enumerable.Range(1, 40).Select(index => $"FOCUS-ROW-{index:000}").ToArray();
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = string.Join("", markers.Select(marker => $"<p>{marker} {string.Join(" ", Enumerable.Repeat("readable context", 8))}</p>"))
+        });
+        await repository.SaveAsync(item);
+        var benches = observer.GetRequiredService<IBenchRepository>();
+        var bench = (await benches.GetCurrentAsync())!;
+        for (var id = 81; id <= 88; id++)
+        {
+            await repository.SaveAsync(NativeBrowserFixture.Item(id, $"Following Bench row {id}"));
+            await benches.AddSelectorAsync(bench.Id, BenchSelector.ForItem(id));
+        }
+        var application = Application();
+        using var terminal = new ScriptedBrowserTerminal(100, 12);
+        using var lifetime = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var running = application.RunAsync(terminal, _fixture.Paths.StartDir!, ct: lifetime.Token);
+        try
+        {
+            await ReadyAsync(terminal, "Selected cached item", deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Left));
+            var folded = await terminal.ReadUntilAsync(frame => !frame.Working && !frame.Content.Contains("Child cached item", StringComparison.Ordinal), deadline.Token);
+            var baseline = await CaptureStoredRowsAsync(observer);
+            if (inline)
+            {
+                terminal.Enqueue(Key(BrowserKey.Enter));
+                await ReadyAsync(terminal, markers[^1], deadline.Token);
+                terminal.Enqueue(Key(BrowserKey.PageDown));
+            }
+            else terminal.Enqueue(Key(BrowserKey.End));
+            var origin = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Top > 0, deadline.Token);
+            ClickFooter(terminal, origin, "[v View item]");
+            var focused = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("ITEM #42", StringComparison.Ordinal) && frame.Content.Contains(markers[^1], StringComparison.Ordinal), deadline.Token);
+            focused.Content.ShouldNotContain("Following Bench row");
+            focused.Content.ShouldNotContain("UNPUBLISHED80");
+            (await application.DispatchAsync(new("status"), deadline.Token)).View.ShouldBe("item");
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (true)
+            {
+                var visible = string.Join("\n", focused.VisibleRows);
+                foreach (var marker in markers)
+                    if (visible.Contains(marker, StringComparison.Ordinal)) visited.Add(marker);
+                if (focused.Top >= Math.Max(0, focused.Rows.Count - BrowserTerminalFrame.ContentHeight(focused.Height))) break;
+                var prior = focused;
+                terminal.Enqueue(Key(BrowserKey.Down));
+                focused = await terminal.ReadUntilAsync(frame => frame.Sequence > prior.Sequence && !frame.Working, deadline.Token);
+            }
+            visited.Order(StringComparer.Ordinal).ShouldBe(markers);
+            var middle = focused.Rows.ToList().FindIndex(row => row.Contains(markers[19], StringComparison.Ordinal));
+            middle.ShouldBeGreaterThan(0);
+            terminal.Enqueue([Key(BrowserKey.Home), .. Enumerable.Repeat(Key(BrowserKey.Down), middle)]);
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Top == middle, deadline.Token);
+            terminal.Resize(60, 12);
+            var narrow = await terminal.ReadUntilAsync(frame => frame.Width == 60 && !frame.Working, deadline.Token);
+            string.Join("\n", narrow.VisibleRows).ShouldContain(markers[19]);
+            terminal.Resize(100, 12);
+            var beforeEditor = await terminal.ReadUntilAsync(frame => frame.Width == 100 && !frame.Working, deadline.Token);
+            string.Join("\n", beforeEditor.VisibleRows).ShouldContain(markers[19]);
+            ClickFooter(terminal, beforeEditor, "[E Edit item]");
+            var editor = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("EDITOR", StringComparison.Ordinal), deadline.Token);
+            editor.Context.ShouldContain("#42");
+            string.Join("\n", editor.VisibleRows).ShouldContain(markers[19]);
+            terminal.Enqueue(Key(BrowserKey.Home));
+            editor = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("EDITOR", StringComparison.Ordinal) && frame.Top == 0, deadline.Token);
+            var title = editor.VisibleRows.ToList().FindIndex(row => row.Contains("Selected cached item", StringComparison.Ordinal));
+            title.ShouldBeGreaterThanOrEqualTo(0);
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.Mouse, X: 5, Y: BrowserTerminalFrame.ContentStart(editor.Height) + title, ButtonDown: true), Key(BrowserKey.Enter));
+            await terminal.ReadUntilAsync(frame => frame.Status.Contains("[Esc Retain]", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue([.. "-LOCAL-BUFFER".Select(character => Character(character)), Key(BrowserKey.Escape), Key(BrowserKey.Escape)]);
+            var afterEditor = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("ITEM #42", StringComparison.Ordinal), deadline.Token);
+            afterEditor.Rows.ShouldBe(beforeEditor.Rows);
+            afterEditor.Top.ShouldBe(beforeEditor.Top);
+            terminal.Enqueue(Character('E'));
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("EDITOR", StringComparison.Ordinal) && frame.Content.Contains("-LOCAL-BUFFER", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape), Key(BrowserKey.Escape));
+            var restored = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            restored.Rows.ShouldBe(origin.Rows);
+            restored.Top.ShouldBe(origin.Top);
+            if (inline)
+            {
+                terminal.Enqueue(Key(BrowserKey.Escape));
+                var collapsed = await terminal.ReadUntilAsync(frame => !frame.Working && !frame.Content.Contains(markers[0], StringComparison.Ordinal), deadline.Token);
+                collapsed.Rows.ShouldBe(folded.Rows);
+                collapsed.Top.ShouldBe(folded.Top);
+            }
+            terminal.Enqueue(Character('q'));
+            var retained = await terminal.ReadUntilAsync(frame => frame.Context.StartsWith("EDITOR", StringComparison.Ordinal) && frame.Content.Contains("-LOCAL-BUFFER", StringComparison.Ordinal), deadline.Token);
+            running.IsCompleted.ShouldBeFalse();
+            retained.Context.ShouldContain("#42");
+            terminal.Enqueue(Character('d', BrowserModifiers.Control), Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(frame => frame.Context.StartsWith("TREE", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Character('v'));
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("ITEM #42", StringComparison.Ordinal), deadline.Token);
+            (await application.DispatchAsync(new("view", "table"), deadline.Token)).Ok.ShouldBeTrue();
+            var table = await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("TABLE", StringComparison.Ordinal), deadline.Token);
+            table.Content.ShouldNotContain(markers[0]);
+            terminal.Enqueue(Character('E'));
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("EDITOR", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Key(BrowserKey.Escape));
+            await terminal.ReadUntilAsync(frame => !frame.Working && frame.Context.StartsWith("TABLE", StringComparison.Ordinal), deadline.Token);
+            terminal.Enqueue(Character('q'));
+            (await running.WaitAsync(deadline.Token)).ShouldBe(0);
+            (await CaptureStoredRowsAsync(observer)).ShouldBe(baseline);
+            _fixture.Transport.RequestedItems.ShouldBeEmpty();
+            _fixture.Transport.Mutations.ShouldBe(0);
+        }
+        finally
+        {
+            lifetime.Cancel();
+            terminal.Enqueue(new BrowserInput(BrowserInputKind.EndOfInput));
+            await running.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    [HostMigrationTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeedSyncGesturePreservesDisplayedAndDurableStateWithoutRemoteCalls(bool focused)
     {
         var observer = await PopulateAsync();
         var minted = await observer.GetRequiredService<IStagedIdentityRegistry>().MintAsync();
@@ -321,7 +446,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
         {
             await ReadyAsync(terminal, "Local seed draft", deadline.Token);
             var baseline = await CaptureStoredRowsAsync(observer);
-            terminal.Enqueue(Key(BrowserKey.Enter));
+            terminal.Enqueue(focused ? Character('v') : Key(BrowserKey.Enter));
             var detail = await ReadyAsync(terminal, "SEED-LOCAL-BODY", deadline.Token);
             terminal.Enqueue(Character('S'));
             var afterGesture = await terminal.ReadUntilAsync(paint => paint.Sequence > detail.Sequence && !paint.Working, deadline.Token);
@@ -362,7 +487,10 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             terminal.Enqueue(Key(BrowserKey.Enter));
             await barrier.Entered.Task.WaitAsync(deadline.Token);
             var olderLoading = await terminal.ReadUntilAsync(paint => paint.Working, deadline.Token);
-            terminal.Enqueue(Key(BrowserKey.Escape), Key(BrowserKey.Down), Key(BrowserKey.Enter));
+            terminal.Enqueue(Character('v'), Character('E'));
+            var refused = await terminal.ReadUntilAsync(paint => paint.Sequence > olderLoading.Sequence && paint.Working, deadline.Token);
+            refused.Context.ShouldStartWith("TREE");
+            terminal.Enqueue(Key(BrowserKey.Escape), Key(BrowserKey.Down), Character('v'));
             var newerLoading = await terminal.ReadUntilAsync(paint => paint.Sequence > olderLoading.Sequence && paint.Working, deadline.Token);
             barrier.Release.TrySetResult();
             await barrier.NewerEntered.Task.WaitAsync(deadline.Token);
@@ -377,6 +505,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
             barrier.NewerRelease.TrySetResult();
             var newer = await ReadyAsync(terminal, "DETAIL43-NEWER", deadline.Token);
             newer.Content.ShouldNotContain("DETAIL42-ORIGINAL");
+            newer.Context.ShouldStartWith("ITEM #43");
             // The superseded completion must not paint a falsely idle newer request.
             terminal.ObservedPaints.Where(paint => paint.Sequence > newerLoading.Sequence)
                 .ShouldAllBe(paint => paint.Working || paint.Content.Contains("DETAIL43-NEWER", StringComparison.Ordinal));
@@ -398,8 +527,10 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
         }
     }
 
-    [HostMigrationFact]
-    public async Task ChangedRealBenchAuthorityClearsOldContentUntilExplicitFreshRuntimeReconnect()
+    [HostMigrationTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChangedRealBenchAuthorityClearsOldContentUntilExplicitFreshRuntimeReconnect(bool focused)
     {
         var observer = await PopulateAsync();
         var benches = observer.GetRequiredService<IBenchRepository>();
@@ -413,7 +544,7 @@ public sealed class BrowserApplicationScenarioTests : IAsyncLifetime
         try
         {
             await ReadyAsync(terminal, "Selected cached item", deadline.Token);
-            terminal.Enqueue(Key(BrowserKey.Enter));
+            terminal.Enqueue(focused ? Character('v') : Key(BrowserKey.Enter));
             await ReadyAsync(terminal, "DETAIL42-ORIGINAL", deadline.Token);
             var originalGeneration = (await application.DispatchAsync(new("status"), deadline.Token)).Generation;
             // A real authority change, not a fabricated capture or failure result.

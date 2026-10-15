@@ -74,12 +74,30 @@ public sealed class BrowserTerminalInputTests
     public void FooterOccupiesTheOnlyVisibleRowAndClipsHorizontally()
     {
         using var writer = new StringWriter();
-        BrowserTerminalFrame.Paint(writer, ["content"], 0, 4, 1, new("header", "context", "notice", "status"));
+        BrowserTerminalFrame.Paint(writer, ["content"], 0, 4, 1, new("header", "context", "notice", "status", null));
         writer.ToString().ShouldContain("\x1b[1;1H");
         writer.ToString().ShouldContain("stat");
         writer.ToString().ShouldNotContain("header");
         writer.ToString().ShouldNotContain("content");
         writer.ToString().ShouldNotContain("\x1b[2;1H");
+    }
+
+    [Fact]
+    public void HostContextFitsTheHeaderWithoutDisplacingTheFooter()
+    {
+        var host = new BrowserHostContext("Herdr · a long workspace and tab label", "Herdr · p1", "captured host");
+        using var writer = new StringWriter();
+        BrowserTerminalFrame.Paint(writer, [], 0, 40, 2, new("Connection · Bench · User", "", "", "[Esc Back]", host));
+        var painted = writer.ToString();
+        var header = BrowserTerminalText.PlainText(painted[..painted.IndexOf("\x1b[2;1H", StringComparison.Ordinal)]);
+        BrowserTerminalText.CellWidth(header).ShouldBe(40);
+        header.ShouldStartWith("Connection · Bench");
+        header.ShouldEndWith("Herdr · p1");
+        BrowserTerminalText.PlainText(painted).ShouldContain("[Esc Back]");
+
+        writer.GetStringBuilder().Clear();
+        BrowserTerminalFrame.Paint(writer, [], 0, 1, 1, new("Header", "", "", "Quit", host));
+        BrowserTerminalText.PlainText(writer.ToString()).ShouldBe("Q");
     }
 
     private static List<BrowserInput> Drain(BrowserVtInputParser parser)

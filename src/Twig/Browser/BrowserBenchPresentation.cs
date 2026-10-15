@@ -43,7 +43,6 @@ internal static class BrowserBenchPresentation
     private sealed class ItemRows(SpectreTheme theme, BrowserBenchItem item, string prefix, int width,
         bool selected, bool table) : IRenderable
     {
-        private static readonly Color Selection = new(22, 50, 79);
         private Dictionary<Style, Style>? _surfaceStyles;
         internal List<int> Offsets { get; } = [];
 
@@ -131,10 +130,7 @@ internal static class BrowserBenchPresentation
             _surfaceStyles ??= [];
             if (!_surfaceStyles.TryGetValue(segment.Style, out var style))
             {
-                var foreground = segment.Style.Foreground == Color.Default ? new Color(177, 217, 239) : segment.Style.Foreground;
-                var background = selected ? Selection : BrowserTerminalFrame.ContentBackground;
-                if (selected) foreground = SpectreTheme.OnSurface(foreground, background).Foreground;
-                style = new Style(foreground, background, selected ? (segment.Style.Decoration & ~Decoration.Dim) | Decoration.Bold : segment.Style.Decoration);
+                style = BrowserTerminalFrame.OnContentSurface(segment.Style, selected);
                 _surfaceStyles.Add(segment.Style, style);
             }
             return new Segment(segment.Text, style);

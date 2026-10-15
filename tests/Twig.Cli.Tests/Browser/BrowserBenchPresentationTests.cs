@@ -96,6 +96,28 @@ public sealed class BrowserBenchPresentationTests
         string.Concat(narrow.Select(r => Plain(r.Text).TrimEnd())).ShouldContain(title);
     }
 
+    [Fact]
+    public async Task FullItemAndSelectedFieldKeepReadableSurfacesAcrossMixedTextStyles()
+    {
+        var item = NativeBrowserFixture.Item(42, "Focus field");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p><strong>Bold</strong> plain <em>Emphasis</em></p>",
+        });
+        var snapshot = new BrowserDetailSnapshot(item, null, [], [], null, [], [], null, 15,
+            new SpectreTheme(new DisplayConfig()));
+        var rows = await snapshot.RenderRowsAsync(80);
+        var description = rows.Single(row => row.Source == "System.Description" && Plain(row.Text).Contains("Bold", StringComparison.Ordinal)).Text;
+        foreach (var word in new[] { "Bold", "plain", "Emphasis" })
+            InkAt(description, description.IndexOf(word, StringComparison.Ordinal)).Background.ShouldBe(BrowserTerminalFrame.ContentBackground);
+        var editor = await snapshot.RenderEditingRowsAsync(80, new Twig.Domain.Services.WorkItemMapper().ToSnapshot(item),
+            new Dictionary<string, string?>(), "System.Title");
+        var title = editor.Single(row => row.Source == "System.Title").Text;
+        var selected = InkAt(title, title.IndexOf("Focus", StringComparison.Ordinal));
+        selected.Background.ShouldBe(BrowserTerminalFrame.SelectionBackground);
+        Contrast(selected.Foreground, selected.Background).ShouldBeGreaterThanOrEqualTo(4.5);
+    }
+
     private static BrowserBenchItem Item(string title) => new(42, null, "Nebula", "Teleporting", title,
         true, true, false, false, false, false, []);
 

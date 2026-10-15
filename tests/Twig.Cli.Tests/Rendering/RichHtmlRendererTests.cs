@@ -70,6 +70,17 @@ public sealed class RichHtmlRendererTests
     }
 
     [Fact]
+    public void MarkupDescriptionsKeepBlankLinesBeforeAfterAndBetweenHeadings()
+    {
+        const string html = "<p>Introduction</p><h2>First heading</h2><h3>Second heading</h3><p>Body text</p>";
+        const string spaced = "Introduction\n\nFirst heading\n\nSecond heading\n\nBody text";
+        Render(html).ShouldContain(spaced);
+        var markup = new RendererFactory().CaptureHuman(
+            new RenderTree.RenderTree([new RenderNode.Markup(RichHtmlRenderer.ToMarkup(html))]), 80, "never").Text;
+        markup.Replace("\r\n", "\n", StringComparison.Ordinal).ShouldContain(spaced);
+    }
+
+    [Fact]
     public void NarrowTablesStackEveryColumnRatherThanDroppingValues()
     {
         var output = Render("<table><tr><th>One</th><th>Two</th><th>Three</th></tr>" +

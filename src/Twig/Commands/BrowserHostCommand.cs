@@ -45,7 +45,6 @@ internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRunti
                 CommandError.Write(renderers, Console.Error, output, "Manifest-owned entry takes its exact source from native launch admission, not override arguments.");
                 return exit = 2;
             }
-            var application = new BrowserApplication(factory);
             using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(ct);
             using var interrupt = RegisterSignal(PosixSignal.SIGINT, shutdown, () => Interlocked.Exchange(ref interrupted, 1));
             using var terminate = RegisterSignal(PosixSignal.SIGTERM, shutdown, () => Interlocked.Exchange(ref interrupted, 1));
@@ -54,17 +53,19 @@ internal sealed class BrowserHostCommand(RendererFactory renderers, BrowserRunti
             {
                 var capturedCwd = Path.GetFullPath(cwd ?? Environment.CurrentDirectory);
                 var proposal = file is null ? null : Path.GetFullPath(file, capturedCwd);
+                var application = new BrowserApplication(factory, await BrowserHostContext.CaptureAsync(null, shutdown.Token));
                 using var terminal = BrowserTerminal.Open();
                 return exit = await application.RunAsync(terminal, capturedCwd, view, proposal, shutdown.Token);
             }
             var admission = await BrowserHerdrHost.AdmitEntryAsync(shutdown.Token);
             var initialView = Environment.GetEnvironmentVariable("TWIG_BROWSER_INITIAL_VIEW") ?? view;
             if (initialView is not ("tree" or "table")) throw new InvalidDataException("Invalid native initial view.");
+            var hostedApplication = new BrowserApplication(factory, await BrowserHostContext.CaptureAsync(admission.Source, shutdown.Token));
             using (var terminal = BrowserTerminal.Open())
             {
-                await using var controls = new BrowserControlServer(application, admission.Source, admission.HostPane, admission.Nonce, admission.Root);
+                await using var controls = new BrowserControlServer(hostedApplication, admission.Source, admission.HostPane, admission.Nonce, admission.Root);
                 var watchdog = WatchTopologyAsync(admission.Source, admission.HostPane, shutdown);
-                try { return exit = await application.RunAsync(terminal, admission.Source.Cwd, initialView, ct: shutdown.Token); }
+                try { return exit = await hostedApplication.RunAsync(terminal, admission.Source.Cwd, initialView, ct: shutdown.Token); }
                 finally { shutdown.Cancel(); await watchdog; }
             }
         }

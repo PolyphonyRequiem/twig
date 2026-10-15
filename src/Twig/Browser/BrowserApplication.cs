@@ -11,7 +11,7 @@ internal sealed record BrowserIntent(string Command, string? Value = null, strin
 internal sealed record BrowserIntentResult(bool Ok, string Message, string View, bool RequiresReconnect, long Generation);
 
 /// <summary>One serialized terminal state owner, with separately serialized short native operations.</summary>
-internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
+internal sealed class BrowserApplication(BrowserRuntimeFactory factory, BrowserHostContext? hostContext = null)
 {
     private readonly ConcurrentQueue<Action> _events = new();
     private readonly HashSet<int> _folded = [];
@@ -23,6 +23,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private BrowserCapture? _capture;
     private BrowserDetailObservation? _detail;
     private BrowserEditingSession? _editor;
+    private BrowserDetailObservation? _editorDetail;
     private BrowserReviewObservation? _review;
     private IReadOnlyList<Twig.Domain.ValueObjects.AreaPathFilter> _candidates = [];
     private BrowserDetailObservation? _renderedDetail;
@@ -41,6 +42,8 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private SavedViewport? _saved;
     private SavedViewport? _configurationViewport;
     private SavedViewport? _helpViewport;
+    private FocusedItem? _focused;
+    private Anchor? _editorItemAnchor;
     private long _generation = 1, _serial;
     private string? _lastClick;
     private long _lastClickAt;
@@ -51,6 +54,8 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private sealed record Button(string Text, BrowserInput Input);
     private sealed record Anchor(string Key, int Offset, int ScreenRow);
     private sealed record SavedViewport(int Selected, HashSet<int> Folded, Anchor? Anchor);
+    private sealed record FocusedItem(int Id, BrowserCapture Capture, SavedViewport BenchViewport, BrowserDetailObservation? InlineDetail);
+    private sealed record EditorContent(BrowserEditingSession Session, BrowserDetailObservation Detail);
     private int ContentHeight => BrowserTerminalFrame.ContentHeight(_height);
 
     internal Task<BrowserIntentResult> DispatchAsync(BrowserIntent intent, CancellationToken ct = default)
@@ -87,7 +92,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
                 while (count++ < 128 && terminal.TryRead(out var input)) Input(input);
                 if (_dirty)
                 {
-                    terminal.Paint(_rows.Select(r => r.Text).ToArray(), _top, _width, _height, new(Header(), ContextHeader(), _message, Footer(), _screen == "config"));
+                    terminal.Paint(_rows.Select(r => r.Text).ToArray(), _top, _width, _height, new(Header(), ContextHeader(), _message, Footer(), hostContext, _screen == "config"));
                     _dirty = false;
                 }
                 await Task.Delay(8, ct);
@@ -106,7 +111,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         }
     }
 
-    private BrowserIntentResult Result(bool ok, string message) => new(ok, message, _screen == "review" ? "review" : _view, _requiresReconnect, _generation);
+    private BrowserIntentResult Result(bool ok, string message) => new(ok, message, _screen is "review" or "item" ? _screen : _view, _requiresReconnect, _generation);
     private void Reply(TaskCompletionSource<BrowserIntentResult>? reply, bool ok, string message)
     { if (reply is not null) { reply.TrySetResult(Result(ok, message)); _controls.Remove(reply); } }
     private void Intent(BrowserIntent intent, TaskCompletionSource<BrowserIntentResult> reply, CancellationToken ct)
@@ -137,10 +142,12 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private void Clear()
     {
         _bench = null; _capture = null; _detail = null; _editor = null; _review = null;
+        _editorDetail = null;
         _index = null;
         _rows.Clear(); _fields.Clear(); _folded.Clear(); _edits.Clear(); _candidates = [];
         _renderedDetail = null; _renderedWidth = 0; _detailRows = [];
         _saved = null; _configurationViewport = null; _helpViewport = null; _expanded = null; _buffer = null; _prompt = null; _deletion = null;
+        _focused = null; _editorItemAnchor = null;
         _lastClick = null; _lastClickAt = 0;
         _top = 0; _selected = 0; _choice = 0; _field = 0; _cursor = 0; _cursorRow = 0; _configSection = 0;
         _screen = "bench"; _reviewFull = false; _exact = false; _sectionsFocused = false;
@@ -256,6 +263,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         if (_busy && _openingScreen) Cancel();
         if (_screen == "config") LeaveConfiguration();
         if (_screen == "help") LeaveHelp();
+        LeaveItem();
         CloseDetail(); _screen = "bench"; _view = view; EnsureVisibleSelection(); _message = view == "tree" ? "Tree · local selection" : "Table · local selection"; Reflow();
         Reveal("item:" + _selected);
     }
@@ -285,6 +293,43 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         var result = await module.ReadDetailAsync(request, ct);
         return new(result.Observation, result.Failure, result.Capture);
     }
+    private void OpenItem()
+    {
+        if (_capture is null || _selected == 0 || _runtime is null || _requiresReconnect) return;
+        if (_busy) { _message = "A native operation is already in progress; wait before viewing this item."; _dirty = true; return; }
+        _focused = new(_selected, _capture, new(_selected, new(_folded), Capture()), _detail);
+        _detail = null; _screen = "item"; _top = 0; _editorItemAnchor = null;
+        ReadItem();
+    }
+    private void ReadItem(bool sync = false)
+    {
+        if (_focused is not { } focused || _runtime is null) return;
+        if (_busy) { _message = "A native operation is already in progress; wait before reading or syncing this item."; _dirty = true; return; }
+        var module = _runtime.Services.GetRequiredService<BrowserReadModule>(); var width = _width;
+        _message = sync ? $"Explicitly syncing captured #{focused.Id} only…" : $"Reading cached #{focused.Id}…";
+        Start(token => ReadDetail(module, new(focused.Id, width, Captured: focused.Capture, Sync: sync), token), result =>
+        {
+            _detail = result.Value;
+            _message = $"#{focused.Id} · read-only full item · E guarded editor · R cache / S captured root sync · no publishing";
+            if (sync) ReadBench(result.Capture, () => _message = $"#{focused.Id} · captured item and owning Bench refreshed; nothing published");
+        });
+    }
+    private void LeaveItem()
+    {
+        if (_focused is not { } focused) return;
+        Cancel(); _focused = null; _editorItemAnchor = null; _screen = "bench";
+        _detail = focused.InlineDetail; _selected = focused.BenchViewport.Selected;
+        _folded.Clear(); _folded.UnionWith(focused.BenchViewport.Folded);
+        Reflow(false); Restore(focused.BenchViewport.Anchor);
+        _message = "Cache-only Bench · selection does not change the active work item";
+    }
+    private void LeaveEditor()
+    {
+        Cancel(); AcceptBuffer(); _screen = _focused is null ? "bench" : "item"; _top = 0;
+        _message = "Edit buffer retained; E reopens it. Ctrl+D in editor explicitly discards.";
+        Reflow(false);
+        if (_focused is not null) Restore(_editorItemAnchor);
+    }
     private void CloseDetail()
     {
         if (_expanded is null) return;
@@ -297,6 +342,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private void OpenConfiguration()
     {
         if (_bench is null || _requiresReconnect) return;
+        LeaveItem();
         CloseDetail();
         if (_busy && _openingScreen) Cancel();
         _configurationViewport = new(_selected, new(_folded), Capture());
@@ -318,6 +364,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
     private void OpenHelp()
     {
         if (_requiresReconnect) return;
+        LeaveItem();
         CloseDetail();
         _helpViewport = new(_selected, new(_folded), Capture()); _screen = "help"; _top = 0;
         _message = "Read-only browser help · Esc returns to the same Bench viewport"; Reflow(false);
@@ -336,16 +383,33 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
 
     private void OpenEditor()
     {
-        if (_capture is null || _selected == 0 || _runtime is null) return;
-        if (_editor is not null && _editor.WorkItemId == _selected)
-        { _screen = "editor"; _top = 0; _message = "Retained edit buffer · Ctrl+S stages locally · Ctrl+D explicitly discards"; Reflow(); return; }
-        if (HasDirtyEditor()) { _message = "Another item's unsaved edit buffer is retained. Reopen it and stage or explicitly discard first."; _dirty = true; return; }
-        var id = _selected; var capture = _capture; var module = _runtime.Services.GetRequiredService<BrowserEditingModule>();
-        Start(token => module.OpenAsync(id, capture, token), result =>
+        var id = _focused?.Id ?? _selected;
+        if (_capture is null || id == 0 || _runtime is null) return;
+        if (_busy) { _message = "A native operation is already in progress; wait before opening the editor."; _dirty = true; return; }
+        if (_editor is not null && _editor.WorkItemId != id && HasDirtyEditor())
+        { _message = "Another item's unsaved edit buffer is retained. Reopen it and stage or explicitly discard first."; _dirty = true; return; }
+        _editorItemAnchor = _screen == "item" ? Capture() : null;
+        var retained = _editor is not null && _editor.WorkItemId == id ? _editor : null;
+        var capture = _focused?.Capture ?? _capture;
+        var module = _runtime.Services.GetRequiredService<BrowserEditingModule>();
+        var reader = _runtime.Services.GetRequiredService<BrowserReadModule>();
+        var width = _width;
+        Start<EditorContent>(async token =>
         {
-            _editor = result.Value; _screen = "editor"; _top = 0; _field = 0; _edits.Clear();
-            _fields = _editor!.Document.SystemControls.Concat(_editor.Document.Pages.SelectMany(p => p.AllGroups).SelectMany(g => g.Controls)).ToList();
-            _message = "Document fields · Enter edit permitted field · Ctrl+S stages one local batch · Esc cancel";
+            BrowserOperationResult<BrowserEditingSession> opened = retained is null ? await module.OpenAsync(id, capture, token) : new(retained, null, capture);
+            if (opened.Failure is not null) return new(null, opened.Failure, opened.Capture);
+            var detail = await ReadDetail(reader, new(id, width, Captured: capture), token);
+            return detail.Failure is not null ? new(null, detail.Failure, detail.Capture)
+                : new(new(opened.Value!, detail.Value!), null, detail.Capture);
+        }, result =>
+        {
+            _editor = result.Value!.Session; _editorDetail = result.Value.Detail;
+            _screen = "editor"; _top = 0;
+            if (retained is null) { _field = 0; _edits.Clear(); }
+            _fields = _editor.Document.SystemControls.Concat(_editor.Document.Pages.SelectMany(p => p.AllGroups).SelectMany(g => g.Controls)).ToList();
+            _message = retained is null ? "Edit item · Enter edits highlighted field · Tab next field · Ctrl+S stages locally"
+                : "Retained edit buffer · Ctrl+S stages locally · Ctrl+D explicitly discards";
+            Reflow(false); Restore(_editorItemAnchor);
         });
         _openingScreen = _busy;
     }
@@ -378,6 +442,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         if (_screen == "editor") AcceptBuffer();
         if (_screen == "config") LeaveConfiguration();
         if (_screen == "help") LeaveHelp();
+        LeaveItem();
         CloseDetail(); var capture = _capture; var module = _runtime.Services.GetRequiredService<BrowserReviewModule>();
         Start(token => module.OpenAsync(file, capture, token), result =>
         { _review = result.Value; _screen = "review"; _reviewFull = false; _top = 0; _message = "Read-only Review · D details / B brief · Esc back · never applies or authorizes"; }, reply, requestCt: requestCt);
@@ -411,6 +476,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         AcceptBuffer();
         if (HasDirtyEditor())
         {
+            if (_screen == "item") _editorItemAnchor = Capture();
             _screen = "editor"; _message = "Unsaved buffer retained. Ctrl+S stages; Ctrl+D explicitly discards; Esc returns without discarding."; Reflow();
             return;
         }
@@ -494,7 +560,8 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         if (input.Key == BrowserKey.Escape)
         {
             if (_screen == "review") ExitReview();
-            else if (_screen == "editor") { Cancel(); AcceptBuffer(); _screen = "bench"; _top = 0; _message = "Edit buffer retained; E reopens it. Ctrl+D in editor explicitly discards."; Reflow(); }
+            else if (_screen == "editor") LeaveEditor();
+            else if (_screen == "item") LeaveItem();
             else if (_screen == "config") LeaveConfiguration();
             else if (_screen == "help") LeaveHelp();
             else CloseDetail();
@@ -527,6 +594,23 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
             }
             return;
         }
+        if (_screen == "item")
+        {
+            switch (input.Character)
+            {
+                case 'e': case 'E': OpenEditor(); break;
+                case 'r': case 'R': ReadItem(); break;
+                case 'S': ReadItem(true); break;
+                case 'q': RequestLeave(false); break;
+                case '1': SetView("tree"); break;
+                case '2': SetView("table"); break;
+                case '3': OpenReview(); break;
+                case 'b': case 'c': OpenConfiguration(); break;
+                case '?': OpenHelp(); break;
+            }
+            if (input.Key == BrowserKey.Tab) SetView(_view == "tree" ? "table" : "tree");
+            return;
+        }
         switch (input.Key)
         {
             case BrowserKey.Enter: if (_expanded == _selected) CloseDetail(); else OpenDetail(); return;
@@ -542,6 +626,7 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
             case '3': OpenReview(); break;
             case 'b': case 'c': OpenConfiguration(); break;
             case 'e': case 'E': OpenEditor(); break;
+            case 'v': case 'V': OpenItem(); break;
             case 'r': case 'R': if (_expanded is not null) OpenDetail(refresh: true); else if (_runtime is not null) ReadBench(_capture); break;
             case 'S': OpenDetail(true); break;
             case 's': SyncBench(); break;
@@ -805,6 +890,15 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
             for (var i = 0; i < lines.Count; i++) next.Add(new("review", i, lines[i]));
         }
         else if (_screen == "editor" && _editor is not null) EditorRows(next);
+        else if (_screen == "item" && _focused is { } focused)
+        {
+            if (_detail is not null)
+            {
+                foreach (var row in DetailRows(_width))
+                    next.Add(new("detail:" + focused.Id + ":" + row.Source, row.Offset, row.Text));
+            }
+            else Add(next, "item-loading:" + focused.Id, _busy ? $"Reading cached #{focused.Id}…" : _message);
+        }
         else if (_screen == "config" && _bench is not null) ConfigRows(next);
         else if (_screen == "help") HelpRows(next);
         else if (_bench is not null)
@@ -830,14 +924,8 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
                 var inset = indent + "  ";
                 if (_detail is not null)
                 {
-                    var detailWidth = DetailWidth(item.Id);
-                    if (!ReferenceEquals(_renderedDetail, _detail) || _renderedWidth != detailWidth)
-                    {
-                        _detailRows = _detail.RenderRowsAsync(detailWidth).GetAwaiter().GetResult();
-                        _renderedDetail = _detail; _renderedWidth = detailWidth;
-                    }
-                    var lines = _detailRows;
-                    foreach (var line in lines) next.Add(new("detail:" + item.Id + ":" + line.Source, line.Offset, inset + line.Text, item.Id));
+                    foreach (var line in DetailRows(DetailWidth(item.Id)))
+                        next.Add(new("detail:" + item.Id + ":" + line.Source, line.Offset, inset + line.Text, item.Id));
                 }
                 else
                 {
@@ -855,22 +943,62 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         if (preserve) Restore(anchor); else _top = Math.Clamp(_top, 0, Math.Max(0, next.Count - ContentHeight));
         _dirty = true;
     }
+    private IReadOnlyList<BrowserSourceRow> DetailRows(int width)
+    {
+        if (!ReferenceEquals(_renderedDetail, _detail) || _renderedWidth != width)
+        {
+            _detailRows = _detail!.RenderRowsAsync(width).GetAwaiter().GetResult();
+            _renderedDetail = _detail; _renderedWidth = width;
+        }
+        return _detailRows;
+    }
     private void EditorRows(List<Line> rows)
     {
-        var index = 0;
-        foreach (var control in _editor!.Document.SystemControls) EditorControlRows(rows, control, ref index);
-        foreach (var page in _editor!.Document.Pages)
+        if (_editorDetail is null || _editor is null) return;
+        var values = new Dictionary<string, string?>(_editor.CurrentValues, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in _edits) values[key] = value;
+        for (var index = 0; index < _fields.Count; index++)
         {
-            Add(rows, "page:" + page.Id, page.Label + (page.Visible ? "" : " [hidden in server layout]") +
-                (page.CarriesFieldControls ? "" : " [server-rendered page; unsupported here]"), color: "\x1b[1;36m");
-            foreach (var group in page.AllGroups)
+            var control = _fields[index];
+            if (!_editor.Capability.CanEdit(control.Id) || !values.ContainsKey(control.Id)) continue;
+            if (_buffer is not null && _prompt is null && index == _field) values[control.Id] = _buffer;
+            if (string.IsNullOrEmpty(values[control.Id])) values[control.Id] = "[empty]";
+        }
+        var rendered = _editorDetail.RenderEditingRowsAsync(_width, _editor.Snapshot, values, _fields.ElementAtOrDefault(_field)?.Id).GetAwaiter().GetResult();
+        var carried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var controls = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < _fields.Count; index++) controls.TryAdd(_fields[index].Id, index);
+        var inputRendered = false;
+        foreach (var row in rendered)
+        {
+            carried.Add(row.Source);
+            var field = controls.GetValueOrDefault(row.Source, -1);
+            if (_buffer is not null && _prompt is null && field == _field)
             {
-                Add(rows, "group:" + group.Id, group.Label + (group.IsContribution ? " [unsupported contribution]" : ""), color: "\x1b[36m");
-                foreach (var control in group.Controls)
+                if (!inputRendered)
                 {
-                    EditorControlRows(rows, control, ref index);
+                    Add(rows, "field:" + field, _buffer.Insert(_cursor, "▏"), "│ ", choice: field, color: BrowserTerminalFrame.SelectionStyle);
+                    _cursorRow = rows.FindLastIndex(line => line.Key == "field:" + field && line.Offset <= _cursor);
+                    inputRendered = true;
                 }
+                continue;
             }
+            var text = row.Text;
+            if (field == _field)
+            {
+                var edge = text.IndexOf("│ ", StringComparison.Ordinal);
+                if (edge >= 0) text = text.Remove(edge, 1).Insert(edge, "›");
+            }
+            rows.Add(new(field >= 0 ? "field:" + field : "detail:" + _editor.WorkItemId + ":" + row.Source,
+                row.Offset, text, Choice: field));
+        }
+        var missing = Enumerable.Range(0, _fields.Count).Where(index => !carried.Contains(_fields[index].Id)).ToArray();
+        if (missing.Length == 0) return;
+        Add(rows, "document-fields", "Other served document fields", color: "\x1b[1;36m");
+        foreach (var index in missing)
+        {
+            var current = index;
+            EditorControlRows(rows, _fields[index], ref current);
         }
     }
 
@@ -897,21 +1025,23 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
             " · Team: " + DisplayLabel(origin?.Operation.Team, "not configured") + " · Bench: " + DisplayLabel(_capture?.BenchName, "unavailable") +
             " · User: " + DisplayLabel(origin?.Identity.AccountName, DisplayLabel(origin?.Identity.Name, "unavailable")));
         Add(rows, "help-worktree", "WORKTREE · " + DisplayLabel(origin?.WorktreeRoot, "unavailable") + " · Branch: " + DisplayLabel(_bench?.Branch, "unavailable"));
+        if (hostContext is not null) Add(rows, "help-host", "HOST · " + hostContext.Details);
         Add(rows, "help-context-gap", "");
         var sections = new[]
         {
             "BROWSER · Native cached Bench; selecting a row never changes the active work item.",
-            "1 Tree · 2 Table · Tab toggles · 3 Review. Native view digits are retained; they differ from the original Go browser.",
+            "1 Tree · 2 Table · Tab toggles · 3 proposal Review. Native view digits are retained; they differ from the original Go browser.",
             "↑/↓ or j/k selects visible work items. ← collapses an expanded parent or selects the parent; → expands a folded parent or selects the first child. Space toggles the selected fold. Click its disclosure to fold.",
             "Enter expands full cached detail inline. While expanded, ↑/↓/j/k, PgUp/PgDn/Home/End and the wheel scroll physical rows through all detail and following work items. Enter or Esc collapses and restores selection, folds and viewport.",
+            "v View item opens the selected item's full cached detail on its own read-only screen, without surrounding Bench rows. Arrows/j/k, PgUp/PgDn/Home/End and the wheel scroll every row; resize preserves the source position. Esc restores the exact prior Bench or inline viewport.",
             "p toggles only the selected item's explicit Single pin; Shift+P toggles only its explicit Subtree pin. Both can coexist. Inherited pins, automatic rules and owed membership remain. Local seeds must be published before pinning.",
             "Named footer buttons run the same guarded key actions when clicked. Pin/Unpin labels reflect explicit cached pins, never inherited membership. Busy native mutations cannot be repeated.",
             "b or c opens Bench configuration: Pins, Areas, Sprints, Benches. Tab/Shift+Tab or 1/2/3/4 chooses a section; arrows select sections until Enter/→ focuses items; ← returns to sections. Esc restores the Bench viewport.",
             "Configuration i adds any positive single ID; Shift+I adds a subtree ID. Uncached pins remain unverified. Areas support Exact/Under, and t explicitly fetches configured-team candidates. No sprints disables automatic membership; seeds and owed work still appear.",
             "Benches: n creates empty without switching; Enter selects; d/Delete reviews deletion. Default is protected. Nonempty deletion requires its captured name. All native origin, settings and contents protections remain; pending work is never deleted.",
-            "R refreshes the local Bench or expanded item's cache; S explicitly syncs only the selected/expanded item. Lowercase s pulls the captured Bench's saved selectors and permitted relationship context, protecting pending work. There is no implicit network sync on navigation, configuration entry, expansion or refresh.",
-            "E opens native document editing. Enter edits permitted fields; Tab retains the field; Ctrl+S stages one local batch. Ctrl+D explicitly discards unsaved buffers. Esc preserves them. Nothing is published from this browser.",
-            "Review is read only: D details, B brief, Esc back. It never applies or authorizes a proposal. Origin invalidation clears prior content; Ctrl+R explicitly reconnects. q closes."
+            "R refreshes the local Bench, expanded item or focused item's cache; S explicitly syncs only the selected/expanded/focused item. Lowercase s on the Bench pulls its saved selectors and permitted relationship context, protecting pending work. Navigation, item viewing, configuration entry, expansion and refresh never implicitly sync.",
+            "E edits in the same rendered item layout, with the selected field highlighted. Enter opens an inline input; Tab retains the field and selects the next served field. Ctrl+S stages one local batch. Ctrl+D explicitly discards unsaved buffers. Esc preserves them; leaving the editor restores the focused item's viewport, and another Esc returns to the Bench. Unsupported document controls remain identified below the item. Nothing is published from this browser.",
+            "Proposal Review is separate from View item and is read only: D details, B brief, Esc back. It never applies or authorizes a proposal. Origin invalidation clears prior content; Ctrl+R explicitly reconnects. q closes unless an unsaved edit buffer must be retained."
         };
         for (var i = 0; i < sections.Length; i++) { Add(rows, "help:" + i, sections[i]); Add(rows, "help-gap:" + i, ""); }
     }
@@ -975,12 +1105,12 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
             " · Bench: \x1b[1m" + Elide(DisplayLabel(_capture?.BenchName, "loading"), labelWidth) + "\x1b[22m · User: " + account +
             (_busy ? "  ◌ working" : "") + "\x1b[0m";
     }
-    private string ModeLabel() => _screen switch { "bench" => _view.ToUpperInvariant(), "config" => "BENCH CONFIGURATION", "help" => "BROWSER HELP", _ => _screen.ToUpperInvariant() };
+    private string ModeLabel() => _screen switch { "bench" => _view.ToUpperInvariant(), "item" => "ITEM #" + _focused?.Id, "config" => "BENCH CONFIGURATION", "help" => "BROWSER HELP", _ => _screen.ToUpperInvariant() };
     private IEnumerable<Button> ContextButtons()
     {
-        if (_requiresReconnect || _screen is not ("bench" or "review")) yield break;
+        if (_requiresReconnect || _screen is not ("bench" or "item" or "review")) yield break;
         yield return CharacterButton(_width < 90 ? "[1]" : "[1 Tree]", '1'); yield return CharacterButton(_width < 90 ? "[2]" : "[2 Table]", '2');
-        if (_screen == "bench") yield return CharacterButton(_width < 90 ? "[3]" : "[3 Review]", '3');
+        if (_screen != "review") yield return CharacterButton(_width < 90 ? "[3]" : "[3 Proposal Review]", '3');
     }
     private string ContextHeader()
     {
@@ -1060,12 +1190,19 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         {
             yield return CharacterButton("[D Details]", 'D'); yield return CharacterButton("[B Brief]", 'B'); yield return KeyButton("[Esc Back]", BrowserKey.Escape); yield break;
         }
+        if (_screen == "item")
+        {
+            yield return CharacterButton("[E Edit item]", 'E'); yield return KeyButton("[Esc Back]", BrowserKey.Escape);
+            yield return CharacterButton("[R Cache]", 'R'); yield return CharacterButton("[S Sync item]", 'S'); yield break;
+        }
         if (_expanded is not null)
         {
+            yield return CharacterButton("[v View item]", 'v'); yield return CharacterButton("[E Edit]", 'E');
             yield return CharacterButton("[S Sync item]", 'S'); yield return CharacterButton("[R Refresh cache]", 'R');
             yield return KeyButton("[Enter/Esc Collapse]", BrowserKey.Escape); yield break;
         }
         yield return KeyButton("[Enter Detail]", BrowserKey.Enter);
+        yield return CharacterButton("[v View item]", 'v');
         foreach (var button in PinButtons()) yield return button;
         yield return CharacterButton("[b Bench]", 'b'); yield return CharacterButton("[? Help]", '?');
         yield return CharacterButton("[s Sync Bench]", 's'); yield return CharacterButton("[R Refresh cache]", 'R');
@@ -1088,10 +1225,11 @@ internal sealed class BrowserApplication(BrowserRuntimeFactory factory)
         {
             "config" => (_sectionsFocused ? "↑/↓ sections · Enter/→ items" : "↑/↓ items · ← sections") + " · Tab/1/2/3/4 sections · s pull Bench · R refresh",
             "editor" => "Tab next · local staging only; no publishing",
+            "item" => "READ ONLY · arrows/PgUp/PgDn/Home/End/wheel scroll · 3 proposal Review · q close",
             "review" => "READ ONLY · arrows/PgUp/PgDn/Home/End scroll",
             "help" => "↑/↓/j/k/PgUp/PgDn/Home/End/wheel scroll",
             _ when _expanded is not null => "↑/↓/j/k scroll · PgUp/PgDn/Home/End/wheel · selected item only",
-            _ => "1 Tree · 2 Table · 3 Review · E edit · R cache · S item sync · s Bench sync · ←/→/Space hierarchy · q close"
+            _ => "1 Tree · 2 Table · 3 proposal Review · E edit · R cache · S item sync · s Bench sync · ←/→/Space hierarchy · q close"
         };
         return buttons + " · " + help;
     }

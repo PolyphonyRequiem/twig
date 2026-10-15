@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Auth;
@@ -88,6 +89,8 @@ internal sealed class BrowserDetailObservation
     internal Task<BrowserRenderedDetail> RenderAsync(int width, bool ansi = true)
         => _snapshot.RenderAsync(width, ansi);
     internal Task<IReadOnlyList<BrowserSourceRow>> RenderRowsAsync(int width) => _snapshot.RenderRowsAsync(width);
+    internal Task<IReadOnlyList<BrowserSourceRow>> RenderEditingRowsAsync(int width, WorkItemSnapshot baseline,
+        IReadOnlyDictionary<string, string?> values, string? selectedField = null) => _snapshot.RenderEditingRowsAsync(width, baseline, values, selectedField);
 }
 
 internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
@@ -102,7 +105,23 @@ internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
     internal async Task<IReadOnlyList<BrowserSourceRow>> RenderRowsAsync(int width)
         => BrowserTerminalText.ContentRows(await RenderAnsiAsync(width, true, true), width);
 
-    private async Task<string> RenderAnsiAsync(int width, bool ansi, bool sourceSections)
+    internal async Task<IReadOnlyList<BrowserSourceRow>> RenderEditingRowsAsync(int width, WorkItemSnapshot baseline,
+        IReadOnlyDictionary<string, string?> values, string? selectedField = null)
+    {
+        var fields = new Dictionary<string, string?>(baseline.Fields, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in values) fields[key] = value;
+        var item = EditingMapper.Map(baseline with
+        {
+            Title = fields.GetValueOrDefault("System.Title", baseline.Title) ?? string.Empty,
+            State = fields.GetValueOrDefault("System.State", baseline.State) ?? string.Empty,
+            Fields = fields,
+        });
+        return BrowserTerminalText.ContentRows(await (this with { Item = item }).RenderAnsiAsync(width, true, true, selectedField), width);
+    }
+
+    private static readonly WorkItemMapper EditingMapper = new();
+
+    private async Task<string> RenderAnsiAsync(int width, bool ansi, bool sourceSections, string? selectedField = null)
     {
         if (width < 1 || width > 10000)
             throw new ArgumentException("Width must be between 1 and 10000 columns.");
@@ -124,12 +143,29 @@ internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
             () => Task.FromResult(Changes), fieldDefinitions: Definitions, statusFieldEntries: StatusFields,
             childProgress: ChildProgress, links: Links, parent: Parent, children: Children,
             cacheStaleMinutes: CacheStaleMinutes, fullContent: true,
-            sourceSection: sourceSections ? static (key, value) => new SourceSection(key, value) : null);
-        console.Write(view);
+            sourceSection: sourceSections ? (key, value) => new SourceSection(key, value, key == selectedField) : null);
+        console.Write(sourceSections ? new ContentSurface(view) : view);
         return writer.ToString();
     }
 
-    private sealed class SourceSection(string key, Spectre.Console.Rendering.IRenderable inner) : Spectre.Console.Rendering.IRenderable
+    private sealed class ContentSurface(Spectre.Console.Rendering.IRenderable inner) : Spectre.Console.Rendering.IRenderable
+    {
+        private readonly Dictionary<Spectre.Console.Style, Spectre.Console.Style> _styles = [];
+        public Spectre.Console.Rendering.Measurement Measure(Spectre.Console.Rendering.RenderOptions options, int maxWidth)
+            => inner.Measure(options, maxWidth);
+        public IEnumerable<Spectre.Console.Rendering.Segment> Render(Spectre.Console.Rendering.RenderOptions options, int maxWidth)
+        {
+            foreach (var segment in inner.Render(options, maxWidth))
+            {
+                if (segment.IsControlCode || segment.IsLineBreak) { yield return segment; continue; }
+                if (!_styles.TryGetValue(segment.Style, out var style))
+                    _styles.Add(segment.Style, style = BrowserTerminalFrame.OnContentSurface(segment.Style));
+                yield return new(segment.Text, style);
+            }
+        }
+    }
+
+    private sealed class SourceSection(string key, Spectre.Console.Rendering.IRenderable inner, bool selected) : Spectre.Console.Rendering.IRenderable
     {
         private readonly Spectre.Console.Rendering.Segment _start = Spectre.Console.Rendering.Segment.Control(BrowserTerminalText.SourceMarker(key));
         private static readonly Spectre.Console.Rendering.Segment End = Spectre.Console.Rendering.Segment.Control(BrowserTerminalText.SourceMarker(null));
@@ -151,7 +187,9 @@ internal sealed record BrowserDetailSnapshot(WorkItem Item, WorkItem? Parent,
                 else
                 {
                     if (!marked) { yield return _start; marked = true; }
-                    yield return segment;
+                    yield return selected && !segment.IsControlCode
+                        ? new(segment.Text, BrowserTerminalFrame.OnContentSurface(segment.Style, selected: true))
+                        : segment;
                 }
             }
             if (marked) yield return End;

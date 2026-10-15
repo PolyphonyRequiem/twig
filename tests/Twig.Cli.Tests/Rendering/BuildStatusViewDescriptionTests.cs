@@ -196,6 +196,58 @@ public class BuildStatusViewDescriptionTests
         output.ShouldNotContain("more lines");
     }
 
+    [Fact]
+    public async Task FullContent_NarrowMetadataPreservesAssigneePathsAndDynamicLabels()
+    {
+        _testConsole.Profile.Width = 40;
+        _testConsole.Profile.Capabilities.Unicode = true;
+        const string assignee = "Person-first Person-middle Person-last Person-tail";
+        const string area = "Area-first\\Area-middle\\Area-last\\Area-tail";
+        const string iteration = "Sprint-first\\Sprint-middle\\Sprint-last\\Sprint-tail";
+        const string customPath = "Custom-first\\Custom-middle\\Custom-last\\Custom-tail";
+        const string displayName = "A process-defined routing path with a long display label";
+        var item = new WorkItem
+        {
+            Id = 21,
+            Type = WorkItemType.Parse("Process-specific review").Value,
+            Title = "Full metadata",
+            State = "Awaiting review",
+            AssignedTo = assignee,
+            AreaPath = AreaPath.Parse(area).Value,
+            IterationPath = IterationPath.Parse(iteration).Value,
+        };
+        item.SetField("Custom.Route", customPath);
+
+        var output = await RenderStatusViewAsync(item,
+            fieldDefinitions: [new("Custom.Route", displayName, "treepath", false)], fullContent: true);
+        var visible = string.Concat(output.Where(character => !char.IsWhiteSpace(character) && character != '│'));
+        foreach (var value in new[] { assignee, area, iteration, customPath, displayName, item.Type.Value, item.State })
+            visible.ShouldContain(string.Concat(value.Where(character => !char.IsWhiteSpace(character))));
+    }
+
+    [Fact]
+    public async Task FullContent_NarrowRelationshipsKeepCompleteParentAndChildTitles()
+    {
+        _testConsole.Profile.Width = 40;
+        _testConsole.Profile.Capabilities.Unicode = true;
+        var item = CreateWorkItem(22, "Inspected item", "Active");
+        var parent = CreateWorkItem(23, "Parent first section and important middle context ending in parent tail", "Reviewing");
+        var child = CreateWorkItem(24, "Child first section and important middle context ending in child tail", "Waiting");
+
+        var renderable = await _renderer.BuildStatusViewAsync(item,
+            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+            parent: parent, children: [child], links: [new(item.Id, 25, "Process-defined relation")], fullContent: true);
+        _testConsole.Write(renderable);
+        var visible = string.Concat(_testConsole.Output.Where(character => !char.IsWhiteSpace(character) && character != '│'));
+        foreach (var related in new[] { parent, child })
+        {
+            visible.ShouldContain(string.Concat(related.Title.Where(character => !char.IsWhiteSpace(character))));
+            visible.ShouldContain(related.State);
+        }
+        visible.ShouldContain("Process-definedrelation");
+        visible.ShouldContain("#25");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

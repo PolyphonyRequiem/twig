@@ -2,7 +2,7 @@ using System.Text;
 
 namespace Twig.Browser;
 
-internal sealed record BrowserChrome(string Header, string Context, string Notice, string Footer, bool Configuration = false);
+internal sealed record BrowserChrome(string Header, string Context, string Notice, string Footer, BrowserHostContext? Host, bool Configuration = false);
 
 internal static class BrowserTerminalFrame
 {
@@ -11,10 +11,23 @@ internal static class BrowserTerminalFrame
     private static readonly bool ColorsEnabled = Environment.GetEnvironmentVariable("NO_COLOR") is null &&
         !string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.Ordinal);
     internal static readonly Spectre.Console.Color ContentBackground = new(15, 23, 34);
+    internal static readonly Spectre.Console.Color ContentForeground = new(177, 217, 239);
+    internal static readonly Spectre.Console.Color SelectionBackground = new(22, 50, 79);
+    internal const string SelectionStyle = "\x1b[48;2;22;50;79m\x1b[38;2;177;217;239m";
     private static readonly string ContentStyle = $"\x1b[48;2;{ContentBackground.R};{ContentBackground.G};{ContentBackground.B}m\x1b[38;2;177;217;239m";
 
     internal static int ContentStart(int height) => height >= 5 ? 3 : height >= 4 ? 2 : height >= 2 ? 1 : 0;
     internal static int ContentHeight(int height) => Math.Max(0, height - ContentStart(height) - (height >= 5 ? 2 : 1));
+
+    internal static Spectre.Console.Style OnContentSurface(Spectre.Console.Style original, bool selected = false)
+    {
+        var foreground = original.Foreground == Spectre.Console.Color.Default ? ContentForeground : original.Foreground;
+        var background = selected ? SelectionBackground : original.Background == Spectre.Console.Color.Default ? ContentBackground : original.Background;
+        if (selected) foreground = Twig.Rendering.SpectreTheme.OnSurface(foreground, background).Foreground;
+        return new(foreground, background, selected
+            ? (original.Decoration & ~Spectre.Console.Decoration.Dim) | Spectre.Console.Decoration.Bold
+            : original.Decoration & ~Spectre.Console.Decoration.Dim);
+    }
 
     internal static void Paint(TextWriter output, IReadOnlyList<string> rows, int top, int width, int height, BrowserChrome chrome)
     {
@@ -45,8 +58,12 @@ internal static class BrowserTerminalFrame
             }
             if (!ColorsEnabled) { text = BrowserTerminalText.PlainText(text); style = ""; }
             frame.Append(style).Append("\x1b[2K");
-            var clipped = BrowserTerminalText.Clip(text, width);
-            frame.Append(clipped).Append(style).Append(' ', Math.Max(0, width - BrowserTerminalText.CellWidth(clipped)));
+            var right = y == 0 && height > 1 ? chrome.Host?.Fit(width / 2) ?? "" : "";
+            var rightWidth = BrowserTerminalText.CellWidth(right);
+            var leftWidth = rightWidth == 0 ? width : Math.Max(0, width - rightWidth - 1);
+            var clipped = BrowserTerminalText.Clip(text, leftWidth);
+            frame.Append(clipped).Append(style).Append(' ', Math.Max(0, width - rightWidth - BrowserTerminalText.CellWidth(clipped)));
+            frame.Append(right);
         }
         frame.Append("\x1b[0m");
         output.Write(frame.ToString());

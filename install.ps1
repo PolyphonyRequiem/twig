@@ -65,6 +65,18 @@ if (-not (Test-Path $installDir)) {
 $stagingDir = Join-Path ([System.IO.Path]::GetTempPath()) ("twig-install-" + [guid]::NewGuid().ToString('N'))
 try {
     Expand-Archive -Path $tempZip -DestinationPath $stagingDir -Force
+    $nativeNames = @('twig.exe', 'twig-tui.exe', 'twig-bench-tui.exe')
+    foreach ($name in $nativeNames) {
+        if (-not (Test-Path (Join-Path $stagingDir $name) -PathType Leaf)) {
+            throw "Release archive is missing the native entry point '$name'."
+        }
+    }
+    $imageHash = (Get-FileHash (Join-Path $stagingDir 'twig.exe') -Algorithm SHA256).Hash
+    foreach ($name in @($nativeNames | Select-Object -Skip 1)) {
+        if ((Get-FileHash (Join-Path $stagingDir $name) -Algorithm SHA256).Hash -ne $imageHash) {
+            throw "Release entry point '$name' is not the shared native Twig image."
+        }
+    }
     Get-ChildItem -Path $stagingDir -Force |
         Where-Object { $_.Name -notlike 'twig-mcp*' } |
         Copy-Item -Destination $installDir -Force -Recurse
@@ -84,14 +96,8 @@ if (-not (Test-Path $twigExe)) {
     exit 1
 }
 
-# Verify companion binaries (warn only — older archives may not include them)
-foreach ($companion in @("twig-tui.exe")) {
-    if (Test-Path (Join-Path $installDir $companion)) {
-        Write-Host "  Found $companion" -ForegroundColor Green
-    } else {
-        Write-Warning "$companion not found in archive. Some features may be unavailable. Run 'twig upgrade' after install to fetch companions."
-    }
-}
+# Windows TUI commands run in-process; these names select the same native image.
+Write-Host "  Native TUI: twig tui, twig-tui, twig-bench-tui" -ForegroundColor Green
 
 # Add to user PATH if not already present
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

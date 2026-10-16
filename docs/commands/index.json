@@ -88,6 +88,14 @@
     "path": "workspace/workspace.md"
   },
   {
+    "command": "workspace sync",
+    "group": "workspace",
+    "summary": "Pull current Bench selector members and permitted relationship candidates without flushing edits.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "workspace/workspace.md"
+  },
+  {
     "command": "workspace area",
     "group": "workspace",
     "summary": "Show the area-filtered workspace view.",
@@ -230,6 +238,70 @@
     "stability": "stable",
     "mutates": "local",
     "path": "bench/switch.md"
+  },
+  {
+    "command": "bench configuration",
+    "group": "bench",
+    "summary": "Read the current Bench's pins, saved filters, ownership and raw settings digest.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench detail",
+    "group": "bench",
+    "summary": "Read full cached, richly rendered work-item or seed detail without changing context.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench browser",
+    "group": "bench",
+    "summary": "Open the native Bench browser or route authenticated source-scoped Herdr controls.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area candidates",
+    "group": "bench",
+    "summary": "Read official configured-team area paths without changing Bench or workspace settings.",
+    "stability": "stable",
+    "mutates": "none",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area add",
+    "group": "bench",
+    "summary": "Add an exact or Under area filter on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration area remove",
+    "group": "bench",
+    "summary": "Remove an area filter on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration sprint add",
+    "group": "bench",
+    "summary": "Add a relative or absolute sprint expression on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
+  },
+  {
+    "command": "bench configuration sprint remove",
+    "group": "bench",
+    "summary": "Remove a sprint expression on the captured Bench only.",
+    "stability": "stable",
+    "mutates": "local",
+    "path": "bench/README.md"
   },
   {
     "command": "history",
@@ -978,7 +1050,7 @@
   {
     "command": "tui",
     "group": "experimental",
-    "summary": "Launch the full-screen interactive TUI (requires twig-tui companion binary).",
+    "summary": "Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.",
     "stability": "experimental",
     "mutates": "local",
     "path": "experimental/tui.md"

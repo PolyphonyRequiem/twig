@@ -59,6 +59,12 @@ internal interface IConnectionOperationGuard
     Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default);
 }
 
+/// <summary>Fresh origin evidence usable only by the same source during this live operation.</summary>
+internal interface IAdmittedConnectionOperation : IDisposable
+{
+    ResolvedConnectionBinding? GetOrigin(IConnectionBindingService resolver, TwigConfiguration configuration, TwigPaths paths);
+}
+
 internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Method, string Target, string Payload, string? IfMatch,
     SeedPublishCorrelation? SeedCorrelation = null);
 
@@ -151,6 +157,7 @@ internal static class ConnectionOperationAdmission
 }
 internal static class ConnectionOperationGate
 {
+    internal const string ActiveFailureCode = "binding-operation-active";
     private static readonly AsyncLocal<Lease?> ExclusiveScope = new();
 
     internal static IDisposable Acquire(string worktreeRoot, bool exclusive = false)
@@ -168,7 +175,7 @@ internal static class ConnectionOperationGate
         }
         catch (IOException ex)
         {
-            throw new InvalidOperationException("binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
+            throw new ConnectionBindingResolutionException(ActiveFailureCode, "binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
         }
         var lease = new Lease(stream, exclusive ? root : null, ExclusiveScope.Value);
         if (exclusive) ExclusiveScope.Value = lease;

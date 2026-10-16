@@ -32,6 +32,9 @@ public interface IIterationCalendar
     /// </summary>
     Task<IReadOnlyList<IterationPath>> GetCurrentIterationsAsync(CancellationToken ct = default);
 
+    /// <summary>Resolves relative offsets or absolute paths from the cached calendar, never ADO.</summary>
+    Task<IReadOnlyList<IterationPath>> ResolveExpressionAsync(IterationExpression expression, CancellationToken ct = default);
+
     /// <summary>
     /// Replaces the cached iteration list. Called by the refresh path, which already holds an ADO
     /// connection — evaluation never triggers this.

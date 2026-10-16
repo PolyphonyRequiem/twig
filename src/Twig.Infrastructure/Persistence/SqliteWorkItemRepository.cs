@@ -25,6 +25,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
+    // Browser callers lend only the origin from their still-live admitted provider lease.
+    internal IDisposable? AcquireAdmittedOperation(Auth.ResolvedConnectionBinding origin)
+        => _store.AcquireOperation(origin);
+
     public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
@@ -106,7 +110,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path;";
+        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
 
         var items = ReadAll(cmd);
@@ -129,7 +133,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             cmd.Parameters.AddWithValue(paramNames[i], iterationPaths[i].Value);
         }
 
-        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path IN ({string.Join(", ", paramNames)});";
+        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} IN ({string.Join(", ", paramNames)});";
 
         var items = ReadAll(cmd);
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
@@ -140,7 +144,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE iteration_path = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
+        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path COLLATE {SqliteCacheStore.OrdinalIgnoreCaseCollationName} = @path AND COALESCE(assigned_to_unique_name, assigned_to) = @assignee COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@path", iterationPath.Value);
         cmd.Parameters.AddWithValue("@assignee", assignee);
 

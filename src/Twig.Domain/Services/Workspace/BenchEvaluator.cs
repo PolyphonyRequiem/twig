@@ -73,10 +73,21 @@ public sealed class BenchEvaluator
         IReadOnlyList<IterationPath>? iterationOverride = null,
         CancellationToken ct = default)
     {
+        var rules = new Dictionary<BenchSelector, ResolvedBenchQueryRule>();
+        foreach (var selector in bench.Selectors.Where(s => s.Kind == SelectorKind.Query))
+            rules[selector] = await BenchQueryRule.Parse(selector).ResolveAsync(_iterationCalendar,
+                selector.QueryRule == BenchSelector.CurrentSprintRule ? iterationOverride : null, ct);
+        return await EvaluateResolvedAsync(bench, rules, ct);
+    }
+
+    internal async Task<BenchMembership> EvaluateResolvedAsync(Bench bench,
+        IReadOnlyDictionary<BenchSelector, ResolvedBenchQueryRule> rules, CancellationToken ct = default)
+    {
         var queryMatches = new List<WorkItem>();
         var queryMatchIds = new HashSet<int>();
         var pinnedIds = new List<int>();
         var pinnedIdSet = new HashSet<int>();
+        var subtreeOwners = new Dictionary<int, List<int>>();
         var iterations = new List<IterationPath>();
 
         foreach (var selector in bench.Selectors)
@@ -84,53 +95,56 @@ public sealed class BenchEvaluator
             switch (selector.Kind)
             {
                 case SelectorKind.Query:
-                {
-                    var (items, resolvedIterations) =
-                        await EvaluateQueryAsync(selector, iterationOverride, ct);
-
-                    foreach (var path in resolvedIterations)
                     {
-                        if (!iterations.Any(p => string.Equals(p.Value, path.Value, StringComparison.OrdinalIgnoreCase)))
-                            iterations.Add(path);
-                    }
+                        var resolved = rules[selector];
+                        var (items, resolvedIterations) = await EvaluateQueryAsync(resolved, ct);
 
-                    // Deduplicated on the way in, so two query selectors matching the same item
-                    // contribute one entry (spec: an item matched by two selectors appears once).
-                    foreach (var item in items)
-                    {
-                        if (queryMatchIds.Add(item.Id))
-                            queryMatches.Add(item);
-                    }
+                        foreach (var path in resolvedIterations)
+                        {
+                            if (!iterations.Any(p => string.Equals(p.Value, path.Value, StringComparison.OrdinalIgnoreCase)))
+                                iterations.Add(path);
+                        }
 
-                    break;
-                }
+                        // Deduplicated on the way in, so two query selectors matching the same item
+                        // contribute one entry (spec: an item matched by two selectors appears once).
+                        foreach (var item in items)
+                        {
+                            if (queryMatchIds.Add(item.Id))
+                                queryMatches.Add(item);
+                        }
+
+                        break;
+                    }
 
                 case SelectorKind.Item:
-                {
-                    var id = selector.AsWorkItemId();
-                    if (pinnedIdSet.Add(id))
-                        pinnedIds.Add(id);
-                    break;
-                }
-
-                case SelectorKind.Subtree:
-                {
-                    // 🔴 The subtree is expanded HERE, at evaluation time, against the cache as it
-                    // is now — never captured as a set of ids when the selector was added. That is
-                    // what makes a subtree selector match a child created after it, and it is the
-                    // distinction a naive implementation loses.
-                    var rootId = selector.AsWorkItemId();
-                    if (pinnedIdSet.Add(rootId))
-                        pinnedIds.Add(rootId);
-
-                    foreach (var descendantId in await GetDescendantIdsAsync(rootId, ct))
                     {
-                        if (pinnedIdSet.Add(descendantId))
-                            pinnedIds.Add(descendantId);
+                        var id = selector.AsWorkItemId();
+                        if (pinnedIdSet.Add(id))
+                            pinnedIds.Add(id);
+                        break;
                     }
 
-                    break;
-                }
+                case SelectorKind.Subtree:
+                    {
+                        // 🔴 The subtree is expanded HERE, at evaluation time, against the cache as it
+                        // is now — never captured as a set of ids when the selector was added. That is
+                        // what makes a subtree selector match a child created after it, and it is the
+                        // distinction a naive implementation loses.
+                        var rootId = selector.AsWorkItemId();
+                        if (pinnedIdSet.Add(rootId))
+                            pinnedIds.Add(rootId);
+
+                        foreach (var descendantId in await GetDescendantIdsAsync(rootId, ct))
+                        {
+                            if (pinnedIdSet.Add(descendantId))
+                                pinnedIds.Add(descendantId);
+                            if (!subtreeOwners.TryGetValue(descendantId, out var owners))
+                                subtreeOwners[descendantId] = owners = [];
+                            owners.Add(rootId);
+                        }
+
+                        break;
+                    }
 
                 default:
                     throw new InvalidOperationException(
@@ -148,6 +162,8 @@ public sealed class BenchEvaluator
         {
             QueryMatches = queryMatches,
             PinnedIds = pinnedIds,
+            OwningSubtreeIds = subtreeOwners.ToDictionary(
+                pair => pair.Key, pair => (IReadOnlyList<int>)pair.Value.Order().ToArray()),
             IterationPaths = iterations,
             SeedIds = seeds.Select(w => w.Id).ToList(),
             DirtyItemIds = owedIds,
@@ -156,50 +172,12 @@ public sealed class BenchEvaluator
 
     private async Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<IterationPath> Iterations)>
         EvaluateQueryAsync(
-            BenchSelector selector,
-            IReadOnlyList<IterationPath>? iterationOverride,
+            ResolvedBenchQueryRule resolved,
             CancellationToken ct)
     {
-        var rule = selector.QueryRule;
-
-        if (!string.Equals(rule, BenchSelector.CurrentSprintRule, StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"Unknown query rule '{rule}'. A rule is one named kind plus its settings; " +
-                "a new rule is added beside this one rather than expressed within it.");
-
-        var assignedTo = selector.QueryAssignedTo;
-        var assignedToUniqueName = selector.QueryAssignedToUniqueName;
-
-        // The sprint rule is "the iteration whose date range covers now". Which iteration that is
-        // comes from the locally cached calendar and the local clock — never a network call, so a
-        // Bench evaluates and displays with the ADO endpoint unreachable.
-        var iterations = iterationOverride
-            ?? await _iterationCalendar.GetCurrentIterationsAsync(ct);
-
-        if (iterations.Count == 0)
-            return ([], iterations);
-
-        var items = await _workItemRepo.GetByIterationsAsync(iterations, ct);
-
-        if (items.Count == 0)
-            return (items, iterations);
-
-        if (assignedToUniqueName is not null)
-        {
-            items = items
-                .Where(w => w.IsAssignedToIdentity(assignedToUniqueName))
-                .ToList();
-        }
-        else if (assignedTo is not null)
-        {
-            // Explicit saved-Bench display label (noncanonical, user-authored rule): matches ADO's
-            // display rendering exactly. Preserved for Benches saved before the canonical slot
-            // existed and for explicit team-member filters a user wrote by hand.
-            items = items
-                .Where(w => string.Equals(w.AssignedTo, assignedTo, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-        return (items, iterations);
+        if (resolved.Iterations.Count == 0) return ([], resolved.Iterations);
+        var items = await _workItemRepo.GetByIterationsAsync(resolved.Iterations, ct);
+        return (items.Where(resolved.Matches).ToArray(), resolved.Iterations);
     }
 
     /// <summary>

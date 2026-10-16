@@ -23,7 +23,11 @@ public sealed record WorkItemDetailDocument(
     int Revision,
     string WorkItemTypeReferenceName,
     string ProcessId,
-    IReadOnlyList<DetailPage> Pages);
+    IReadOnlyList<DetailPage> Pages)
+{
+    /// <summary>Resolved server controls outside pages, retained in server order and never synthesized.</summary>
+    public IReadOnlyList<DetailControl> SystemControls { get; init; } = [];
+}
 
 /// <summary>A tab in the form.</summary>
 /// <param name="PageType">

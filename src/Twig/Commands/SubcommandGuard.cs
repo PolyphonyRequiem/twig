@@ -77,6 +77,8 @@ internal static class SubcommandGuard
         "proposal",
         "skills",
         "workspace sprint",
+        "bench configuration area",
+        "bench configuration sprint",
     ];
 
     /// <summary>
@@ -178,7 +180,8 @@ internal static class SubcommandGuard
                 && known[chain.Length] == ' ')
             .Select(known => known[(chain.Length + 1)..])
             // Only the immediate next word: 'workspace area add' is reachable via 'workspace area'.
-            .Where(rest => !rest.Contains(' '))
+            .Select(rest => rest.Split(' ')[0])
+            .Distinct(StringComparer.Ordinal)
             .OrderBy(rest => rest, StringComparer.Ordinal)
             .ToList();
 

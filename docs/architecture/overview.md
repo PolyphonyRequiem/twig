@@ -2,11 +2,11 @@
 
 ## Introduction
 
-Twig is a .NET 10 AOT-compiled CLI for Azure DevOps work-item triage. It renders sprint
-backlogs as rich terminal trees, supports offline-first caching with SQLite, and exposes
-an MCP server for AI agent integration. The primary audience is individual contributors
-and engineering managers who work with ADO boards daily and want fast, keyboard-driven
-access to their sprint backlog without leaving the terminal.
+Twig is a NativeAOT CLI for Azure DevOps work-item triage. It renders sprint
+backlogs as rich terminal trees and supports offline-first caching with SQLite.
+The primary audience is individual contributors and engineering managers who work
+with ADO boards daily and want fast, keyboard-driven access without leaving the
+terminal. MCP source is retained for redesign, not current delivery.
 
 The system is built around a local SQLite cache that mirrors a subset of ADO data. Most
 read operations are served from cache with configurable staleness thresholds, while
@@ -14,10 +14,16 @@ mutations are staged locally and flushed to ADO in atomic PATCH requests. This d
 gives sub-second response times for tree rendering and status queries, even on large
 backlogs.
 
-Twig ships three executable entry points — a CLI (`twig`), an MCP server (`twig-mcp`),
-and a Terminal.Gui-based TUI (`twig-tui`) — all sharing the same domain and
-infrastructure layers. The CLI and MCP server are AOT-compiled native binaries; the TUI
-is published as a self-contained single-file bundle (Terminal.Gui does not support AOT).
+Windows/Linux releases ship `twig`, `twig-tui` and `twig-bench-tui` as identical
+NativeAOT executable bytes. `twig tui` and the standalone basenames enter the same
+native Bench application in-process, using existing runtime/authority/terminal
+contracts rather than a Go wrapper or Terminal.Gui companion. The Windows/Linux
+Herdr host is `twig-herdr`, preserving action and pane IDs.
+
+macOS retains its NativeAOT CLI and non-AOT Terminal.Gui `twig-tui` companion,
+alongside existing legacy Go/Herdr paths. The shared domain/infrastructure source
+and dependencies required by macOS remain; they are not a second supported
+Windows/Linux UI. See [Build & Release](build-and-release.md) for artifact layout.
 
 ---
 
@@ -26,9 +32,9 @@ is published as a self-contained single-file bundle (Terminal.Gui does not suppo
 ```mermaid
 graph TD
     subgraph Entry["Entry Points"]
-        CLI["twig (CLI)<br/>ConsoleAppFramework<br/>Spectre.Console"]
-        MCP["twig-mcp (MCP)<br/>ModelContextProtocol (stdio)"]
-        TUI["twig-tui (TUI)<br/>Terminal.Gui<br/>(reflection-based, non-AOT)"]
+        CLI["twig (CLI/native Windows/Linux TUI)<br/>NativeAOT; standalone aliases share bytes"]
+        MCP["twig-mcp (withdrawn MCP source)<br/>Retained redesign context"]
+        TUI["twig-tui (legacy macOS companion)<br/>Terminal.Gui<br/>(reflection-based, non-AOT)"]
     end
 
     subgraph Domain["Twig.Domain"]
@@ -85,12 +91,12 @@ than a structural fact. Note `Twig.RenderTree.csproj` already granted
 
 | Project | Assembly | Description |
 |---------|----------|-------------|
-| `Twig` | `twig` | CLI entry point. ConsoleAppFramework commands, Spectre.Console rendering, output formatters, hint engine. AOT-compiled. |
+| `Twig` | `twig` | CLI and in-process native Bench TUI. Windows/Linux standalone TUI basenames dispatch into this same NativeAOT image. |
 | `Twig.Domain` | (class library) | Core business logic. Aggregates (`WorkItem`, `ProcessConfiguration`), domain services, interfaces, value objects, enums. No external package dependencies; references `Twig.RenderTree` for the presentation vocabulary shared projections emit (see the dependency-rule note above). |
 | `Twig.RenderTree` | (class library) | Pure, AOT-clean presentation vocabulary — render-tree node types (`Text`, `KeyValue`, `Record`, `Table`, `TreeView`, `Section`) plus the JSON/minimal/ids renderers. No Spectre.Console, no I/O, no runtime package dependencies. Referenced by Domain and by every entry point. |
 | `Twig.Infrastructure` | (class library) | SQLite persistence, ADO REST clients, authentication providers, git CLI wrapper, JSON serialization (`TwigJsonContext`), configuration, telemetry. |
-| `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport with a compact 10-tool default profile and a 40-tool full profile. AOT-compiled. |
-| `Twig.Tui` | `twig-tui` | Terminal.Gui interactive viewer. Three-pane layout (menu, tree navigator, form). Published as self-contained single-file (non-AOT). |
+| `Twig.Mcp` | `twig-mcp` | Withdrawn MCP source retained for redesign; excluded from supported delivery. |
+| `Twig.Tui` | `twig-tui` | Legacy macOS Terminal.Gui viewer. Three-pane layout (menu, tree navigator, form), self-contained single-file (non-AOT). Shared source/dependencies retained for macOS. |
 
 ### Test Projects (`tests/`)
 
@@ -219,7 +225,16 @@ additions.
 5. Start stdio transport and enter the host run loop.
 6. All logging goes to stderr (stdout is reserved for MCP protocol messages).
 
-### TUI (`twig-tui`)
+### Native Windows/Linux TUI (`twig tui`, `twig-tui`, `twig-bench-tui`)
+
+The CLI dispatches directly to `BrowserHostCommand` / `BrowserRuntimeFactory`,
+the same application used by `twig bench browser`. Runtime admission, local edit
+authority, Tree/Table/Review state and terminal restoration stay shared in-process.
+Standalone aliases are exact image copies; only their basenames select TUI entry.
+The registered Windows/Linux `twig-herdr` pane also launches native `twig tui`
+directly, without an execution shim.
+
+### Legacy macOS TUI (`twig-tui` companion)
 
 1. Initialize SQLite, discover workspace, load configuration.
 2. Compose minimal DI (core services only — no commands, no rendering pipeline).
@@ -379,7 +394,7 @@ services tests live in `tests/Twig.Domain.Tests/Services/`).
 | [Commands](commands.md) | CLI command reference, flow commands, seed commands, git integration |
 | [Rendering](rendering.md) | Output formatters, Spectre.Console theming, live display pipeline |
 | [MCP Server](mcp-server.md) | MCP tool reference, result builders, workspace guard |
-| [TUI](tui.md) | Terminal.Gui views, three-pane layout, vim keybindings |
+| [TUI command](../commands/experimental/tui.md) | Native Windows/Linux TUI and retained legacy macOS companion |
 | [Configuration](configuration.md) | `.twig/config` schema, type appearances, display options |
 | [Testing](testing.md) | Test architecture, shared test kit, mocking patterns |
 | [AOT & Trimming](aot-trimming.md) | AOT constraints, `TwigJsonContext`, DI factory patterns |

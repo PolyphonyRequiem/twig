@@ -48,6 +48,10 @@ public static class WorkItemDetailProjector
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(snapshot);
+        var systemControls = new DetailControl[layout.SystemControls.Count];
+        for (var i = 0; i < systemControls.Length; i++)
+            systemControls[i] = ProjectControl(layout.SystemControls[i], snapshot, fieldDefinitions);
+
 
         var pages = new List<DetailPage>(layout.Pages.Count);
         foreach (var page in layout.Pages)
@@ -61,16 +65,7 @@ public static class WorkItemDetailProjector
                     var controls = new List<DetailControl>(group.Controls.Count);
                     foreach (var control in group.Controls)
                     {
-                        controls.Add(new DetailControl(
-                            control.Id,
-                            control.Label,
-                            control.ControlType,
-                            control.ReadOnly,
-                            control.Visible,
-                            control.IsContribution,
-                            control.IsContribution
-                                ? null
-                                : ResolveValue(control.Id, snapshot, fieldDefinitions)));
+                        controls.Add(ProjectControl(control, snapshot, fieldDefinitions));
                     }
 
                     groups.Add(new DetailGroup(
@@ -89,8 +84,14 @@ public static class WorkItemDetailProjector
             snapshot.Revision,
             layout.WorkItemTypeReferenceName,
             layout.ProcessId,
-            pages);
+            pages)
+        { SystemControls = systemControls };
     }
+
+    private static DetailControl ProjectControl(LayoutControl control, WorkItemSnapshot snapshot,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions)
+        => new(control.Id, control.Label, control.ControlType, control.ReadOnly, control.Visible,
+            control.IsContribution, control.IsContribution ? null : ResolveValue(control.Id, snapshot, fieldDefinitions));
 
     /// <summary>
     /// Resolves one field reference name to one of the three states.

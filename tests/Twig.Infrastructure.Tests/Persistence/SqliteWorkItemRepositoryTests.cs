@@ -116,35 +116,40 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task GetByIterationAsync_ReturnsMatchingItems()
+    public async Task GetByIterationAsync_MatchesOrdinalIgnoreCaseWithoutIncludingOtherIterations()
     {
-        var item1 = CreateWorkItem(1, "Task", "Item 1", "Active", iterationPath: @"Project\Sprint1");
-        var item2 = CreateWorkItem(2, "Task", "Item 2", "Active", iterationPath: @"Project\Sprint2");
+        var item1 = CreateWorkItem(1, "Task", "Item 1", "Active", iterationPath: @"PrÖject\Sprint1");
+        var item2 = CreateWorkItem(2, "Task", "Item 2", "Active", iterationPath: @"PrÖject\Sprint2");
+        var child = CreateWorkItem(3, "Task", "Child iteration", "Active", iterationPath: @"PrÖject\Sprint1\Child");
 
         await _repo.SaveAsync(item1);
         await _repo.SaveAsync(item2);
+        await _repo.SaveAsync(child);
 
-        var iterPath = IterationPath.Parse(@"Project\Sprint1");
+        var iterPath = IterationPath.Parse(@"pröject\sprint1");
         var results = await _repo.GetByIterationAsync(iterPath.Value);
         results.Count.ShouldBe(1);
         results[0].Id.ShouldBe(1);
     }
 
     [Fact]
-    public async Task GetByIterationsAsync_ReturnsItemsFromMultipleIterations()
+    public async Task GetByIterationsAsync_MatchesOrdinalIgnoreCaseWithoutBroadeningOrDuplicating()
     {
-        var item1 = CreateWorkItem(1, "Task", "Sprint1 Item", "Active", iterationPath: @"Project\Sprint1");
-        var item2 = CreateWorkItem(2, "Task", "Sprint2 Item", "Active", iterationPath: @"Project\Sprint2");
-        var item3 = CreateWorkItem(3, "Task", "Sprint3 Item", "Active", iterationPath: @"Project\Sprint3");
+        var item1 = CreateWorkItem(1, "Task", "Sprint1 Item", "Active", iterationPath: @"PrÖject\Sprint1");
+        var item2 = CreateWorkItem(2, "Task", "Sprint2 Item", "Active", iterationPath: @"PrÖject\Sprint2");
+        var item3 = CreateWorkItem(3, "Task", "Sprint3 Item", "Active", iterationPath: @"PrÖject\Sprint3");
+        var child = CreateWorkItem(4, "Task", "Child iteration", "Active", iterationPath: @"PrÖject\Sprint1\Child");
 
         await _repo.SaveAsync(item1);
         await _repo.SaveAsync(item2);
         await _repo.SaveAsync(item3);
+        await _repo.SaveAsync(child);
 
         var paths = new[]
         {
-            IterationPath.Parse(@"Project\Sprint1").Value,
-            IterationPath.Parse(@"Project\Sprint3").Value,
+            IterationPath.Parse(@"pröject\sprint1").Value,
+            IterationPath.Parse(@"PRÖJECT\SPRINT1").Value,
+            IterationPath.Parse(@"pröject\sprint3").Value,
         };
         var results = await _repo.GetByIterationsAsync(paths);
         results.Count.ShouldBe(2);

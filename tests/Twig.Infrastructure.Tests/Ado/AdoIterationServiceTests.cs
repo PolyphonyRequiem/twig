@@ -490,7 +490,7 @@ public class AdoIterationServiceTests
     }
 
     [Fact]
-    public async Task GetTeamAreaPathsAsync_EmptyValues_FallsBackToDefaultValue()
+    public async Task GetTeamAreaPathsAsync_TeamDefaultDoesNotImplyAnUnderAreaFilter()
     {
         var handler = new FakeHandler();
         handler.SetRawResponse("/_apis/work/teamsettings/teamfieldvalues",
@@ -499,25 +499,9 @@ public class AdoIterationServiceTests
 
         var result = await service.GetTeamAreaPathsAsync();
 
-        result.Count.ShouldBe(1);
-        result[0].Path.ShouldBe("TestProject\\Default");
-        result[0].IncludeChildren.ShouldBeTrue();
+        result.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task GetTeamAreaPathsAsync_NullValues_FallsBackToDefaultValue()
-    {
-        var handler = new FakeHandler();
-        handler.SetRawResponse("/_apis/work/teamsettings/teamfieldvalues",
-            """{"defaultValue":"TestProject\\Default","values":null}""");
-        var service = CreateService(handler);
-
-        var result = await service.GetTeamAreaPathsAsync();
-
-        result.Count.ShouldBe(1);
-        result[0].Path.ShouldBe("TestProject\\Default");
-        result[0].IncludeChildren.ShouldBeTrue();
-    }
 
     [Fact]
     public async Task GetTeamAreaPathsAsync_NullValuesAndNullDefault_ReturnsEmpty()

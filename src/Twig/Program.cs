@@ -4,13 +4,10 @@ using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Formatters;
 using Twig.Domain.ValueObjects;
-using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
-using Twig.Infrastructure.Persistence;
 using Twig.ProcessOverrides;
 
 // AB#350: the generated argument binder deserializes a JSON-array option value
@@ -22,14 +19,34 @@ ConsoleApp.JsonSerializerOptions = new System.Text.Json.JsonSerializerOptions
     TypeInfoResolver = ArgumentBinderJsonContext.Default,
 };
 
+// Windows/Linux launch aliases are copies of this same native executable, not
+// companion processes. Normalize before help and argument guards so every entry
+// has the canonical tui options and lifecycle.
+var nativeTuiPlatform = OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
+var executableName = Path.GetFileName(Environment.ProcessPath);
+if (nativeTuiPlatform && (OperatingSystem.IsWindows()
+    ? string.Equals(executableName, "twig-tui.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(executableName, "twig-bench-tui.exe", StringComparison.OrdinalIgnoreCase)
+    : executableName is "twig-tui" or "twig-bench-tui"))
+    args = ["tui", .. args];
+
+var isBrowserCommand = (args.Length >= 2 && args[0] == "bench" && args[1] == "browser")
+    || (nativeTuiPlatform && args.Length > 0 && args[0] == "tui");
+
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
-try
+// The native interactive route owns encoding in its terminal scope, so it must
+// capture the inherited code page before any CLI bootstrap changes it. Help stays
+// on the ordinary offline CLI path, including its existing UTF-8 output contract.
+if (!isBrowserCommand || ProgressiveHelp.IsHelpRequest(args))
 {
-    Console.OutputEncoding = System.Text.Encoding.UTF8;
-}
-catch (Exception)
-{
-    // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
+    try
+    {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+    }
+    catch (Exception)
+    {
+        // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
+    }
 }
 
 // TICKET-0018: startup side effects (binary cleanup, companion first-run check)
@@ -44,90 +61,18 @@ var app = ConsoleApp.Create()
         if (ProgressiveHelp.IsHelpRequest(args)
             || (args.Length > 0 && args[0] is "skills" or "--help-all")) return;
 
-        // Core services (config, paths, SQLite persistence, repositories, stores)
-        // Walk-up discovery: find nearest .twig/ in current or ancestor directories.
-        // Falls back to CWD-relative for commands that run before init (e.g., twig init).
-        // startDir is captured separately so InitCommand can create workspaces in CWD
-        // even when walk-up discovers an ancestor .twig/ (e.g., ~/.twig).
-        var startDir = Directory.GetCurrentDirectory();
-        var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot();
-        var twigDir = workspaceRoot is not null
-            ? Path.Combine(workspaceRoot, ".twig")
-            : Path.Combine(startDir, ".twig");
-
-        // AB#3296: split-aware load. Reads twig.json + .twig/config when the
-        // manifest exists; falls back to legacy single-file load otherwise.
-        // Build a probe TwigPaths just for loading (the real TwigPaths needs the
-        // org/project from config to derive the DB context dir).
-        var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), startDir);
-        var config = TwigConfiguration.LoadSplit(probePaths);
-        services.AddConnectionServices(config, twigDir, startDir);
-
-        // Git remote auto-detection (stays in Program.cs — runtime environment probe)
-        // Start in background to overlap with other DI registrations (REVIEW-6).
-        var gitProject = config.GetGitProject();
-        var repository = config.Git.Repository;
-        Task<(string? GitProject, string? Repository)>? gitDetectTask = null;
-        if (string.IsNullOrWhiteSpace(repository))
+        if (isBrowserCommand)
         {
-            var capturedConfig = config;
-            gitDetectTask = Task.Run(() => DetectGitRemote(capturedConfig));
+            // Manifest actions run from the plugin root. Only the host adapter
+            // may capture topology; its runtime admits that validated source.
+            services.AddSingleton(new TwigConfiguration());
+            services.AddTwigRenderingServices();
+            services.AddSingleton<Twig.Domain.Interfaces.ITelemetryClient, Twig.Infrastructure.Telemetry.TelemetryClient>();
+            services.AddSingleton<Twig.Browser.BrowserRuntimeFactory>();
+            services.AddSingleton<BrowserHostCommand>();
+            return;
         }
-
-        // Modular DI registration
-        // Resolve deferred git detection before network service registration
-        if (gitDetectTask is not null)
-        {
-            (gitProject, repository) = gitDetectTask.GetAwaiter().GetResult();
-        }
-
-        // ADO #1104: tell the network factory whether this invocation is the explicit
-        // `twig init` metadata path. Only `init` is allowed to resolve an auth provider via
-        // CreateBootstrapProviderAsync (no attachment required); every normal command path
-        // resolves identity through ResolveAsync + CreateAuthenticationProvider, which
-        // enforces the current attached-worktree binding.
-        services.AddSingleton(new ConnectionBindingOperationIntent(
-            args.Length > 0 && args[0] == "init"));
-
-        services.AddTwigNetworkServices(config, gitProject, repository);
-
-        // Pre-compute state entries for SpectreTheme (avoids sync-over-async in DI factory)
-        IReadOnlyList<StateEntry>? stateEntries = null;
-        try
-        {
-            var paths = TwigPaths.BuildPaths(twigDir, config);
-
-            if (!(args.Length >= 2 && args[0] == "connection" && args[1] is "migrate" or "pin" or "unpin" or "default")
-                && Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
-            {
-                using var cacheStore = SqliteCacheStore.OpenWorkspace(paths);
-                var processTypeStore = new SqliteProcessTypeStore(cacheStore);
-                var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
-                stateEntries = records.SelectMany(r => r.States).ToList();
-
-                // AB#3296 PR-3: hydrate type appearances from the SQLite cache
-                // rather than reading them out of .twig/config. The data is
-                // identical (process_types table has color_hex + icon_id per
-                // type) but lives in cache only so 'twig sync' no longer
-                // rewrites a 60-line JSON array on every invocation.
-                config.TypeAppearances = records
-                    .Select(r => new TypeAppearanceConfig
-                    {
-                        Name = r.TypeName,
-                        Color = r.ColorHex ?? string.Empty,
-                        IconId = r.IconId,
-                    })
-                    .ToList();
-            }
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
-        {
-            // SqliteCacheStore uninitialized or query failed — fall through with null
-        }
-
-        services.AddTwigRenderingServices(stateEntries);
-        services.AddTwigCommandServices();
-        services.AddTwigCommands();
+        services.AddTwigWorkspaceServices(Directory.GetCurrentDirectory(), args);
     });
 
 app.UseFilter<ExceptionFilter>();
@@ -278,59 +223,14 @@ if (args.Length > 0 && args[0] == "show-batch" && args.Contains("--include-field
 // Native persistence is needed only for real command execution, never help.
 SQLitePCL.Batteries.Init();
 
-// EPIC-005: Clean up old binary left behind from a previous Windows self-update.
-SelfUpdater.CleanupOldBinary();
-
-// First-run companion check — installs missing companions after upgrade.
-// Runs before app.Run() — no SynchronizationContext, blocking is safe.
-CompanionStartup.RunFirstRunCheck();
+if (!isBrowserCommand)
+{
+    SelfUpdater.CleanupOldBinary();
+    CompanionStartup.RunFirstRunCheck();
+}
 
 app.Run(args);
 
-/// <summary>
-/// Detects the git remote URL by spawning <c>git remote get-url origin</c>.
-/// Returns resolved project and repository, or the config defaults on failure.
-/// </summary>
-static (string? GitProject, string? Repository) DetectGitRemote(TwigConfiguration config)
-{
-    var gitProject = config.GetGitProject();
-    string? repository = null;
-    try
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo("git", "remote get-url origin")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var proc = System.Diagnostics.Process.Start(psi);
-        if (proc is not null)
-        {
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
-            Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
-            var exited = proc.WaitForExit(2000);
-            if (!exited)
-            {
-                try { proc.Kill(); } catch (Exception) { }
-            }
-            var remoteUrl = stdoutTask.Result.Trim();
-            if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
-            {
-                var parsed = AdoRemoteParser.Parse(remoteUrl);
-                if (parsed is not null)
-                {
-                    repository = parsed.Repository;
-                    if (string.IsNullOrWhiteSpace(config.Git.Project))
-                        gitProject = parsed.Project;
-                }
-            }
-        }
-    }
-    catch (Exception) { /* git operations are best-effort */ }
-    return (gitProject, repository);
-}
 
 /// <summary>
 /// Global exception filter that writes errors to stderr and sets exit codes.
@@ -1142,8 +1042,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
     /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
+    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
+    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
+    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1153,29 +1056,54 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
     /// <param name="tree">Render full backlog hierarchy tree instead of the current-Bench view.</param>
     /// <param name="view">Current-Bench presentation: table or tree; unset defaults to tree. Cannot be combined with --all, --flat, or --tree.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view);
+    /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
+    /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
+    /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track")]
-    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct);
+    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Track a work item and its subtree.</summary>
     /// <param name="id">Work item ID to track (with descendants).</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
     [Command("workspace track-tree")]
-    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct);
+    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
-    /// <summary>Remove a work item from tracking.</summary>
+    /// <summary>Remove explicit pins, optionally only single or tree; inherited membership remains.</summary>
     /// <param name="id">Work item ID to stop tracking.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before writing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    /// <param name="expectSettings">Optional captured raw automatic settings digest; refuses stale pin forms.</param>
+    /// <param name="mode">Optional pin kind: single or tree (case-insensitive). Unset removes both explicit kinds.</param>
     [Command("workspace untrack")]
-    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct);
+    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct, expectBench, expectBinding, expectIdentity, expectSettings, mode);
+
+    /// <summary>Pull only the current Bench's query, pin, and bounded relationship scope; never flush pending writes.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; refuses a changed current Bench before syncing.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal.</param>
+    [Command("workspace sync")]
+    public async Task<int> WorkspaceSync(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchSyncCommand>().ExecuteAsync(output, expectBench, expectBinding, expectIdentity, ct);
 
     /// <summary>Exclude a work item from workspace view.</summary>
     /// <param name="id">Work item ID to exclude.</param>
@@ -1197,30 +1125,137 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <summary>Create a Bench with a name you will recognise later.</summary>
     /// <param name="name">Name for the new Bench, e.g. "release blockers".</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before creating.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before creating.</param>
     [Command("bench create")]
-    public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct);
+    public async Task<int> BenchCreate([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().CreateAsync(name, output, ct, expectBinding, expectIdentity);
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="includeManagement">Emit versioned management JSON with stable IDs, full contents digests, pins and query descriptions; requires -o json.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before listing.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before listing.</param>
     [Command("bench list")]
-    public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct);
+    public async Task<int> BenchList(string output = OutputFormatterFactory.DefaultFormat, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().ListAsync(output, ct, includeManagement, expectBinding, expectIdentity);
 
     /// <summary>Stand on another Bench. Naming one that does not exist fails; nothing is created.</summary>
     /// <param name="name">Name of an existing Bench.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured target Bench storage ID; refuses deletion/recreation under the same name.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before selecting.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before selecting.</param>
     [Command("bench switch")]
-    public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct);
+    public async Task<int> BenchSwitch([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().SwitchAsync(name, output, ct, expectBench, expectBinding, expectIdentity);
 
     /// <summary>Delete a Bench. One holding pins reports what it holds and deletes nothing.</summary>
     /// <param name="name">Name of the Bench to delete.</param>
     /// <param name="confirm">Re-type the Bench's name to delete one that holds pins. There is deliberately no --force.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured target Bench storage ID; refuses deletion/recreation under the same name.</param>
+    /// <param name="expectContents">Optional complete stored selector digest from management listing; changed contents require fresh confirmation.</param>
+    /// <param name="expectBinding">Optional captured native binding ID; refuses a changed connection before deleting.</param>
+    /// <param name="expectIdentity">Optional captured native identity ID; refuses a changed principal before deleting.</param>
     [Command("bench delete")]
-    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct);
+    public async Task<int> BenchDelete([Argument] string name, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectContents = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchCommand>().DeleteAsync(name, confirm, output, ct, expectBench, expectBinding, expectIdentity, expectContents);
+
+    /// <summary>Read full, richly rendered cached detail for an explicitly selected Bench work item.</summary>
+    /// <param name="id">Work item ID or local seed ID; never changes the active item.</param>
+    /// <param name="width">Terminal rendering width in columns (default 80).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="sync">Explicitly pull this positive item and its links before rendering (default false); never flush pending edits or fetch related targets.</param>
+    [Command("bench detail")]
+    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct);
+
+    /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
+    /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
+    /// <param name="view">Initial tree or table view (default tree).</param>
+    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
+    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
+    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
+    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
+    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
+    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
+    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
+    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
+    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
+    [Command("bench browser")]
+    public async Task<int> BenchBrowser(string? cwd = null, string view = "tree", string? file = null,
+        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
+        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
+            intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct);
+
+    /// <summary>Read the current Bench configuration and raw settings digest.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    [Command("bench configuration")]
+    public async Task<int> BenchConfiguration(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+
+    /// <summary>Read the configured team's official area paths without changing Bench or workspace settings.</summary>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    [Command("bench configuration area candidates")]
+    public async Task<int> BenchConfigurationAreaCandidates(string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchAreaCandidatesCommand>().ExecuteAsync(output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, ct: ct);
+
+    /// <summary>Add a area filter on the captured Bench only.</summary>
+    /// <param name="path">Validated area path.</param>
+    /// <param name="exact">Exact area match instead of Under (default false).</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration area add")]
+    public async Task<int> BenchConfigurationAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "add", value: path, exact: exact, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Remove a area filter on the captured Bench only.</summary>
+    /// <param name="path">Validated area path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration area remove")]
+    public async Task<int> BenchConfigurationAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "area", action: "remove", value: path, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Add a sprint filter on the captured Bench only.</summary>
+    /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration sprint add")]
+    public async Task<int> BenchConfigurationSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "add", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
+
+    /// <summary>Remove a sprint filter on the captured Bench only.</summary>
+    /// <param name="expression">Sprint expression: @Current, @Current±N, or an absolute iteration path.</param>
+    /// <param name="output">-o, Output format: human, json, minimal.</param>
+    /// <param name="expectBench">Optional captured Bench ID; refuses a changed current Bench.</param>
+    /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
+    /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
+    /// <param name="expectSettings">Optional raw saved-query settings digest; refuses stale forms.</param>
+    [Command("bench configuration sprint remove")]
+    public async Task<int> BenchConfigurationSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchConfigurationCommand>().ExecuteAsync(section: "sprint", action: "remove", value: expression, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, expectSettings: expectSettings, ct: ct);
 
     // ── Workspace Area Path Management ──
 
@@ -1534,9 +1569,35 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
 
-    /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
-    public Task<int> Tui()
+    /// <summary>Open the in-process native TUI on Windows/Linux; macOS retains the legacy twig-tui companion.</summary>
+    /// <param name="cwd">Native source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
+    /// <param name="view">Native initial tree or table view (default tree).</param>
+    /// <param name="file">Explicit read-only proposal file; standalone opens Review after startup, Herdr uses it only with review intent.</param>
+    /// <param name="herdr">Use source-scoped native Herdr action routing instead of a standalone terminal.</param>
+    /// <param name="hostEntry">Manifest-owned native pane entry; requires herdr and admits its source from the private launch ticket, not override arguments.</param>
+    /// <param name="intent">Herdr control: open, status, view, tree, table, review, exit-review, reconnect or close (default open). No control applies or authorizes.</param>
+    /// <param name="sourceWorkspace">Captured native Herdr source workspace, validated against the actual socket topology.</param>
+    /// <param name="sourceTab">Captured native Herdr source tab, validated against the actual socket topology.</param>
+    /// <param name="sourcePane">Captured native Herdr source pane, validated against the actual socket topology.</param>
+    /// <param name="sourceSocket">Captured native Herdr socket path; source IDs alone are not control authority.</param>
+    /// <param name="output">-o, Herdr control result: human, json or minimal. Interactive terminal entry requires human output.</param>
+    public Task<int> Tui(string? cwd = null, string view = "tree", string? file = null,
+        bool herdr = false, bool hostEntry = false, string? intent = null, string? sourceWorkspace = null,
+        string? sourceTab = null, string? sourcePane = null, string? sourceSocket = null,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            return services.GetRequiredService<BrowserHostCommand>().ExecuteAsync(cwd, view, file, herdr, hostEntry,
+                intent, sourceWorkspace, sourceTab, sourcePane, sourceSocket, output, ct, commandName: "tui");
+
+        if (cwd is not null || view != "tree" || file is not null || herdr || hostEntry || intent is not null ||
+            sourceWorkspace is not null || sourceTab is not null || sourcePane is not null || sourceSocket is not null || output != "human")
+        {
+            CommandError.Write(services.GetRequiredService<Twig.Rendering.RendererFactory>(), Console.Error, output,
+                "Native TUI options require Windows or Linux. On macOS, invoke twig tui without options for the legacy companion.");
+            return Task.FromResult(2);
+        }
+
         return Task.FromResult(BinaryLauncher.Launch("twig-tui", "Twig.Tui"));
     }
 
@@ -1736,6 +1797,7 @@ internal static class GroupedHelp
         // Workspace
         "workspace",
         "ws",
+        "workspace sync",
         "workspace track",
         "workspace track-tree",
         "workspace untrack",
@@ -1755,6 +1817,14 @@ internal static class GroupedHelp
         "bench list",
         "bench switch",
         "bench delete",
+        "bench detail",
+        "bench browser",
+        "bench configuration",
+        "bench configuration area candidates",
+        "bench configuration area add",
+        "bench configuration area remove",
+        "bench configuration sprint add",
+        "bench configuration sprint remove",
 
         // Context
         "set",

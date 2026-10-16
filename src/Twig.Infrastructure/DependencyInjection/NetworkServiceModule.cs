@@ -116,7 +116,7 @@ public static class NetworkServiceModule
         services.AddSingleton(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
-            var team = string.IsNullOrWhiteSpace(cfg.Team) ? $"{cfg.Project} Team" : cfg.Team;
+            var team = TwigConfiguration.ResolveTeam(cfg.Project, cfg.Team);
             return new AdoIterationService(
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),

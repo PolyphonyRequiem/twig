@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Projections;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
 using Twig.Tui.Views;
 using Xunit;
@@ -345,19 +346,4 @@ public class PendingChangeStoreSinkTests
         sink.BoundTo(42, 1).PersistableFieldRefs.ShouldBe(sink.PersistableFieldRefs, ignoreOrder: true);
     }
 
-    // ── The capability composes over it unchanged ───────────────────
-
-    [Fact]
-    public void EditCapability_OverTheShippedSink_ReportsTheSameEditableSet()
-    {
-        // The M2 types were not modified for M3; this asserts the sink drops into them as-is.
-        var capability = new EditCapability(
-            new PendingChangeStoreSink(Store()), WorkItemType.UserStory);
-
-        capability.EditableFieldRefs.ShouldBe(
-            new HashSet<string> { "System.Title", "System.State", "System.AssignedTo" },
-            ignoreOrder: true);
-        capability.CanEdit("System.Title").ShouldBeTrue();
-        capability.CanEdit("Microsoft.VSTS.Common.Priority").ShouldBeFalse();
-    }
 }

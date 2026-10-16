@@ -1,0 +1,169 @@
+name: Native TUI candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [planning/tui-aot-epic]
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: candidate (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: osx-arm64
+            os: macos-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-version: 11.0.100-rc.1.26425.128
+      - run: dotnet restore
+      - run: dotnet build --no-restore
+      - name: Full existing release-candidate validation
+        env:
+          TWIG_TEST_TRACE: ${{ github.workspace }}/artifacts/trace-311
+        run: python tools/run-ci-tests.py
+      - name: Source-pinned full-trim native candidate
+        shell: pwsh
+        run: |
+          python tools/tui-candidate.py build --directory "artifacts/tui-candidate/${{ matrix.rid }}" --commit "${{ github.sha }}" --rid "${{ matrix.rid }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Source-pinned candidate build failed.' }
+      - name: Execute the actual native platform image
+        shell: pwsh
+        run: |
+          $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
+          $image = Join-Path (Resolve-Path "artifacts/tui-candidate/${{ matrix.rid }}/bin") $name
+          & $image --version
+          if ($LASTEXITCODE -ne 0) { throw 'Native image version execution failed.' }
+          & $image bench browser --help
+          if ($LASTEXITCODE -ne 0) { throw 'Native browser declaration execution failed.' }
+          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+            & $image tui --help
+            if ($LASTEXITCODE -ne 0) { throw 'Canonical native tui help failed.' }
+            $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+            foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+              & (Join-Path (Split-Path $image) "$alias$extension") --help
+              if ($LASTEXITCODE -ne 0) { throw "Native $alias help failed." }
+            }
+          }
+      - name: Require the approved signing configuration
+        if: matrix.rid == 'win-x64'
+        env:
+          SIGNING_CLIENT: ${{ vars.AZURE_SIGNING_CLIENT_ID }}
+          SIGNING_TENANT: ${{ vars.AZURE_SIGNING_TENANT_ID }}
+          SIGNING_SUBSCRIPTION: ${{ vars.AZURE_SIGNING_SUBSCRIPTION_ID }}
+        shell: pwsh
+        run: |
+          foreach ($value in @($env:SIGNING_CLIENT, $env:SIGNING_TENANT, $env:SIGNING_SUBSCRIPTION)) {
+            if ([string]::IsNullOrWhiteSpace($value)) { throw 'Signed candidate delivery is held: approved OIDC signing configuration is missing.' }
+          }
+      - name: Azure login for existing public-trust profile
+        if: matrix.rid == 'win-x64'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_SIGNING_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_SIGNING_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SIGNING_SUBSCRIPTION_ID }}
+      - name: Sign only the exact native candidate image
+        if: matrix.rid == 'win-x64'
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          endpoint: https://wus2.codesigning.azure.net/
+          trusted-signing-account-name: polyphonyrequiem
+          certificate-profile-name: public-trust
+          files: ${{ github.workspace }}/artifacts/tui-candidate/${{ matrix.rid }}/bin/twig.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Share exact signed image across existing native launch files
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+            Copy-Item 'artifacts/tui-candidate/${{ matrix.rid }}/bin/twig.exe' "artifacts/tui-candidate/${{ matrix.rid }}/bin/$alias.exe" -Force
+          }
+      - name: Seal checksums and publisher/profile/source evidence
+        shell: pwsh
+        run: |
+          $receipt = python tools/tui-candidate.py seal --directory "artifacts/tui-candidate/${{ matrix.rid }}" --commit "${{ github.sha }}" --rid "${{ matrix.rid }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate trust/checksum sealing failed.' }
+          $receipt | Set-Content -Encoding utf8 "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json"
+      - name: Verify sealed inventory after normal native startup
+        shell: pwsh
+        env:
+          TWIG_USER_HOME: ${{ runner.temp }}/tui-candidate-startup-home-${{ matrix.rid }}
+        run: |
+          $directory = (Resolve-Path "artifacts/tui-candidate/${{ matrix.rid }}").Path
+          $name = if ('${{ matrix.rid }}' -eq 'win-x64') { 'twig.exe' } else { 'twig' }
+          $image = Join-Path $directory "bin/$name"
+          $receipt = Get-Content "artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json" -Raw | ConvertFrom-Json
+          if ('${{ matrix.rid }}' -ne 'osx-arm64') {
+            & $image tui --help
+            if ($LASTEXITCODE -ne 0) { throw 'Sealed canonical native tui help failed.' }
+            $extension = if ('${{ matrix.rid }}' -eq 'win-x64') { '.exe' } else { '' }
+            foreach ($alias in @('twig-tui', 'twig-bench-tui')) {
+              & (Join-Path $directory "bin/$alias$extension") --help
+              if ($LASTEXITCODE -ne 0) { throw "Sealed native $alias help failed." }
+            }
+          }
+          $workspace = Join-Path '${{ runner.temp }}' 'tui-candidate-uninitialized-${{ matrix.rid }}'
+          New-Item -ItemType Directory -Path $workspace | Out-Null
+          Push-Location $workspace
+          try {
+            & $image connection status -o json
+            if ($LASTEXITCODE -ne 1) { throw 'Fresh uninitialized native workspace was not refused.' }
+          } finally { Pop-Location }
+          python tools/tui-candidate.py inspect --directory $directory --commit '${{ github.sha }}' --rid '${{ matrix.rid }}' --manifest-sha256 $receipt.manifestSha256
+          if ($LASTEXITCODE -ne 0) { throw 'Normal native startup changed the sealed candidate inventory.' }
+      - name: Archive Unix payload with executable permissions intact
+        if: matrix.rid != 'win-x64'
+        shell: bash
+        run: tar -czf "artifacts/tui-candidate/${{ matrix.rid }}.tar.gz" -C artifacts/tui-candidate "${{ matrix.rid }}"
+      - name: Preserve exact Windows candidate and independent digest receipt
+        if: matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-tui-candidate-${{ github.sha }}-${{ matrix.rid }}
+          path: |
+            artifacts/tui-candidate/${{ matrix.rid }}/
+            artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Preserve exact Unix archive and independent digest receipt
+        if: matrix.rid != 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: twig-tui-candidate-${{ github.sha }}-${{ matrix.rid }}
+          path: |
+            artifacts/tui-candidate/${{ matrix.rid }}.tar.gz
+            artifacts/tui-candidate/${{ matrix.rid }}-seal-receipt.json
+          if-no-files-found: error
+      - name: Preserve validation diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-candidate-failure-${{ github.sha }}-${{ matrix.rid }}
+          path: |
+            artifacts/trace-311/
+            artifacts/test-logs/ci/
+          if-no-files-found: ignore

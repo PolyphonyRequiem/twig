@@ -40,6 +40,22 @@ public sealed class BenchEvaluatorTests
     private static Bench BenchOf(params BenchSelector[] selectors)
         => new() { Name = "test", Selectors = selectors };
 
+    [Fact]
+    public async Task SubtreeProvenance_ReportsEveryMatchingAncestorButNotOwnExplicitPin()
+    {
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(11, "Nested tree").WithParent(10).Build() });
+        _workItemRepo.GetChildrenAsync(11, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(12, "Inherited leaf").WithParent(11).Build() });
+        var membership = await CreateSut().EvaluateAsync(BenchOf(
+            BenchSelector.ForSubtree(11), BenchSelector.ForItem(12), BenchSelector.ForSubtree(10)));
+
+        membership.OwningSubtreeIds.ContainsKey(10).ShouldBeFalse();
+        membership.OwningSubtreeIds[11].ShouldBe(new[] { 10 });
+        membership.OwningSubtreeIds[12].ShouldBe(new[] { 10, 11 });
+        membership.AllIds.ShouldBe(new HashSet<int> { 10, 11, 12 }, ignoreOrder: true);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Test 7 — selector ORDER does not change membership
     // ═══════════════════════════════════════════════════════════════
@@ -248,6 +264,60 @@ public sealed class BenchEvaluatorTests
             BenchOf(BenchSelector.ForCurrentSprint("Ada Lovelace")));
 
         membership.AllIds.ShouldBe(new HashSet<int> { 1 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task SavedFilters_UnionAlternativesButIntersectAreaSprintAndCanonicalOwnership()
+    {
+        var rule = new BenchQueryRule(null, "self@example.test",
+            [new("Project\\Exact", false), new("Project\\Under", true)],
+            [BenchQueryRule.ParseSprint("Project\\Sprint 7"), BenchQueryRule.ParseSprint("Project\\Sprint 8")]);
+        WorkItem Item(int id, string area, string sprint, string canonical) => new WorkItemBuilder(id, "Fixture")
+            .WithAreaPath(area).WithIterationPath(sprint).AssignedTo("Same display")
+            .AssignedToUniqueName(canonical).Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns([
+                Item(1, "Project\\Exact", "Project\\Sprint 7", "self@example.test"),
+                Item(2, "Project\\Under\\Child", "Project\\Sprint 8", "self@example.test"),
+                Item(3, "Project\\Exact\\Child", "Project\\Sprint 7", "self@example.test"),
+                Item(4, "Project\\Under", "Project\\Sprint 9", "self@example.test"),
+                Item(5, "Project\\Understudy", "Project\\Sprint 7", "self@example.test"),
+                Item(6, "Project\\Exact", "Project\\Sprint 8", "other@example.test"),
+            ]);
+        var membership = await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector(), BenchSelector.ForItem(99)));
+        membership.QueryMatches.Select(item => item.Id).ShouldBe([1, 2]);
+        membership.AllIds.ShouldBe(new HashSet<int> { 1, 2, 99 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task EmptySavedSprintScope_LeavesPinsSeedsAndPendingWorkVisible()
+    {
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns([new WorkItemBuilder(-1, "Local seed").AsSeed().Build()]);
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns([71]);
+        var rule = new BenchQueryRule(null, null, [new("Project", true)], []);
+        var membership = await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector(), BenchSelector.ForItem(99)));
+        membership.QueryMatches.ShouldBeEmpty();
+        membership.AllIds.ShouldBe(new HashSet<int> { -1, 71, 99 }, ignoreOrder: true);
+        var resolved = await rule.ResolveAsync(_calendar);
+        resolved.BuildWiql("Project").ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task NoAreaSelection_DoesNotRestrictAChosenSprint()
+    {
+        var item = new WorkItemBuilder(1, "Other area").WithIterationPath(Sprint.Value).WithAreaPath("Project\\Elsewhere").Build();
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>()).Returns([item]);
+        var rule = new BenchQueryRule(null, null, [], [BenchQueryRule.ParseSprint(Sprint.Value)]);
+        (await CreateSut().EvaluateAsync(BenchOf(rule.ToSelector()))).AllIds.ShouldContain(1);
+    }
+
+    [Fact]
+    public void MalformedSavedFilter_RefusesRatherThanDroppingItsConstraints()
+    {
+        var selector = new BenchSelector(Domain.Enums.SelectorKind.Query,
+            "bench-filter\u001f{\"version\":1,\"assignedTo\":null,\"uniqueName\":null,\"areas\":[],\"sprints\":[\"@Current\"],\"unknown\":true}");
+        Should.Throw<InvalidOperationException>(() => BenchQueryRule.Parse(selector));
     }
 
     [Fact]

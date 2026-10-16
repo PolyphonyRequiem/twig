@@ -1,0 +1,80 @@
+id = "twig-herdr"
+name = "Twig bench"
+version = "1.0.0"
+min_herdr_version = "0.9.0"
+description = "NativeAOT Twig Bench, preserved field staging and read-only proposal Review, standalone and source-scoped native Herdr hosting from the same executable. Native Twig owns authority and durable state. No automatic publication, credential migration or idle lease. Windows/Linux replacement; existing legacy macOS paths remain separate and unchanged."
+platforms = ["linux", "windows"]
+
+[[actions]]
+id = "open"
+platforms = ["linux"]
+title = "Open Twig bench"
+command = ["./bin/twig", "tui", "--herdr", "--intent", "open"]
+
+[[actions]]
+id = "open-windows"
+platforms = ["windows"]
+title = "Open Twig bench"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw 'HERDR_PLUGIN_ROOT is unset'}; & (Join-Path $p 'scripts\launch.ps1') open''']
+
+[[actions]]
+id = "table"
+platforms = ["linux"]
+title = "Twig bench: Table view"
+command = ["./bin/twig", "tui", "--herdr", "--intent", "table"]
+
+[[actions]]
+id = "table-windows"
+platforms = ["windows"]
+title = "Twig bench: Table view"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw 'HERDR_PLUGIN_ROOT is unset'}; & (Join-Path $p 'scripts\launch.ps1') table''']
+
+[[actions]]
+id = "tree"
+platforms = ["linux"]
+title = "Twig bench: Tree view"
+command = ["./bin/twig", "tui", "--herdr", "--intent", "tree"]
+
+[[actions]]
+id = "tree-windows"
+platforms = ["windows"]
+title = "Twig bench: Tree view"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw 'HERDR_PLUGIN_ROOT is unset'}; & (Join-Path $p 'scripts\launch.ps1') tree''']
+
+[[actions]]
+id = "exit-review"
+platforms = ["linux"]
+title = "Exit Twig review"
+command = ["./bin/twig", "tui", "--herdr", "--intent", "exit-review"]
+
+[[actions]]
+id = "exit-review-windows"
+platforms = ["windows"]
+title = "Exit Twig review"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw 'HERDR_PLUGIN_ROOT is unset'}; & (Join-Path $p 'scripts\launch.ps1') exit-review''']
+
+[[actions]]
+id = "reconnect"
+platforms = ["linux"]
+title = "Twig bench: Acknowledge and reconnect"
+command = ["./bin/twig", "tui", "--herdr", "--intent", "reconnect"]
+
+[[actions]]
+id = "reconnect-windows"
+platforms = ["windows"]
+title = "Twig bench: Acknowledge and reconnect"
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", '''$p=$env:HERDR_PLUGIN_ROOT; if(-not $p){throw 'HERDR_PLUGIN_ROOT is unset'}; & (Join-Path $p 'scripts\launch.ps1') reconnect''']
+
+[[panes]]
+id = "bench"
+platforms = ["linux"]
+title = "Twig bench"
+placement = "split"
+command = ["./bin/twig", "tui", "--herdr", "--host-entry"]
+
+[[panes]]
+id = "bench-windows"
+platforms = ["windows"]
+title = "Twig bench"
+placement = "split"
+command = ["./bin/twig.exe", "tui", "--herdr", "--host-entry"]

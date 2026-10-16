@@ -116,11 +116,28 @@ fi
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
-# Extract binary
-if ! tar --exclude='twig-mcp*' --exclude='./twig-mcp*' -xzf "$TEMP_ARCHIVE" -C "$INSTALL_DIR"; then
+# Stage the release so native entry points are checked from this archive, not a
+# previous installation. MCP remains excluded from supported delivery.
+PAYLOAD_DIR="${TEMP_DIR}/payload"
+mkdir -p "$PAYLOAD_DIR"
+if ! tar --exclude='twig-mcp*' --exclude='./twig-mcp*' -xzf "$TEMP_ARCHIVE" -C "$PAYLOAD_DIR"; then
     echo "Error: Failed to extract archive." >&2
     exit 1
 fi
+
+if [ "$os" = "linux" ]; then
+    for name in twig twig-tui twig-bench-tui; do
+        if [ ! -f "${PAYLOAD_DIR}/${name}" ]; then
+            echo "Error: Release archive is missing the native entry point '$name'." >&2
+            exit 1
+        fi
+        if ! cmp -s "${PAYLOAD_DIR}/twig" "${PAYLOAD_DIR}/${name}"; then
+            echo "Error: Release entry point '$name' is not the shared native Twig image." >&2
+            exit 1
+        fi
+    done
+fi
+cp -a "${PAYLOAD_DIR}/." "$INSTALL_DIR/"
 
 # Verify binary exists
 if [ ! -f "${INSTALL_DIR}/twig" ]; then
@@ -132,15 +149,18 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-# Verify companion binaries (warn only — older archives may not include them)
-for companion in twig-tui; do
-    if [ -f "${INSTALL_DIR}/${companion}" ]; then
-        chmod +x "${INSTALL_DIR}/${companion}"
-        echo "  Found $companion"
+if [ "$os" = "linux" ]; then
+    chmod +x "${INSTALL_DIR}/twig-tui" "${INSTALL_DIR}/twig-bench-tui"
+    echo "  Native TUI: twig tui, twig-tui, twig-bench-tui"
+else
+    # macOS retains its legacy Terminal.Gui companion and repair path.
+    if [ -f "${INSTALL_DIR}/twig-tui" ]; then
+        chmod +x "${INSTALL_DIR}/twig-tui"
+        echo "  Found legacy macOS twig-tui companion"
     else
-        echo "Warning: $companion not found in archive. Some features may be unavailable. Run 'twig upgrade' after install to fetch companions." >&2
+        echo "Warning: macOS twig-tui companion not found in archive. Run 'twig upgrade' after install to fetch it." >&2
     fi
-done
+fi
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

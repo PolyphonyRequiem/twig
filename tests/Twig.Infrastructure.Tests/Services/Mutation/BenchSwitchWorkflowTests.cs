@@ -63,6 +63,48 @@ public sealed class BenchSwitchWorkflowTests : IDisposable
     private BenchWorkflow CreateSut() => new(_benchRepo, Selectors, Resolver);
     private PinWorkflow CreatePin() => new(_benchRepo, Selectors, Resolver);
 
+    [Fact]
+    public async Task Switch_TargetRecreatedAfterWorkflowReadIsRefusedInsideNativeMutation()
+    {
+        var original = (await CreateSut().CreateAsync("reviewed")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        var proxy = Substitute.For<IBenchRepository>();
+        proxy.GetByNameAsync(original.Name, Arg.Any<CancellationToken>())
+            .Returns(call => _benchRepo.GetByNameAsync(original.Name, call.ArgAt<CancellationToken>(1)));
+        proxy.TrySetCurrentAsync(original.Id, Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var ct = call.ArgAt<CancellationToken>(1);
+                await _benchRepo.DeleteAsync(original.Id, ct);
+                await _benchRepo.CreateAsync(original.Name, ct);
+                return await _benchRepo.TrySetCurrentAsync(original.Id, ct);
+            });
+        var workflow = new BenchWorkflow(proxy, Selectors, Resolver);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => workflow.SwitchAsync(original.Name, expectBench: original.Id.ToString()));
+
+        (await _benchRepo.GetCurrentAsync()).ShouldBeNull();
+        (await _benchRepo.GetByNameAsync(original.Name))!.Id.ShouldNotBe(original.Id);
+        (await CreateSut().ListAsync()).CurrentBenchName.ShouldBe(Bench.DefaultName);
+    }
+
+    [Fact]
+    public async Task GuardedSwitch_RefusesSameNameReplacementAndNeverCreatesCapturedDefault()
+    {
+        var sut = CreateSut();
+        await Should.ThrowAsync<InvalidOperationException>(() => sut.SwitchAsync(Bench.DefaultName, expectBench: "1"));
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+        var original = (await sut.CreateAsync("reviewed")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        await sut.DeleteAsync(original.Name);
+        var replacement = (await sut.CreateAsync(original.Name)).ShouldBeOfType<BenchOutcome.Created>().Bench;
+
+        await Should.ThrowAsync<InvalidOperationException>(() => sut.SwitchAsync(original.Name, expectBench: original.Id.ToString()));
+
+        (await sut.ListAsync()).CurrentBenchName.ShouldBe(Bench.DefaultName);
+        (await _benchRepo.GetByNameAsync(replacement.Name))!.Id.ShouldBe(replacement.Id);
+        (await sut.SwitchAsync(replacement.Name, expectBench: replacement.Id.ToString()))
+            .ShouldBeOfType<BenchOutcome.Switched>().Bench.Id.ShouldBe(replacement.Id);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Acceptance 1 — switching changes which items the view shows,
     //  and the previous Bench is unchanged when you switch back

@@ -1,3 +1,9 @@
+using System.Globalization;
+using Twig.Domain.Enums;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Workspace;
+using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Auth;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services.Mutation;
 using Twig.Formatters;
@@ -27,15 +33,69 @@ namespace Twig.Commands;
 public sealed class BenchCommand(
     BenchWorkflow benchWorkflow,
     OutputFormatterFactory formatterFactory,
-    RendererFactory? rendererFactory = null)
+    RendererFactory? rendererFactory = null,
+    IAuthenticationProvider? authenticationProvider = null,
+    IWorkItemRepository? repository = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
+
+    /// <summary>Creates an empty named Bench without selecting it.</summary>
+    public Task<int> CreateAsync(string name, string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default, string? expectBinding = null, string? expectIdentity = null)
+        => ExecuteGuardedAsync(() => CreateCoreAsync(name, outputFormat, ct), outputFormat, expectBinding, expectIdentity, ct);
+
+    /// <summary>Selects an existing Bench, optionally requiring the displayed storage ID.</summary>
+    public Task<int> SwitchAsync(string name, string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
+        => ExecuteGuardedAsync(() => SwitchCoreAsync(name, outputFormat, ct, expectBench), outputFormat, expectBinding, expectIdentity, ct);
+
+    /// <summary>Deletes a Bench only when the captured target and complete contents still match.</summary>
+    public Task<int> DeleteAsync(string name, string? confirm = null, string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null,
+        string? expectContents = null)
+        => ExecuteGuardedAsync(() => DeleteCoreAsync(name, confirm, outputFormat, ct, expectBench, expectContents),
+            outputFormat, expectBinding, expectIdentity, ct);
+
+    /// <summary>Lists Benches, optionally emitting the versioned management JSON envelope.</summary>
+    public Task<int> ListAsync(string outputFormat = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default, bool includeManagement = false, string? expectBinding = null, string? expectIdentity = null)
+        => ExecuteGuardedAsync(() => ListCoreAsync(outputFormat, ct, includeManagement), outputFormat, expectBinding, expectIdentity, ct);
+
+    private async Task<int> ExecuteGuardedAsync(Func<Task<int>> execute, string outputFormat,
+        string? expectBinding, string? expectIdentity, CancellationToken ct)
+    {
+        try
+        {
+            var originRequired = expectBinding is not null || expectIdentity is not null;
+            if (originRequired && (authenticationProvider is null || repository is null || ResolveBrowserBindingAsync is null))
+                throw new InvalidOperationException("Native browser connection admission is unavailable; update the Twig companion.");
+            using var admission = authenticationProvider is null ? null
+                : await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
+            if (originRequired && admission is null)
+                throw new InvalidOperationException("Native browser connection admission is unavailable; reconnect through the connection binding module.");
+            using var operation = repository?.AcquireOperation();
+            if (originRequired)
+                BrowserOriginGuard.EnsureExpected(await ResolveBrowserBindingAsync!(ct), expectBinding, expectIdentity);
+            var result = await execute();
+            if (originRequired)
+                BrowserOriginGuard.EnsureExpected(await ResolveBrowserBindingAsync!(ct), expectBinding, expectIdentity);
+            return result;
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine(formatterFactory.GetFormatter(outputFormat).FormatError(ex.Message));
+            return 2;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine(formatterFactory.GetFormatter(outputFormat).FormatError(ex.Message));
+            return 1;
+        }
+    }
 
     /// <summary>Create a Bench with a name the person will recognise later.</summary>
-    public async Task<int> CreateAsync(
-        string name,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
+    private async Task<int> CreateCoreAsync(string name, string outputFormat, CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var outcome = await benchWorkflow.CreateAsync(name, ct);
@@ -79,13 +139,10 @@ public sealed class BenchCommand(
     /// The exit code is what a script sees; the message is what a person sees; both come from the
     /// one workflow outcome, so the two surfaces cannot disagree about whether a Bench exists.
     /// </remarks>
-    public async Task<int> SwitchAsync(
-        string name,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
+    private async Task<int> SwitchCoreAsync(string name, string outputFormat, CancellationToken ct, string? expectBench)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        var outcome = await benchWorkflow.SwitchAsync(name, ct);
+        var outcome = await benchWorkflow.SwitchAsync(name, ct, expectBench);
 
         switch (outcome)
         {
@@ -128,14 +185,11 @@ public sealed class BenchCommand(
     /// information the person asked for, and the one actionable line goes to stderr beside a
     /// non-zero exit so a script's pipeline stops rather than assuming the Bench is gone.
     /// </remarks>
-    public async Task<int> DeleteAsync(
-        string name,
-        string? confirm = null,
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
+    private async Task<int> DeleteCoreAsync(string name, string? confirm, string outputFormat, CancellationToken ct,
+        string? expectBench, string? expectContents)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        var outcome = await benchWorkflow.DeleteAsync(name, confirm, ct);
+        var outcome = await benchWorkflow.DeleteAsync(name, confirm, ct, expectBench, expectContents);
 
         switch (outcome)
         {
@@ -242,12 +296,17 @@ public sealed class BenchCommand(
             : "Benches that exist: " + string.Join(", ", unknown.KnownBenchNames) + ".";
 
     /// <summary>List the Benches that exist, marking the current one.</summary>
-    public async Task<int> ListAsync(
-        string outputFormat = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
+    private async Task<int> ListCoreAsync(string outputFormat, CancellationToken ct, bool includeManagement)
     {
-        var listing = await benchWorkflow.ListAsync(ct);
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        if (includeManagement && lower is not ("json" or "json-full" or "json-compact"))
+            throw new ArgumentException("--include-management requires JSON output (-o json).");
+        var listing = await benchWorkflow.ListAsync(ct);
+        if (includeManagement)
+        {
+            RenderManagement(listing, lower);
+            return 0;
+        }
 
         if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
@@ -300,6 +359,54 @@ public sealed class BenchCommand(
 
         _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(nodes));
         return 0;
+    }
+
+    private void RenderManagement(BenchListing listing, string outputFormat)
+    {
+        var current = listing.Benches.SingleOrDefault(bench => IsCurrent(bench.Name, listing))
+            ?? throw new InvalidOperationException("The current Bench changed while listing. Refresh and retry.");
+        var benches = new List<RenderCell>(listing.Benches.Count);
+        foreach (var bench in listing.Benches)
+        {
+            var pins = bench.Selectors.Where(s => s.Kind is SelectorKind.Item or SelectorKind.Subtree)
+                .OrderBy(s => s.AsWorkItemId()).ThenBy(s => s.Kind)
+                .Select(selector => new RenderCell(string.Empty, new RenderValue.Object(new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["id"] = RenderCell.Integer(selector.AsWorkItemId()),
+                    ["mode"] = RenderCell.String(selector.Kind == SelectorKind.Item ? "single" : "tree"),
+                }))).ToArray();
+            var queries = bench.Selectors.Where(s => s.Kind == SelectorKind.Query)
+                .OrderBy(s => s.Payload, StringComparer.Ordinal).Select(s => RenderCell.String(DescribeQuery(s))).ToArray();
+            benches.Add(new RenderCell(string.Empty, new RenderValue.Object(new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.String(bench.Id.ToString(CultureInfo.InvariantCulture)),
+                ["name"] = RenderCell.String(bench.Name),
+                ["isCurrent"] = RenderCell.Boolean(bench.Id == current.Id),
+                ["isDefault"] = RenderCell.Boolean(bench.IsDefault),
+                ["contentsDigest"] = RenderCell.String(BenchQueryRule.ContentsDigest(bench.Selectors)),
+                ["pins"] = new RenderCell(string.Empty, new RenderValue.Array(pins)),
+                ["queries"] = new RenderCell(string.Empty, new RenderValue.Array(queries)),
+            })));
+        }
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree([
+            new RenderNode.Record("benchManagement", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["version"] = RenderCell.Integer(1),
+                ["currentBenchId"] = RenderCell.String(current.Id.ToString(CultureInfo.InvariantCulture)),
+                ["benches"] = new RenderCell(string.Empty, new RenderValue.Array(benches)),
+            }),
+        ]));
+    }
+
+    private static string DescribeQuery(BenchSelector selector)
+    {
+        if (selector.QueryRule is not (BenchSelector.CurrentSprintRule or BenchQueryRule.Name))
+            return selector.Payload;
+        var rule = BenchQueryRule.Parse(selector);
+        var owner = rule.UniqueName is not null ? "Canonical principal: " + rule.UniqueName
+            : rule.AssignedTo is not null ? "Saved assignee: " + rule.AssignedTo : "All assignees";
+        return $"{selector.QueryRule}; {owner}; Areas: {(rule.Areas.Count == 0 ? "unrestricted" : string.Join(", ", rule.Areas))}; "
+            + $"Sprints: {(rule.Sprints.Count == 0 ? "none (automatic membership disabled)" : string.Join(", ", rule.Sprints))}";
     }
 
     /// <summary>

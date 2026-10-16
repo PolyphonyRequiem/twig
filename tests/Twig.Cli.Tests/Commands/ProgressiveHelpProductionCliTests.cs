@@ -281,6 +281,35 @@ public sealed class ProgressiveHelpProductionCliTests : IDisposable
             .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
     }
 
+    [Theory]
+    [InlineData("bench browser")]
+    [InlineData("tui")]
+    public async Task BrowserUsageFailurePrecedesWorkspaceAdmissionAndLeavesPluginDirectoryUntouched(string command)
+    {
+        if (command == "tui" && !OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) return;
+        var result = await RunTwig([.. command.Split(' '), "--herdr", "--host-entry", "-o", "json"]);
+
+        result.ExitCode.ShouldBe(2);
+        result.Stdout.ShouldBeEmpty();
+        using var error = System.Text.Json.JsonDocument.Parse(result.Stderr);
+        error.RootElement.GetProperty("error").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.String);
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
+    }
+
+    [Fact]
+    public async Task TuiHelpExposesNativeOptionsWithoutAdmittingWorkspace()
+    {
+        var result = await RunTwig("tui", "--help");
+
+        result.ExitCode.ShouldBe(0);
+        result.Stderr.ShouldBeEmpty();
+        foreach (var option in new[] { "--cwd", "--view", "--file", "--herdr", "--host-entry", "--intent", "--source-workspace", "--source-tab", "--source-pane", "--source-socket", "--output" })
+            result.Stdout.ShouldContain(option);
+        Directory.GetFiles(_scratch, "*", SearchOption.AllDirectories)
+            .ShouldBe([Path.Combine(_scratch, ".twig", "config")]);
+    }
+
     private async Task<(int ExitCode, string Stdout, string Stderr)> RunTwig(params string[] args)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;

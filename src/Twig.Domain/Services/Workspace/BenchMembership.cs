@@ -23,6 +23,10 @@ public sealed record BenchMembership
     /// </summary>
     public IReadOnlyList<int> PinnedIds { get; init; } = [];
 
+    /// <summary>Ancestor subtree selectors that actually matched each ID during this evaluation.</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<int>> OwningSubtreeIds { get; init; }
+        = new Dictionary<int, IReadOnlyList<int>>();
+
     /// <summary>The iterations the sprint rule resolved to, for callers that report scope.</summary>
     public IReadOnlyList<IterationPath> IterationPaths { get; init; } = [];
 

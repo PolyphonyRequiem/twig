@@ -32,6 +32,10 @@ twig workspace track-tree <id> [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+|`--expect-bench`|`string`|unset|Refuse a changed current Bench instead of retargeting.|
+|`--expect-binding`|`string`|unset|Refuse a changed native connection binding; never selects one.|
+|`--expect-identity`|`string`|unset|Refuse a changed authenticated principal; never selects one.|
+|`--expect-settings`|`string`|unset|Compare the captured raw query-settings digest inside the atomic pin transaction.|
 
 ## Behavior
 
@@ -51,6 +55,11 @@ on stderr.
 The human-format output appends ` (tree)` to the confirmation message so it is
 distinct from a single-item pin
 (`src/Twig/Commands/TrackingCommand.cs:186-198`).
+
+A subtree pin and single pin for the same ID are independent and can coexist.
+This command ensures the subtree pin is present without replacing a single pin.
+Remove only this kind with `workspace untrack <id> --mode tree`; omit `--mode`
+only when you intend to remove both explicit kinds.
 
 ## Examples
 

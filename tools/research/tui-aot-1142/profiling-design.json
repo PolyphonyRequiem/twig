@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "executable-backed experiment contract",
+  "status": "coordinator-prepared-published-executed-387-observations-independent-review-pending",
+  "feature": 1142,
+  "sourceCommit": "39e10719870437e011567155c328aee03b80c835",
+  "authority": {
+    "coordinatorOnly": true,
+    "workspace": "C:/Users/dangreen/projects/twig-worktrees/tui-aot-epic",
+    "metadataHome": "C:/Users/dangreen/.twig-tui-epic-tracking",
+    "cachedItemIds": [1141, 1142, 1143],
+    "widths": [45, 80, 120],
+    "sync": false,
+    "credentialCopy": false,
+    "rawDatabaseRead": false,
+    "trackerMutation": false
+  },
+  "isolation": {
+    "sourceSnapshot": "tools/research/tui-aot-1142/generated/source",
+    "publishOutput": "tools/research/tui-aot-1142/generated/publish/win-x64",
+    "numericResults": "tools/research/tui-aot-1142/generated/results",
+    "sourceInputs": ["src/Twig", "src/Twig.Domain", "src/Twig.Infrastructure", "src/Twig.RenderTree", "Directory.Build.props", "Directory.Packages.props", "global.json", ".github/skills/twig", "docs/commands"],
+    "exclude": [".git", ".twig", "credentials", "production bin/obj", "installed launchers", "twig-herdr changes"],
+    "instrumentedCopyOnly": ["src/Twig/Program.cs", "src/Twig/Commands/BenchDetailCommand.cs", "src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs"],
+    "omitSnapshotStartupCalls": ["SelfUpdater.CleanupOldBinary()", "CompanionStartup.RunFirstRunCheck()"],
+    "omissionReason": "Avoid installed-payload mutation, cleanup and remote companion fetch; disclose omitted cost versus installed baseline."
+  },
+  "stages": [
+    {"name": "composition", "file": "src/Twig/Program.cs", "start": "ConfigureServices callback entry", "end": "After AddTwigCommands", "includes": "workspace discovery/config, Git detection, registration, preliminary theme-cache read", "additivity": "Contains nested preliminary store work; lazy leaf service resolution may fall outside."},
+    {"name": "store-open-total", "file": "src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs", "start": "OpenWorkspace entry", "end": "After returned SqliteCacheStore constructor", "includes": "native operation gate, mirror admission, store constructor", "additivity": "Nested inside composition or service resolution; identify every store instance."},
+    {"name": "store-initialize", "file": "src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs", "start": "private constructor entry", "end": "private constructor completion", "includes": "connection open, collation, WAL, durable attach/version checks, schemas, generation stamp", "additivity": "Subset of store-open-total, never sum both."},
+    {"name": "initial-admission", "file": "src/Twig/Commands/BenchDetailCommand.cs", "start": "Before ConnectionOperationAdmission.AcquireAsync", "end": "After resolver.ResolveStoredAsync", "includes": "bound runtime operation lease, repository operation lease, binding expected-origin check, cached Bench existence and exact capture"},
+    {"name": "data-reads", "file": "src/Twig/Commands/BenchDetailCommand.cs", "start": "Before repository.GetByIdAsync", "end": "After pendingChanges.GetChangesAsync", "includes": "item, definitions, status entries, children, parent, links, pending changes"},
+    {"name": "layout-and-native-serialization", "file": "src/Twig/Commands/BenchDetailCommand.cs", "start": "Before StringWriter/AnsiConsole construction", "end": "After console.Write(view)", "includes": "full Show projection, process child progress, safe HTML, wrapping, native ANSI output", "excludes": "actual terminal paint"},
+    {"name": "final-admission", "file": "src/Twig/Commands/BenchDetailCommand.cs", "start": "Before final EnsureCaptureAsync", "end": "After final EnsureCaptureAsync", "includes": "mutable binding/identity/Operation comparison and captured current Bench recheck"},
+    {"name": "envelope-output", "file": "src/Twig/Commands/BenchDetailCommand.cs", "start": "Before output format branch", "end": "After render/output", "includes": "JSON envelope/native stdout write", "excludes": "using lease disposal"}
+  ],
+  "reuseExperiment": {
+    "mechanism": "Invoke the same real BenchDetailCommand instance repeatedly after DI resolution; retain its unchanged inner native operation code and fresh admission/repository using scopes per invocation.",
+    "idle": "Between-call delay after ExecuteAsync returns and leases are disposed; no permanent idle lease.",
+    "excludeFirstResultFromWarmPercentiles": true,
+    "failure": "Stop on nonzero/cancellation/binding-generation refusal, do not reconnect, change identity, retarget or retry.",
+    "notProofOf": ["persistent-worker necessity", "production latency", "authority-change race safety", "cross-platform terminal viability"]
+  },
+  "measurementRows": {
+    "processFirst": "First cached detail in new native process; OS cache uncontrolled, not OS-cold.",
+    "warmOneShot": "Subsequent separate native launches after successful same-context cached read.",
+    "warmReused": "Subsequent commands on same DI/store after first invocation, with operation-scoped authority.",
+    "nativeWall": "Process create through exit plus captured streams.",
+    "bracketedWall": "Native connection status before, cached detail, native connection status after, JSON decode and origin comparison; not input-to-painted-frame.",
+    "dimensions": ["actual ANSI UTF-8 bytes", "plain characters", "physical rows", "title characters", "available native HTML field character sizes"],
+    "persist": "Timing, dimensions, sample count, width, runtime/SDK/RID, exit outcome, stage nesting only; no credential/work-item content in result artifacts.",
+    "minimumSamples": "Propose at least 20 warm samples per item/width/mode; owner approves latency targets separately."
+  },
+  "missingPrerequisites": ["Independent evidence review", "Owner targets/retirement/platform decisions"],
+  "intendedPublishArgvAfterHarnessExists": ["dotnet", "publish", "tools/research/tui-aot-1142/generated/source/src/Twig/Twig.csproj", "-c", "Release", "-r", "win-x64", "-p:PublishAot=true", "-p:PublishTrimmed=true", "-p:TrimMode=full", "-p:MinVerVersionOverride=0.0.0-1142", "-o", "tools/research/tui-aot-1142/generated/publish/win-x64"],
+  "existingNativeReadArgvForCoordinatorOnly": ["C:/Users/dangreen/projects/twig-herdr/bin/twig-bench-native/twig-bench-native.exe", "bench", "detail", "1142", "--width", "80", "-o", "json"],
+  "prepareArgv": ["python", "tools/research/tui-aot-1142/prepare.py", "--gate", "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/start-gate-open.json"],
+  "runArgv": ["python", "tools/research/tui-aot-1142/profile.py", "--gate", "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/start-gate-open.json", "--samples", "20"],
+  "results": "tools/research/tui-aot-1142/generated/results/results.json",
+  "durableSummary": "tools/research/tui-aot-1142/measurement-summary.json"
+}

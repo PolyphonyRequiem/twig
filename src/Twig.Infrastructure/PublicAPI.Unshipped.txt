@@ -1,5 +1,22 @@
 #nullable enable
+Twig.Infrastructure.GitHub.SelfUpdater.RepairNativeLaunchFiles(System.Collections.Generic.IReadOnlyList<string!>! names, string! installDir, bool force = false) -> System.Collections.Generic.IReadOnlyList<Twig.Infrastructure.GitHub.CompanionUpdateResult!>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.TrySetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.TryDeleteAsync(long benchId, string! expectedContentsDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+*REMOVED*Twig.Infrastructure.Services.Mutation.BenchWorkflow.SwitchAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.SwitchAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+*REMOVED*Twig.Infrastructure.Services.Mutation.BenchWorkflow.DeleteAsync(string! name, string? confirmedName = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+Twig.Infrastructure.Services.Mutation.BenchWorkflow.DeleteAsync(string! name, string? confirmedName = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null, string? expectContents = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.BenchOutcome!>!
+*REMOVED*Twig.Infrastructure.Services.Mutation.PinWorkflow.PinAsync(int workItemId, bool includeSubtree, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
+Twig.Infrastructure.Services.Mutation.PinWorkflow.PinAsync(int workItemId, bool includeSubtree, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null, string? expectSettings = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
+*REMOVED*Twig.Infrastructure.Services.Mutation.PinWorkflow.PinWorkflow(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors, Twig.Domain.Services.Workspace.CurrentBenchResolver? currentBench = null) -> void
+Twig.Infrastructure.Services.Mutation.PinWorkflow.PinWorkflow(Twig.Domain.Interfaces.IBenchRepository! benchRepository, Twig.Domain.Services.Workspace.DefaultBenchSelectors! defaultSelectors, Twig.Domain.Services.Workspace.CurrentBenchResolver? currentBench = null, Twig.Domain.Interfaces.IAuthenticationProvider? authenticationProvider = null) -> void
+*REMOVED*Twig.Infrastructure.Services.Mutation.PinWorkflow.UnpinAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
+Twig.Infrastructure.Services.Mutation.PinWorkflow.UnpinAsync(int workItemId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null, string? expectSettings = null, Twig.Domain.Enums.TrackingMode? mode = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.PinOutcome!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemRepository.AcquireOperation() -> System.IDisposable?
+Twig.Infrastructure.Persistence.SqliteBenchRepository.TryReplaceQuerySelectorsAsync(long benchId, string! expectedSettingsDigest, System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! queries, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove, string? expectedSettingsDigest = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Infrastructure.Persistence.SqliteBenchRepository.TryRemovePinsAsync(long benchId, int workItemId, Twig.Domain.Enums.TrackingMode? mode = null, string? expectedSettingsDigest = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(Twig.Domain.Aggregates.Bench! Bench, bool WasPinned)?>!
+Twig.Infrastructure.Persistence.SqliteIterationCalendar.ResolveExpressionAsync(Twig.Domain.ValueObjects.IterationExpression expression, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.AdoRelationNotFoundException(int sourceId, string! relationType, int targetId, int expectedRevision) -> void
 Twig.Infrastructure.Ado.Exceptions.AdoRelationNotFoundException.ExpectedRevision.get -> int
@@ -42,6 +59,7 @@ Twig.Infrastructure.Config.TwigConfiguration.Policy.get -> Twig.Infrastructure.C
 Twig.Infrastructure.Config.TwigConfiguration.Policy.set -> void
 Twig.Infrastructure.Config.TwigConfiguration.Profile.get -> Twig.Infrastructure.Config.ProfilePinConfig?
 Twig.Infrastructure.Config.TwigConfiguration.Profile.set -> void
+static Twig.Infrastructure.Config.TwigConfiguration.ResolveTeam(string! project, string? team) -> string!
 Twig.Infrastructure.Config.TwigPaths.GlobalDisplayPath.get -> string!
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.get -> Twig.Infrastructure.Config.PolicyConfig?
 Twig.Infrastructure.Config.TwigRepoConfig.Policy.set -> void

@@ -1,0 +1,742 @@
+{
+  "status": "executed-real-go-browser-gesture-pipeline-descriptive-only",
+  "sourceCommit": "0d3c1e7f7f3b6aa3cb75c0770348f961660d3bca",
+  "rawSummaryPath": "tools/research/tui-aot-1142/generated/go-gesture-summary.json",
+  "rawSummarySha256": "472dbdea9a0857c8453fb21b468d636503b79c9cf249e377cff2aaf0c493f1d9",
+  "sourceProbes": [
+    {
+      "path": "C:\\Users\\dangreen\\projects\\twig-worktrees\\tui-aot-epic\\tools\\research\\tui-aot-1142\\generated\\go-gesture-observed-01.jsonl",
+      "sha256": "c7d1458557642a642663e8f09372726bac24468b46c72dc501d3f6d7c7e13ab3"
+    }
+  ],
+  "observedGestureCount": 12,
+  "readyFrameCount": 12,
+  "build": {
+    "receipt": "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/go-gesture-build-receipt.json",
+    "exitCode": 0,
+    "argv": [
+      "build",
+      "-trimpath",
+      "-o",
+      "../go-gesture-bin/twig-bench-tui-1142.exe",
+      "./cmd/twig-bench-tui"
+    ],
+    "cwd": "tools/research/tui-aot-1142/generated/go-gesture-source",
+    "sdkCoordinatorReported": "go1.27.2 windows amd64 (go.mod1.25.0; not identical compiler)",
+    "temporarySdkArchiveSha256CoordinatorReported": "1314008898bd40df77af4b014f777f08873dbdfbcd3d92308728ee03304fe04f",
+    "officialDownloadMetadata": "https://go.dev/dl/?mode=json",
+    "globalInstallOrPathChanges": false,
+    "generatedOwnedCaches": [
+      "GOCACHE",
+      "GOMODCACHE",
+      "GOPATH"
+    ],
+    "GOTOOLCHAIN": "local"
+  },
+  "copiedCodeOnlyNativePayloads": {
+    "twig-bench-native.exe": {
+      "source": "C:\\Users\\dangreen\\.local\\bin\\twig-bench-native\\twig-bench-native.exe",
+      "sha256": "0e47ec23057533bebb91b06f3ad05e82b4f092bd91cdf7064cf11e1f608fc7b1"
+    },
+    "e_sqlite3.dll": {
+      "source": "C:\\Users\\dangreen\\.local\\bin\\twig-bench-native\\e_sqlite3.dll",
+      "sha256": "4dcbb2ad197d893355efa004257e048f2c850feb1078158f4baab0f7b53ac45f"
+    }
+  },
+  "changedSnapshotFiles": [
+    "internal/panel/detail.go",
+    "internal/panel/profile1142_gesture.go",
+    "internal/panel/render.go",
+    "internal/panel/run.go"
+  ],
+  "columns": 120,
+  "rows": 40,
+  "groups": [
+    {
+      "itemId": 1141,
+      "columns": 120,
+      "action": "R-cache-detail",
+      "gestureToReadyFrame": {
+        "count": 3,
+        "minimumMs": 1114.8977,
+        "medianMs": 1144.881,
+        "maximumMs": 1228.626,
+        "p95NearestRankMs": 1228.626
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0.6304,
+          "p95NearestRankMs": 0.6304
+        },
+        "input-reader-to-dispatch": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 3,
+          "minimumMs": 613.6015,
+          "medianMs": 665.8631,
+          "maximumMs": 689.7226,
+          "p95NearestRankMs": 689.7226
+        },
+        "native-post-authority-command": {
+          "count": 3,
+          "minimumMs": 245.7296,
+          "medianMs": 254.9966,
+          "maximumMs": 306.2485,
+          "p95NearestRankMs": 306.2485
+        },
+        "native-pre-authority-command": {
+          "count": 3,
+          "minimumMs": 229.9724,
+          "medianMs": 230.5086,
+          "maximumMs": 244.7207,
+          "p95NearestRankMs": 244.7207
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 3,
+          "minimumMs": 0.572,
+          "medianMs": 1.1282,
+          "maximumMs": 1.133,
+          "p95NearestRankMs": 1.133
+        },
+        "response-event-queue": {
+          "count": 3,
+          "minimumMs": 0.5032,
+          "medianMs": 0.5038,
+          "maximumMs": 0.5314,
+          "p95NearestRankMs": 0.5314
+        }
+      }
+    },
+    {
+      "itemId": 1141,
+      "columns": 120,
+      "action": "enter-detail",
+      "gestureToReadyFrame": {
+        "count": 1,
+        "minimumMs": 1208.0081,
+        "medianMs": 1208.0081,
+        "maximumMs": 1208.0081,
+        "p95NearestRankMs": 1208.0081
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "input-reader-to-dispatch": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 1,
+          "minimumMs": 659.923,
+          "medianMs": 659.923,
+          "maximumMs": 659.923,
+          "p95NearestRankMs": 659.923
+        },
+        "native-post-authority-command": {
+          "count": 1,
+          "minimumMs": 267.3813,
+          "medianMs": 267.3813,
+          "maximumMs": 267.3813,
+          "p95NearestRankMs": 267.3813
+        },
+        "native-pre-authority-command": {
+          "count": 1,
+          "minimumMs": 278.9808,
+          "medianMs": 278.9808,
+          "maximumMs": 278.9808,
+          "p95NearestRankMs": 278.9808
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 1,
+          "minimumMs": 0.5842,
+          "medianMs": 0.5842,
+          "maximumMs": 0.5842,
+          "p95NearestRankMs": 0.5842
+        },
+        "response-event-queue": {
+          "count": 1,
+          "minimumMs": 0.6281,
+          "medianMs": 0.6281,
+          "maximumMs": 0.6281,
+          "p95NearestRankMs": 0.6281
+        }
+      }
+    },
+    {
+      "itemId": 1142,
+      "columns": 120,
+      "action": "R-cache-detail",
+      "gestureToReadyFrame": {
+        "count": 3,
+        "minimumMs": 1195.5592,
+        "medianMs": 1322.9204,
+        "maximumMs": 1472.7468,
+        "p95NearestRankMs": 1472.7468
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 1.2638,
+          "p95NearestRankMs": 1.2638
+        },
+        "input-reader-to-dispatch": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 3,
+          "minimumMs": 668.5606,
+          "medianMs": 696.9736,
+          "maximumMs": 900.1358,
+          "p95NearestRankMs": 900.1358
+        },
+        "native-post-authority-command": {
+          "count": 3,
+          "minimumMs": 245.0186,
+          "medianMs": 254.6698,
+          "maximumMs": 351.9017,
+          "p95NearestRankMs": 351.9017
+        },
+        "native-pre-authority-command": {
+          "count": 3,
+          "minimumMs": 269.3682,
+          "medianMs": 277.8033,
+          "maximumMs": 313.0037,
+          "p95NearestRankMs": 313.0037
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 3,
+          "minimumMs": 1.1363,
+          "medianMs": 1.6019,
+          "maximumMs": 3.1596,
+          "p95NearestRankMs": 3.1596
+        },
+        "response-event-queue": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0.5036,
+          "maximumMs": 0.5129,
+          "p95NearestRankMs": 0.5129
+        }
+      }
+    },
+    {
+      "itemId": 1142,
+      "columns": 120,
+      "action": "enter-detail",
+      "gestureToReadyFrame": {
+        "count": 1,
+        "minimumMs": 1181.9388,
+        "medianMs": 1181.9388,
+        "maximumMs": 1181.9388,
+        "p95NearestRankMs": 1181.9388
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 1,
+          "minimumMs": 0.5757,
+          "medianMs": 0.5757,
+          "maximumMs": 0.5757,
+          "p95NearestRankMs": 0.5757
+        },
+        "input-reader-to-dispatch": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 1,
+          "minimumMs": 659.5432,
+          "medianMs": 659.5432,
+          "maximumMs": 659.5432,
+          "p95NearestRankMs": 659.5432
+        },
+        "native-post-authority-command": {
+          "count": 1,
+          "minimumMs": 260.9407,
+          "medianMs": 260.9407,
+          "maximumMs": 260.9407,
+          "p95NearestRankMs": 260.9407
+        },
+        "native-pre-authority-command": {
+          "count": 1,
+          "minimumMs": 258.4956,
+          "medianMs": 258.4956,
+          "maximumMs": 258.4956,
+          "p95NearestRankMs": 258.4956
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 1,
+          "minimumMs": 1.0551,
+          "medianMs": 1.0551,
+          "maximumMs": 1.0551,
+          "p95NearestRankMs": 1.0551
+        },
+        "response-event-queue": {
+          "count": 1,
+          "minimumMs": 0.5442,
+          "medianMs": 0.5442,
+          "maximumMs": 0.5442,
+          "p95NearestRankMs": 0.5442
+        }
+      }
+    },
+    {
+      "itemId": 1143,
+      "columns": 120,
+      "action": "R-cache-detail",
+      "gestureToReadyFrame": {
+        "count": 3,
+        "minimumMs": 1130.5539,
+        "medianMs": 1133.2239,
+        "maximumMs": 1309.067,
+        "p95NearestRankMs": 1309.067
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0.5719,
+          "p95NearestRankMs": 0.5719
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "input-reader-to-dispatch": {
+          "count": 3,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 3,
+          "minimumMs": 619.8752,
+          "medianMs": 634.2464,
+          "maximumMs": 784.9204,
+          "p95NearestRankMs": 784.9204
+        },
+        "native-post-authority-command": {
+          "count": 3,
+          "minimumMs": 219.2516,
+          "medianMs": 250.8894,
+          "maximumMs": 292.4689,
+          "p95NearestRankMs": 292.4689
+        },
+        "native-pre-authority-command": {
+          "count": 3,
+          "minimumMs": 214.5475,
+          "medianMs": 241.9125,
+          "maximumMs": 303.7611,
+          "p95NearestRankMs": 303.7611
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 3,
+          "minimumMs": 0.5492,
+          "medianMs": 0.5748,
+          "maximumMs": 2.1708,
+          "p95NearestRankMs": 2.1708
+        },
+        "response-event-queue": {
+          "count": 3,
+          "minimumMs": 0.5847,
+          "medianMs": 0.8122,
+          "maximumMs": 2.5675,
+          "p95NearestRankMs": 2.5675
+        }
+      }
+    },
+    {
+      "itemId": 1143,
+      "columns": 120,
+      "action": "enter-detail",
+      "gestureToReadyFrame": {
+        "count": 1,
+        "minimumMs": 1017.687,
+        "medianMs": 1017.687,
+        "maximumMs": 1017.687,
+        "p95NearestRankMs": 1017.687
+      },
+      "stages": {
+        "go-consumer-detail-layout": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "go-parse-and-origin-control-validation": {
+          "count": 1,
+          "minimumMs": 0.8871,
+          "medianMs": 0.8871,
+          "maximumMs": 0.8871,
+          "p95NearestRankMs": 0.8871
+        },
+        "input-reader-to-dispatch": {
+          "count": 1,
+          "minimumMs": 0,
+          "medianMs": 0,
+          "maximumMs": 0,
+          "p95NearestRankMs": 0
+        },
+        "native-detail-command-and-streams": {
+          "count": 1,
+          "minimumMs": 589.3552,
+          "medianMs": 589.3552,
+          "maximumMs": 589.3552,
+          "p95NearestRankMs": 589.3552
+        },
+        "native-post-authority-command": {
+          "count": 1,
+          "minimumMs": 207.3021,
+          "medianMs": 207.3021,
+          "maximumMs": 207.3021,
+          "p95NearestRankMs": 207.3021
+        },
+        "native-pre-authority-command": {
+          "count": 1,
+          "minimumMs": 214.8769,
+          "medianMs": 214.8769,
+          "maximumMs": 214.8769,
+          "p95NearestRankMs": 214.8769
+        },
+        "ready-frame-layout-and-stdout-write": {
+          "count": 1,
+          "minimumMs": 0.5146,
+          "medianMs": 0.5146,
+          "maximumMs": 0.5146,
+          "p95NearestRankMs": 0.5146
+        },
+        "response-event-queue": {
+          "count": 1,
+          "minimumMs": 0.5076,
+          "medianMs": 0.5076,
+          "maximumMs": 0.5076,
+          "p95NearestRankMs": 0.5076
+        }
+      }
+    }
+  ],
+  "observations": [
+    {
+      "sequence": 1,
+      "action": "enter-detail",
+      "itemId": 1141,
+      "generation": 2,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1208.0081,
+      "frameBytes": 7336,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 659.923,
+        "native-post-authority-command": 267.3813,
+        "native-pre-authority-command": 278.9808,
+        "ready-frame-layout-and-stdout-write": 0.5842,
+        "response-event-queue": 0.6281
+      }
+    },
+    {
+      "sequence": 2,
+      "action": "R-cache-detail",
+      "itemId": 1141,
+      "generation": 3,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1114.8977,
+      "frameBytes": 7336,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 613.6015,
+        "native-post-authority-command": 254.9966,
+        "native-pre-authority-command": 244.7207,
+        "ready-frame-layout-and-stdout-write": 0.572,
+        "response-event-queue": 0.5032
+      }
+    },
+    {
+      "sequence": 3,
+      "action": "R-cache-detail",
+      "itemId": 1141,
+      "generation": 4,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1144.881,
+      "frameBytes": 7336,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0.6304,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 665.8631,
+        "native-post-authority-command": 245.7296,
+        "native-pre-authority-command": 230.5086,
+        "ready-frame-layout-and-stdout-write": 1.1282,
+        "response-event-queue": 0.5038
+      }
+    },
+    {
+      "sequence": 4,
+      "action": "R-cache-detail",
+      "itemId": 1141,
+      "generation": 5,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1228.626,
+      "frameBytes": 7336,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 689.7226,
+        "native-post-authority-command": 306.2485,
+        "native-pre-authority-command": 229.9724,
+        "ready-frame-layout-and-stdout-write": 1.133,
+        "response-event-queue": 0.5314
+      }
+    },
+    {
+      "sequence": 5,
+      "action": "enter-detail",
+      "itemId": 1142,
+      "generation": 8,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1181.9388,
+      "frameBytes": 6911,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0.5757,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 659.5432,
+        "native-post-authority-command": 260.9407,
+        "native-pre-authority-command": 258.4956,
+        "ready-frame-layout-and-stdout-write": 1.0551,
+        "response-event-queue": 0.5442
+      }
+    },
+    {
+      "sequence": 6,
+      "action": "R-cache-detail",
+      "itemId": 1142,
+      "generation": 9,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1472.7468,
+      "frameBytes": 6911,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 1.2638,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 900.1358,
+        "native-post-authority-command": 254.6698,
+        "native-pre-authority-command": 313.0037,
+        "ready-frame-layout-and-stdout-write": 3.1596,
+        "response-event-queue": 0
+      }
+    },
+    {
+      "sequence": 7,
+      "action": "R-cache-detail",
+      "itemId": 1142,
+      "generation": 10,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1195.5592,
+      "frameBytes": 6911,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 668.5606,
+        "native-post-authority-command": 245.0186,
+        "native-pre-authority-command": 277.8033,
+        "ready-frame-layout-and-stdout-write": 1.1363,
+        "response-event-queue": 0.5129
+      }
+    },
+    {
+      "sequence": 8,
+      "action": "R-cache-detail",
+      "itemId": 1142,
+      "generation": 11,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1322.9204,
+      "frameBytes": 6911,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 696.9736,
+        "native-post-authority-command": 351.9017,
+        "native-pre-authority-command": 269.3682,
+        "ready-frame-layout-and-stdout-write": 1.6019,
+        "response-event-queue": 0.5036
+      }
+    },
+    {
+      "sequence": 9,
+      "action": "enter-detail",
+      "itemId": 1143,
+      "generation": 14,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1017.687,
+      "frameBytes": 6868,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0.8871,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 589.3552,
+        "native-post-authority-command": 207.3021,
+        "native-pre-authority-command": 214.8769,
+        "ready-frame-layout-and-stdout-write": 0.5146,
+        "response-event-queue": 0.5076
+      }
+    },
+    {
+      "sequence": 10,
+      "action": "R-cache-detail",
+      "itemId": 1143,
+      "generation": 15,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1133.2239,
+      "frameBytes": 6868,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0.5719,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 619.8752,
+        "native-post-authority-command": 292.4689,
+        "native-pre-authority-command": 214.5475,
+        "ready-frame-layout-and-stdout-write": 2.1708,
+        "response-event-queue": 2.5675
+      }
+    },
+    {
+      "sequence": 11,
+      "action": "R-cache-detail",
+      "itemId": 1143,
+      "generation": 16,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1309.067,
+      "frameBytes": 6868,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 784.9204,
+        "native-post-authority-command": 219.2516,
+        "native-pre-authority-command": 303.7611,
+        "ready-frame-layout-and-stdout-write": 0.5492,
+        "response-event-queue": 0.5847
+      }
+    },
+    {
+      "sequence": 12,
+      "action": "R-cache-detail",
+      "itemId": 1143,
+      "generation": 17,
+      "columns": 120,
+      "rows": 40,
+      "outcome": "ready-frame-written",
+      "gestureToReadyFrameMs": 1130.5539,
+      "frameBytes": 6868,
+      "stagesMs": {
+        "go-consumer-detail-layout": 0,
+        "go-parse-and-origin-control-validation": 0,
+        "input-reader-to-dispatch": 0,
+        "native-detail-command-and-streams": 634.2464,
+        "native-post-authority-command": 250.8894,
+        "native-pre-authority-command": 241.9125,
+        "ready-frame-layout-and-stdout-write": 0.5748,
+        "response-event-queue": 0.8122
+      }
+    }
+  ],
+  "limits": [
+    "Starts at actual parsed key ingress, not externally delivered write/input injection timestamp.",
+    "Ends at actual first admitted ready detail frame stdout write completion into ConPTY, not emulator consume/composite or physical photons.",
+    "All existing native pre/detail/post checks and Go consumer generation/origin/control validation remain.",
+    "Small warm convenience sample under background host load is descriptive, not approved latency qualification.",
+    "Local numeric log output after frame is excluded from gesture end clock but can affect later scheduling.",
+    "Native timing evidence from earlier387-row experiment remains separately preserved, not overwritten.",
+    "Observed zero-duration submillisecond Go stages reflect Windows clock quantization, not proof of zero work.",
+    "Initial coordinator rapid Esc+j+Enter injection did not produce a new ready frame due escape/Alt-prefix ambiguity; paced Esc250ms and observed selected frame ID before Enter corrected the driver, not product source.",
+    "Three R gestures and one Enter per item do not qualify p95; first Enter is current session first selection, not process/OS-cold.",
+    "Original387 native timing records and compact measurement-summary.json remain unchanged by gesture correction."
+  ]
+}

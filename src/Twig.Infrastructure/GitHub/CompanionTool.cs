@@ -1,13 +1,35 @@
 namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
-/// Registry of known companion tool names. Single source of truth for
-/// <see cref="SelfUpdater"/>, <c>SelfUpdateCommand</c>, and the first-run companion check.
+/// Registry of separately built companion tools and same-image native launch names.
+/// Shared by self-update and the first-run companion check.
 /// </summary>
 internal static class CompanionTools
 {
-    /// <summary>All companion binary base names (without platform extension).</summary>
-    internal static readonly string[] All = ["twig-tui"];
+    /// <summary>Separately built companions. Only macOS retains the legacy TUI.</summary>
+    internal static readonly string[] All = OperatingSystem.IsMacOS() ? ["twig-tui"] : [];
+
+    /// <summary>Windows/Linux standalone entry names copied from the main native image.</summary>
+    internal static readonly string[] NativeLaunchNames = ["twig-tui", "twig-bench-tui"];
+
+    /// <summary>Names synchronized with an explicit upgrade; native aliases are not first-run companions.</summary>
+    internal static readonly string[] UpdateTargets = OperatingSystem.IsWindows() || OperatingSystem.IsLinux()
+        ? NativeLaunchNames : All;
+
+    internal static bool IsNativeLaunchExecutable(string name)
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) return false;
+        var basename = name.AsSpan();
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (OperatingSystem.IsWindows())
+        {
+            if (!basename.EndsWith(".exe", comparison)) return false;
+            basename = basename[..^4];
+        }
+        foreach (var launchName in NativeLaunchNames)
+            if (basename.Equals(launchName, comparison)) return true;
+        return false;
+    }
 
     /// <summary>
     /// Returns the platform-specific executable name for a companion tool

@@ -24,17 +24,19 @@ public class SqliteWorkItemRepositoryAssigneeTests : IDisposable
     public void Dispose() => _store.Dispose();
 
     [Fact]
-    public async Task GetByIterationAndAssigneeAsync_ReturnsOnlyMatchingItems()
+    public async Task GetByIterationAndAssigneeAsync_MatchesOrdinalIgnoreCaseIterationAndOnlyRequestedAssignee()
     {
-        var alice = CreateWorkItem(1, "Task A", "Active", assignedTo: "Alice Smith", iterationPath: @"Project\Sprint1");
-        var bob = CreateWorkItem(2, "Task B", "Active", assignedTo: "Bob Jones", iterationPath: @"Project\Sprint1");
-        var aliceSprint2 = CreateWorkItem(3, "Task C", "Active", assignedTo: "Alice Smith", iterationPath: @"Project\Sprint2");
+        var alice = CreateWorkItem(1, "Task A", "Active", assignedTo: "Alice Smith", iterationPath: @"PrÖject\Sprint1");
+        var bob = CreateWorkItem(2, "Task B", "Active", assignedTo: "Bob Jones", iterationPath: @"PrÖject\Sprint1");
+        var aliceSprint2 = CreateWorkItem(3, "Task C", "Active", assignedTo: "Alice Smith", iterationPath: @"PrÖject\Sprint2");
+        var aliceChild = CreateWorkItem(4, "Child iteration", "Active", assignedTo: "Alice Smith", iterationPath: @"PrÖject\Sprint1\Child");
 
         await _repo.SaveAsync(alice);
         await _repo.SaveAsync(bob);
         await _repo.SaveAsync(aliceSprint2);
+        await _repo.SaveAsync(aliceChild);
 
-        var iterPath = IterationPath.Parse(@"Project\Sprint1");
+        var iterPath = IterationPath.Parse(@"pröject\sprint1");
         var results = await _repo.GetByIterationAndAssigneeAsync(iterPath.Value, "Alice Smith");
 
         results.Count.ShouldBe(1);

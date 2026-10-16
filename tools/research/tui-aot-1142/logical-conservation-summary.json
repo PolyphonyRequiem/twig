@@ -1,0 +1,24 @@
+{
+  "nativeReceipt": "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/logical-conservation-native.json",
+  "benchJournalReceipt": "C:/Users/dangreen/AppData/Local/Temp/twig-sol61-kickoff-Fyg9FE/logical-conservation-bench-journal.json",
+  "originalImmutableIntentCount": 44,
+  "allOriginalImmutableIntentsUnchanged": true,
+  "currentIntentCount": 55,
+  "unsettledCurrentIntentCount": 0,
+  "pendingBeforeCount": 0,
+  "pendingAfterCount": 0,
+  "registeredIdentityMetadataUnchanged": true,
+  "fullConnectionMetadataUnchanged": true,
+  "configurationAndExactPinSemanticsUnchanged": true,
+  "unrelatedPlannedJournalUnchanged": true,
+  "intentionalChanges": [
+    "Own authorized Feature start publications/notes",
+    "Own approved local Single pins1142/1143",
+    "Active item selection",
+    "Cached Feature state projection To do\u2192Doing"
+  ],
+  "limits": [
+    "Metadata/native immutable-row semantics only; no credential blob read/hash/copy, raw SQL, original Microsoft checkout inspection or whole-filesystem byte proof.",
+    "Same-principal renewal is not registered identity change."
+  ]
+}

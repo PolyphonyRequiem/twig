@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -25,6 +26,12 @@ ASSEMBLIES = ("Cli", "Domain", "Infrastructure", "RenderTree", "Tui")
 HOST_CLASSES = {
     "Twig.Cli.Tests.Commands.ConnectionBindingTransitionConsumerTests",
     "Twig.Cli.Tests.Commands.ConnectionMigrateCommandTests",
+    "Twig.Cli.Tests.Commands.SeedLifecycleIntegrationTests",
+    "Twig.Cli.Tests.Browser.BrowserApplicationScenarioTests",
+    "Twig.Cli.Tests.Browser.BrowserBenchModuleTests",
+    "Twig.Cli.Tests.Browser.BrowserEditingModuleTests",
+    "Twig.Cli.Tests.Browser.BrowserReadModuleTests",
+    "Twig.Cli.Tests.Browser.BrowserReviewModuleTests",
 }
 MAX_CLI_CASES = 200
 MAX_HOST_CASES = 10
@@ -96,7 +103,7 @@ def partition_cli(cases, host_methods, base_filter):
     methods = {method_name(name) for name in cases}
     require(host_methods <= methods, "HostInventory discovery includes ineligible methods")
     expected_host = {method for method in methods if method.rsplit(".", 1)[0] in HOST_CLASSES}
-    require(host_methods == expected_host and bool(host_methods), "HostInventory trait does not match both inventory classes")
+    require(host_methods == expected_host and bool(host_methods), "HostInventory trait does not match the declared inventory classes")
     require({method.rsplit(".", 1)[0] for method in host_methods} == HOST_CLASSES, "an inventory class is missing")
     groups = {}
     for name, count in cases.items():
@@ -247,6 +254,7 @@ class Runner:
         log = self.logs / f"{name}.log"
         with log.open("w", encoding="utf-8") as stream:
             # VSTest keeps its unchanged watchdog; the outer deadline also bounds discovery/startup.
+            started = time.monotonic()
             with subprocess.Popen(command, cwd=ROOT, env=env, stdout=stream, stderr=subprocess.STDOUT) as process:
                 try:
                     exit_code = process.wait(timeout=SESSION_TIMEOUT / 1000)
@@ -254,6 +262,8 @@ class Runner:
                     stop_session(process, elevated)
                     stream.write("\nTest Run Aborted: runner process deadline of 300000ms exceeded.\n")
                     exit_code = 1
+        elapsed = time.monotonic() - started
+        print(f"TWIG-TIMING {name}: {elapsed:.3f}s wall", flush=True)
         output = log.read_text(encoding="utf-8", errors="replace").replace("\r", "\n")
         print(output, end="" if output.endswith("\n") else "\n", flush=True)
         return output, exit_code

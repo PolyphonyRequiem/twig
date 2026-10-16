@@ -16,6 +16,14 @@ public class SelfUpdateCommandTests : IDisposable
     private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
     private readonly string _tempDir;
 
+    private sealed class MacPlatformFactAttribute : FactAttribute
+    {
+        public MacPlatformFactAttribute()
+        {
+            if (!OperatingSystem.IsMacOS()) Skip = "Only macOS downloads a legacy TUI companion.";
+        }
+    }
+
     public SelfUpdateCommandTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"twig-cmd-test-{Guid.NewGuid():N}");
@@ -102,27 +110,8 @@ public class SelfUpdateCommandTests : IDisposable
         exitCode.ShouldBe(0);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_AlreadyUpToDate_Returns0()
-    {
-        // The assembly version will be something like "0.0.0" in test context.
-        // We supply a release with the same version (or older) to trigger the "up to date" path.
-        var currentVersion = VersionHelper.GetVersion();
-        var release = new GitHubReleaseInfo(
-            currentVersion, $"Release {currentVersion}", "notes", null,
-            new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
-        var stubService = Substitute.For<IGitHubReleaseService>();
-        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
-        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
-        var command = new SelfUpdateCommand(stubService, stubUpdater);
-
-        var exitCode = await command.ExecuteAsync();
-
-        exitCode.ShouldBe(0);
-    }
-
-    [Fact]
+    [MacPlatformFact]
     public async Task ExecuteAsync_AlreadyUpToDate_CompanionInstallFailure_Returns0()
     {
         // When up to date and companion install fails (download error),
@@ -154,16 +143,17 @@ public class SelfUpdateCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsync_AlreadyUpToDate_InstallsMissingCompanions_ReportsResults()
+    public async Task ExecuteAsync_AlreadyUpToDate_InstallsPlatformLaunchImages()
     {
-        // F3: when main binary is already current and companions are missing,
-        // they get installed and per-companion results appear in console output.
+        // Stale companion bytes in an archive must never become native TUI aliases.
         var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "current");
 
-        var companionExeNames = CompanionTools.All
+        var companionExeNames = CompanionTools.UpdateTargets
             .Select(CompanionTools.GetExeName)
             .ToArray();
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+            File.WriteAllText(Path.Combine(_tempDir, companionExeNames[0]), "stale-image");
 
         var currentVersion = VersionHelper.GetVersion();
         var rid = PlatformHelper.DetectRid() ?? "win-x64";
@@ -172,7 +162,8 @@ public class SelfUpdateCommandTests : IDisposable
 
         // Build archive in platform-appropriate format (zip on Windows, tar.gz on Unix)
         var archiveBytes = CreateArchive(assetName,
-            [.. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
+            [(ExeName, "current-native"u8.ToArray()),
+             .. companionExeNames.Select(c => (c, "legacy-companion"u8.ToArray()))]);
 
         var release = new GitHubReleaseInfo(
             currentVersion, $"Release {currentVersion}", "notes", null,
@@ -181,28 +172,18 @@ public class SelfUpdateCommandTests : IDisposable
         var stubService = Substitute.For<IGitHubReleaseService>();
         stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
         var selfUpdater = new SelfUpdater(
-            new FakeDownloader(archiveBytes), new DefaultFileSystem(), currentExe);
+            OperatingSystem.IsWindows() || OperatingSystem.IsLinux()
+                ? new ThrowingDownloader() : new FakeDownloader(archiveBytes), new DefaultFileSystem(), currentExe);
         var command = new SelfUpdateCommand(stubService, selfUpdater, currentExe);
 
-        // Act: capture stdout to verify companion result output
-        var originalOut = Console.Out;
-        using var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            var exitCode = await command.ExecuteAsync();
+        var exitCode = await command.ExecuteAsync();
 
-            exitCode.ShouldBe(0);
-            var output = sw.ToString();
-
-            // ReportCompanionResults should have printed a line per companion
-            foreach (var c in companionExeNames)
-                output.ShouldContain(c);
-            output.ShouldContain("installed");
-        }
-        finally
+        exitCode.ShouldBe(0);
+        File.ReadAllText(currentExe).ShouldBe("current");
+        foreach (var c in companionExeNames)
         {
-            Console.SetOut(originalOut);
+            File.ReadAllText(Path.Combine(_tempDir, c)).ShouldBe(
+                OperatingSystem.IsWindows() || OperatingSystem.IsLinux() ? "current" : "legacy-companion");
         }
     }
 
@@ -237,16 +218,16 @@ public class SelfUpdateCommandTests : IDisposable
         exitCode.ShouldBe(1);
     }
 
-    // ── F2: companion results reported on upgrade ─────────────────────
+    // ── Platform launch images stay synchronized on upgrade ────────────
 
     [Fact]
-    public async Task ExecuteAsync_NewerVersion_ReportsCompanionResults()
+    public async Task ExecuteAsync_NewerVersion_SynchronizesPlatformLaunchImages()
     {
         // Arrange: create a fake "current" binary in a temp dir
         var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
-        var companionExeNames = CompanionTools.All
+        var companionExeNames = CompanionTools.UpdateTargets
             .Select(CompanionTools.GetExeName)
             .ToArray();
 
@@ -257,7 +238,8 @@ public class SelfUpdateCommandTests : IDisposable
         // Build archive in platform-appropriate format (zip on Windows, tar.gz on Unix)
         var archiveBytes = CreateArchive(assetName,
             [(ExeName, "new-binary"u8.ToArray()),
-             .. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
+             .. companionExeNames.Select(c => (c, OperatingSystem.IsWindows() || OperatingSystem.IsLinux()
+                 ? "new-binary"u8.ToArray() : "companion"u8.ToArray()))]);
 
         var selfUpdater = new SelfUpdater(
             new FakeDownloader(archiveBytes), new DefaultFileSystem(), currentExe);
@@ -270,28 +252,14 @@ public class SelfUpdateCommandTests : IDisposable
         stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
         var command = new SelfUpdateCommand(stubService, selfUpdater);
 
-        // Act: capture stdout to verify companion result output
-        var originalOut = Console.Out;
-        using var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
+        var exitCode = await command.ExecuteAsync();
+
+        exitCode.ShouldBe(0);
+        File.ReadAllText(currentExe).ShouldBe("new-binary");
+        foreach (var c in companionExeNames)
         {
-            var exitCode = await command.ExecuteAsync();
-
-            exitCode.ShouldBe(0);
-            var output = sw.ToString();
-
-            // ReportCompanionResults should have printed a line per companion
-            foreach (var c in companionExeNames)
-                output.ShouldContain(c);
-            output.ShouldContain("installed");
-
-            // Verify release notes were also printed (proves we reached past ReportCompanionResults)
-            output.ShouldContain("Release notes body");
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
+            File.ReadAllText(Path.Combine(_tempDir, c)).ShouldBe(
+                OperatingSystem.IsWindows() || OperatingSystem.IsLinux() ? "new-binary" : "companion");
         }
     }
 

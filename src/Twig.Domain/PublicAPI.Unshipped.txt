@@ -1,4 +1,21 @@
 #nullable enable
+*REMOVED*Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
+Twig.Domain.Projections.EditCapability.EditCapability(Twig.Domain.Projections.IChangeSink! sink, Twig.Domain.ValueObjects.WorkItemType workItemType, bool isSeed, Twig.Domain.Aggregates.ProcessConfiguration? processConfiguration = null) -> void
+Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Projections.DetailControl!>!
+Twig.Domain.Projections.WorkItemDetailDocument.SystemControls.init -> void
+Twig.Domain.Interfaces.IBenchRepository.TrySetCurrentAsync(long benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.TryDeleteAsync(long benchId, string! expectedContentsDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench?>!
+Twig.Domain.Interfaces.IBenchRepository.TryReplaceQuerySelectorsAsync(long benchId, string! expectedSettingsDigest, System.Collections.Generic.IReadOnlyCollection<Twig.Domain.ValueObjects.BenchSelector!>! queries, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IBenchRepository.TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove, string? expectedSettingsDigest = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IBenchRepository.TryRemovePinsAsync(long benchId, int workItemId, Twig.Domain.Enums.TrackingMode? mode = null, string? expectedSettingsDigest = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<(Twig.Domain.Aggregates.Bench! Bench, bool WasPinned)?>!
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Mode.get -> Twig.Domain.Enums.TrackingMode?
+Twig.Domain.Services.Mutation.PinOutcome.Unpinned.Mode.init -> void
+Twig.Domain.Interfaces.IIterationCalendar.ResolveExpressionAsync(Twig.Domain.ValueObjects.IterationExpression expression, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.IterationPath>!>!
+Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.get -> System.Collections.Generic.IReadOnlyDictionary<int, System.Collections.Generic.IReadOnlyList<int>!>!
+Twig.Domain.Services.Workspace.BenchMembership.OwningSubtreeIds.init -> void
+*REMOVED*Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
+Twig.Domain.Services.Workspace.CurrentBenchResolver.ResolveStoredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), string? expectBench = null) -> System.Threading.Tasks.Task<Twig.Domain.Aggregates.Bench!>!
 Twig.Domain.Interfaces.IWorkItemRepository.AcquireOperation() -> System.IDisposable?
 static Twig.Domain.Services.Field.CacheAgeFormatter.FormatAge(System.DateTimeOffset? lastSyncedAt, int staleMinutes) -> string?
 *REMOVED*Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int cacheStaleMinutes) -> void
@@ -445,7 +462,6 @@ Twig.Domain.Services.Plan.PlanLatestResult.Found.init -> void
 Twig.Domain.Services.Plan.PlanLatestResult.PlanLatestResult() -> void
 Twig.Domain.Services.Plan.PlanLatestResult.State.get -> Twig.Domain.Services.Plan.PlanOperationState?
 Twig.Domain.Services.Plan.PlanLatestResult.State.init -> void
-
 Twig.Domain.Services.Plan.PlanStatusResult
 Twig.Domain.Services.Plan.PlanStatusResult.<Clone>$() -> Twig.Domain.Services.Plan.PlanStatusResult!
 Twig.Domain.Services.Plan.PlanStatusResult.Digest.get -> string?

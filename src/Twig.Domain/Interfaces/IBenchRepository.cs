@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Interfaces;
@@ -68,6 +69,9 @@ public interface IBenchRepository
     /// </summary>
     Task SetCurrentAsync(long benchId, CancellationToken ct = default);
 
+    /// <summary>Atomically selects the captured target ID, or returns null if it no longer exists.</summary>
+    Task<Bench?> TrySetCurrentAsync(long benchId, CancellationToken ct = default);
+
     /// <summary>
     /// Adds a selector to a Bench. Idempotent: adding the same selector twice leaves one, so
     /// membership cannot be changed by repetition.
@@ -76,6 +80,22 @@ public interface IBenchRepository
 
     /// <summary>Removes a selector from a Bench. No-op when it is not present.</summary>
     Task RemoveSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default);
+
+    /// <summary>Atomically compares raw query settings and replaces only queries on the still-current Bench.</summary>
+    Task<bool> TryReplaceQuerySelectorsAsync(long benchId, string expectedSettingsDigest,
+        IReadOnlyCollection<BenchSelector> queries, CancellationToken ct = default);
+
+    /// <summary>Atomically edits explicit pins on the still-current Bench; removal deletes both kinds.</summary>
+    Task<bool> TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove,
+        string? expectedSettingsDigest = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically removes explicit pins on the still-current Bench. A mode removes only that kind;
+    /// null removes both. Returns the committed Bench and actual deletion result, or null when
+    /// the captured Bench or raw query settings no longer match.
+    /// </summary>
+    Task<(Bench Bench, bool WasPinned)?> TryRemovePinsAsync(long benchId, int workItemId,
+        TrackingMode? mode = null, string? expectedSettingsDigest = null, CancellationToken ct = default);
 
     /// <summary>
     /// Removes a Bench and the selectors that belong to it (ADO #150, spec §5).
@@ -94,4 +114,10 @@ public interface IBenchRepository
     /// </para>
     /// </summary>
     Task DeleteAsync(long benchId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically deletes the captured non-default target only when its full stored selector digest
+    /// still matches. Returns the deleted Bench, or null on a stale target, changed contents or default.
+    /// </summary>
+    Task<Bench?> TryDeleteAsync(long benchId, string expectedContentsDigest, CancellationToken ct = default);
 }

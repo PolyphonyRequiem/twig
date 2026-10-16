@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 
 namespace Twig.Domain.Services.Mutation;
 
@@ -27,12 +28,16 @@ public abstract record PinOutcome
         int WorkItemId,
         bool IncludesSubtree) : PinOutcome;
 
-    /// <summary>The item is no longer selected by any pin on the Bench.</summary>
-    /// <param name="Bench">The Bench that was written to.</param>
+    /// <summary>The requested explicit pin kind, or both kinds, is absent on the committed Bench.</summary>
+    /// <param name="Bench">The Bench as read inside the committed pin transaction.</param>
     /// <param name="WorkItemId">The item that was unpinned.</param>
-    /// <param name="WasPinned">False when nothing on the Bench pinned the item to begin with.</param>
+    /// <param name="WasPinned">True only when this transaction actually removed a requested explicit selector.</param>
     public sealed record Unpinned(
         Bench Bench,
         int WorkItemId,
-        bool WasPinned) : PinOutcome;
+        bool WasPinned) : PinOutcome
+    {
+        /// <summary>The requested kind; null means both explicit kinds were removed.</summary>
+        public TrackingMode? Mode { get; init; }
+    }
 }

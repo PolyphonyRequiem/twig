@@ -87,6 +87,15 @@ Benches holding the same selectors show the same items. There is no evaluation s
 reason about, and no way for two arrangements to disagree because they were built in a
 different order.
 
+Single-item and subtree selectors rooted at the same ID are independent: either,
+both, or neither can exist. `workspace track` ensures the single pin is present;
+`workspace track-tree` ensures the subtree pin is present. Typed removal with
+`workspace untrack <id> --mode single|tree` removes only that exact selector kind
+inside the guarded native transaction. Omitting `--mode` keeps the existing
+remove-both behavior. Removing a pin never removes an ancestor selector, query
+or protected membership, and the reported changed/no-op result comes from the
+transaction rather than a previously captured view.
+
 ### Selectors are evaluated against the local cache, not against ADO
 
 🔴 **This is the constraint that decides the design, so it is stated before the model and
@@ -362,6 +371,23 @@ deliberately unsettled (§7): deleting only has to LEAVE IT ALONE, which it does
 
 An unknown name on delete behaves exactly as it does on switch: non-zero, names what was asked for,
 lists what exists, creates nothing — not even the default, on a store where nothing exists yet.
+
+**Browser management:** `twig bench list --include-management -o json` emits one versioned
+object with `version: 1`, `currentBenchId` and `benches`. Each Bench carries its stable storage
+`id` (a string), exact `name`, boolean `isCurrent`/`isDefault`, a `contentsDigest`, typed `pins`
+(`id`, `mode: single|tree`) and complete saved query descriptions. The digest covers every
+stored selector kind and raw payload, including automatic settings; it is not a selector count
+or an effective default-principal projection. Reordering selectors does not change it.
+
+All lifecycle commands accept `--expect-binding` and `--expect-identity` as native origin
+preconditions. `bench switch` and `bench delete` also accept `--expect-bench` for the target
+storage ID, not the current Bench. Deletion accepts `--expect-contents` from the displayed
+listing. Target existence and deletion contents are checked atomically with the mutation:
+delete/recreate under the same name or any selector change refuses the old confirmation.
+The browser must refresh and display a new confirmation rather than retrying with a new digest.
+Ordinary CLI calls retain the existing output and lifecycle rules above. Browser controls always
+confirm deletion, including empty Benches, and display pin IDs/kinds, queries and the staged-work
+preservation note. Creating stays in management without selecting; default has no delete control.
 
 Two rules are inherited and non-negotiable:
 

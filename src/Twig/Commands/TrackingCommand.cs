@@ -3,6 +3,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Auth;
 using Twig.Formatters;
 using Twig.RenderTree;
 using Twig.Rendering;
@@ -27,20 +28,22 @@ public sealed class TrackingCommand(
     IWorkItemRepository workItemRepo,
     OutputFormatterFactory formatterFactory,
     PinWorkflow pinWorkflow,
-    RendererFactory? rendererFactory = null)
+    RendererFactory? rendererFactory = null,
+    IAuthenticationProvider? authenticationProvider = null)
 {
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+    internal Func<CancellationToken, Task<ResolvedConnectionBinding>>? ResolveBrowserBindingAsync { get; init; }
 
     /// <summary>Track a single work item by ID.</summary>
-    public async Task<int> TrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await TrackCoreAsync(id, TrackingMode.Single, outputFormat, ct);
+    public async Task<int> TrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
+        => await TrackCoreAsync(id, TrackingMode.Single, outputFormat, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
     /// <summary>Track a work item and its subtree by ID.</summary>
-    public async Task<int> TrackTreeAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await TrackCoreAsync(id, TrackingMode.Tree, outputFormat, ct);
+    public async Task<int> TrackTreeAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null)
+        => await TrackCoreAsync(id, TrackingMode.Tree, outputFormat, ct, expectBench, expectBinding, expectIdentity, expectSettings);
 
-    /// <summary>Remove a work item from tracking.</summary>
-    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    /// <summary>Remove both explicit pin kinds, or only the specified single/tree kind.</summary>
+    public async Task<int> UntrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, string? expectSettings = null, string? mode = null)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -50,12 +53,37 @@ public sealed class TrackingCommand(
             return 2;
         }
 
+        TrackingMode? pinMode = null;
+        if (mode is not null)
+        {
+            if (string.Equals(mode, "single", StringComparison.OrdinalIgnoreCase)) pinMode = TrackingMode.Single;
+            else if (string.Equals(mode, "tree", StringComparison.OrdinalIgnoreCase)) pinMode = TrackingMode.Tree;
+            else
+            {
+                Console.Error.WriteLine(fmt.FormatError("Invalid --mode. Use single or tree, or omit --mode to remove both explicit pin kinds."));
+                return 2;
+            }
+        }
+
         // ADO #145: unpinning takes the selector off the CURRENT BENCH. It routes through the
         // mutation-workflow seam, which both surfaces share, so the CLI decides nothing about
         // what a pin means beyond resolving the target and rendering the outcome.
-        var outcome = await pinWorkflow.UnpinAsync(id, ct);
-        var wasTracked = outcome is PinOutcome.Unpinned { WasPinned: true };
-        if (wasTracked)
+        using var admission = await AcquireOriginAsync(expectBinding, expectIdentity, outputFormat, ct);
+        if (admission is null && (expectBinding is not null || expectIdentity is not null)) return 1;
+        PinOutcome outcome;
+        try
+        {
+            outcome = await pinWorkflow.UnpinAsync(id, ct, expectBench, expectSettings, pinMode);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError(ex.Message));
+            return 1;
+        }
+        var removal = (PinOutcome.Unpinned)outcome;
+        if (removal.Mode is not null)
+            RenderTypedUnpin(removal, outputFormat);
+        else if (removal.WasPinned)
             RenderOutcome("untracked", $"Untracked #{id}.", id, outputFormat, Severity.Success);
         else
             RenderOutcome("untrackNotTracked", $"#{id} was not tracked.", id, outputFormat, Severity.Info);
@@ -167,7 +195,7 @@ public sealed class TrackingCommand(
         return 0;
     }
 
-    private async Task<int> TrackCoreAsync(int id, TrackingMode mode, string outputFormat, CancellationToken ct)
+    private async Task<int> TrackCoreAsync(int id, TrackingMode mode, string outputFormat, CancellationToken ct, string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -177,10 +205,21 @@ public sealed class TrackingCommand(
             return 2;
         }
 
+        using var admission = await AcquireOriginAsync(expectBinding, expectIdentity, outputFormat, ct);
+        if (admission is null && (expectBinding is not null || expectIdentity is not null)) return 1;
+
         // ADO #145: pinning adds a selector to the CURRENT BENCH — an item selector for a single
         // pin, a subtree selector for a tree pin. The subtree is NOT expanded here; it is matched
         // live at evaluation time, which is what makes it pick up children created later.
-        await pinWorkflow.PinAsync(id, includeSubtree: mode == TrackingMode.Tree, ct);
+        try
+        {
+            await pinWorkflow.PinAsync(id, includeSubtree: mode == TrackingMode.Tree, ct, expectBench, expectSettings);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError(ex.Message));
+            return 1;
+        }
 
         var title = await GetTitleAsync(id, ct);
         var modeLabel = mode == TrackingMode.Tree ? " (tree)" : "";
@@ -213,6 +252,27 @@ public sealed class TrackingCommand(
         return new RenderNode.Record("tracked", fields);
     }
 
+    private void RenderTypedUnpin(PinOutcome.Unpinned removal, string outputFormat)
+    {
+        var mode = removal.Mode == TrackingMode.Tree ? "tree" : "single";
+        var label = removal.Mode == TrackingMode.Tree ? "subtree" : "single";
+        var message = removal.WasPinned
+            ? $"Removed {label} pin for #{removal.WorkItemId}."
+            : $"#{removal.WorkItemId} has no explicit {label} pin.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower is "json" or "json-full" or "json-compact" or "ids"
+            ? new RenderNode.Record(removal.WasPinned ? "untracked" : "untrackNotTracked",
+                new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderCell.String(message),
+                    ["itemId"] = RenderCell.Integer(removal.WorkItemId),
+                    ["pinMode"] = RenderCell.String(mode),
+                    ["wasPinned"] = RenderCell.Boolean(removal.WasPinned),
+                })
+            : new RenderNode.Text(message, removal.WasPinned ? Severity.Success : Severity.Info);
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
     private void RenderOutcome(string kind, string message, int? itemId, string outputFormat, Severity severity, (string Key, RenderCell Value)? extra = null)
     {
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
@@ -242,5 +302,33 @@ public sealed class TrackingCommand(
     {
         var item = await workItemRepo.GetByIdAsync(id, ct);
         return item?.Title;
+    }
+
+    private async Task<IDisposable?> AcquireOriginAsync(
+        string? expectBinding, string? expectIdentity, string outputFormat, CancellationToken ct)
+    {
+        if (expectBinding is null && expectIdentity is null) return null;
+        IDisposable? admission = null;
+        try
+        {
+            if (ResolveBrowserBindingAsync is null || authenticationProvider is null)
+                throw new InvalidOperationException("Native browser connection admission is unavailable; update the Twig companion.");
+            admission = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
+            if (admission is null)
+                throw new InvalidOperationException("Native browser connection admission is unavailable; reconnect through the connection binding module.");
+            BrowserOriginGuard.EnsureExpected(await ResolveBrowserBindingAsync(ct), expectBinding, expectIdentity);
+            return admission;
+        }
+        catch (InvalidOperationException ex)
+        {
+            admission?.Dispose();
+            Console.Error.WriteLine(formatterFactory.GetFormatter(outputFormat).FormatError(ex.Message));
+            return null;
+        }
+        catch
+        {
+            admission?.Dispose();
+            throw;
+        }
     }
 }

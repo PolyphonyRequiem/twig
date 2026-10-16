@@ -308,23 +308,34 @@ internal static class CommandExamples
             "twig workspace                 Show the current Bench as a tree",
             "twig workspace --view table   Show the current Bench as a table",
             "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
+            "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
+        ],
+        ["workspace sync"] =
+        [
+            "twig workspace sync                    Pull only the current Bench scope, without flushing edits",
+            "twig workspace sync --expect-bench 7 -o json  Pull only if the captured Bench is still current",
         ],
         ["workspace track"] =
         [
             "twig workspace track 1234          Pin work item #1234 to workspace",
             "twig workspace track 5678 -o json  Pin and output confirmation as JSON",
+            "twig workspace track 5678 --expect-bench 7 -o json  Pin only if Bench 7 is still current",
         ],
         ["workspace track-tree"] =
         [
             "twig workspace track-tree 1234     Pin #1234 and its subtree to workspace",
             "twig workspace track-tree 42       Pin an epic and all its children",
+            "twig workspace track-tree 42 --expect-bench 7 -o json  Add a subtree selector with a captured Bench guard",
         ],
         ["workspace untrack"] =
         [
             "twig workspace untrack 1234        Stop tracking work item #1234",
             "twig workspace untrack 5678        Remove a pinned item from workspace",
+            "twig workspace untrack 5678 --expect-bench 7 -o json  Remove both explicit pins with a captured Bench guard",
+            "twig workspace untrack 5678 --mode single  Remove only the explicit single pin; retain a subtree pin",
+            "twig workspace untrack 5678 --mode tree --expect-bench 7 -o json  Remove only the explicit subtree pin on captured Bench 7",
         ],
         ["workspace exclude"] =
         [
@@ -349,11 +360,13 @@ internal static class CommandExamples
         [
             "twig bench list                        List Benches, marking the current one",
             "twig bench list -o json                List them for a script to read",
+            "twig bench list --include-management -o json   Capture stable IDs and complete contents for management",
         ],
         ["bench switch"] =
         [
             "twig bench switch \"release blockers\"   Stand on another Bench",
             "twig bench switch default              Go back to the Bench you started with",
+            "twig bench switch \"release blockers\" --expect-bench <id>   Select the displayed target only",
         ],
         // ADO #150 — deleting. There is deliberately NO --force: a Bench holding pins reports
         // them and stops, and the way past that is re-typing its NAME, which differs every time
@@ -362,6 +375,50 @@ internal static class CommandExamples
         [
             "twig bench delete \"release blockers\"   Delete it (reports what it holds first)",
             "twig bench delete \"release blockers\" --confirm \"release blockers\"   Delete one that holds pins",
+            "twig bench delete \"release blockers\" --confirm \"release blockers\" --expect-bench <id> --expect-contents <digest>   Delete only the reviewed arrangement",
+        ],
+        ["bench configuration"] =
+        [
+            "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
+            "twig bench configuration -o json      Capture raw settings digest for guarded edits",
+        ],
+        ["bench detail"] =
+        [
+            "twig bench detail 42                  Read full cached detail without changing the active item",
+            "twig bench detail 42 --width 100 --expect-bench 7 -o json  Render detail for a captured Bench",
+            "twig bench detail 42 --sync           Pull only this item and its links; never publish local edits",
+        ],
+        ["bench browser"] =
+        [
+            "twig bench browser                    Open the native Bench Tree view (same application as Windows/Linux twig tui)",
+            "twig bench browser --cwd C:\\work\\twig --view table  Use the captured source workspace in a standalone terminal",
+            "twig bench browser --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
+            "twig bench browser --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
+        ],
+        ["bench configuration area candidates"] =
+        [
+            "twig bench configuration area candidates   List the configured team's official area paths",
+            "twig bench configuration area candidates --expect-bench 7 -o json  Capture team paths and exact/under semantics",
+        ],
+        ["bench configuration area add"] =
+        [
+            "twig bench configuration area add \"Project\\Team A\"          Add an Under filter on this Bench",
+            "twig bench configuration area add \"Project\\Team A\" --exact -o json  Match only this exact area",
+        ],
+        ["bench configuration area remove"] =
+        [
+            "twig bench configuration area remove \"Project\\Team A\"         Remove this Bench's area filter",
+            "twig bench configuration area remove \"Project\\Team A\" --expect-bench 7 --expect-settings <digest> -o json  Guard a captured edit",
+        ],
+        ["bench configuration sprint add"] =
+        [
+            "twig bench configuration sprint add @Current+1   Follow next sprint using the cached calendar",
+            "twig bench configuration sprint add \"Project\\Sprint 8\" -o json  Follow an absolute iteration path",
+        ],
+        ["bench configuration sprint remove"] =
+        [
+            "twig bench configuration sprint remove @Current  Remove the current-sprint expression",
+            "twig bench configuration sprint remove \"Project\\Sprint 8\" --expect-settings <digest> -o json  Refuse stale settings",
         ],
         ["workspace area"] =
         [
@@ -524,8 +581,10 @@ internal static class CommandExamples
         ],
         ["tui"] =
         [
-            "twig tui                   Launch the interactive terminal UI",
-            "twig tui                   Navigate tree, status, and context interactively",
+            "twig tui                   Open the native Tree view on Windows/Linux; legacy companion on macOS",
+            "twig tui --cwd C:\\work\\twig --view table  Open the native Table view from this source workspace",
+            "twig tui --file .twig/proposals/review.json  Open read-only proposal Review; no authorization or apply",
+            "twig tui --herdr --intent tree -o json  Open or reuse the source-scoped native Herdr browser pane",
         ],
         ["mcp"] =
         [
@@ -621,24 +680,15 @@ internal static class CommandExamples
 
         string? key = null;
 
-        // Try 3-token compound first (e.g. "workspace area add")
-        if (args.Length >= 3)
+        for (var length = args.Length; length > 0; length--)
         {
-            var triple = $"{args[0]} {args[1]} {args[2]}";
-            if (Examples.ContainsKey(triple))
-                key = triple;
+            var candidate = string.Join(" ", args, 0, length);
+            if (!Examples.ContainsKey(candidate)) continue;
+            key = candidate;
+            break;
         }
 
-        // Try 2-token compound (e.g. "nav up", "workspace area")
-        if (key is null && args.Length >= 2)
-        {
-            var compound = $"{args[0]} {args[1]}";
-            if (Examples.ContainsKey(compound))
-                key = compound;
-        }
-
-        // Fall back to single token
-        key ??= args[0];
+        if (key is null) return;
 
         if (!Examples.TryGetValue(key, out var examples))
             return;

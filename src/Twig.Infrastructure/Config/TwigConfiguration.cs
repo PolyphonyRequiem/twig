@@ -53,6 +53,11 @@ public sealed class TwigConfiguration
     public string Organization { get => RepoCoords.Organization; set => RepoCoords.Organization = value; }
     public string Project { get => RepoCoords.Project; set => RepoCoords.Project = value; }
     public string Team { get => RepoCoords.Team; set => RepoCoords.Team = value; }
+
+    /// <summary>The team used for iteration requests when no explicit team is configured.</summary>
+    public static string ResolveTeam(string project, string? team)
+        => string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
+
     public string ProcessTemplate { get => RepoCoords.ProcessTemplate; set => RepoCoords.ProcessTemplate = value; }
     public AuthConfig Auth { get => UserPrefs.Auth; set => UserPrefs.Auth = value; }
     public DefaultsConfig Defaults { get => RepoCoords.Defaults; set => RepoCoords.Defaults = value; }

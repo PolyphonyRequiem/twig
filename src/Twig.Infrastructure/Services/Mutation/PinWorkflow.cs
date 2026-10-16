@@ -1,3 +1,4 @@
+using Twig.Infrastructure.Auth;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
@@ -41,7 +42,8 @@ namespace Twig.Infrastructure.Services.Mutation;
 public sealed class PinWorkflow(
     IBenchRepository benchRepository,
     DefaultBenchSelectors defaultSelectors,
-    CurrentBenchResolver? currentBench = null)
+    CurrentBenchResolver? currentBench = null,
+    IAuthenticationProvider? authenticationProvider = null)
 {
     /// <summary>
     /// Adds a pin to the current Bench. Idempotent: pinning twice leaves one selector, so the
@@ -52,43 +54,49 @@ public sealed class PinWorkflow(
     /// True for a tree pin — a subtree selector, which keeps matching descendants added later.
     /// </param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="expectBench">Optional captured Bench storage ID; a changed Bench is refused before writing.</param>
     public async Task<PinOutcome> PinAsync(
-        int workItemId, bool includeSubtree, CancellationToken ct = default)
+        int workItemId, bool includeSubtree, CancellationToken ct = default, string? expectBench = null, string? expectSettings = null)
     {
-        var bench = await CurrentBenchAsync(ct);
+        using var admission = authenticationProvider is null
+            ? null : await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
+        var bench = await CurrentBenchAsync(ct, expectBench);
 
         var selector = includeSubtree
             ? BenchSelector.ForSubtree(workItemId)
             : BenchSelector.ForItem(workItemId);
 
-        await benchRepository.AddSelectorAsync(bench.Id, selector, ct);
+        if (!await benchRepository.TryUpdatePinsAsync(bench.Id, workItemId, includeSubtree, remove: false, expectSettings, ct))
+            throw new InvalidOperationException("The captured Bench or automatic settings changed. Refresh and retry; no pins were changed.");
 
-        return new PinOutcome.Pinned(await CurrentBenchAsync(ct), workItemId, includeSubtree);
+        return new PinOutcome.Pinned(bench with
+        {
+            Selectors = bench.Selectors.Append(selector).Distinct().ToArray(),
+        }, workItemId, includeSubtree);
     }
 
     /// <summary>
-    /// Removes every pin on the current Bench that names <paramref name="workItemId"/> — both the
-    /// item selector and the subtree selector, since the person asked to stop following that item
-    /// and does not know which kind they created.
+    /// Removes explicit pins on the current Bench that name <paramref name="workItemId"/>.
+    /// A mode removes only that kind; omitting it removes both item and subtree selectors.
+    /// Other selectors and inherited or protected membership remain unchanged.
     /// <para>
-    /// Reports <see cref="PinOutcome.Unpinned.WasPinned"/> as false when nothing was there rather
-    /// than failing: unpinning something never pinned is not a fault the person can act on.
+    /// Reports <see cref="PinOutcome.Unpinned.WasPinned"/> from the actual transaction rather
+    /// than the captured view, so another writer removing the pin is an honest no-op.
     /// </para>
     /// </summary>
-    public async Task<PinOutcome> UnpinAsync(int workItemId, CancellationToken ct = default)
+    public async Task<PinOutcome> UnpinAsync(int workItemId, CancellationToken ct = default,
+        string? expectBench = null, string? expectSettings = null, TrackingMode? mode = null)
     {
-        var bench = await CurrentBenchAsync(ct);
+        using var admission = authenticationProvider is null
+            ? null : await ConnectionOperationAdmission.AcquireAsync(authenticationProvider, ct);
+        var bench = await CurrentBenchAsync(ct, expectBench);
 
-        var item = BenchSelector.ForItem(workItemId);
-        var subtree = BenchSelector.ForSubtree(workItemId);
+        var removal = await benchRepository.TryRemovePinsAsync(bench.Id, workItemId, mode, expectSettings, ct)
+            ?? throw new InvalidOperationException("The captured Bench or automatic settings changed. Refresh and retry; no pins were changed.");
 
-        var wasOnTheBench = bench.Selectors.Contains(item) || bench.Selectors.Contains(subtree);
-
-        await benchRepository.RemoveSelectorAsync(bench.Id, item, ct);
-        await benchRepository.RemoveSelectorAsync(bench.Id, subtree, ct);
-
-        return new PinOutcome.Unpinned(await CurrentBenchAsync(ct), workItemId, wasOnTheBench);
+        return new PinOutcome.Unpinned(removal.Bench, workItemId, removal.WasPinned) { Mode = mode };
     }
+
 
     /// <summary>
     /// The Bench a pin acts on: the one the person is standing on (#149), which is the default
@@ -105,9 +113,9 @@ public sealed class PinWorkflow(
     /// Bench comes out the same.
     /// </para>
     /// </summary>
-    private async Task<Bench> CurrentBenchAsync(CancellationToken ct)
+    private async Task<Bench> CurrentBenchAsync(CancellationToken ct, string? expectBench)
     {
         var resolver = currentBench ?? new CurrentBenchResolver(benchRepository, defaultSelectors);
-        return await resolver.ResolveAsync(ct);
+        return await resolver.ResolveAsync(ct, expectBench);
     }
 }

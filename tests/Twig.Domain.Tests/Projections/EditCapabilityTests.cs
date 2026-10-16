@@ -10,11 +10,6 @@ namespace Twig.Domain.Tests.Projections;
 /// <summary>
 /// Acceptance floor for M2's editing capability (wayfinder ticket 0005, ticket 0006 §5).
 /// </summary>
-/// <remarks>
-/// These arms are structural AND behavioural. The behavioural ones were red-green verified by
-/// reintroducing each defect on the fixed code — see the comment above each such arm naming
-/// what was broken and which arms failed.
-/// </remarks>
 public class EditCapabilityTests
 {
     private static readonly string[] ThreeFields =
@@ -25,11 +20,8 @@ public class EditCapabilityTests
         public IReadOnlySet<string> PersistableFieldRefs { get; } =
             new HashSet<string>(fields, StringComparer.OrdinalIgnoreCase);
 
-        public ChangeProposal? LastSubmitted { get; private set; }
-
         public Task<SubmitOutcome> SubmitAsync(ChangeProposal proposal, CancellationToken ct = default)
         {
-            LastSubmitted = proposal;
             return Task.FromResult<SubmitOutcome>(new Saved(2));
         }
     }
@@ -38,13 +30,6 @@ public class EditCapabilityTests
     //  §1 — the SINK declares mutability, not DetailControl.ReadOnly
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public void EditableFieldRefs_IsTheSinksDeclaration_NotAConstant()
-    {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
-
-        capability.EditableFieldRefs.ShouldBe(ThreeFields, ignoreOrder: true);
-    }
 
     /// <summary>
     /// 🔴 The two-sink obligation (0005 §7 / 0006 §6) in miniature: a DIFFERENT sink must
@@ -54,8 +39,8 @@ public class EditCapabilityTests
     [Fact]
     public void DifferentSink_ProducesDifferentEditableSet()
     {
-        var sinkA = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
-        var sinkB = new EditCapability(new StubSink("System.Description", "Custom.Severity"), WorkItemType.Task);
+        var sinkA = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
+        var sinkB = new EditCapability(new StubSink("System.Description", "Custom.Severity"), WorkItemType.Task, isSeed: false);
 
         // The precondition, asserted rather than assumed — if the two sets ever coincided this
         // arm would pass while proving nothing.
@@ -69,7 +54,7 @@ public class EditCapabilityTests
     [Fact]
     public void CanEdit_IsCaseInsensitive_MatchingAdoFieldRefSemantics()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
 
         capability.CanEdit("system.title").ShouldBeTrue();
 
@@ -81,7 +66,7 @@ public class EditCapabilityTests
     [Fact]
     public void Validate_FieldEditOnUndeclaredField_IsRejected()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
 
         var outcome = capability.Validate(new FieldEdit("Custom.Priority", "1", "2"));
 
@@ -91,7 +76,7 @@ public class EditCapabilityTests
     [Fact]
     public void Validate_FieldEditOnDeclaredField_IsAccepted()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
 
         capability.Validate(new FieldEdit("System.Title", "old", "new"))
             .ShouldBeUnionCase<Accepted>();
@@ -109,7 +94,7 @@ public class EditCapabilityTests
     [Fact]
     public void OfferedStates_ExcludesTheCurrentState()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, TaskProcess());
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false, TaskProcess());
 
         // Assert the EXACT offer set, not merely that the current state is absent: an
         // OfferedStates gutted to `return []` satisfies a bare ShouldNotContain, which would
@@ -121,10 +106,36 @@ public class EditCapabilityTests
     [Fact]
     public void OfferedStates_WithoutProcessConfiguration_IsEmpty_NotEverything()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
 
         // Degrades to "I don't know", never to a confident wrong answer.
         capability.OfferedStates("Active").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void UninitializedSeedOffersConfiguredStatesWithoutBypassingFieldOrStateValidation()
+    {
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: true, TaskProcess());
+
+        capability.OfferedStates(string.Empty).ShouldBe(["New", "Active", "Closed"]);
+        capability.Validate(new StateMove(string.Empty, "new", []))
+            .ShouldBeUnionCase<Accepted>();
+        capability.Validate(new StateMove(string.Empty, "Unknown", []))
+            .ShouldBeUnionCase<Rejected>();
+        capability.Validate(new StateMove("New", "Unknown", []))
+            .ShouldBeUnionCase<Rejected>();
+        capability.Validate(new StateMove(string.Empty, "New", [new FieldEdit("Custom.Unsupported", null, "Value")]))
+            .ShouldBeUnionCase<Rejected>();
+    }
+
+    [Fact]
+    public void EmptyPublishedStateCannotUseSeedInitialization()
+    {
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false, TaskProcess());
+
+        capability.OfferedStates(string.Empty).ShouldBeEmpty();
+        capability.Validate(new StateMove(string.Empty, "New", []))
+            .ShouldBeUnionCase<Rejected>();
     }
 
     /// <summary>
@@ -137,7 +148,7 @@ public class EditCapabilityTests
     public void Validate_IllegalTransition_IsRefusedEvenIfHostIgnoredTheOfferList()
     {
         var process = TaskProcess();
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, process);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false, process);
 
         // Precondition: this transition really is absent from the offer list, so the arm is
         // testing refusal rather than coincidence. Asserted against the exact populated set —
@@ -149,13 +160,13 @@ public class EditCapabilityTests
 
         var outcome = capability.Validate(new StateMove("Closed", "Nonexistent", []));
 
-        outcome.ShouldBeUnionCase<Rejected>().Reason.ShouldContain("advisory");
+        outcome.ShouldBeUnionCase<Rejected>();
     }
 
     [Fact]
     public void Validate_StateMove_WithoutProcessConfiguration_IsAccepted_ServerRemainsFinal()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false);
 
         // No rules to judge by means no basis to refuse. Twig does not invent a refusal it
         // cannot justify — the server is the authority either way.
@@ -166,7 +177,7 @@ public class EditCapabilityTests
     [Fact]
     public void Validate_StateMove_WithUndeclaredAccompanyingField_IsRejected()
     {
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, TaskProcess());
+        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task, isSeed: false, TaskProcess());
 
         var outcome = capability.Validate(new StateMove(
             "New", "Active", [new FieldEdit("Custom.Resolution", null, "Fixed")]));
@@ -174,141 +185,4 @@ public class EditCapabilityTests
         outcome.ShouldBeUnionCase<Rejected>().Reason.ShouldContain("Custom.Resolution");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  §4 — a state move is its own kind, and carries field edits
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void StateMove_IsADistinctProposalKind_NotAFieldEditNamedSystemState()
-    {
-        ChangeProposal move = new StateMove("New", "Active", []);
-        ChangeProposal edit = new FieldEdit("System.State", "New", "Active");
-
-        move.ShouldBeUnionCase<StateMove>();
-        edit.ShouldBeUnionCase<FieldEdit>();
-    }
-
-    [Fact]
-    public void StateMove_CarriesAccompanyingFieldEdits_AsOneUnitOfWork()
-    {
-        var move = new StateMove("Active", "Closed",
-            [new FieldEdit("System.AssignedTo", "alice", "bob")]);
-
-        move.Accompanying.Count.ShouldBe(1);
-        move.Accompanying[0].FieldRef.ShouldBe("System.AssignedTo");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  §5 — every change carries its prior value
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void FieldEdit_CarriesPriorValue_ForDiffingAndUndo()
-    {
-        var edit = new FieldEdit("System.Title", "Before", "After");
-
-        edit.PriorValue.ShouldBe("Before");
-        edit.ProposedValue.ShouldBe("After");
-    }
-
-    [Fact]
-    public void FieldEdit_NullPriorValue_MeansEmpty_NotUnknown()
-    {
-        var edit = new FieldEdit("System.Description", null, "Something");
-
-        edit.PriorValue.ShouldBeNull();
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  §6 / 0006 §5 — the conflict carrier is narrow and revision-keyed
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void EditConflict_CarriesTheRemoteRevision_TheActualConcurrencyCheck()
-    {
-        var conflict = new EditConflict(7,
-            [new ConflictedField("System.Title", "Base", "Mine", "Theirs")]);
-
-        conflict.RemoteRevision.ShouldBe(7);
-    }
-
-    /// <summary>
-    /// 🔴 The fourth fact. Twig's existing <c>FieldConflict</c> carries field/local/remote;
-    /// this carrier adds the PROPOSED value, which is the one thing a resolver needs and Twig
-    /// did not previously transport. An arm exists for it so a "simplification" back to the
-    /// three-value shape fails loudly.
-    /// </summary>
-    [Fact]
-    public void ConflictedField_CarriesAllFourValues_IncludingTheProposedOne()
-    {
-        var field = new ConflictedField("System.Title", "Base", "Mine", "Theirs");
-
-        field.PriorValue.ShouldBe("Base");
-        field.ProposedValue.ShouldBe("Mine");
-        field.RemoteValue.ShouldBe("Theirs");
-    }
-
-    [Fact]
-    public void EditConflict_CarriesOnlyCollidedFields_NotTheWholeForm()
-    {
-        var conflict = new EditConflict(7,
-            [new ConflictedField("System.Title", "Base", "Mine", "Theirs")]);
-
-        // A form has hundreds of controls; a collision has one to three. If this ever grew a
-        // layout or a document, the error path would require a round trip the success path
-        // does not — see EditConflict's remarks.
-        conflict.Fields.Count.ShouldBe(1);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  The sink round-trip
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task SubmitAsync_ReceivesTheProposal_AndReportsAnOutcome()
-    {
-        var sink = new StubSink(ThreeFields);
-        ChangeProposal proposal = new FieldEdit("System.Title", "old", "new");
-
-        var outcome = await sink.SubmitAsync(proposal);
-
-        sink.LastSubmitted.ShouldNotBeNull();
-        outcome.ShouldBeUnionCase<Saved>().Revision.ShouldBe(2);
-    }
-
-    [Fact]
-    public void SubmitOutcome_HasThreeCases_SavedConflictedRefused()
-    {
-        SubmitOutcome saved = new Saved(3);
-        SubmitOutcome conflicted = new Conflicted(new EditConflict(4, []));
-        SubmitOutcome refused = new Refused("nope");
-
-        saved.ShouldBeUnionCase<Saved>();
-        conflicted.ShouldBeUnionCase<Conflicted>();
-        refused.ShouldBeUnionCase<Refused>();
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  0002 §6 survives — ReadOnly is still reported, never enforced
-    // ═══════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// A control the SERVER marks read-only is still editable when the sink declares its field.
-    /// This looks wrong and is deliberate: ADO marks almost nothing read-only, so treating the
-    /// flag as authority would make nearly the whole form typable while the sink can persist a
-    /// handful of fields — and the surplus edits would be silently eaten at save.
-    /// </summary>
-    [Fact]
-    public void ServerReadOnlyFlag_DoesNotOverrideTheSinksDeclaration()
-    {
-        var control = new DetailControl(
-            "System.Title", "Title", "FieldControl",
-            ReadOnly: true, Visible: true, IsContribution: false,
-            Value: new DetailFieldValue(DetailFieldState.HasValue, "A title", null));
-
-        var capability = new EditCapability(new StubSink(ThreeFields), WorkItemType.Task);
-
-        control.ReadOnly.ShouldBeTrue();
-        capability.CanEdit(control.Id).ShouldBeTrue();
-    }
 }

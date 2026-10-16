@@ -32,6 +32,10 @@ twig workspace track <id> [flags]
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
 |`-o, --output`|`string`|`human`|Output format: `human`, `json`, `minimal`.|
+|`--expect-bench`|`string`|unset|Refuse a changed current Bench instead of retargeting.|
+|`--expect-binding`|`string`|unset|Refuse a changed native connection binding; never selects one.|
+|`--expect-identity`|`string`|unset|Refuse a changed authenticated principal; never selects one.|
+|`--expect-settings`|`string`|unset|Compare the captured raw query-settings digest inside the atomic pin transaction.|
 
 ## Behavior
 
@@ -49,6 +53,11 @@ and exit code `2` (`src/Twig/Commands/TrackingCommand.cs:174-178`).
 The pin is a Bench selector, not a snapshot: it does not pre-expand any
 descendants, and the item continues to be resolved live at workspace-evaluation
 time.
+
+A single pin and subtree pin for the same ID are independent and can coexist.
+This command ensures the single pin is present without replacing a subtree pin.
+Remove only this kind with `workspace untrack <id> --mode single`; omit `--mode`
+only when you intend to remove both explicit kinds.
 
 ## Examples
 

@@ -1,7 +1,7 @@
 # Build & Release
 
-AOT compilation strategy, versioning, release pipeline, companion binaries,
-and local development workflow.
+NativeAOT compilation strategy, versioning, release pipeline, platform-specific
+TUI entry points, and local development workflow.
 
 ---
 
@@ -45,8 +45,9 @@ MCP is withdrawn from delivery pending redesign; its source is retained only as 
 | Markdig | ✔ |
 | Terminal.Gui v2 | ✘ (reflection) |
 
-Terminal.Gui's reflection dependency is the reason `twig-tui` opts out of
-AOT (see §4).
+Terminal.Gui's reflection dependency applies only to the retained legacy macOS
+`Twig.Tui` companion. Windows/Linux TUI entry points use the full-trim NativeAOT
+`Twig` image and do not publish or launch that companion (see §4).
 
 ---
 
@@ -123,20 +124,35 @@ and exits with an explanation instead of 404ing on a missing asset. Restore the
 matrix leg, the `Create GitHub Release` asset lines, and remove the `install.sh`
 guard once a newer preview links it.
 
-Each platform builds two artifacts:
+Each platform publishes **Twig** once with
+`dotnet publish src/Twig/Twig.csproj -c Release -r {RID} --self-contained true`.
 
-1. **twig** (CLI, AOT) — `dotnet publish src/Twig/Twig.csproj -c Release -r {RID} --self-contained true`
-2. **twig-tui** (TUI, non-AOT) — adds `/p:PublishTrimmed=false /p:PublishAot=false`
+| Platform | Executable layout | Native dependency |
+|----------|-------------------|-------------------|
+| Windows x64 | `twig.exe`, `twig-tui.exe`, `twig-bench-tui.exe`: identical NativeAOT bytes | `e_sqlite3.dll` |
+| Linux x64 | `twig`, `twig-tui`, `twig-bench-tui`: identical NativeAOT bytes | `libe_sqlite3.so` |
+| macOS ARM64 | `twig`: NativeAOT CLI; `twig-tui`: legacy self-contained Terminal.Gui companion | `libe_sqlite3.dylib` |
+
+Windows/Linux aliases are copied before signing. Windows signing operates on
+`twig.exe`, then copies its final signed bytes over both existing aliases before
+archiving; timestamps therefore cannot produce different executable hashes. Linux
+copies preserve executable mode. Standalone basenames dispatch to the canonical
+in-process TUI, with no Go wrapper or legacy companion fallback.
+
+Only macOS additionally publishes `src/Twig.Tui/Twig.Tui.csproj` with
+`/p:PublishTrimmed=false /p:PublishAot=false`. macOS Terminal.Gui and existing
+Go/Herdr paths are preserved; this cutover does not replace them.
 
 Build steps:
 
 ```
 Checkout (fetch-depth: 0, filter: tree:0)
-  → Setup .NET (SDK from global.json: 10.0.104, rollForward: latestMinor)
+  → Setup .NET (SDK pinned in global.json)
   → Restore
   → Build
   → Test
-  → Publish (3 binaries)
+  → Publish Twig once; copy native aliases on Windows/Linux or publish legacy TUI on macOS
+  → Sign Windows primary; synchronize final signed aliases
   → Archive (zip on Windows, tar.gz on Unix)
   → Upload artifacts
 ```
@@ -150,19 +166,53 @@ Runs on `ubuntu-latest` after all platform builds succeed:
    previous tag. Commit types: `feat`, `fix`, `docs`, `chore`, `refactor`,
    `perf`, `test`, `ci`, `build`, `breaking`.
 3. Create GitHub release via `softprops/action-gh-release@v2` with the
-   four platform archives and the generated release notes.
+   three platform archives, checksums and generated release notes.
+
+#### Native browser responsiveness policy for v0.98.0
+
+**Epic #1165 — Make the native Bench browser consistently responsive**, published
+in `PolyphonyRequiem/Twig`, owns the lasting goals, retained evidence and progressive
+tightening of native browser responsiveness.
+
+| Validated-ready latency | Lasting goal | Temporary v0.98.0 advisory |
+|-------------------------|--------------|---------------------------|
+| Cached Bench/item read p95 | ≤750 ms | ≤1000 ms |
+| 80-column Table-switch p95 | ≤50 ms | ≤75 ms |
+
+The temporary targets are advisory for this release, not replacement goals or
+unconditional publication blockers. Report every miss explicitly and retain all
+historical RED observations. Passing a synthetic custom-Bench workload does not
+qualify the original default-self workload or production population tails.
+
+Release evidence must show forward progress, including improved observed
+80-column Table validated p95, without accepting regression. Use the predeclared
+balanced signed-baseline/candidate ABBA full matrices; report p50 and nearest-rank
+p95 separately for every operation/width group. An increase beyond
+`max(5 ms, 5% of the baseline statistic)` is an unresolved possible-regression flag
+that requires investigation. This observational noise margin is not permission to
+deliberately slow code or proof of population equivalence. Do not average away a
+slow subgroup, widen the plan after seeing results, or claim non-regression from
+the earlier noisy sequential runs.
+
+No concession applies to correctness, refusal behavior, identity/source/lease
+checks, pending-work conservation, approved signing/trust, exact native alias
+identity or all supported-platform full CI gates. The final tag-version payload
+must pass its existing offline smoke, Windows signature verification and applicable
+native alias checks before irreversible GitHub/NuGet publication; a pretag
+candidate is a different build and does not establish the final payload's byte
+identity or startup qualification.
 
 ---
 
-## 4. Companion Binaries
+## 4. Native Entry Points and Legacy macOS Companion
 
 ### Project dependency graph
 
 ```mermaid
 graph TD
     Domain["Twig.Domain (lib)"] --> Infra["Twig.Infrastructure (lib)<br/>Markdig, Microsoft.Data.Sqlite<br/>InternalsVisibleTo: all consumers + test projects"]
-    Domain --> CLI["Twig (exe) — CLI — AOT<br/>ConsoleAppFramework, Spectre.Console"]
-    Domain --> Tui["Twig.Tui (exe) — TUI — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
+    Domain --> CLI["Twig (exe) — CLI/native TUI — AOT<br/>Windows/Linux aliases share this image"]
+    Domain --> Tui["Twig.Tui (exe) — legacy macOS TUI — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
     Infra --> CLI
     Infra --> Tui
 ```
@@ -174,19 +224,44 @@ graph TD
 - Framework: ConsoleAppFramework (source-gen command routing)
 - Rendering: Spectre.Console (rich terminal output)
 
+### Windows/Linux native TUI
+
+`twig tui` calls the existing `BrowserHostCommand` / `BrowserRuntimeFactory`
+in-process, with the same options, authority admission and terminal lifecycle as
+`twig bench browser`. `twig-tui` and `twig-bench-tui` are copies of this native
+image whose basenames select `tui`; they are not companion processes. The stable
+Windows/Linux Herdr host ID is `twig-herdr`, with existing action/pane IDs retained
+and direct native `twig tui` pane launch.
+
+The source-pinned `tools/tui-candidate.py` delivery tool likewise creates both
+Windows/Linux aliases before signing/sealing. Seal and inspect require every alias
+to match the primary image byte-for-byte, in addition to the complete strict
+inventory and approved Windows publisher/profile/timestamp/source evidence.
+Candidate installs and recovery remain private, owner-marked and explicit; the tool
+does not install into normal Twig or registered Herdr paths. Candidate CI exercises
+`twig tui --help` and both standalone `--help` entry points before and after sealing
+on Windows/Linux, then checks normal startup did not change the sealed inventory.
+macOS candidate qualification remains `bench browser`, not replacement of legacy TUI.
+
 ### MCP (withdrawn)
 
 MCP is excluded from supported builds, release archives, local publishing,
 installation and automatic companion downloads. Its source remains available
 for a separate redesign; current delivery does not expose an MCP server.
 
-### twig-tui (Terminal UI)
+### Legacy macOS twig-tui (Terminal UI)
 
 - Assembly name: `twig-tui`
 - Output: `twig-tui.exe` / `twig-tui` (self-contained single-file, larger)
 - `IsAotCompatible=false` — Terminal.Gui v2 beta relies on reflection
 - `PublishSingleFile=true`, `SelfContained=true` — bundles .NET runtime
 - Uses Terminal.Gui v2 nightly (`2.0.0-develop.5185`)
+
+`Twig.Tui` source and its Terminal.Gui/runtime dependencies remain for macOS.
+Shared `Twig.Domain`, `Twig.Infrastructure` and other source/dependencies used by
+that path are retained; no deletion of shared code follows from retiring the
+Windows/Linux legacy executable. Historical research/prototype artifacts also
+remain evidence, not alternate supported Windows/Linux UI routes.
 
 ### Shared libraries
 
@@ -214,8 +289,8 @@ expose only the deliberately-public surface (locked in by
 
 ### publish-local.ps1
 
-Builds and deploys all three binaries to a repo-local `.local/bin/`
-directory for rapid iteration without touching the release installation.
+Publishes the Windows native Twig image once and copies its two standalone TUI
+entry points into repo-local `.local/bin/` for rapid iteration.
 
 ```powershell
 ./publish-local.ps1          # Build and deploy locally
@@ -225,9 +300,15 @@ directory for rapid iteration without touching the release installation.
 #### What it does
 
 1. Creates `.local/bin/` in the repo root.
-2. Publishes `twig` and `twig-tui` to `.local/bin/`; retires any old repo-local MCP launcher.
+2. Recreates generated `.local/bin/`, publishes `twig` once, and copies identical
+   bytes to `twig-tui.exe` and `twig-bench-tui.exe`; no `Twig.Tui` build occurs.
+   Retires any old repo-local MCP launcher.
 3. Installs **shim scripts** in `~/.twig/bin/` that redirect to the local
    build when run from within the repo.
+   These developer overrides are not release execution wrappers. Outside the repo,
+   TUI overrides invoke `twig-core.exe tui`, since renamed `*-core.exe` filenames
+   do not carry the standalone dispatch basename. Restore removes all three
+   overrides and restores the installed release executable names.
 
 #### Shim mechanism
 

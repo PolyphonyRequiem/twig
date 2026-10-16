@@ -5,8 +5,9 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig upgrade</c>: checks GitHub Releases for a newer version and applies the update.
-/// When a newer version is available, downloads and installs the main binary and all companion
-/// tools. When already up to date, checks for missing companions and installs them.
+/// When a newer version is available, installs the main binary and the platform's launch
+/// targets: same-image native TUI names on Windows/Linux, legacy TUI companion on macOS.
+/// When already up to date, installs missing launch targets.
 /// </summary>
 public sealed class SelfUpdateCommand(
     IGitHubReleaseService releaseService,
@@ -17,7 +18,7 @@ public sealed class SelfUpdateCommand(
 
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
     /// <param name="force">When true, terminates any process holding a peer binary open
-    /// (e.g. a running <c>twig-mcp</c> instance) before applying the update.</param>
+    /// (e.g. a running standalone TUI) before applying the update.</param>
     public async Task<int> ExecuteAsync(bool force = false, CancellationToken ct = default)
     {
         var currentVersion = VersionHelper.GetVersion();
@@ -43,7 +44,7 @@ public sealed class SelfUpdateCommand(
 
         var latestTag = latest.Tag;
         var comparison = SemVerComparer.Compare(currentVersion, latestTag);
-        var companionExeNames = CompanionTools.All
+        var companionExeNames = CompanionTools.UpdateTargets
             .Select(CompanionTools.GetExeName)
             .ToArray();
 
@@ -104,7 +105,7 @@ public sealed class SelfUpdateCommand(
     }
 
     /// <summary>
-    /// When the main binary is already current, checks for missing companion binaries
+    /// When the main binary is already current, checks for missing launch targets
     /// and installs them from the current release archive.
     /// </summary>
     private async Task<int> InstallMissingCompanionsAsync(
@@ -116,6 +117,25 @@ public sealed class SelfUpdateCommand(
         var installDir = Path.GetDirectoryName(_processPath);
         if (installDir is null)
             return 0;
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            try
+            {
+                ReportCompanionResults(selfUpdater.RepairNativeLaunchFiles(companionExeNames, installDir, force));
+                return 0;
+            }
+            catch (UpdateBlockedException blocked)
+            {
+                ReportBlocked(blocked);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"error: Native launch repair failed: {ex.Message}");
+                return 1;
+            }
+        }
 
         var missing = companionExeNames
             .Where(name => !File.Exists(Path.Combine(installDir, name)))

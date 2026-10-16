@@ -181,12 +181,16 @@ public sealed class WorktreeLocalAttachmentStoreTests : IDisposable
         using var store = new WorktreeLocalAttachmentStore(paths, _config, TimeProvider.System);
         (await store.InitializeAsync()).IsSuccess.ShouldBeTrue();
         (await store.ReadAsync()).IsSuccess.ShouldBeTrue();
+        (await store.ReadForBindingAsync(CancellationToken.None)).IsSuccess.ShouldBeTrue();
 
         // Without the linked checkout's Git pointer, Git now resolves the enclosing worktree.
         File.Delete(Path.Combine(linkedRoot, ".git"));
         var changed = await store.ReadAsync();
         changed.IsSuccess.ShouldBeFalse();
         changed.Error.ShouldBe(AttachmentStorageFailure.WorktreeFingerprintDrift);
+        var changedBinding = await store.ReadForBindingAsync(CancellationToken.None);
+        changedBinding.IsSuccess.ShouldBeFalse();
+        changedBinding.Error.ShouldBe(AttachmentStorageFailure.WorktreeFingerprintDrift);
     }
 
     // ── Fail-closed: writes never bootstrap markers ─────────────────────

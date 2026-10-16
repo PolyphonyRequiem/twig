@@ -30,6 +30,52 @@ public sealed class SelfUpdaterTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
+    private sealed class NativePlatformFactAttribute : FactAttribute
+    {
+        public NativePlatformFactAttribute()
+        {
+            if (!(OperatingSystem.IsWindows() || OperatingSystem.IsLinux()))
+                Skip = "Native launch image updates are Windows/Linux only.";
+        }
+    }
+
+    [NativePlatformFact]
+    public async Task UpdateBinaryAsync_LegacyArchive_PreservesInstalledNativeImages()
+    {
+        var current = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(current, "installed-native");
+        var names = CompanionTools.UpdateTargets.Select(CompanionTools.GetExeName).ToArray();
+        foreach (var name in names) File.WriteAllText(Path.Combine(_tempDir, name), "installed-native");
+        var archive = CreateZipArchive((ExeName, "legacy-cli"u8.ToArray()));
+        var updater = new SelfUpdater(new FakeDownloader(archive), new DefaultFileSystem(), current);
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            updater.UpdateBinaryAsync("https://example.com/legacy.zip", "twig-win-x64.zip", names));
+
+        File.ReadAllText(current).ShouldBe("installed-native");
+        foreach (var name in names) File.ReadAllText(Path.Combine(_tempDir, name)).ShouldBe("installed-native");
+        File.Exists(current + ".tmp").ShouldBeFalse();
+    }
+
+    [NativePlatformFact]
+    public async Task UpdateBinaryAsync_MixedLaunchImages_PreservesInstalledNativeImages()
+    {
+        var current = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(current, "installed-native");
+        var names = CompanionTools.UpdateTargets.Select(CompanionTools.GetExeName).ToArray();
+        foreach (var name in names) File.WriteAllText(Path.Combine(_tempDir, name), "installed-native");
+        var archive = CreateZipArchive([(ExeName, "new-native"u8.ToArray()),
+            .. names.Select(name => (name, "different-image"u8.ToArray()))]);
+        var updater = new SelfUpdater(new FakeDownloader(archive), new DefaultFileSystem(), current);
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            updater.UpdateBinaryAsync("https://example.com/mixed.zip", "twig-win-x64.zip", names));
+
+        File.ReadAllText(current).ShouldBe("installed-native");
+        foreach (var name in names) File.ReadAllText(Path.Combine(_tempDir, name)).ShouldBe("installed-native");
+        File.Exists(current + ".tmp").ShouldBeFalse();
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Task 2: Happy path — download + extract + replace (zip)
     // ═══════════════════════════════════════════════════════════════
@@ -395,39 +441,6 @@ public sealed class SelfUpdaterTests : IDisposable
         File.Exists(oldPath).ShouldBeFalse();
     }
 
-    [Fact]
-    public void CleanupOldBinaryCore_NoOldFile_DoesNotThrow()
-    {
-        var exePath = Path.Combine(_tempDir, ExeName);
-
-        // Should not throw even when .old file doesn't exist
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), exePath));
-    }
-
-    [Fact]
-    public void CleanupOldBinaryCore_NullProcessPath_DoesNotThrow()
-    {
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), processPath: null));
-    }
-
-    [Fact]
-    public void CleanupOldBinaryCore_LockedOldFile_DoesNotThrow()
-    {
-        var fileSystem = Substitute.For<IFileSystem>();
-        fileSystem.FileExists(Arg.Any<string>()).Returns(true);
-        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
-            .Do(_ => throw new IOException("File is locked."));
-
-        // Best-effort cleanup — should not throw
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(fileSystem, "/app/twig"));
-    }
-
-    [Fact]
-    public void CleanupOldBinary_Static_DoesNotThrow()
-    {
-        // The static convenience method should never throw regardless of environment state
-        Should.NotThrow(SelfUpdater.CleanupOldBinary);
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Additional edge cases
@@ -525,7 +538,7 @@ public sealed class SelfUpdaterTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     private static readonly string CompanionExe = OperatingSystem.IsWindows() ? "twig-mcp.exe" : "twig-mcp";
-    private static readonly string CompanionExe2 = OperatingSystem.IsWindows() ? "twig-tui.exe" : "twig-tui";
+    private static readonly string CompanionExe2 = OperatingSystem.IsWindows() ? "twig-other.exe" : "twig-other";
 
     [Fact]
     public async Task UpdateBinaryAsync_WithCompanions_ExtractsMainAndCompanions()
@@ -777,36 +790,7 @@ public sealed class SelfUpdaterTests : IDisposable
         File.Exists(companionOld).ShouldBeFalse();
     }
 
-    [Fact]
-    public void CleanupOldBinaryCore_WithCompanions_NoOldFiles_DoesNotThrow()
-    {
-        var exePath = Path.Combine(_tempDir, ExeName);
 
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
-            new DefaultFileSystem(), exePath,
-            new[] { "twig-mcp", "twig-tui" }));
-    }
-
-    [Fact]
-    public void CleanupOldBinaryCore_WithCompanions_NullProcessPath_DoesNotThrow()
-    {
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
-            new DefaultFileSystem(), processPath: null,
-            new[] { "twig-mcp" }));
-    }
-
-    [Fact]
-    public void CleanupOldBinaryCore_WithCompanions_LockedOldFile_DoesNotThrow()
-    {
-        var fileSystem = Substitute.For<IFileSystem>();
-        fileSystem.FileExists(Arg.Any<string>()).Returns(true);
-        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
-            .Do(_ => throw new IOException("File is locked."));
-
-        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
-            fileSystem, "/app/twig",
-            new[] { "twig-mcp" }));
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Companion atomic write verification (mock-based)

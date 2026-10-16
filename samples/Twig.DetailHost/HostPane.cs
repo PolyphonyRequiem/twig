@@ -70,6 +70,8 @@ internal sealed class HostPane
         Add(0, $"type {document.WorkItemTypeReferenceName}  process {document.ProcessId}", false, null);
         Add(0, string.Empty, false, null);
 
+        foreach (var control in document.SystemControls) RenderControl(control);
+
         foreach (var page in document.Pages)
         {
             if (!page.CarriesFieldControls)
@@ -99,47 +101,7 @@ internal sealed class HostPane
                     continue;
                 }
 
-                foreach (var control in group.Controls)
-                {
-                    // Host policy: this pane hides what the server hid. Reported, not enforced —
-                    // a diff pane that wanted to show hidden fields could ignore this line.
-                    if (!control.Visible) continue;
-
-                    if (control.IsContribution)
-                    {
-                        Add(2, $"{control.Label}: <add-in '{control.Id}' — this pane cannot draw it>", true, null);
-                        continue;
-                    }
-
-                    if (!SupportedControlTypes.Contains(control.ControlType))
-                    {
-                        // Truthful unsupported-control treatment: the verbatim server string
-                        // is still here to name, precisely because there is no closed enum.
-                        Add(2, $"{control.Label}: <unsupported control type '{control.ControlType}'>", true, null);
-                        continue;
-                    }
-
-                    var value = control.Value!;
-                    var readOnlyMark = control.ReadOnly ? " (read-only)" : string.Empty;
-                    var rendered = value.State switch
-                    {
-                        // Short form when there is one; the full value stays reachable for expansion.
-                        DetailFieldState.HasValue => value.Short ?? value.Full!,
-                        DetailFieldState.EmptyOnServer => "—",
-                        DetailFieldState.NotCarriedByTwig => "<not carried by twig>",
-                        _ => "?",
-                    };
-
-                    // Editability is a CONSEQUENCE of what the host's sink declared. With no
-                    // capability the pane never asks, and this whole branch costs nothing —
-                    // a read-only host needs no store and no sink.
-                    var editable = _capability?.CanEdit(control.Id) == true;
-                    if (editable) _editableControlIds.Add(control.Id);
-                    var editMark = editable ? " [edit]" : string.Empty;
-
-                    Add(2, $"{control.Label}{readOnlyMark}{editMark}: {rendered}", true,
-                        value.State == DetailFieldState.HasValue && value.IsAbbreviated ? value.Full : null);
-                }
+                foreach (var control in group.Controls) RenderControl(control);
             }
 
             Add(0, string.Empty, false, null);
@@ -148,6 +110,35 @@ internal sealed class HostPane
         _scrollOffset = 0;
         _selectedIndex = _rows.FindIndex(r => r.Selectable);
         if (_selectedIndex < 0) _selectedIndex = 0;
+    }
+
+    private void RenderControl(DetailControl control)
+    {
+        if (!control.Visible) return;
+        if (control.IsContribution)
+        {
+            Add(2, $"{control.Label}: <add-in '{control.Id}' — this pane cannot draw it>", true, null);
+            return;
+        }
+        if (!SupportedControlTypes.Contains(control.ControlType))
+        {
+            Add(2, $"{control.Label}: <unsupported control type '{control.ControlType}'>", true, null);
+            return;
+        }
+        var value = control.Value!;
+        var readOnlyMark = control.ReadOnly ? " (read-only)" : string.Empty;
+        var rendered = value.State switch
+        {
+            DetailFieldState.HasValue => value.Short ?? value.Full!,
+            DetailFieldState.EmptyOnServer => "—",
+            DetailFieldState.NotCarriedByTwig => "<not carried by twig>",
+            _ => "?",
+        };
+        var editable = _capability?.CanEdit(control.Id) == true;
+        if (editable) _editableControlIds.Add(control.Id);
+        var editMark = editable ? " [edit]" : string.Empty;
+        Add(2, $"{control.Label}{readOnlyMark}{editMark}: {rendered}", true,
+            value.State == DetailFieldState.HasValue && value.IsAbbreviated ? value.Full : null);
     }
 
     private void Add(int indent, string text, bool selectable, string? full) =>

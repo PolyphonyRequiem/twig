@@ -23,7 +23,8 @@ public sealed class CompanionFirstRunCheckTests
     private readonly ICompanionInstaller _companionInstaller = Substitute.For<ICompanionInstaller>();
     private readonly IFileSystem _fileSystem = Substitute.For<IFileSystem>();
 
-    private CompanionFirstRunCheck CreateSut() => new(_releaseService, _companionInstaller, _fileSystem);
+    // Exercise the retained macOS companion policy on every test runner platform.
+    private CompanionFirstRunCheck CreateSut() => new(_releaseService, _companionInstaller, _fileSystem, ["twig-tui"]);
 
     // ═══════════════════════════════════════════════════════════════
     //  Phase 1 — Fast path (no I/O write)
@@ -53,6 +54,20 @@ public sealed class CompanionFirstRunCheckTests
         _releaseService.ReceivedCalls().ShouldBeEmpty();
         _companionInstaller.ReceivedCalls().ShouldBeEmpty();
         // Should NOT write any files (no FileCreate calls)
+        _fileSystem.DidNotReceive().FileCreate(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task EnsureCompanionsAsync_NativePlatformMissingAliases_DoesNotDownloadOrWriteMarker()
+    {
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) return;
+        SetupMissingCompanions("twig-tui", "twig-bench-tui");
+        var sut = new CompanionFirstRunCheck(_releaseService, _companionInstaller, _fileSystem);
+
+        await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
+
+        _releaseService.ReceivedCalls().ShouldBeEmpty();
+        _companionInstaller.ReceivedCalls().ShouldBeEmpty();
         _fileSystem.DidNotReceive().FileCreate(Arg.Any<string>());
     }
 

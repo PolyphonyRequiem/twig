@@ -8,6 +8,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Services.Mutation;
@@ -41,9 +42,9 @@ public sealed class BenchWorkflowTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private BenchWorkflow CreateSut()
+    private BenchWorkflow CreateSut(IIterationService? iterations = null)
     {
-        var selectors = new DefaultBenchSelectors(IdentityStubs.NewBound());
+        var selectors = new DefaultBenchSelectors(iterations ?? IdentityStubs.NewBound());
         return new BenchWorkflow(_benchRepo, selectors, new CurrentBenchResolver(_benchRepo, selectors));
     }
 
@@ -110,6 +111,83 @@ public sealed class BenchWorkflowTests : IDisposable
         listing.Benches.ShouldContain(b => b.Name == listing.CurrentBenchName);
     }
 
+    [Theory]
+    [InlineData("unswitched")]
+    [InlineData("default")]
+    [InlineData("custom")]
+    [InlineData("deleted-current")]
+    public async Task List_WithStoredBenches_DoesNotRequireIdentityHttpAndPreservesStoredSelectors(string pointer)
+    {
+        var saved = new BenchQueryRule(null, "previous@example.test", [new("Project\\Team", true)],
+            [BenchQueryRule.ParseSprint("@Current-1")]);
+        var stored = await _benchRepo.GetOrCreateDefaultAsync([
+            BenchSelector.ForCurrentSprint("Previous operator"), saved.ToSelector(),
+            BenchSelector.ForItem(88), BenchSelector.ForSubtree(99)]);
+        var custom = (await _benchRepo.CreateAsync("release blockers"))!;
+        await _benchRepo.AddSelectorAsync(custom.Id, BenchSelector.ForCurrentSprintCanonical("authored@example.test"));
+        if (pointer == "default")
+            await _benchRepo.SetCurrentAsync(stored.Id);
+        else if (pointer == "custom")
+            await _benchRepo.SetCurrentAsync(custom.Id);
+        else if (pointer == "deleted-current")
+        {
+            var deleted = (await _benchRepo.CreateAsync("deleted"))!;
+            await _benchRepo.SetCurrentAsync(deleted.Id);
+            await _benchRepo.DeleteAsync(deleted.Id);
+        }
+        var before = await _benchRepo.GetAllAsync();
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(string? DisplayName, string? UniqueName)>(
+                new HttpRequestException("Identity profile HTTP is unavailable.")));
+
+        var listing = await CreateSut(iterations).ListAsync();
+
+        listing.CurrentBenchName.ShouldBe(pointer == "custom" ? custom.Name : stored.Name);
+        foreach (var bench in before)
+        {
+            listing.Benches.Single(b => b.Id == bench.Id).Selectors.ShouldBe(bench.Selectors, ignoreOrder: true);
+            (await _benchRepo.GetByNameAsync(bench.Name))!.Selectors.ShouldBe(bench.Selectors, ignoreOrder: true);
+        }
+        await iterations.DidNotReceive().GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateAndSwitch_WithStoredDefault_DoNotRequireIdentityHttpOrRewriteSelectors(bool guardDefault)
+    {
+        var stored = await _benchRepo.GetOrCreateDefaultAsync([
+            BenchSelector.ForCurrentSprintCanonical("previous@example.test"), BenchSelector.ForItem(88)]);
+        var previous = (await _benchRepo.CreateAsync("previous arrangement"))!;
+        await _benchRepo.AddSelectorAsync(previous.Id, BenchSelector.ForSubtree(99));
+        await _benchRepo.SetCurrentAsync(previous.Id);
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(string? DisplayName, string? UniqueName)>(
+                new HttpRequestException("Identity profile HTTP is unavailable.")));
+        var sut = CreateSut(iterations);
+
+        var created = (await sut.CreateAsync("  Release blockers  ")).ShouldBeOfType<BenchOutcome.Created>().Bench;
+        created.Name.ShouldBe("Release blockers");
+        created.Selectors.ShouldBeEmpty();
+        (await _benchRepo.GetCurrentAsync())!.Id.ShouldBe(previous.Id);
+
+        var selected = (await sut.SwitchAsync(created.Name,
+            expectBench: created.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            .ShouldBeOfType<BenchOutcome.Switched>();
+        selected.PreviousBenchName.ShouldBe(previous.Name);
+        (await _benchRepo.GetCurrentAsync())!.Id.ShouldBe(created.Id);
+        var back = (await sut.SwitchAsync(Bench.DefaultName, expectBench: guardDefault
+            ? stored.Id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null))
+            .ShouldBeOfType<BenchOutcome.Switched>();
+        back.PreviousBenchName.ShouldBe(created.Name);
+        (await _benchRepo.GetCurrentAsync())!.Id.ShouldBe(stored.Id);
+        (await _benchRepo.GetByNameAsync(Bench.DefaultName))!.Selectors.ShouldBe(stored.Selectors, ignoreOrder: true);
+        (await _benchRepo.GetByNameAsync(previous.Name))!.Selectors.ShouldBe([BenchSelector.ForSubtree(99)]);
+        await iterations.DidNotReceive().GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Acceptance 3 — the default Bench exists without the person creating it
     // ═══════════════════════════════════════════════════════════════
@@ -123,6 +201,72 @@ public sealed class BenchWorkflowTests : IDisposable
 
         listing.Benches.ShouldContain(b => b.IsDefault && b.Name == Bench.DefaultName);
         listing.CurrentBenchName.ShouldBe(Bench.DefaultName);
+        listing.Benches.Single(b => b.IsDefault).Selectors.Single().QueryAssignedToUniqueName
+            .ShouldBe(IdentityStubs.DefaultCanonicalPrincipal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task List_OnFirstUse_RefusesMissingCanonicalIdentityWithoutCreatingDefault(string? uniqueName)
+    {
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(((string?)"Display name is not authority", uniqueName));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => CreateSut(iterations).ListAsync());
+
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task List_OnFirstUse_IdentityHttpFailureDoesNotCreateDefault()
+    {
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(string? DisplayName, string? UniqueName)>(
+                new HttpRequestException("Identity profile HTTP is unavailable.")));
+
+        await Should.ThrowAsync<HttpRequestException>(() => CreateSut(iterations).ListAsync());
+
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("create")]
+    [InlineData("switch")]
+    public async Task FirstUseLifecycle_RefusesMissingCanonicalIdentityWithoutCreatingOrSelectingBenches(string operation)
+    {
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(((string?)"Display name is not authority", (string?)null));
+        var sut = CreateSut(iterations);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => operation == "create"
+            ? sut.CreateAsync("new arrangement") : sut.SwitchAsync(Bench.DefaultName));
+
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+        (await _benchRepo.GetCurrentAsync()).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CapturedResolution_OnFirstUse_RefusesStaleBenchBeforeIdentityDiscoveryOrCreation(bool storedOnly)
+    {
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(string? DisplayName, string? UniqueName)>(
+                new HttpRequestException("Identity profile HTTP is unavailable.")));
+        var resolver = new CurrentBenchResolver(_benchRepo, new DefaultBenchSelectors(iterations));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => storedOnly
+            ? resolver.ResolveStoredAsync(expectBench: "previous-bench")
+            : resolver.ResolveAsync(expectBench: "previous-bench"));
+
+        (await _benchRepo.GetAllAsync()).ShouldBeEmpty();
+        await iterations.DidNotReceive().GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -167,6 +311,71 @@ public sealed class BenchWorkflowTests : IDisposable
 
         var after = (await _benchRepo.GetByNameAsync(Bench.DefaultName))!.Selectors.ToList();
         after.ShouldBe(before);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task List_DoesNotFreezeDefaultPinAndQueryEvaluationToThePreviouslyStoredActor(bool savedFilter)
+    {
+        var query = savedFilter
+            ? new BenchQueryRule(null, "previous@example.test", [new("Project\\Team", false)],
+                [BenchQueryRule.ParseSprint("Project\\Sprint 7")]).ToSelector()
+            : BenchSelector.ForCurrentSprint("Same display");
+        var stored = await _benchRepo.GetOrCreateDefaultAsync([query, BenchSelector.ForItem(88)]);
+        var iterations = IdentityStubs.NewBound(displayName: "Same display", uniqueName: "first@example.test");
+        var selectors = new DefaultBenchSelectors(iterations);
+        var resolver = new CurrentBenchResolver(_benchRepo, selectors);
+        var sut = new BenchWorkflow(_benchRepo, selectors, resolver);
+        var repository = Substitute.For<IWorkItemRepository>();
+        var sprint = IterationPath.Parse("Project\\Sprint 7").Value;
+        repository.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns([
+                new WorkItemBuilder(1, "First operator's item").AssignedTo("Same display")
+                    .AssignedToUniqueName("first@example.test").WithAreaPath("Project\\Team").WithIterationPath(sprint.Value).Build(),
+                new WorkItemBuilder(2, "Second operator's item").AssignedTo("Same display")
+                    .AssignedToUniqueName("second@example.test").WithAreaPath("Project\\Team").WithIterationPath(sprint.Value).Build()]);
+        var calendar = Substitute.For<IIterationCalendar>();
+        calendar.GetCurrentIterationsAsync(Arg.Any<CancellationToken>()).Returns(new[] { sprint });
+        var evaluator = new BenchEvaluator(repository, calendar, Substitute.For<IPendingChangeStore>());
+
+        (await sut.ListAsync()).Benches.Single(b => b.IsDefault).Selectors.ShouldBe(stored.Selectors, ignoreOrder: true);
+        var pinned = (await new PinWorkflow(_benchRepo, selectors, resolver).PinAsync(77, includeSubtree: false))
+            .ShouldBeOfType<PinOutcome.Pinned>();
+        (await evaluator.EvaluateAsync(pinned.Bench)).AllIds.ShouldBe(new HashSet<int> { 1, 77, 88 }, ignoreOrder: true);
+
+        iterations.WithBoundIdentity(displayName: "Same display", uniqueName: "second@example.test");
+        var rawSelectors = new[] { query, BenchSelector.ForItem(77), BenchSelector.ForItem(88) };
+        (await sut.ListAsync()).Benches.Single(b => b.IsDefault).Selectors.ShouldBe(rawSelectors, ignoreOrder: true);
+        var (effective, raw) = await resolver.ResolveCapturedAsync();
+        (await evaluator.EvaluateAsync(effective)).AllIds.ShouldBe(new HashSet<int> { 2, 77, 88 }, ignoreOrder: true);
+        raw.Selectors.ShouldBe(rawSelectors, ignoreOrder: true);
+        (await _benchRepo.GetByNameAsync(Bench.DefaultName))!.Selectors.ShouldBe(rawSelectors, ignoreOrder: true);
+    }
+
+    [Theory]
+    [InlineData("pin")]
+    [InlineData("query")]
+    public async Task StoredMetadataListing_DoesNotAuthorizeDefaultEvaluationWithoutCanonicalIdentity(string operation)
+    {
+        var stored = await _benchRepo.GetOrCreateDefaultAsync([
+            BenchSelector.ForCurrentSprintCanonical("previous@example.test"), BenchSelector.ForItem(88)]);
+        var iterations = Substitute.For<IIterationService>();
+        iterations.GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>())
+            .Returns(((string?)"Previous operator", (string?)null));
+        var selectors = new DefaultBenchSelectors(iterations);
+        var resolver = new CurrentBenchResolver(_benchRepo, selectors);
+        (await new BenchWorkflow(_benchRepo, selectors, resolver).ListAsync()).CurrentBenchName.ShouldBe(stored.Name);
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            if (operation == "pin")
+                await new PinWorkflow(_benchRepo, selectors, resolver).PinAsync(77, includeSubtree: false);
+            else
+                await resolver.ResolveAsync();
+        });
+
+        (await _benchRepo.GetByNameAsync(Bench.DefaultName))!.Selectors.ShouldBe(stored.Selectors, ignoreOrder: true);
     }
 
     // ═══════════════════════════════════════════════════════════════

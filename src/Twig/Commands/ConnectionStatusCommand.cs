@@ -71,6 +71,7 @@ internal sealed class ConnectionStatusCommand
                 new RenderNode.Text($"  identity:          {identity.Name}"),
                 new RenderNode.Text($"  method:            {identity.Method}"),
                 new RenderNode.Text($"  endpoint:          {resolved.Operation.Organization}/{resolved.Operation.Project}"),
+                new RenderNode.Text($"  team:              {TwigConfiguration.ResolveTeam(resolved.Operation.Project, resolved.Operation.Team)}"),
             };
             if (isPat)
             {
@@ -110,6 +111,7 @@ internal sealed class ConnectionStatusCommand
                 ["organization"] = RenderCell.String(resolved.Operation.Organization),
                 ["project"] = RenderCell.String(resolved.Operation.Project),
                 ["team"] = RenderCell.String(resolved.Operation.Team),
+                ["effectiveTeam"] = RenderCell.String(TwigConfiguration.ResolveTeam(resolved.Operation.Project, resolved.Operation.Team)),
                 ["identityId"] = RenderCell.String(identity.IdentityId),
                 ["account"] = RenderCell.String(identity.AccountName ?? string.Empty),
                 ["bindingId"] = RenderCell.String(binding.BindingId),

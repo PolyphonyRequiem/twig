@@ -88,7 +88,8 @@ internal static class ShowProjection
         Request request,
         string? connection,
         ReadRoute route,
-        bool? hasLocalChanges = null)
+        bool? hasLocalChanges = null,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions = null)
     {
         var fields = new List<DocumentField>
         {
@@ -100,7 +101,7 @@ internal static class ShowProjection
         };
 
         if (request.Fields.Count > 0)
-            fields.Add(new DocumentField("requestedFields", BuildRequestedFields(item, request.Fields)));
+            fields.Add(new DocumentField("requestedFields", BuildRequestedFields(item, request.Fields, fieldDefinitions)));
 
         if (request.Sections.Count > 0)
             fields.Add(new DocumentField("requestedSections", BuildRequestedSections(item, request.Sections, links, parent, children, linksVerifiedAt)));
@@ -152,9 +153,13 @@ internal static class ShowProjection
 
     private static RenderNode BuildRequestedFields(
         WorkItem item,
-        IReadOnlyList<string> fieldRefs)
+        IReadOnlyList<string> fieldRefs,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions)
     {
         var docFields = new List<DocumentField>(fieldRefs.Count);
+        var capturedDefinitions = item.Id > 0 && item.Revision > 0 && item.LastSyncedAt is not null
+            ? fieldDefinitions
+            : null;
         var snapshot = new WorkItemSnapshot
         {
             Id = item.Id, Revision = item.Revision, TypeName = item.Type.ToString(),
@@ -168,14 +173,14 @@ internal static class ShowProjection
             if (!seen.Add(refName))
                 continue;
 
-            docFields.Add(new DocumentField(refName, BuildFieldStatus(refName, snapshot)));
+            docFields.Add(new DocumentField(refName, BuildFieldStatus(refName, snapshot, capturedDefinitions)));
         }
         return new RenderNode.Document(null, docFields);
     }
 
-    private static RenderNode.Document BuildFieldStatus(string refName, WorkItemSnapshot snapshot)
+    private static RenderNode.Document BuildFieldStatus(string refName, WorkItemSnapshot snapshot, IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions)
     {
-        var resolved = WorkItemDetailProjector.ResolveValue(refName, snapshot);
+        var resolved = WorkItemDetailProjector.ResolveValue(refName, snapshot, fieldDefinitions);
         var status = resolved.State switch
         {
             DetailFieldState.HasValue => "present",

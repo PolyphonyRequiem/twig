@@ -3,6 +3,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -162,6 +163,25 @@ public sealed class SqliteBenchRepository : IBenchRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<Bench?> TrySetCurrentAsync(long benchId, CancellationToken ct = default)
+    {
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench switching cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var target = await LoadAsync("id = @id", benchId, ct);
+            if (target is null) return null;
+            await SetCurrentAsync(target.Id, ct);
+            transaction.Commit();
+            return target;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
     public async Task AddSelectorAsync(long benchId, BenchSelector selector, CancellationToken ct = default)
     {
         using var bindingOperation = _store.AcquireOperation();
@@ -199,6 +219,102 @@ public sealed class SqliteBenchRepository : IBenchRepository
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    public async Task<bool> TryReplaceQuerySelectorsAsync(long benchId, string expectedSettingsDigest,
+        IReadOnlyCollection<BenchSelector> queries, CancellationToken ct = default)
+    {
+        if (queries.Any(selector => selector.Kind != SelectorKind.Query))
+            throw new ArgumentException("Only query selectors can replace automatic settings.", nameof(queries));
+        foreach (var selector in queries) _ = BenchQueryRule.Parse(selector);
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench configuration cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            if (!await MatchesCapturedAsync(benchId, expectedSettingsDigest, ct)) return false;
+            using var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM bench_selectors WHERE bench_id = @id AND selector_kind = 'Query';";
+            command.Parameters.AddWithValue("@id", benchId);
+            await command.ExecuteNonQueryAsync(ct);
+            foreach (var selector in queries) await AddSelectorAsync(benchId, selector, ct);
+            transaction.Commit();
+            return true;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    public async Task<bool> TryUpdatePinsAsync(long benchId, int workItemId, bool includeSubtree, bool remove,
+        string? expectedSettingsDigest = null, CancellationToken ct = default)
+    {
+        if (workItemId <= 0) throw new ArgumentException("Pins require a positive work item ID.", nameof(workItemId));
+        if (remove)
+            return await TryRemovePinsAsync(benchId, workItemId, expectedSettingsDigest: expectedSettingsDigest, ct: ct) is not null;
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench pin edits cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            if (!await MatchesCapturedAsync(benchId, expectedSettingsDigest, ct)) return false;
+            await AddSelectorAsync(benchId, includeSubtree ? BenchSelector.ForSubtree(workItemId) : BenchSelector.ForItem(workItemId), ct);
+            transaction.Commit();
+            return true;
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    public async Task<(Bench Bench, bool WasPinned)?> TryRemovePinsAsync(long benchId, int workItemId,
+        TrackingMode? mode = null, string? expectedSettingsDigest = null, CancellationToken ct = default)
+    {
+        if (workItemId <= 0) throw new ArgumentException("Pins require a positive work item ID.", nameof(workItemId));
+        if (mode is not null and not TrackingMode.Single and not TrackingMode.Tree)
+            throw new ArgumentException("Pin removal mode must be single or tree.", nameof(mode));
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench pin edits cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            if (!await MatchesCapturedAsync(benchId, expectedSettingsDigest, ct)) return null;
+            using var command = conn.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = mode is null
+                ? """
+                    DELETE FROM bench_selectors
+                    WHERE bench_id = @benchId AND selector_payload = @payload
+                        AND selector_kind IN ('Item', 'Subtree');
+                    """
+                : """
+                    DELETE FROM bench_selectors
+                    WHERE bench_id = @benchId AND selector_payload = @payload AND selector_kind = @kind;
+                    """;
+            command.Parameters.AddWithValue("@benchId", benchId);
+            command.Parameters.AddWithValue("@payload", workItemId.ToString());
+            if (mode is not null)
+                command.Parameters.AddWithValue("@kind", mode == TrackingMode.Tree ? nameof(SelectorKind.Subtree) : nameof(SelectorKind.Item));
+            var wasPinned = await command.ExecuteNonQueryAsync(ct) > 0;
+            var bench = await LoadAsync("id = @id", benchId, ct)
+                ?? throw new InvalidOperationException("The captured Bench disappeared during its pin transaction.");
+            transaction.Commit();
+            return (bench, wasPinned);
+        }
+        finally { _store.ActiveTransaction = null; }
+    }
+
+    private async Task<bool> MatchesCapturedAsync(long benchId, string? settingsDigest, CancellationToken ct)
+    {
+        var current = await GetCurrentAsync(ct) ?? await GetByNameAsync(Bench.DefaultName, ct);
+        return current?.Id == benchId && (settingsDigest is null || string.Equals(
+            BenchQueryRule.SettingsDigest(current.Selectors), settingsDigest, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Removes a Bench, its selectors, and the current-Bench pointer when it named this one.
     /// </summary>
@@ -232,6 +348,27 @@ public sealed class SqliteBenchRepository : IBenchRepository
             """;
         cmd.Parameters.AddWithValue("@benchId", benchId);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<Bench?> TryDeleteAsync(long benchId, string expectedContentsDigest, CancellationToken ct = default)
+    {
+        using var operation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        if (_store.ActiveTransaction is not null)
+            throw new InvalidOperationException("Bench deletion cannot nest a native transaction.");
+        using var transaction = conn.BeginTransaction();
+        _store.ActiveTransaction = transaction;
+        try
+        {
+            var target = await LoadAsync("id = @id", benchId, ct);
+            if (target is null || target.IsDefault || !string.Equals(
+                BenchQueryRule.ContentsDigest(target.Selectors), expectedContentsDigest, StringComparison.Ordinal))
+                return null;
+            await DeleteAsync(target.Id, ct);
+            transaction.Commit();
+            return target;
+        }
+        finally { _store.ActiveTransaction = null; }
     }
 
     private async Task<Bench?> LoadAsync(string where, long? id, CancellationToken ct, string? name = null)

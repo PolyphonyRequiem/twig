@@ -35,6 +35,9 @@ pin or central binding default. It reports organization/project/team, method, al
 metadata, binding and selection revisions, attachment revision, and configuration
 source paths. `display.icons` reports its winning local/global/default source;
 local preference source is not claimed as the origin of inherited global icons.
+JSON retains the configured `team` and reports `effectiveTeam`, the team actually
+used for iteration requests. When `team` is blank, the existing native convention
+uses `<project> Team`; this is a default request target, not a discovered ADO team.
 Human and structured output use the same admitted snapshot. Status performs no
 work-item request and does not claim fresh remote authorization or locally
 verified JWT signatures.

@@ -1000,6 +1000,7 @@ public sealed class ShowCommand(
 
         var graph = needLinks ? WorkItemGraph.Build(items, links) : null;
         var protectedIds = await ReadProjectionProtectedIdsAsync(ct);
+        var projectedDefinitions = await ReadProjectionFieldDefinitionsAsync(request, ct);
         var itemDocs = new List<RenderNode.Document>(items.Count);
         foreach (var item in items)
         {
@@ -1020,7 +1021,8 @@ public sealed class ShowCommand(
                 item, itemLinks, verifiedAt, parent, children, request,
                 connection: ShowProjection.FormatConnection(ctx.Config),
                 route: ShowProjection.ReadRoute.Cache,
-                hasLocalChanges: protectedIds?.Contains(item.Id)));
+                hasLocalChanges: protectedIds?.Contains(item.Id),
+                fieldDefinitions: projectedDefinitions));
         }
 
         var envelope = ShowProjection.BuildBatch(
@@ -1035,6 +1037,19 @@ public sealed class ShowCommand(
         Console.WriteLine();
 
         return missing.Count > 0 ? 1 : 0;
+    }
+
+    private async Task<IReadOnlyDictionary<string, FieldDefinition>?> ReadProjectionFieldDefinitionsAsync(
+        ShowProjection.Request request, CancellationToken ct)
+    {
+        if (fieldDefinitionStore is null || request.Fields.Count == 0) return null;
+        var definitions = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in request.Fields.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var definition = await fieldDefinitionStore.GetByReferenceNameAsync(reference, ct);
+            if (definition is not null) definitions.Add(reference, definition);
+        }
+        return definitions;
     }
 
     /// <summary>
@@ -1101,12 +1116,15 @@ public sealed class ShowCommand(
         IReadOnlyList<Domain.Aggregates.WorkItem> children = needChildren
             ? await workItemRepo.GetChildrenAsync(item.Id, ct)
             : Array.Empty<Domain.Aggregates.WorkItem>();
+        var projectedDefinitions = await ReadProjectionFieldDefinitionsAsync(request, ct);
+
 
         var doc = ShowProjection.BuildItem(
             item, links, linksVerifiedAt, parent, children, request,
             ShowProjection.FormatConnection(ctx.Config),
             refresh ? ShowProjection.ReadRoute.Refresh : ShowProjection.ReadRoute.Cache,
-            (await ReadProjectionProtectedIdsAsync(ct))?.Contains(item.Id));
+            (await ReadProjectionProtectedIdsAsync(ct))?.Contains(item.Id),
+            projectedDefinitions);
 
         var tree = new Twig.RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);

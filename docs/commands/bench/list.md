@@ -34,8 +34,19 @@ twig bench list [-o|--output human|json|minimal]
 
 ## Behavior
 
-Reads through `BenchWorkflow.ListAsync` and renders the returned `BenchListing`
-(`src/Twig/Commands/BenchCommand.cs:249`). No ADO or cache mutation happens.
+Reads through `BenchWorkflow.ListAsync` and renders the returned `BenchListing`.
+The current-pointer/default policy is shared with the workspace and pin workflows,
+but listing reports stored metadata: it does not evaluate query membership or
+rebind the default Bench's self selector. With an existing default, listing needs
+no identity-profile or iteration HTTP request and leaves every stored selector
+unchanged. Native connection admission and any captured binding/identity checks
+still apply; stored metadata is not authority to evaluate a previous user's rules.
+
+On first use, listing initializes the default with a validated canonical identity.
+If that identity is missing or identity discovery fails, listing refuses without
+creating a default. Workspace, pin and query evaluation still rebind the default's
+self rule to the current admitted canonical principal on every evaluation, without
+rewriting the stored selectors. No ADO mutation happens.
 
 Human output prints one Bench per line, prefixed with `* ` for the current
 Bench and two spaces otherwise, followed by a summary line naming the current
@@ -86,6 +97,8 @@ $ twig bench list -o json
 |Condition|Result|
 |---|---|
 |Listing rendered (including zero Benches configured beyond the default)|`0`|
+|First-use canonical identity missing or identity discovery fails|`1` — no default is created by the failed initialization|
+|Native connection admission or captured binding/identity check refuses|`1` — the stale or unadmitted origin is not authorized|
 
 ## See also
 

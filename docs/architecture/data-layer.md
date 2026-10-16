@@ -195,6 +195,72 @@ of dirty items and items with pending changes), then skips any item in that set.
 
 Batch operations accept pre-computed protected IDs to avoid N+1 queries.
 
+### Admitted Browser Reads
+
+`BrowserOperationModule` owns shared short provider/repository admission, exact
+Bench and complete-selector capture, fresh native origin checks and typed failures.
+`BrowserReadModule` uses it for complete selected-detail operations shared by the
+CLI and native application. `BrowserBenchModule`, `BrowserEditingModule` and
+`BrowserReviewModule` reuse the same admission rather than duplicating authority.
+Explicit pull uses `ReadOnly.SyncLinksAsync` for the selected root and edge metadata only;
+it never flushes pending changes or materializes related targets.
+
+Origin checks include binding/selection revisions, stable principal evidence,
+storage generation, and fresh split-configuration observations. Credential
+renewal for the same principal is not an actor switch. Failures distinguish
+retryable same-origin unavailability from authority invalidation and cancellation;
+native registry lock codes remain typed, not interpreted from diagnostic wording.
+An admitted context retained on failure is a refusal fence for later actions,
+not an authorization or a successful data observation.
+
+Binding resolution discovers the Git anchor through its validated attachment read
+and shares that evidence with mirror admission only within the same resolution.
+Mirror admission reuses source/root discovery only when their canonical roots match;
+different or aliased paths still receive an independent root check. This removes
+duplicate Git subprocesses without caching authority across operations. Registry,
+marker, endpoint, generation and selection checks remain fresh, as do standalone
+storage validation and the browser's final origin/Bench fence.
+
+The provider's live operation lease may also lend its freshly validated origin to
+the browser's initial check, but only for the same resolver, canonical workspace,
+database, configuration and global-display paths, and matching caller endpoint
+and display configuration. It lends the current resolution, not the provider's
+startup capture: a same-binding attachment revision invalidates an old browser
+capture without preventing a new uncaptured read. Different sources fall back to
+independent resolution. Disposed leases and scopes whose owner has ended cannot
+lend evidence; later operations and the final origin/Bench fence still resolve
+afresh.
+
+The same live origin can lend Git fingerprint evidence to the initial native
+repository lease when its canonical root, fingerprint, connection, binding and
+generation match that mirror. This skips only duplicate Git discovery: current
+marker, unfinished transition, declared endpoint, registry generation and mirror
+path checks still run. Standalone repository acquisitions and different origins
+continue to discover independently; no startup or returned browser capture can
+substitute for the live provider lease at the browser call site.
+
+Returned observations keep private copies of item, related cached facts,
+metadata, pending changes and theme. Width reflow uses those retained facts and
+the existing native Show renderer without store, provider, shell or network I/O.
+Leases are disposed before returning and are never held during terminal idle.
+Callers serialize operations on the shared SQLite runtime and reject late
+results; these checks do not claim a physically atomic transaction across
+registry, configuration files, mirror and durable stores.
+
+Intentional local Bench changes fence the exact expected committed arrangement,
+never whichever current Bench is observed later. `BrowserRuntimeFactory` reuses
+the CLI's `WorkspaceRegistrationModule` only at startup or explicit reconnect;
+old runtime ownership ends before fresh configuration/provider/store composition.
+The application serializes native work and owns terminal state on one event loop.
+Platform transports and authenticated Herdr topology/control remain adapters.
+
+The shared field document retains server `SystemControls` separately from page
+controls, including order, visibility, contribution/read-only flags and resolved
+values. The native editor, preserved companion form and external sample consume
+those headers without synthesizing a second field list. Sink-declared editability
+and captured local baselines govern a durable local batch; rendering/Review never
+authorize or apply proposals.
+
 ---
 
 ## 4. Sync Coordination

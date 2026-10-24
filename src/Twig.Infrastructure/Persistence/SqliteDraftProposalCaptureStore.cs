@@ -12,13 +12,26 @@ namespace Twig.Infrastructure.Persistence;
 /// <summary>Local exact capture using the draft and journal's shared pending.db connection.</summary>
 internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : IDraftProposalCaptureStore
 {
-    public async Task<PlanJournal> CaptureAsync(
+    public Task<PlanJournal> CaptureAsync(
         RecoverableWorkItemDraft expectedDraft,
         WorkItemSnapshot expectedSnapshot,
         PlanOrigin origin,
         PlanWorkspace workspace,
         string proposalDirectory,
         CancellationToken ct = default)
+        => CaptureCoreAsync(expectedDraft, expectedSnapshot, origin, workspace, proposalDirectory, null, ct);
+
+    public Task<PlanJournal> CaptureObservedAsync(RecoverableWorkItemDraft expectedDraft,
+        WorkItemSnapshot expectedSnapshot, PlanOrigin origin, PlanWorkspace workspace,
+        string proposalDirectory, string evidenceFingerprint, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(evidenceFingerprint);
+        return CaptureCoreAsync(expectedDraft, expectedSnapshot, origin, workspace, proposalDirectory, evidenceFingerprint, ct);
+    }
+
+    private async Task<PlanJournal> CaptureCoreAsync(RecoverableWorkItemDraft expectedDraft,
+        WorkItemSnapshot expectedSnapshot, PlanOrigin origin, PlanWorkspace workspace,
+        string proposalDirectory, string? evidenceFingerprint, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(expectedDraft);
         ArgumentNullException.ThrowIfNull(expectedSnapshot);
@@ -37,12 +50,13 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
             throw new InvalidOperationException("Capture refuses duplicate field identities.");
         ct.ThrowIfCancellationRequested();
 
-        var operationId = "draft-" + IdentityDigest(expectedDraft, expectedSnapshot.Revision, origin, workspace);
+        var operationId = "draft-" + IdentityDigest(expectedDraft, expectedSnapshot.Revision, origin, workspace, evidenceFingerprint);
         var parsed = new PlanDocumentParser().Parse(WriteProposal(expectedDraft, workspace, operationId));
         if (!parsed.IsValid || parsed.Plan is null || parsed.CanonicalJson is null || parsed.Digest is null)
             throw new InvalidOperationException("Native draft capture did not produce a valid proposal: "
                 + string.Join("; ", parsed.Issues.Select(issue => issue.Message)));
-        var capture = new DraftProposalCapture(1, expectedDraft, expectedSnapshot.Revision, origin, operationId, parsed.Digest);
+        var capture = new DraftProposalCapture(evidenceFingerprint is null ? 1 : 2, expectedDraft,
+            expectedSnapshot.Revision, origin, operationId, parsed.Digest, evidenceFingerprint);
         var sourcePath = Path.Combine(Path.GetFullPath(proposalDirectory), $"draft-{parsed.Digest}.json");
 
         using var operation = store.AcquireOperation();
@@ -62,6 +76,9 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
                 .GetSnapshotByIdAsync(key.WorkItemId, ct).ConfigureAwait(false);
             if (actualSnapshot is null || SnapshotJson(actualSnapshot) != SnapshotJson(expectedSnapshot))
                 throw new InvalidOperationException("Cached native observation changed. Capture refused.");
+            if (evidenceFingerprint is not null)
+                await new SqliteDraftCaptureEvidenceStore(store).ValidateAsync(actualDraft, actualSnapshot,
+                    origin, evidenceFingerprint, ct).ConfigureAwait(false);
             using (var pending = store.GetConnection().CreateCommand())
             {
                 pending.Transaction = transaction;
@@ -83,6 +100,7 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
                 ct.ThrowIfCancellationRequested();
                 result = await journals.ImportCaptureAsync(parsed.Plan, parsed.CanonicalJson, parsed.Digest,
                     sourcePath, DateTimeOffset.UtcNow, capture, ct).ConfigureAwait(false);
+                if (evidenceFingerprint is not null) journals.SetCaptureExportState(parsed.Digest, complete: false);
             }
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
@@ -100,13 +118,15 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
     }
 
     internal static string IdentityDigest(
-        RecoverableWorkItemDraft draft, int revision, PlanOrigin origin, PlanWorkspace workspace)
+        RecoverableWorkItemDraft draft, int revision, PlanOrigin origin, PlanWorkspace workspace,
+        string? evidenceFingerprint = null)
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("captureVersion", 1);
+            writer.WriteNumber("captureVersion", evidenceFingerprint is null ? 1 : 2);
+            if (evidenceFingerprint is not null) writer.WriteString("evidenceFingerprint", evidenceFingerprint);
             writer.WritePropertyName("draft");
             JsonSerializer.Serialize(writer, draft, TwigJsonContext.Default.RecoverableWorkItemDraft);
             writer.WriteNumber("currentRevision", revision);
@@ -156,7 +176,7 @@ internal sealed class SqliteDraftProposalCaptureStore(SqliteCacheStore store) : 
         => PlanCanonicalizer.CanonicalizeToString(
             JsonSerializer.SerializeToElement(draft, TwigJsonContext.Default.RecoverableWorkItemDraft));
 
-    private static string SnapshotJson(WorkItemSnapshot snapshot)
+    internal static string SnapshotJson(WorkItemSnapshot snapshot)
         => PlanCanonicalizer.CanonicalizeToString(
             JsonSerializer.SerializeToElement(snapshot, TwigJsonContext.Default.WorkItemSnapshot));
 }

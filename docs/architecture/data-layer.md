@@ -90,13 +90,51 @@ separate immutable capture fact, **not a new promise about generic v1 digests**.
 Exact replay returns the existing row without importing again or refreshing its
 preview timestamp; mismatched binding, source, bytes or origin refuses.
 
-This persistence foundation has no capture/edit/Save CLI endpoint and performs no
-file export, preview or network operation. A later admitted capture command must
-commit before explicit recoverable export, report export failure rather than
-success, and recover from the retained journal without a second import. Generic
-apply already refuses capture-bound journals before authority or confirmation;
-native Save consumption is not enabled here. Lifecycle freshness checks and the
-admitted capture/export command remain the next review group.
+Explicit `draft show <id> --document -o json` inspection may acquire metadata and
+record genuine native **Served** layout evidence in the existing disposable mirror
+`metadata` table. It invalidates only the admitted qualified item's previous receipt
+before acquisition; errors or fallback never leave older evidence usable. Explicit
+inspection bypasses both document and production-provider session caches for the
+requested type, fetching one process identity/roster for its layout and rules.
+Ordinary browsing keeps its cached behavior. A served empty form remains empty.
+The receipt retains `FormLayout`, actual process rules
+(explicit empty differs from unavailable), native origin/storage generation, exact
+snapshot identity, and a canonical fingerprint of current local process/schema
+inputs. This is **local observed schema identity**, not a server revision, current
+remote metadata guarantee, field permission or Apply authority. No schema migration
+or generic metadata cache is introduced. It also binds the inspected native Bench
+identity and complete stored selector digest. Only an automanaged default self
+query retains its existing local canonical normalization account, bound to the
+native origin identity; custom or pin-only Benches do not duplicate this account.
+
+`draft capture` requires an explicit Bench, qualified native identity, exact Int64
+generation and revision. It does not open a form, refresh metadata, stage pending
+work or invoke generic Preview. Under the same `BEGIN IMMEDIATE` as capture, it
+rereads the draft, snapshot, receipt, exact saved Bench and fresh process inputs.
+Existing native default normalization, local iteration calendar and Bench evaluator
+must still include the item; another Bench cannot reuse the inspection even when
+both select the item. Each original value
+must match the native carried-control inventory exactly, including null versus
+empty; native sink capability, known process transitions and retained required-field
+gates must accept the effects. Missing/corrupt/changed evidence blocks before any
+metadata fetch. Reinspect explicitly to acquire new evidence; capture never retries
+or rebases intent.
+
+Capture binding v2 includes the observed evidence fingerprint in native operation
+identity, outside ordinary v1 proposal syntax. Existing capture binding v1 still
+deserializes and reports missing evidence; it is never backfilled. Generic unbound
+proposals keep their existing behavior. Preview and Status inspect retained captures
+locally before generic import or process fetch, reporting structured current/stale
+issues with no authority. Generic Apply continues to refuse every capture-bound row
+before authorization or confirmation; native Save consumption is not enabled.
+
+Capture commits with `export-incomplete` recorded in the existing journal error
+column before filesystem work. Canonical UTF-8 bytes are written to a unique
+temporary file and moved without overwriting the digest-derived export path, then
+read back exactly. A different existing file refuses. Failure or cancellation after
+commit reports the retained digest and path, not success; `--recover <digest>`
+validates the exact retained capture and retries only export without another import,
+authorization, preview timestamp refresh or mutation of draft intent.
 
 | Table | Purpose |
 |-------|---------|

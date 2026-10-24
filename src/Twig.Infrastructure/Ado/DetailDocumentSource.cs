@@ -38,6 +38,31 @@ internal sealed class DetailDocumentSource
     private readonly WorkItemMapper _mapper;
     private readonly Dictionary<string, FormLayout?> _layoutCache = new(StringComparer.OrdinalIgnoreCase);
 
+    internal FormLayout? ServedLayout(string typeName)
+        => _layoutCache.TryGetValue(typeName, out var layout) ? layout : null;
+
+    internal async Task<IReadOnlyList<ProcessRule>?> InspectAsync(string typeName,
+        IProcessRuleProvider? rules, CancellationToken ct)
+    {
+        _layoutCache.Remove(typeName);
+        var observed = _layoutProvider is AdoIterationService native
+            ? await native.InspectFormAsync(typeName, ct).ConfigureAwait(false)
+            : (Layout: _layoutProvider is null ? new FormLayoutResult.Unavailable()
+                : await _layoutProvider.GetFormLayoutAsync(typeName, ct).ConfigureAwait(false),
+                Rules: (IReadOnlyList<ProcessRule>?)null);
+        var layout = observed.Layout switch
+        {
+            FormLayoutResult.Served served => served.Layout,
+            FormLayoutResult.Locked => null,
+            FormLayoutResult.Unavailable => null,
+            _ => throw new UnreachableException($"Unhandled FormLayoutResult: {observed.Layout.GetType().Name}"),
+        };
+        var retained = layout is null || _layoutProvider is AdoIterationService ? observed.Rules
+            : rules is null ? null : await rules.GetRulesAsync(typeName, ct).ConfigureAwait(false);
+        _layoutCache[typeName] = layout;
+        return retained;
+    }
+
     public DetailDocumentSource(IFormLayoutProvider? layoutProvider, WorkItemMapper? mapper = null)
     {
         _layoutProvider = layoutProvider;

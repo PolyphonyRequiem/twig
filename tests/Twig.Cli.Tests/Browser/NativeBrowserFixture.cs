@@ -183,6 +183,9 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     {
         internal List<int> RequestedItems { get; } = [];
         internal int Mutations { get; private set; }
+        internal int HttpAttempts { get; private set; }
+        internal int MetadataAttempts { get; private set; }
+        internal bool RejectMetadata { get; set; }
         internal bool HoldNext { get; set; }
         internal bool FailNext { get; set; }
         internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -190,6 +193,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            HttpAttempts++;
             var encoded = request.Headers.Authorization?.Parameter;
             var secret = encoded is null ? null : Encoding.UTF8.GetString(Convert.FromBase64String(encoded))[1..];
             var actor = secret is ActorPat or RenewedPat ? Actor : secret == SiblingPat ? Sibling : null;
@@ -201,7 +205,12 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
                 return Reply(HttpStatusCode.OK, new { displayName = "Fixture reader", emailAddress = actor + "@fixture.invalid" });
             const string segment = "/_apis/wit/workitems/";
             var offset = path.IndexOf(segment, StringComparison.OrdinalIgnoreCase);
-            if (offset < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            if (offset < 0)
+            {
+                MetadataAttempts++;
+                if (RejectMetadata) throw new InvalidOperationException("Fixture metadata HTTP is sealed.");
+                return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
+            }
             var id = int.Parse(path[(offset + segment.Length)..].Split('/')[0], System.Globalization.CultureInfo.InvariantCulture);
             RequestedItems.Add(id);
             if (request.Method != HttpMethod.Get)

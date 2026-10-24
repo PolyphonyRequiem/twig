@@ -1204,6 +1204,25 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         bool document = false, CancellationToken ct = default)
         => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, document, ct);
 
+    /// <summary>Capture exact recoverable intent locally and export canonical proposal bytes; never authorize or apply.</summary>
+    /// <param name="id">Published native work-item ID (required).</param>
+    /// <param name="bench">Explicit saved Bench name or ID (required); never selects or switches the current Bench.</param>
+    /// <param name="checkoutRoot">Exact native qualified checkout root from inspection (required).</param>
+    /// <param name="connectionId">Exact native connection reference from inspection (required).</param>
+    /// <param name="bindingId">Exact native binding ID from inspection (required).</param>
+    /// <param name="identityId">Exact admitted native authentication identity ID (required).</param>
+    /// <param name="generation">Exact Int64 draft generation from inspection (required; no rounding).</param>
+    /// <param name="revision">Exact native baseline and observed revision (required).</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="recover">Retained capture digest for export recovery (default null); never imports or adopts changed intent.</param>
+    /// <param name="ct">Cancellation token.</param>
+    [Command("draft capture")]
+    public async Task<int> DraftCapture([Argument] int id, string bench, string checkoutRoot,
+        string connectionId, string bindingId, string identityId, long generation, int revision,
+        string output = OutputFormatterFactory.DefaultFormat, string? recover = null, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().CaptureAsync(id, bench, checkoutRoot,
+           connectionId, bindingId, identityId, generation, revision, output, recover, ct);
+
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
     /// <param name="view">Initial tree or table view (default tree).</param>
@@ -1855,6 +1874,7 @@ internal static class GroupedHelp
         "bench delete",
         "bench detail",
         "draft show",
+        "draft capture",
         "bench browser",
         "bench configuration",
         "bench configuration area candidates",

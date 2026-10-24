@@ -274,6 +274,27 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
         return await layoutTask.ConfigureAwait(false);
     }
 
+    internal async Task<(FormLayoutResult Layout, IReadOnlyList<ProcessRule>? Rules)> InspectFormAsync(
+        string typeName, CancellationToken ct)
+    {
+        using var operation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        _formLayoutCache.Remove(typeName);
+        _processRulesCache.Remove(typeName);
+        // Explicit inspection shares one freshly fetched process identity and roster.
+        // Ordinary browsing retains its existing session caches.
+        var process = await FetchProcessTemplateAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(process?.TemplateTypeId))
+            return (new FormLayoutResult.Unavailable(), null);
+        var types = await FetchProcessWorkItemTypesAsync(process.TemplateTypeId, ct).ConfigureAwait(false);
+        var layout = await FetchFormLayoutAsync(typeName, ct, process, types).ConfigureAwait(false);
+        IReadOnlyList<ProcessRule>? rules = layout is FormLayoutResult.Served served
+            ? await FetchProcessRulesAsync(typeName, ct, process, served.Layout.WorkItemTypeReferenceName).ConfigureAwait(false)
+            : null;
+        _formLayoutCache[typeName] = Task.FromResult(layout);
+        if (rules is not null) _processRulesCache[typeName] = Task.FromResult(rules);
+        return (layout, rules);
+    }
+
     public async Task<IReadOnlyList<ProcessTypeField>?> GetTypeFieldsAsync(
         string workItemTypeName,
         CancellationToken ct = default)
@@ -488,23 +509,23 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
 
     private async Task<IReadOnlyList<ProcessRule>> FetchProcessRulesAsync(
         string workItemTypeName,
-        CancellationToken ct)
+        CancellationToken ct, AdoProcessTemplate? observedProcess = null, string? observedReference = null)
     {
         using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
-        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
-        var workItemTypes = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
-        var workItemType = workItemTypes?.Value?.FirstOrDefault(type =>
+        var processTemplate = observedProcess ?? await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        var workItemTypes = observedReference is null ? await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct)) : null;
+        var referenceName = observedReference ?? workItemTypes?.Value?.FirstOrDefault(type =>
             !type.IsDisabled &&
-            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(type.Name, workItemTypeName, StringComparison.OrdinalIgnoreCase))?.ReferenceName;
 
         if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId) ||
-            string.IsNullOrWhiteSpace(workItemType?.ReferenceName))
+            string.IsNullOrWhiteSpace(referenceName))
         {
             return Array.Empty<ProcessRule>();
         }
 
         var url = $"{_orgUrl}/_apis/work/processes/{Uri.EscapeDataString(processTemplate.TemplateTypeId)}" +
-            $"/workItemTypes/{Uri.EscapeDataString(workItemType.ReferenceName)}/rules?api-version={AdoApiVersions.ProcessRules}";
+            $"/workItemTypes/{Uri.EscapeDataString(referenceName)}/rules?api-version={AdoApiVersions.ProcessRules}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var result = await JsonSerializer.DeserializeAsync(
@@ -512,6 +533,8 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
             TwigJsonContext.Default.AdoProcessRuleListResponse,
             ct);
 
+        if (result?.Value is null && observedProcess is not null)
+            throw new InvalidOperationException("metadata-unavailable: explicit process rules response has no rule set.");
         if (result?.Value is null)
             return Array.Empty<ProcessRule>();
 
@@ -578,15 +601,16 @@ internal sealed class AdoIterationService : IIterationService, IProcessRuleProvi
     /// </remarks>
     private async Task<FormLayoutResult> FetchFormLayoutAsync(
         string workItemTypeName,
-        CancellationToken ct)
+        CancellationToken ct, AdoProcessTemplate? observedProcess = null,
+        AdoProcessWorkItemTypeListResponse? observedTypes = null)
     {
         using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
-        var processTemplate = await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
+        var processTemplate = observedProcess ?? await (_processTemplateCache ??= FetchProcessTemplateAsync(ct));
         if (string.IsNullOrWhiteSpace(processTemplate?.TemplateTypeId))
             return new FormLayoutResult.Unavailable();
 
-        var processTypes = await (_processWorkItemTypesCache ??=
-            FetchProcessWorkItemTypesAsync(processTemplate.TemplateTypeId, ct));
+        var processTypes = observedProcess is not null ? observedTypes
+            : await (_processWorkItemTypesCache ??= FetchProcessWorkItemTypesAsync(processTemplate.TemplateTypeId, ct));
 
         var referenceName = ResolveProcessTypeReferenceName(processTypes, workItemTypeName);
         if (referenceName is null)

@@ -16,4 +16,13 @@ internal interface IDraftProposalCaptureStore
         PlanWorkspace workspace,
         string proposalDirectory,
         CancellationToken ct = default);
+
+    Task<PlanJournal> CaptureObservedAsync(
+        RecoverableWorkItemDraft expectedDraft,
+        WorkItemSnapshot expectedSnapshot,
+        PlanOrigin origin,
+        PlanWorkspace workspace,
+        string proposalDirectory,
+        string evidenceFingerprint,
+        CancellationToken ct = default);
 }

@@ -492,15 +492,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item without changing context. Cache-only by default; use --refresh to sync first.</summary>
+    /// <summary>Display a work item without changing context. Integer IDs are cache-only by default; --local-id reads through the active provider.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="refresh">Sync from ADO before displaying, instead of reading cache only.</param>
     /// <param name="fields">Comma-separated field reference names for opt-in compact JSON.</param>
     /// <param name="sections">Comma-separated links, children, parent sections for compact JSON.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections);
+    /// <param name="localId">Canonical GUIDv7 identity for an authoritative provider read; requires JSON output.</param>
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, string? fields = null, string? sections = null, string? localId = null)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, refresh, ct, fields: fields, sections: sections, localId: localId);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are disclosed and exit nonzero.</summary>
     /// <param name="batchArg">Comma-separated work item IDs, positionally: twig show-batch 1234,5678,9012.</param>

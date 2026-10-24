@@ -28,7 +28,7 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
     async () => {
         assert.ok(exeDir && manifestPath, "both TWIG_NATIVE_EXE_DIR and TWIG_NATIVE_FIXTURE are required once opted in");
         const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-        for (const key of ["nativeSha", "binary", "workspacePath", "bench", "memberId", "nonMemberId", "currentBenchProbeArgs"]) {
+        for (const key of ["nativeSha", "binary", "workspacePath", "bench", "memberId", "nonMemberId", "currentBenchProbeArgs", "env"]) {
             assert.ok(manifest[key] !== undefined, `manifest is missing ${key}`);
         }
         const exe = join(resolve(exeDir), manifest.binary.file);
@@ -37,7 +37,7 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
 
         const savedPath = process.env.PATH;
         const savedEnv = { ...process.env };
-        const extra = process.env.TWIG_NATIVE_ENV ? JSON.parse(process.env.TWIG_NATIVE_ENV) : {};
+        const extra = { ...manifest.env, ...(process.env.TWIG_NATIVE_ENV ? JSON.parse(process.env.TWIG_NATIVE_ENV) : {}) };
         // Only the exact build directory is on PATH, so a bare `twig` cannot resolve to an installed binary.
         process.env.PATH = resolve(exeDir) + delimiter + resolve(exeDir);
         Object.assign(process.env, extra);

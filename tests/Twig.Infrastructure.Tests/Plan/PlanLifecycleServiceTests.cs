@@ -109,6 +109,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     /// fail-closed production answer; AFK tests set it explicitly.
     /// </summary>
     private SessionSteeringMode _steeringMode = SessionSteeringMode.HumanSteered;
+    private int _steeringResolutions;
 
     private sealed class StubSteering(Func<SessionSteeringMode> read) : ISessionSteeringModeProvider
     {
@@ -158,7 +159,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             _config,
             _paths,
             provider,
-            new StubSteering(() => _steeringMode),
+            new StubSteering(() => { _steeringResolutions++; return _steeringMode; }),
             new FixtureOrigin(_repoRoot),
             _ruleProvider,
             Substitute.For<IUnitOfWork>());
@@ -423,6 +424,43 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             .Returns(4);
         _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(BuildWorkItem(42, rev: 4, state: "Active"));
         return (file, digest, svc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Apply_DraftCapturedJournal_RefusesBeforeAuthorityOrConfirmation(bool supplyAuthorization)
+    {
+        var repository = new SqliteWorkItemRepository(_store, _mapper);
+        await repository.SaveAsync(_mapper.Map(new WorkItemSnapshot
+        {
+            Id = 42, Revision = 3, Title = "baseline", TypeName = "FixtureType", State = "FixtureState",
+            Fields = new Dictionary<string, string?> { ["Fixture.Field"] = "old" },
+        }));
+        var snapshot = (await repository.GetSnapshotByIdAsync(42))!;
+        var draft = RecoverableWorkItemDraft.Create(
+            new QualifiedWorkItemKey(_repoRoot, "fixture-connection", "fixture-binding", 42), 3)
+            .SetField("Fixture.Field", "old", "intent");
+        (await new SqliteRecoverableWorkItemDraftStore(_store).TrySaveAsync(draft, null)).ShouldBeTrue();
+        var journal = await new SqliteDraftProposalCaptureStore(_store).CaptureAsync(
+            draft, snapshot, await new FixtureOrigin(_repoRoot).GetOriginAsync(),
+            new PlanWorkspace { Organization = "acme", Project = "cache" }, _repoRoot);
+        await File.WriteAllTextAsync(journal.SourcePath, journal.CanonicalJson);
+        journal.DraftCapture.ShouldNotBeNull();
+
+        var result = await BuildService().ApplyAsync(journal.SourcePath, journal.Digest,
+            supplyAuthorization ? Authorize(journal.Digest) : null);
+
+        result.Failed.ShouldBeTrue();
+        result.Error!.ShouldContain("Draft-captured proposals are local inspection only");
+        _steeringResolutions.ShouldBe(0);
+        var retained = (await _journal.GetAsync(journal.Digest))!;
+        retained.State.ShouldBe(PlanOperationState.Planned);
+        retained.ConfirmedAt.ShouldBeNull();
+        retained.AuthorizationMode.ShouldBeNull();
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
+        _ruleProvider.ReceivedCalls().ShouldBeEmpty();
     }
 
     // Defends against: an apply proceeding with nobody on record as having released it.

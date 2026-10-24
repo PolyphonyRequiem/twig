@@ -93,7 +93,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
     /// document even if it survived the boundary check.
     /// </para>
     /// </summary>
-    public async Task<PlanJournal> ImportAsync(
+    public Task<PlanJournal> ImportAsync(
         PlanDefinition plan,
         string canonicalJson,
         string digest,
@@ -101,6 +101,41 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         DateTimeOffset previewedAt,
         CancellationToken ct = default,
         PlanOrigin? origin = null)
+        => ImportCoreAsync(plan, canonicalJson, digest, sourcePath, previewedAt, ct, origin, null);
+
+    internal Task<PlanJournal> ImportCaptureAsync(
+        PlanDefinition plan,
+        string canonicalJson,
+        string digest,
+        string sourcePath,
+        DateTimeOffset previewedAt,
+        DraftProposalCapture capture,
+        CancellationToken ct)
+    {
+        if (_store.ActiveTransaction is null)
+            throw new InvalidOperationException("Capture import requires its caller's fenced draft transaction.");
+        if (capture.ProposalDigest != digest || plan.Operations.Count != 1
+            || plan.Operations[0] is not BatchOperation batch || batch.Id != capture.OperationId
+            || batch.WorkItemId != capture.Draft.ItemKey.WorkItemId
+            || batch.ExpectedRevision != capture.CurrentRevision
+            || batch.Fields.Count != capture.Draft.Changes.Count
+            || capture.Draft.Changes.Any(change =>
+                !batch.Fields.TryGetValue(change.FieldRef, out var value) || value != change.ProposedValue)
+            || capture.OperationId != "draft-" + SqliteDraftProposalCaptureStore.IdentityDigest(
+                capture.Draft, capture.CurrentRevision, capture.Origin, plan.Workspace))
+            throw new InvalidOperationException("Capture binding does not identify the exact proposal.");
+        return ImportCoreAsync(plan, canonicalJson, digest, sourcePath, previewedAt, ct, capture.Origin, capture);
+    }
+
+    private async Task<PlanJournal> ImportCoreAsync(
+        PlanDefinition plan,
+        string canonicalJson,
+        string digest,
+        string sourcePath,
+        DateTimeOffset previewedAt,
+        CancellationToken ct,
+        PlanOrigin? origin,
+        DraftProposalCapture? capture)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrEmpty(canonicalJson);
@@ -111,6 +146,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         // let the journal describe a plan the file no longer represents. Refuse before touching
         // the DB so a rejected import leaves no partial state.
         BindArtifacts(plan, canonicalJson, digest);
+        ct.ThrowIfCancellationRequested();
 
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
@@ -135,11 +171,11 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                     INSERT OR IGNORE INTO proposal_journals
                         (digest, schema_version, organization, project, source_path,
                          canonical_json, state, previewed_at, last_previewed_at,
-                         confirmed_at, completed_at, error, origin_json)
+                         confirmed_at, completed_at, error, origin_json, draft_capture_json)
                     VALUES
                         (@digest, @schemaVersion, @org, @project, @source,
                          @canonical, @state, @previewedAt, @previewedAt, NULL, NULL, NULL,
-                         @originJson);
+                         @originJson, @captureJson);
                     """;
                 header.Parameters.AddWithValue("@digest", digest);
                 header.Parameters.AddWithValue("@schemaVersion", PlanFileSchemaVersion);
@@ -150,6 +186,8 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
                 header.Parameters.AddWithValue("@state", PlanOperationState.Planned.ToString());
                 header.Parameters.AddWithValue("@previewedAt", FormatTimestamp(previewedAt));
                 header.Parameters.AddWithValue("@originJson", (object?)SerializeOrigin(origin) ?? DBNull.Value);
+                header.Parameters.AddWithValue("@captureJson", capture is null ? DBNull.Value
+                    : JsonSerializer.Serialize(capture, TwigJsonContext.Default.DraftProposalCapture));
                 inserted = header.ExecuteNonQuery() == 1;
             }
 
@@ -205,6 +243,15 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             ?? throw new InvalidOperationException(
                 "Plan journal was inserted but could not be read back — durable store may be corrupt.");
 
+        if (capture is not null)
+        {
+            AssertCaptureMatch(loaded, capture, canonicalJson, sourcePath);
+            // Exact replay never refreshes ordering, imports again, or adopts an unbound row.
+            return loaded;
+        }
+        if (loaded.DraftCapture is not null)
+            throw new InvalidOperationException("A draft-captured journal requires native capture lifecycle validation.");
+
         if (!inserted && !string.Equals(loaded.CanonicalJson, canonicalJson, StringComparison.Ordinal))
         {
             // Defense-in-depth: the boundary already guarantees SHA(canonical) == digest, so
@@ -241,6 +288,19 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         }
 
         return loaded;
+    }
+
+    internal static void AssertCaptureMatch(
+        PlanJournal loaded, DraftProposalCapture capture, string canonicalJson, string sourcePath)
+    {
+        if (loaded.Digest != capture.ProposalDigest || loaded.DraftCapture is null
+            || !string.Equals(JsonSerializer.Serialize(loaded.DraftCapture, TwigJsonContext.Default.DraftProposalCapture),
+                JsonSerializer.Serialize(capture, TwigJsonContext.Default.DraftProposalCapture), StringComparison.Ordinal)
+            || !string.Equals(loaded.CanonicalJson, canonicalJson, StringComparison.Ordinal)
+            || !string.Equals(loaded.SourcePath, sourcePath, StringComparison.Ordinal)
+            || loaded.Origin != capture.Origin)
+            throw new InvalidOperationException(
+                "Existing journal is unbound or differs from the exact capture binding, bytes, source, or origin.");
     }
 
     /// <summary>
@@ -421,7 +481,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             SELECT organization, project, source_path, canonical_json,
                    state, previewed_at, last_previewed_at, confirmed_at, completed_at, error,
                    authorization_mode, authorizer_identity, rationale,
-                   review_model_json, authorized_at, origin_json
+                   review_model_json, authorized_at, origin_json, draft_capture_json
             FROM proposal_journals
             WHERE digest = @digest;
             """;
@@ -453,6 +513,11 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
         var reviewModelJson = reader.IsDBNull(13) ? null : reader.GetString(13);
         var authorizedAt = reader.IsDBNull(14) ? (DateTimeOffset?)null : ParseTimestamp(reader.GetString(14));
         var origin = reader.IsDBNull(15) ? null : DeserializeOrigin(reader.GetString(15));
+        var capture = reader.IsDBNull(16) ? null
+            : JsonSerializer.Deserialize(reader.GetString(16), TwigJsonContext.Default.DraftProposalCapture)
+                ?? throw new InvalidDataException("The persisted draft capture was empty.");
+        if (capture is not null && (capture.ProposalDigest != digest || capture.Origin != origin))
+            throw new InvalidDataException("The persisted draft capture disagrees with its journal identity or origin.");
 
         var operations = ReadOperations(digest);
 
@@ -474,6 +539,7 @@ public sealed class SqlitePlanJournalRepository : IPlanJournalRepository
             ReviewModelJson = reviewModelJson,
             AuthorizedAt = authorizedAt,
             Origin = origin,
+            DraftCapture = capture,
             Operations = operations,
         });
     }

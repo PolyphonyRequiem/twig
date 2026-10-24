@@ -205,11 +205,14 @@ public sealed class LocalWorkItemDurabilityTests
                     DROP TABLE pending.local_work_items;
                     DROP TABLE pending.external_identities;
                     DROP TABLE pending.local_relationships;
+                    ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
+                    DROP TABLE pending.recoverable_work_item_drafts;
                     INSERT INTO pending.pending_changes (work_item_id, change_type, field_name, new_value, created_at)
                         VALUES (-1, 'field', 'System.Title', 'keep me', '2026-01-01T00:00:00.0000000+00:00');
                     PRAGMA pending.user_version = 12;
                     """;
                 cmd.ExecuteNonQuery();
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(store.GetConnection(), 12);
             }
 
             using (var store = new SqliteCacheStore(source))

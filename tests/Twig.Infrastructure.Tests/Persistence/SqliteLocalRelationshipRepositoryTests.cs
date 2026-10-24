@@ -213,7 +213,10 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
                 Exec(conn, "DROP TABLE pending.local_relationships;");
                 Exec(conn, "DROP TABLE pending.local_work_items;");
                 Exec(conn, "DROP TABLE pending.external_identities;");
+                Exec(conn, "ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;");
+                Exec(conn, "DROP TABLE pending.recoverable_work_item_drafts;");
                 Exec(conn, "PRAGMA pending.user_version = 12;");
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 12);
             }
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");
@@ -239,6 +242,8 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             {
                 var conn = store.GetConnection();
                 Exec(conn, "DROP TABLE pending.local_relationships;");
+                Exec(conn, "ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;");
+                Exec(conn, "DROP TABLE pending.recoverable_work_item_drafts;");
                 // #1168's v13 DDL, verbatim, with a neutral-layer row that carries no emulation policy.
                 Exec(conn, $"""
                     CREATE TABLE pending.local_relationships (
@@ -256,6 +261,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
                     VALUES ('{Id(7)}', '{Id(8)}', 'related', 4, '2026-01-01T00:00:00.0000000+00:00', '2026-01-01T00:00:00.0000000+00:00', NULL);
                     PRAGMA pending.user_version = 13;
                     """);
+                DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 13);
             }
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");

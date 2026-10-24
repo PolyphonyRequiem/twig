@@ -72,7 +72,10 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);
         var byId = known.ToDictionary(i => i.Id);
         var affected = roles.OrderBy(p => p.Key).Select(p => Item(p.Key, p.Value, byId.GetValueOrDefault(p.Key), definition.Workspace)).ToArray();
-        var fieldDefinitions = _fields is null ? [] : await _fields.GetAllAsync(ct).ConfigureAwait(false);
+        var hasLegacyBatch = definition.Operations.Any(static operation => operation is BatchOperation);
+        var fieldDefinitions = _fields is null || !hasLegacyBatch
+            ? []
+            : await _fields.GetAllAsync(ct).ConfigureAwait(false);
         var labels = fieldDefinitions.ToDictionary(f => f.ReferenceName, StringComparer.OrdinalIgnoreCase);
         var seeds = definition.Operations.Any(o => o is PublishSeedOperation)
             ? await _workItems.GetSeedsAsync(ct).ConfigureAwait(false) : [];
@@ -271,6 +274,75 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                     ],
                 };
 
+            case ProviderMutationOperation provider:
+                {
+                    var item = provider.Target.Item;
+                    var identity = ProviderIdentityLabel(item);
+                    var consequences = provider.OperationKind switch
+                    {
+                        PlanOperationKind.Batch => provider.Fields!.Select(pair => new ReviewConsequence
+                        {
+                            Kind = pair.Value is null ? "field-clear" : "field-set",
+                            Field = pair.Key,
+                            To = pair.Value,
+                        }).ToArray(),
+                        PlanOperationKind.AddLink =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "link-add",
+                                Relation = provider.Relation,
+                                OtherProviderWorkItem = provider.Other,
+                            },
+                        ],
+                        PlanOperationKind.RemoveLink =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "link-remove",
+                                Relation = provider.Relation,
+                                OtherProviderWorkItem = provider.Other,
+                            },
+                        ],
+                        PlanOperationKind.Delete =>
+                        [
+                            new ReviewConsequence
+                            {
+                                Kind = "work-item-delete",
+                                OtherProviderWorkItem = item,
+                            },
+                        ],
+                        _ => throw new NotSupportedException(
+                            $"Provider mutation kind '{provider.OperationKind}' has no review projection."),
+                    };
+                    var summary = provider.OperationKind switch
+                    {
+                        PlanOperationKind.Batch => $"Set {Plural(provider.Fields!.Count, "field")} on {identity}",
+                        PlanOperationKind.AddLink => $"Add {provider.Relation} link {identity} -> {ProviderIdentityLabel(provider.Other!)}",
+                        PlanOperationKind.RemoveLink => $"Remove {provider.Relation} link {identity} -> {ProviderIdentityLabel(provider.Other!)}",
+                        PlanOperationKind.Delete => $"Delete {identity}",
+                        _ => throw new NotSupportedException(
+                            $"Provider mutation kind '{provider.OperationKind}' has no review projection."),
+                    };
+                    return new ReviewOperation
+                    {
+                        Ordinal = ordinal,
+                        OpId = provider.Id,
+                        Kind = PlanDocumentWriter.WireKind(provider.Kind),
+                        Target = new ReviewTarget { ProviderWorkItem = item },
+                        Summary = summary,
+                        Preconditions =
+                        [
+                            new ReviewPrecondition
+                            {
+                                Kind = "expectedProviderRevision",
+                                Value = provider.Target.ExpectedProviderRevision.Value,
+                            },
+                        ],
+                        Consequences = consequences,
+                    };
+                }
+
             default:
                 throw new NotSupportedException(
                     $"Plan operation kind '{op.Kind}' has no review projection. Every kind must be " +
@@ -283,6 +355,10 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         Kind = "expectedRevision",
         Value = expectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture),
     };
+
+    private static string ProviderIdentityLabel(ProviderWorkItemReference item) =>
+        $"{item.ExternalIdentity.ProviderKind}:{item.ExternalIdentity.ResourceScope}:{item.ExternalIdentity.NativeId} "
+        + $"(local {item.LocalId})";
 
     // "target" always wins over "peer": an item an operation acts on directly is not demoted
     // because a later operation happens to link to it.

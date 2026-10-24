@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Twig.Domain.Services.ChangeProposals;
+using Twig.Domain.Services.Plan;
 using Twig.RenderTree;
 
 namespace Twig.Rendering;
@@ -140,8 +141,15 @@ public static class ChangeProposalReviewRenderer
     }
 
     private static int? RowId(RenderTreeBranch branch) => branch.Row.Cells.TryGetValue("id", out var c) && c.Value is RenderValue.Integer n ? (int)n.Value : null;
-    private static bool SameTarget(ReviewTarget a, ReviewTarget b) => a.WorkItemId == b.WorkItemId && a.StagedIdentity == b.StagedIdentity;
-    private static string TargetName(ReviewTarget target) => target.WorkItemId is { } id ? $"#{id}" : $"seed {target.StagedIdentity ?? "(unknown)"}";
+    private static bool SameTarget(ReviewTarget a, ReviewTarget b) =>
+        a.WorkItemId == b.WorkItemId
+        && a.StagedIdentity == b.StagedIdentity
+        && a.ProviderWorkItem == b.ProviderWorkItem;
+
+    private static string TargetName(ReviewTarget target) => target.ProviderWorkItem is { } providerItem
+        ? ProviderIdentityLabel(providerItem)
+        : target.WorkItemId is { } id ? $"#{id}" : $"seed {target.StagedIdentity ?? "(unknown)"}";
+
     private static RenderRow Identity(ReviewTarget target, ReviewAffectedItem? item)
     {
         var seed = target.Seed;
@@ -154,6 +162,13 @@ public static class ChangeProposalReviewRenderer
             ["role"] = RenderCell.String(item?.Role ?? "staged draft"),
         };
         if (target.WorkItemId is { } id) cells["id"] = new RenderCell("", new RenderValue.Integer(id));
+        if (target.ProviderWorkItem is { } providerItem)
+        {
+            cells["localId"] = RenderCell.String(providerItem.LocalId.ToString());
+            cells["provider"] = RenderCell.String(Safe(providerItem.ExternalIdentity.ProviderKind));
+            cells["resourceScope"] = RenderCell.String(Safe(providerItem.ExternalIdentity.ResourceScope));
+            cells["nativeId"] = RenderCell.String(Safe(providerItem.ExternalIdentity.NativeId));
+        }
         if (item?.Url is { } url) cells["url"] = RenderCell.String(Safe(url));
         if (seed is not null) cells["alias"] = RenderCell.String($"local alias {seed.DisplayAlias}");
         if ((item?.ParentId ?? seed?.ParentId) is { } parent) cells["parent"] = RenderCell.String($"cached parent #{parent}");
@@ -189,12 +204,21 @@ public static class ChangeProposalReviewRenderer
     private static string Quote(string value) => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     private static string DescribeConsequence(ReviewConsequence c) => c.Kind switch
     {
-        "link-add" => $"add {c.Relation} link to #{c.OtherId}",
-        "link-remove" => $"remove {c.Relation} link to #{c.OtherId}",
+        "link-add" => $"add {c.Relation} link to {DescribeOther(c)}",
+        "link-remove" => $"remove {c.Relation} link to {DescribeOther(c)}",
         "seed-publish" => "publish staged draft (new published identity assigned only when applied)",
-        "work-item-delete" => $"delete work item #{c.OtherId}",
+        "work-item-delete" => $"delete work item {DescribeOther(c)}",
         _ => $"change {c.Field ?? "item"} {c.To ?? string.Empty} {c.Relation} {c.OtherId}".Trim(),
     };
+
+    private static string DescribeOther(ReviewConsequence consequence) =>
+        consequence.OtherProviderWorkItem is { } providerItem
+            ? ProviderIdentityLabel(providerItem)
+            : $"#{consequence.OtherId}";
+
+    private static string ProviderIdentityLabel(ProviderWorkItemReference item) =>
+        $"{item.ExternalIdentity.ProviderKind}:{item.ExternalIdentity.ResourceScope}:{item.ExternalIdentity.NativeId} "
+        + $"(local {item.LocalId})";
     private static RenderNode.Text Text(string text) => new(Safe(text));
     // Preserve printable exact values and line breaks; neutralize terminal controls and bidi spoofing.
     internal static string Safe(string text)

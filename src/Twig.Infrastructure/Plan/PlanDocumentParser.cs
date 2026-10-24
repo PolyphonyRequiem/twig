@@ -7,7 +7,7 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Infrastructure.Plan;
 
 /// <summary>
-/// Parses and validates a plan v1 JSON document into a <see cref="PlanDefinition"/>.
+/// Parses and validates a versioned plan JSON document into a <see cref="PlanDefinition"/>.
 /// <para>
 /// User-facing input is never allowed to throw: every structural, type or vocabulary
 /// error surfaces as a <see cref="PlanValidationIssue"/> with a stable code and JSON
@@ -26,7 +26,8 @@ namespace Twig.Infrastructure.Plan;
 /// </summary>
 public sealed class PlanDocumentParser
 {
-    private const int SupportedVersion = 1;
+    private const int LegacyVersion = 1;
+    private const int ProviderIdentityVersion = 2;
 
     // JSON property names — camelCase per the shared contract sample.
     private const string PropVersion = "version";
@@ -43,6 +44,15 @@ public sealed class PlanDocumentParser
     private const string PropOtherId = "otherId";
     private const string PropStagedIdentity = "stagedIdentity";
     private const string PropExpectedFingerprint = "expectedFingerprint";
+    private const string PropTarget = "target";
+    private const string PropItem = "item";
+    private const string PropLocalId = "localId";
+    private const string PropExternalIdentity = "externalIdentity";
+    private const string PropProviderKind = "providerKind";
+    private const string PropResourceScope = "resourceScope";
+    private const string PropNativeId = "nativeId";
+    private const string PropExpectedProviderRevision = "expectedProviderRevision";
+    private const string PropOther = "other";
 
     private const string KindBatch = "batch";
     private const string KindAddLink = "add-link";
@@ -80,15 +90,45 @@ public sealed class PlanDocumentParser
         PropId, PropKind, PropWorkItemId, PropExpectedRevision,
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    private static readonly FrozenSet<string> ProviderBatchProperties = new[]
+    {
+        PropId, PropKind, PropTarget, PropFields,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ProviderLinkProperties = new[]
+    {
+        PropId, PropKind, PropTarget, PropRelation, PropOther,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ProviderDeleteProperties = new[]
+    {
+        PropId, PropKind, PropTarget,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ProviderTargetProperties = new[]
+    {
+        PropItem, PropExpectedProviderRevision,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ProviderReferenceProperties = new[]
+    {
+        PropLocalId, PropExternalIdentity,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenSet<string> ExternalIdentityProperties = new[]
+    {
+        PropProviderKind, PropResourceScope, PropNativeId,
+    }.ToFrozenSet(StringComparer.Ordinal);
+
     private static readonly FrozenSet<string> ValidRelations = new[]
     {
         "parent", "predecessor", "successor", "related",
     }.ToFrozenSet(StringComparer.Ordinal);
 
-    /// <summary>Parses <paramref name="json"/> as a plan v1 document.</summary>
+    /// <summary>Parses <paramref name="json"/> as a versioned plan document.</summary>
     public PlanValidationResult Parse(string json) => Parse(json.AsSpan());
 
-    /// <summary>Parses <paramref name="json"/> as a plan v1 document.</summary>
+    /// <summary>Parses <paramref name="json"/> as a versioned plan document.</summary>
     public PlanValidationResult Parse(ReadOnlySpan<char> json)
     {
         var issues = new List<PlanValidationIssue>();
@@ -135,18 +175,18 @@ public sealed class PlanDocumentParser
             RejectUnknown(root, RootProperties, "", issues);
 
             var version = ReadRequiredInt(root, PropVersion, "/" + PropVersion, issues);
-            if (version is not null && version.Value != SupportedVersion)
+            if (version is not null && version.Value is not (LegacyVersion or ProviderIdentityVersion))
             {
                 issues.Add(new PlanValidationIssue
                 {
                     Code = PlanValidationCodes.UnsupportedVersion,
                     Path = "/" + PropVersion,
-                    Message = $"Plan version {version.Value} is not supported. Only version {SupportedVersion} is understood.",
+                    Message = $"Plan version {version.Value} is not supported. Versions {LegacyVersion} and {ProviderIdentityVersion} are understood.",
                 });
             }
 
             var workspace = ReadWorkspace(root, issues);
-            var operations = ReadOperations(root, issues);
+            var operations = ReadOperations(root, version ?? LegacyVersion, issues);
 
             if (issues.Count > 0 || version is null || workspace is null || operations is null)
             {
@@ -195,7 +235,8 @@ public sealed class PlanDocumentParser
         return new PlanWorkspace { Organization = org, Project = proj };
     }
 
-    private static IReadOnlyList<PlanOperationDefinition>? ReadOperations(JsonElement root, List<PlanValidationIssue> issues)
+    private static IReadOnlyList<PlanOperationDefinition>? ReadOperations(
+        JsonElement root, int version, List<PlanValidationIssue> issues)
     {
         if (!root.TryGetProperty(PropOperations, out var element))
         {
@@ -226,7 +267,7 @@ public sealed class PlanDocumentParser
         foreach (var op in element.EnumerateArray())
         {
             var path = $"/{PropOperations}/{index}";
-            var parsed = ReadOperation(op, path, issues, seenIds, seenPublishTargets);
+            var parsed = ReadOperation(op, path, version, issues, seenIds, seenPublishTargets);
             if (parsed is null)
             {
                 anyFailed = true;
@@ -243,6 +284,7 @@ public sealed class PlanDocumentParser
     private static PlanOperationDefinition? ReadOperation(
         JsonElement op,
         string path,
+        int version,
         List<PlanValidationIssue> issues,
         HashSet<string> seenIds,
         HashSet<Guid> seenPublishTargets)
@@ -269,6 +311,9 @@ public sealed class PlanDocumentParser
 
         if (id is null || kind is null) return null;
 
+        if (version == ProviderIdentityVersion)
+            return ReadProviderOperation(op, path, id, kind, issues);
+
         return kind switch
         {
             KindBatch => ReadBatch(op, path, id, issues),
@@ -276,19 +321,199 @@ public sealed class PlanDocumentParser
             KindRemoveLink => ReadLink(op, path, id, PlanOperationKind.RemoveLink, issues),
             KindPublishSeed => ReadPublishSeed(op, path, id, issues, seenPublishTargets),
             KindDelete => ReadDelete(op, path, id, issues),
-            _ => AddUnknownKind(op, path, kind, issues),
+            _ => AddUnknownKind(op, path, kind, version, issues),
         };
     }
 
+    private static PlanOperationDefinition? ReadProviderOperation(
+        JsonElement op, string path, string id, string kind, List<PlanValidationIssue> issues)
+    {
+        switch (kind)
+        {
+            case KindBatch:
+                RejectUnknown(op, ProviderBatchProperties, path, issues);
+                var batchTarget = ReadProviderTarget(op, path, issues);
+                var fields = ReadFields(op, path, issues);
+                return batchTarget is null || fields is null ? null : new ProviderMutationOperation
+                {
+                    Id = id,
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = batchTarget,
+                    Fields = fields,
+                };
+
+            case KindAddLink:
+            case KindRemoveLink:
+                RejectUnknown(op, ProviderLinkProperties, path, issues);
+                var linkTarget = ReadProviderTarget(op, path, issues);
+                var relation = ReadRequiredNonEmptyString(op, PropRelation, $"{path}/{PropRelation}", issues);
+                var other = ReadProviderReference(op, PropOther, $"{path}/{PropOther}", issues);
+                if (relation is not null && !ValidRelations.Contains(relation))
+                {
+                    issues.Add(new PlanValidationIssue
+                    {
+                        Code = PlanValidationCodes.InvalidRelation,
+                        Path = $"{path}/{PropRelation}",
+                        Message = $"Relation '{relation}' is not one of parent | predecessor | successor | related.",
+                    });
+                    relation = null;
+                }
+                if (linkTarget is null || relation is null || other is null) return null;
+                return new ProviderMutationOperation
+                {
+                    Id = id,
+                    OperationKind = kind == KindAddLink ? PlanOperationKind.AddLink : PlanOperationKind.RemoveLink,
+                    Target = linkTarget,
+                    Relation = relation,
+                    Other = other,
+                };
+
+            case KindDelete:
+                RejectUnknown(op, ProviderDeleteProperties, path, issues);
+                var deleteTarget = ReadProviderTarget(op, path, issues);
+                return deleteTarget is null ? null : new ProviderMutationOperation
+                {
+                    Id = id,
+                    OperationKind = PlanOperationKind.Delete,
+                    Target = deleteTarget,
+                };
+
+            case KindPublishSeed:
+                issues.Add(new PlanValidationIssue
+                {
+                    Code = PlanValidationCodes.UnsupportedOperationVersion,
+                    Path = $"{path}/{PropKind}",
+                    Message = "Operation kind 'publish-seed' has no provider-identity representation in plan version 2.",
+                });
+                return null;
+
+            default:
+                return AddUnknownKind(op, path, kind, ProviderIdentityVersion, issues);
+        }
+    }
+
+    private static ProviderWorkItemMutationTarget? ReadProviderTarget(
+        JsonElement op, string path, List<PlanValidationIssue> issues)
+    {
+        var targetPath = $"{path}/{PropTarget}";
+        if (!op.TryGetProperty(PropTarget, out var element))
+        {
+            issues.Add(Missing(targetPath, PropTarget));
+            return null;
+        }
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            issues.Add(WrongType(targetPath, "object", element.ValueKind));
+            return null;
+        }
+
+        RejectUnknown(element, ProviderTargetProperties, targetPath, issues);
+        var item = ReadProviderReference(element, PropItem, $"{targetPath}/{PropItem}", issues);
+        var token = ReadRequiredNonEmptyString(
+            element, PropExpectedProviderRevision, $"{targetPath}/{PropExpectedProviderRevision}", issues);
+        if (token is null || item is null) return null;
+
+        try
+        {
+            return new ProviderWorkItemMutationTarget
+            {
+                Item = item,
+                ExpectedProviderRevision = new ProviderRevisionToken(token),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            issues.Add(new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.InvalidProviderRevision,
+                Path = $"{targetPath}/{PropExpectedProviderRevision}",
+                Message = ex.Message,
+            });
+            return null;
+        }
+    }
+
+    private static ProviderWorkItemReference? ReadProviderReference(
+        JsonElement parent, string property, string path, List<PlanValidationIssue> issues)
+    {
+        if (!parent.TryGetProperty(property, out var element))
+        {
+            issues.Add(Missing(path, property));
+            return null;
+        }
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            issues.Add(WrongType(path, "object", element.ValueKind));
+            return null;
+        }
+
+        RejectUnknown(element, ProviderReferenceProperties, path, issues);
+        var localText = ReadRequiredNonEmptyString(element, PropLocalId, $"{path}/{PropLocalId}", issues);
+        var externalPath = $"{path}/{PropExternalIdentity}";
+        if (!element.TryGetProperty(PropExternalIdentity, out var externalElement))
+        {
+            issues.Add(Missing(externalPath, PropExternalIdentity));
+            return null;
+        }
+        if (externalElement.ValueKind != JsonValueKind.Object)
+        {
+            issues.Add(WrongType(externalPath, "object", externalElement.ValueKind));
+            return null;
+        }
+
+        RejectUnknown(externalElement, ExternalIdentityProperties, externalPath, issues);
+        var provider = ReadRequiredNonEmptyString(
+            externalElement, PropProviderKind, $"{externalPath}/{PropProviderKind}", issues);
+        var scope = ReadRequiredNonEmptyString(
+            externalElement, PropResourceScope, $"{externalPath}/{PropResourceScope}", issues);
+        var nativeId = ReadRequiredNonEmptyString(
+            externalElement, PropNativeId, $"{externalPath}/{PropNativeId}", issues);
+        if (localText is null || provider is null || scope is null || nativeId is null)
+            return null;
+
+        if (!LocalWorkItemId.TryParse(localText, out var localId))
+        {
+            issues.Add(new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.InvalidProviderIdentity,
+                Path = $"{path}/{PropLocalId}",
+                Message = $"Local work item id '{localText}' is not in its canonical persisted form.",
+            });
+            return null;
+        }
+
+        try
+        {
+            return new ProviderWorkItemReference
+            {
+                LocalId = localId,
+                ExternalIdentity = new ExternalWorkItemIdentity(provider, scope, nativeId),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            issues.Add(new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.InvalidProviderIdentity,
+                Path = externalPath,
+                Message = ex.Message,
+            });
+            return null;
+        }
+    }
+
     private static PlanOperationDefinition? AddUnknownKind(
-        JsonElement op, string path, string kind, List<PlanValidationIssue> issues)
+        JsonElement op, string path, string kind, int version, List<PlanValidationIssue> issues)
     {
         _ = op;
+        var expectedKinds = version == ProviderIdentityVersion
+            ? "batch | add-link | remove-link | delete"
+            : "batch | add-link | remove-link | publish-seed | delete";
         issues.Add(new PlanValidationIssue
         {
             Code = PlanValidationCodes.UnknownKind,
             Path = $"{path}/{PropKind}",
-            Message = $"Unknown operation kind '{kind}'. Expected batch | add-link | remove-link | publish-seed | delete.",
+            Message = $"Unknown operation kind '{kind}'. Expected {expectedKinds}.",
         });
         return null;
     }

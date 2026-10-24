@@ -262,6 +262,29 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
         var pending = await _pendingReader.GetAllChangesAsync(ct).ConfigureAwait(false);
 
+        if (parsed.Plan.Version == 2)
+        {
+            var blocker = new PlanValidationIssue
+            {
+                Code = PlanValidationCodes.UnsupportedApplyVersion,
+                Path = "/version",
+                Message = "Plan version 2 is valid and reviewable, but this lifecycle cannot apply provider-identity operations yet.",
+            };
+            PlanValidationIssue[] blockedIssues = [.. parsed.Issues, blocker];
+            return new PlanPreviewResult
+            {
+                Digest = parsed.Digest,
+                Operations = parsed.Plan.Operations,
+                Issues = blockedIssues,
+                Workspace = parsed.Plan.Workspace,
+                PendingChanges = pending,
+                CanApply = false,
+                ReviewModel = await _reviewModel.BuildAsync(
+                    parsed.Plan, parsed.Digest, blockedIssues, pending, canApply: false, ct: ct)
+                    .ConfigureAwait(false),
+            };
+        }
+
         // AB#832: refuse before the journal is touched. Importing here would register a SECOND
         // transaction against a path that already carries one — the precise state that makes a
         // later `plan status` on this path resolve someone else's work as if it were this
@@ -367,6 +390,11 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             return TopLevelApplyFailure(
                 confirmedDigest,
                 parsed.Issues.Count > 0 ? parsed.Issues[0].Message : "Plan is invalid.");
+
+        if (parsed.Plan.Version == 2)
+            return TopLevelApplyFailure(
+                confirmedDigest,
+                "Plan version 2 is reviewable but cannot be applied by this lifecycle. No confirmation, authorization, journal mutation, or provider operation was attempted.");
 
         if (!string.Equals(parsed.Digest, confirmedDigest, StringComparison.Ordinal))
             return TopLevelApplyFailure(

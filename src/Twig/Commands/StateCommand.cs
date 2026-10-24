@@ -31,7 +31,7 @@ public sealed class StateCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IConsoleInput consoleInput,
     SeedMutationProvider seedMutationProvider,
     StateTransitionWorkflow stateTransitionWorkflow,

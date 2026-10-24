@@ -53,7 +53,7 @@ internal delegate Task<SeedPublishResult> SeedPublishInvoker(int seedId, Cancell
 /// </remarks>
 internal sealed class PlanSeedPublisher
 {
-    private readonly IAdoWorkItemService _ado;
+    private readonly IProviderWorkItemReader _ado;
     private readonly IWorkItemRepository _workItems;
     private readonly ISeedLinkRepository _seedLinks;
     private readonly IStagedIdentityRegistry _stagedRegistry;
@@ -62,7 +62,7 @@ internal sealed class PlanSeedPublisher
     private readonly SeedPublishInvoker _invokePublish;
 
     internal PlanSeedPublisher(
-        IAdoWorkItemService ado,
+        IProviderWorkItemReader ado,
         IWorkItemRepository workItems,
         ISeedLinkRepository seedLinks,
         IStagedIdentityRegistry stagedRegistry,

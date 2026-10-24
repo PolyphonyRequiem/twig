@@ -145,3 +145,27 @@ Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Failure.init -> void
 Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Policy.get -> Twig.Domain.Services.Policy.DeclaredPolicy?
 Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Policy.init -> void
 Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder.BuildAsync(Twig.Domain.Services.Plan.PlanDefinition! definition, string! digest, System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanValidationIssue!>! issues, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>! pendingChanges, bool canApply, string? rationale = null, Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? recipe = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Policy.PolicyDecision!>? policyDecisions = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel!>!
+Twig.Infrastructure.Config.TwigConfiguration.Provider.get -> string?
+Twig.Infrastructure.Config.TwigConfiguration.Provider.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.ResolveWorkItemProviderKind() -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Provider.get -> string?
+Twig.Infrastructure.Config.TwigRepoConfig.Provider.set -> void
+Twig.Infrastructure.Config.WorkItemProviderSetting
+const Twig.Infrastructure.Config.WorkItemProviderSetting.Default = "ado" -> string!
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnavailableReasonCode = "provider-unavailable" -> string!
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnknownReasonCode = "provider-unknown" -> string!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.KnownKinds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.Normalize(string? value) -> string?
+static Twig.Infrastructure.Config.WorkItemProviderSetting.Resolve(string? stored) -> string!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.RequireAdo(string? stored) -> void
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnconfiguredReasonCode = "provider-unconfigured" -> string!
+Twig.Infrastructure.Config.GitHubConfig
+Twig.Infrastructure.Config.GitHubConfig.GitHubConfig() -> void
+Twig.Infrastructure.Config.GitHubConfig.Host.get -> string?
+Twig.Infrastructure.Config.GitHubConfig.Host.set -> void
+Twig.Infrastructure.Config.GitHubConfig.Repository.get -> string?
+Twig.Infrastructure.Config.GitHubConfig.Repository.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.GitHub.get -> Twig.Infrastructure.Config.GitHubConfig?
+Twig.Infrastructure.Config.TwigConfiguration.GitHub.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.GitHub.get -> Twig.Infrastructure.Config.GitHubConfig?
+Twig.Infrastructure.Config.TwigRepoConfig.GitHub.set -> void

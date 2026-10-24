@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
@@ -30,6 +31,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DisplayColumnsConfig))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
+[JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
+[JsonSerializable(typeof(GitHubIssueAssignee[]))]
 // ADO REST DTOs (EPIC-006)
 [JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
 [JsonSerializable(typeof(AdoWorkItemResponse))]
@@ -110,6 +114,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
 [JsonSerializable(typeof(AdoProcessConfigurationResponse))]
@@ -196,6 +201,20 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(FingerprintDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
+// Provider-neutral work-item identities, tokens, and relationships.
+[JsonSerializable(typeof(ExternalWorkItemIdentity))]
+[JsonSerializable(typeof(ProviderRevisionToken))]
+[JsonSerializable(typeof(ProviderWorkItemRelationship))]
+[JsonSerializable(typeof(ProviderCapabilityDescriptor))]
+[JsonSerializable(typeof(RelationshipCapability))]
+[JsonSerializable(typeof(CapabilityAvailabilityEvidence))]
+[JsonSerializable(typeof(CapabilityReportEntry))]
+[JsonSerializable(typeof(CapabilityReport))]
+[JsonSerializable(typeof(CapabilityImplementation))]
+[JsonSerializable(typeof(CapabilityAvailability))]
+[JsonSerializable(typeof(EmulationStorage))]
+[JsonSerializable(typeof(RelationshipOrigin))]
+[JsonSerializable(typeof(PublicationState))]
 // Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]
@@ -220,6 +239,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
+// Epic #1168 provider-neutral field values (canonical hand-written converter on the type)
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],
@@ -236,6 +257,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(AreaPathEntry))]

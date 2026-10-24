@@ -221,6 +221,18 @@ public sealed class InitCommand
             ? TwigPaths.ForContext(twigDir, config.Organization, config.Project, invocationStartDir)
             : requestedContextPaths;
 
+        // Epic #1167: a tracked manifest may select a non-ADO provider. Init builds ADO clients
+        // directly below, so it applies the same gate as the DI factories before any network use.
+        try
+        {
+            WorkItemProviderSetting.RequireAdo(config.Provider);
+        }
+        catch (TwigConfigurationException ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError(ex.Message));
+            return (1, false, 0);
+        }
+
         // GH#466: publish the effective endpoint as soon as it is known, BEFORE any
         // network admission can occur below. The bootstrap auth provider's identity
         // resolution is itself lazy (see DeferredBoundAuthenticationProvider), so this

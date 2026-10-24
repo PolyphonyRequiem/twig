@@ -13,7 +13,7 @@ namespace Twig.Domain.Services.Sync;
 public sealed class SyncCoordinator
 {
     private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemReader _adoService;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IWorkItemLinkRepository? _linkRepo;
@@ -22,7 +22,7 @@ public sealed class SyncCoordinator
 
     public SyncCoordinator(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemReader adoService,
         ProtectedCacheWriter protectedCacheWriter,
         IPendingChangeStore pendingChangeStore,
         IWorkItemLinkRepository? linkRepo,
@@ -40,7 +40,7 @@ public sealed class SyncCoordinator
 
     public SyncCoordinator(
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
+        IProviderWorkItemReader adoService,
         ProtectedCacheWriter protectedCacheWriter,
         IPendingChangeStore pendingChangeStore,
         int cacheStaleMinutes)

@@ -13,7 +13,7 @@ namespace Twig.Domain.Services.Sync;
 /// </remarks>
 public sealed class WorkItemFetcher(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService)
+    IProviderWorkItemReader adoService)
 {
     /// <summary>
     /// Fetches a work item by ID: cache-first, ADO fallback, best-effort cache warm.

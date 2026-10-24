@@ -5,32 +5,11 @@ namespace Twig.Domain.Interfaces;
 
 /// <summary>
 /// Contract for interacting with the Azure DevOps REST API for work items.
-/// Implemented in Infrastructure (ADO REST client).
+/// Implemented in Infrastructure (ADO REST client). The read members live on
+/// <see cref="IProviderWorkItemReader"/>, the provider read boundary (Feature #1177).
 /// </summary>
-public interface IAdoWorkItemService
+public interface IAdoWorkItemService : IProviderWorkItemReader
 {
-    Task<WorkItem> FetchAsync(int id, CancellationToken ct = default);
-    Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default);
-
-    /// <summary>
-    /// Fetches a SET of work items together with the non-hierarchy edges among them (ADO #154).
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// 🔴 <b>This costs no additional ADO requests over <see cref="FetchBatchAsync"/>.</b> The
-    /// batch URL already carries <c>$expand=relations</c>, so the relations were always on the
-    /// wire; the batch path simply mapped them away. This overload keeps them.
-    /// </para>
-    /// <para>
-    /// Returned links carry every edge sourced from a fetched item, including edges whose target
-    /// lies outside the requested set — a consumer discovering what to fetch next needs exactly
-    /// those, and filtering them here would make that impossible.
-    /// </para>
-    /// </remarks>
-    Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
-        IReadOnlyList<int> ids,
-        CancellationToken ct = default);
-    Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default);
     Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
     Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);
 
@@ -80,9 +59,6 @@ public interface IAdoWorkItemService
     Task ClearPublishMetadataAsync(int id, ValueObjects.SeedPublishCorrelation correlation, CancellationToken ct = default);
 
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
-    Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);
-    Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default);
-    Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default);
     Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
 
     /// <summary>

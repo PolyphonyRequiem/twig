@@ -14,7 +14,7 @@ namespace Twig.Domain.Services.Sync;
 public sealed class RefreshOrchestrator(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemReader adoService,
     IPendingChangeStore pendingChangeStore,
     ProtectedCacheWriter protectedCacheWriter,
     WorkingSetService workingSetService,

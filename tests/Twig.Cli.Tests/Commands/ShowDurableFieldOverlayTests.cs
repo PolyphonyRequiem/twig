@@ -50,7 +50,7 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         }
     }
 
-    private ServiceProvider Compose(bool optedIn)
+    private ServiceProvider Compose(bool optedIn, Spectre.Console.IAnsiConsole? liveConsole = null)
     {
         var twigDir = Path.Combine(_root, ".twig");
         Directory.CreateDirectory(twigDir);
@@ -63,9 +63,18 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         services.AddSingleton(_store);
         services.AddSingleton<IWorkItemProvider>(_provider);
         services.AddSingleton(Substitute.For<IAdoWorkItemService>());
-        services.AddSingleton(Substitute.For<IIterationService>());
+        services.AddSingleton(Twig.Cli.Tests.TestSupport.IdentityStubs.NewBound());
         services.AddSingleton<IWorkItemRepository>(sp => TwigServiceRegistration.CreateMirrorRepository(sp, optedIn));
         services.AddTwigRenderingServices();
+        if (liveConsole is not null)
+        {
+            // Only the terminal is substituted: the real Spectre renderer draws the live tree.
+            services.AddSingleton(liveConsole);
+            services.AddSingleton(sp => new Twig.Rendering.RenderingPipelineFactory(
+                sp.GetRequiredService<Twig.Formatters.OutputFormatterFactory>(),
+                sp.GetRequiredService<Twig.Rendering.IAsyncRenderer>(),
+                isOutputRedirected: () => false));
+        }
         services.AddTwigCommandServices();
         services.AddTwigCommands();
         return services.BuildServiceProvider();
@@ -90,7 +99,7 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
 
     private async Task SeedAsync(ServiceProvider services, int itemId, string remoteTitle, string? localTitle)
     {
-        var item = new WorkItemBuilder(itemId, remoteTitle).InState("Active").Build();
+        var item = new WorkItemBuilder(itemId, remoteTitle).InState("Active").WithIterationPath(@"Project\Sprint 1").Build();
         item.MarkSynced(3);
         await services.GetRequiredService<IWorkItemRepository>().SaveAsync(item);
         if (localTitle is null) return;
@@ -106,6 +115,14 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
     {
         var command = services.GetRequiredService<ShowCommand>();
         var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteBatchAsync(batch, "json"));
+        exit.ShouldBe(0);
+        return output;
+    }
+
+    private async Task<string> ShowTreeJsonAsync(ServiceProvider services)
+    {
+        var command = services.GetRequiredService<ShowCommand>();
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync(42, "json", tree: true));
         exit.ShouldBe(0);
         return output;
     }
@@ -198,6 +215,122 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         titles[43].ShouldBe("Untouched remote");
         _provider.Calls.ShouldBe(1);
         DurableRows().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task OptedIn_ShowTreeFocusDisplaysTheDurableValue_WithoutWritingBack()
+    {
+        using var services = Compose(optedIn: true);
+        await SeedAsync(services, editLocally: true);
+        var before = DurableRows();
+
+        var json = await ShowTreeJsonAsync(services);
+        (await ShowTreeJsonAsync(services)).ShouldBe(json);
+
+        BatchTitles(json)[42].ShouldBe("Local title");
+        _provider.Calls.ShouldBe(1);
+        DurableRows().ShouldBe(before);
+        var mirror = (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!;
+        mirror.Title.ShouldBe("Remote title");
+        mirror.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task OptedOut_ShowTreeIsByteIdenticalToTheUneditedMirror_AndNeverResolvesTheProvider()
+    {
+        using var optedOut = Compose(optedIn: false);
+        await SeedAsync(optedOut, editLocally: false);
+        var optedOutOutput = await ShowTreeJsonAsync(optedOut);
+
+        BatchTitles(optedOutOutput)[42].ShouldBe("Remote title");
+        _provider.Calls.ShouldBe(0);
+        DurableRows().ShouldBeEmpty();
+
+        using var optedInUnedited = Compose(optedIn: true);
+        await SeedAsync(optedInUnedited, editLocally: false);
+        (await ShowTreeJsonAsync(optedInUnedited)).ShouldBe(optedOutOutput);
+    }
+
+    [Fact]
+    public async Task OptedIn_NullScope_ShowTreeFallsBackToTheMirror_WithoutProjecting()
+    {
+        _provider.ResolvedScope = null;
+        using var services = Compose(optedIn: true);
+        await SeedAsync(services, editLocally: false);
+
+        BatchTitles(await ShowTreeJsonAsync(services))[42].ShouldBe("Remote title");
+
+        _provider.Calls.ShouldBe(1);
+        DurableRows().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptedIn_LiveShowTreeDrawsTheDurableValue_WithoutWritingBack(bool refresh)
+    {
+        var console = new Spectre.Console.Testing.TestConsole();
+        console.Profile.Width = 200;
+        using var services = Compose(optedIn: true, liveConsole: console);
+        await SeedAsync(services, editLocally: true);
+        if (refresh)
+        {
+            // A fetched child makes the sync report Updated, so the revised view is actually built.
+            services.GetRequiredService<IAdoWorkItemService>()
+                .FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+                .Returns(new[] { new WorkItemBuilder(44, "Fetched child").InState("Active").WithParent(42).Build() });
+        }
+        var before = DurableRows();
+
+        var command = services.GetRequiredService<ShowCommand>();
+        var (exit, stderr) = await StderrCapture.RunAsync(() => command.ExecuteAsync(42, "human", tree: true, refresh: refresh));
+
+        exit.ShouldBe(0, stderr);
+        if (refresh)
+        {
+            // Both Live frames were drawn: the cached view while syncing, then the revised view.
+            console.Output.ShouldContain("syncing");
+            console.Output.ShouldContain("1 item updated");
+            console.Output.ShouldContain("Fetched child");
+        }
+        console.Output.ShouldContain("Local title");
+        console.Output.ShouldNotContain("Remote title");
+        var after = DurableRows();
+        after.Take(before.Count).ShouldBe(before);
+        after.Count.ShouldBe(before.Count + (refresh ? 1 : 0), "only the synced child's projection may be added");
+        (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!.Title.ShouldBe("Remote title");
+    }
+
+    [Fact]
+    public async Task OptedIn_LiveShowTreeRefresh_SyncsTheMirrorIterationsWorkingSet_NotTheLocalEdit()
+    {
+        var console = new Spectre.Console.Testing.TestConsole();
+        console.Profile.Width = 200;
+        using var services = Compose(optedIn: true, liveConsole: console);
+        await SeedAsync(services, editLocally: false);
+        var sprintMate = new WorkItemBuilder(45, "Sprint mate").InState("Active")
+            .WithIterationPath(@"Project\Sprint 1")
+            .AssignedToUniqueName(Twig.Cli.Tests.TestSupport.IdentityStubs.DefaultCanonicalPrincipal)
+            .Build();
+        sprintMate.MarkSynced(1);
+        await services.GetRequiredService<IWorkItemRepository>().SaveAsync(sprintMate);
+
+        // The local edit moves #42 to an iteration nobody else is in; display shows it, sync must not follow it.
+        var local = new SqliteLocalWorkItemRepository(_store);
+        var id = (await local.FindAsync(new ExternalWorkItemIdentity("ado", Scope, "42")))!.Value;
+        var current = (await local.GetAsync(id))!;
+        (await local.UpdateAsync(id, current.Revision, FieldValues.Empty.Set("System.IterationPath", new TextValue(@"Project\Elsewhere"))))
+            .Value.ShouldBeOfType<LocalWriteApplied>();
+        var ado = services.GetRequiredService<IAdoWorkItemService>();
+        ado.FetchAsync(45, Arg.Any<CancellationToken>()).Returns(sprintMate);
+
+        var command = services.GetRequiredService<ShowCommand>();
+        var (exit, stderr) = await StderrCapture.RunAsync(() => command.ExecuteAsync(42, "human", tree: true, refresh: true));
+
+        exit.ShouldBe(0, stderr);
+        console.Output.ShouldContain("syncing");
+        await ado.Received(1).FetchAsync(45, Arg.Any<CancellationToken>());
+        (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!.IterationPath.ToString().ShouldBe(@"Project\Sprint 1");
     }
 
     [Fact]

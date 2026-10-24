@@ -72,7 +72,18 @@ public static class CommandRegistrationModule
             FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
         });
         services.AddSingleton<StateCommand>();
-        services.AddSingleton<TreeRenderingService>();
+        services.AddSingleton<TreeRenderingService>(sp => new TreeRenderingService(
+            sp.GetRequiredService<CommandContext>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<ActiveItemResolver>(),
+            sp.GetRequiredService<WorkingSetService>(),
+            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>())
+        {
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
+        });
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>
             new Twig.Commands.SetTree.WorkingSetTreeCommand(
                 sp.GetRequiredService<CommandContext>(),

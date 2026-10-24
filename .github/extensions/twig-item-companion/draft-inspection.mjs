@@ -1,4 +1,4 @@
-import { validateDraftDocument } from "./native-draft.mjs";
+import { validateDraftDocument } from "./draft-document.mjs";
 
 export function renderDraftInspection(root, document, expectedKey) {
     root.replaceChildren();

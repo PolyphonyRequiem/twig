@@ -14,6 +14,7 @@ internal sealed class SqliteRecoverableWorkItemDraftStore(SqliteCacheStore store
         ct.ThrowIfCancellationRequested();
         using var operation = store.AcquireOperation();
         using var command = store.GetConnection().CreateCommand();
+        command.Transaction = store.ActiveTransaction;
         command.CommandText = """
             SELECT generation, draft_json
             FROM pending.recoverable_work_item_drafts

@@ -56,7 +56,7 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Migration14To15AndDraftObservationPreserveSeedPendingAndJournalRows()
+    public async Task Migration14ToCurrentAndDraftObservationPreserveSeedPendingAndJournalRows()
     {
         Dictionary<string, string[]> before;
         using (var cache = new SqliteCacheStore(ConnectionString))
@@ -65,9 +65,11 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
             using var seed = cache.GetConnection().CreateCommand();
             seed.CommandText = """
                 DROP TABLE pending.recoverable_work_item_drafts;
+                ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
                 PRAGMA pending.user_version = 14;
                 """;
             seed.ExecuteNonQuery();
+            DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(cache.GetConnection(), 14);
             before = SnapshotUnrelatedRows(cache.GetConnection());
             before.Values.ShouldAllBe(rows => rows.Length == 1);
         }
@@ -76,7 +78,7 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
         using (var version = migrated.GetConnection().CreateCommand())
         {
             version.CommandText = "PRAGMA pending.user_version;";
-            Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(15);
+            Convert.ToInt32(version.ExecuteScalar(), CultureInfo.InvariantCulture).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
         }
         var drafts = new SqliteRecoverableWorkItemDraftStore(migrated);
         var key = Key("binding");
@@ -101,6 +103,7 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
             using var prepare = cache.GetConnection().CreateCommand();
             prepare.CommandText = """
                 DROP TABLE pending.recoverable_work_item_drafts;
+                ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
                 PRAGMA pending.user_version = 14;
                 CREATE INDEX pending.recoverable_work_item_drafts ON pending_changes(work_item_id);
                 """;
@@ -142,6 +145,8 @@ public sealed class SqliteRecoverableWorkItemDraftStoreTests : IDisposable
                 var cells = new List<string>();
                 for (var index = 0; index < reader.FieldCount; index++)
                 {
+                    if (reader.GetName(index) == "draft_capture_json")
+                        continue;
                     var value = reader.IsDBNull(index) ? null
                         : Convert.ToString(reader.GetValue(index), CultureInfo.InvariantCulture);
                     cells.Add(value is null ? "null;" : $"{value.Length}:{value};");

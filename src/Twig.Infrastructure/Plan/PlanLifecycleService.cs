@@ -547,6 +547,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                 confirmedDigest,
                 "No preview journal exists for this plan. Run `twig plan preview` first.");
 
+        if (journal.DraftCapture is not null)
+            return TopLevelApplyFailure(confirmedDigest,
+                "Draft-captured proposals are local inspection only; native Save consumption is not enabled.");
+
         if (journal.Operations.Any(static row => row.OutcomeReceipt is not null))
             return TopLevelApplyFailure(confirmedDigest, "Proposal contains an explicit native outcome receipt; settled intents cannot be applied or resumed.");
         var originError = await ValidateOriginAsync(journal.Origin, ct).ConfigureAwait(false);

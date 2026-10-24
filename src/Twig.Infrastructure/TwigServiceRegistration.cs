@@ -170,6 +170,8 @@ public static class TwigServiceRegistration
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPlanJournalRepository>(sp => new SqlitePlanJournalRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IDraftProposalCaptureStore>(sp =>
+            new SqliteDraftProposalCaptureStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         // ITrackingService is registered in AddConnectionDomainServices, AFTER the Bench pin
         // reader/writer it now depends on (ADO #146).

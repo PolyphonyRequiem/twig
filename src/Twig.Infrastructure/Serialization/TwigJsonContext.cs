@@ -239,6 +239,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportTerminalDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.Transport.TransportAdapterTargetDocument))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
+[JsonSerializable(typeof(Twig.Domain.Services.Plan.DraftProposalCapture))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.WorkItemSnapshot))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]

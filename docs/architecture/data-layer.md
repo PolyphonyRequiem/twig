@@ -62,11 +62,41 @@ generation compare-and-swap for writes. A stale generation refuses without
 retrying. Observation/conflict reconciliation may advance draft generation, but
 must retain baseline and proposed intent. This is **local metadata CAS**, not a
 strict zero-local-write inspection contract. No draft operation flushes unrelated
-pending edits, creates a proposal journal, or authorizes remote mutation.
+pending edits or authorizes remote mutation.
 
-This foundation provides no draft edit, capture, apply, or Save endpoint. A later
-admitted read envelope must independently acquire native observation and advisory
-edit capability; a provider reader result alone is not a draft or authority.
+The admitted `draft show` envelope independently acquires native observation and
+advisory edit capability; a provider reader result alone is not a draft or authority.
+
+#### Exact local draft captures
+
+Durable migration 16 adds nullable `draft_capture_json` to the **existing**
+`proposal_journals` table. Generic journals remain unbound; migration and later
+capture attempts never backfill them. The internal capture store uses the existing
+Domain friend-assembly seam, not a new public DTO or friendship declaration.
+
+Capture owns one non-deferred SQLite transaction (`BEGIN IMMEDIATE`) on the shared
+cache connection. It rereads the exact qualified draft, generation, baseline,
+conflicts, effects and cached native snapshot, refuses pending edits without
+flushing them, and imports the canonical proposal plus immutable capture binding
+in that same ambient transaction. Busy/locked errors, stale observations and
+pre-commit cancellation refuse without retry or draft mutation. The cache
+operation lease alone is not the cross-process writer fence.
+
+The native operation ID hashes a versioned capture identity containing the draft,
+generation, native revisions, authority origin and workspace. Thus identical
+effects at different generations produce different IDs and ordinary v1 digests,
+without changing v1 parsing or canonicalization. The generation binding is the
+separate immutable capture fact, **not a new promise about generic v1 digests**.
+Exact replay returns the existing row without importing again or refreshing its
+preview timestamp; mismatched binding, source, bytes or origin refuses.
+
+This persistence foundation has no capture/edit/Save CLI endpoint and performs no
+file export, preview or network operation. A later admitted capture command must
+commit before explicit recoverable export, report export failure rather than
+success, and recover from the retained journal without a second import. Generic
+apply already refuses capture-bound journals before authority or confirmation;
+native Save consumption is not enabled here. Lifecycle freshness checks and the
+admitted capture/export command remain the next review group.
 
 | Table | Purpose |
 |-------|---------|

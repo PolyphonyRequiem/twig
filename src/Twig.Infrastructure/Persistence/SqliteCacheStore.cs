@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 15;
+    internal const int DurableSchemaVersion = 16;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -853,6 +853,10 @@ public sealed class SqliteCacheStore : IDisposable
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (checkout_root, connection_id, binding_id, work_item_id)
             );
+            """,
+
+        [16] = $"""
+            ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN draft_capture_json TEXT;
             """,
 
     };

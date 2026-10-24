@@ -1415,8 +1415,11 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         DROP TABLE pending.local_work_items;
                         DROP TABLE pending.external_identities;
                         DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
+                        DROP TABLE pending.recoverable_work_item_drafts;
                         ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        DROP INDEX pending.idx_proposal_journals_source_path_previewed_at_digest;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals RENAME TO plan_journals;
                         ALTER TABLE pending.proposal_operations RENAME TO plan_operations;
@@ -1435,6 +1438,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         """;
 
                     rollback.ExecuteNonQuery();
+                    DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 7);
                 }
 
                 // Seed a Confirmed header row.
@@ -1617,8 +1621,11 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         DROP TABLE pending.local_work_items;
                         DROP TABLE pending.external_identities;
                         DROP TABLE pending.proposal_receipts;
+                        ALTER TABLE pending.proposal_journals DROP COLUMN draft_capture_json;
+                        DROP TABLE pending.recoverable_work_item_drafts;
                         ALTER TABLE pending.proposal_journals DROP COLUMN origin_json;
                         DROP INDEX pending.idx_proposal_journals_latest_unresolved;
+                        DROP INDEX pending.idx_proposal_journals_source_path_previewed_at_digest;
                         ALTER TABLE pending.proposal_journals DROP COLUMN last_previewed_at;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorization_mode;
                         ALTER TABLE pending.proposal_journals DROP COLUMN authorizer_identity;
@@ -1628,6 +1635,7 @@ public class SqlitePlanJournalRepositoryTests : IDisposable
                         PRAGMA pending.user_version = 8;
                         """;
                     rollback.ExecuteNonQuery();
+                    DraftProposalCaptureStoreTests.AssertLegacySchemaFingerprint(conn, 8);
                 }
 
                 using (var header = conn.CreateCommand())

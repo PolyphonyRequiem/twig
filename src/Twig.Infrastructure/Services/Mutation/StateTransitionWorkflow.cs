@@ -183,6 +183,14 @@ public sealed class StateTransitionWorkflow
                     gateOutcome.Fields ?? []);
             }
 
+            if (gateOutcome.IsRefreshRequired)
+            {
+                return new StateTransitionOutcome.ProcessRulesUnavailable(
+                    item.Id,
+                    newState,
+                    gateOutcome.Message ?? "Process rules could not be loaded.");
+            }
+
             var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
             dependentFieldPlanner = (currentItem, targetState) =>
                 DependentFieldReconciler.GetSafeClears(

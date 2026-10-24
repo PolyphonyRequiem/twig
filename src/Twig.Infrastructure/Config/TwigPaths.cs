@@ -44,6 +44,12 @@ public sealed class TwigPaths
     /// <summary>Home-wide display defaults, shared across Twig workspaces on this machine.</summary>
     public string GlobalDisplayPath { get; }
 
+    /// <summary>
+    /// Path to the committed, repository-owned declared policy: <c>&lt;repo-root&gt;/twig.policy.json</c>.
+    /// Optional; absent means no declared rules (AB#1169).
+    /// </summary>
+    public string PolicyPath => Path.Combine(RepoRoot, "twig.policy.json");
+
     /// <summary>Path to the status-fields configuration file: <c>.twig/status-fields</c>.</summary>
     public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");
 

@@ -1,0 +1,124 @@
+{
+  "version": 2,
+  "itemKey": {
+    "checkoutRoot": "C:\\fixture\\twig",
+    "connectionId": "fixture-connection",
+    "bindingId": "fixture-binding",
+    "workItemId": 42
+  },
+  "benchId": "7",
+  "benchName": "Fixture bench",
+  "identityId": "fixture-identity",
+  "bindingRevision": 1,
+  "selectionRevision": 1,
+  "storageGeneration": "fixture-generation",
+  "item": {
+    "id": 42,
+    "revision": 17,
+    "typeName": "Delivery slice",
+    "title": "Read-only fixture",
+    "state": "Awaiting review",
+    "isSeed": false,
+    "lastSyncedAt": "2026-10-23T12:00:00+00:00",
+    "isDirty": false,
+    "fields": {
+      "Custom.Body": "<script>untrusted()</script><p>Complete body</p>"
+    }
+  },
+  "hasLocalChanges": false,
+  "layoutStatus": "served",
+  "layoutSource": "server",
+  "document": {
+    "workItemId": 42,
+    "revision": 17,
+    "workItemTypeReferenceName": "Custom.DeliverySlice",
+    "processId": "fixture-process",
+    "systemControls": [
+      {
+        "id": "System.Title",
+        "label": "Title",
+        "controlType": "FieldControl",
+        "readOnly": false,
+        "visible": true,
+        "isContribution": false,
+        "value": { "state": 0, "full": "Read-only fixture", "isAbbreviated": false }
+      }
+    ],
+    "pages": [
+      {
+        "id": "details",
+        "label": "Details",
+        "pageType": "custom",
+        "visible": true,
+        "isContribution": false,
+        "carriesFieldControls": true,
+        "sections": [
+          {
+            "id": "left",
+            "groups": [
+              {
+                "id": "fields",
+                "label": "Fields",
+                "visible": false,
+                "isContribution": false,
+                "controls": [
+                  {
+                    "id": "Custom.Body",
+                    "label": "Body",
+                    "controlType": "HtmlFieldControl",
+                    "readOnly": false,
+                    "visible": true,
+                    "isContribution": false,
+                    "value": {
+                      "state": 0,
+                      "full": "<script>untrusted()</script><p>Complete body</p>",
+                      "isAbbreviated": false
+                    }
+                  },
+                  {
+                    "id": "Custom.Empty",
+                    "label": "Empty field",
+                    "controlType": "FieldControl",
+                    "readOnly": false,
+                    "visible": true,
+                    "isContribution": false,
+                    "value": { "state": 1, "isAbbreviated": false }
+                  },
+                  {
+                    "id": "Custom.Omitted",
+                    "label": "Omitted field",
+                    "controlType": "FieldControl",
+                    "readOnly": true,
+                    "visible": false,
+                    "isContribution": false,
+                    "value": { "state": 2, "isAbbreviated": false }
+                  },
+                  {
+                    "id": "fixture.contribution",
+                    "label": "Unsupported contribution",
+                    "controlType": "CustomControl",
+                    "readOnly": true,
+                    "visible": true,
+                    "isContribution": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "history",
+        "label": "History",
+        "pageType": "history",
+        "visible": true,
+        "isContribution": false,
+        "sections": []
+      }
+    ]
+  },
+  "appearanceSource": "unavailable",
+  "editing": "unavailable",
+  "relatedItemsCoverage": "not-exported",
+  "iconAssetAuthority": "unavailable"
+}

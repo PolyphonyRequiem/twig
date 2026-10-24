@@ -46,6 +46,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
             benchId: current.benchId,
             bindingId: current.itemKey.bindingId,
             identityId: current.identityId,
+            connectionId: current.itemKey.connectionId,
         });
     };
 

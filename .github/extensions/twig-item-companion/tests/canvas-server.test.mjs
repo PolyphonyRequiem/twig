@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCanvasServer } from "../canvas-server.mjs";
 
 const observation = {
-    itemKey: { workItemId: 42, bindingId: "binding" },
+    itemKey: { workItemId: 42, bindingId: "binding", connectionId: "connection" },
     benchId: "bench",
     identityId: "identity",
 };
@@ -75,6 +75,7 @@ test("blocks concurrent native reads and retains the exact captured qualifiers f
                     benchId: "bench",
                     bindingId: "binding",
                     identityId: "identity",
+                    connectionId: "connection",
                 });
             }
             return observation;

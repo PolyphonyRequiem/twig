@@ -26,7 +26,7 @@ export function createNativeDetailReader({
             args.push("--expect-identity", expected.identityId);
         }
 
-        const { stdout, stderr } = await execute(execFile, args, {
+        const { stdout } = await execute(execFile, args, {
             cwd,
             encoding: "utf8",
             maxBuffer: MAX_OUTPUT_BYTES,
@@ -47,7 +47,8 @@ export function createNativeDetailReader({
         if (expected &&
             (observation.benchId !== expected.benchId ||
                 observation.itemKey.bindingId !== expected.bindingId ||
-                observation.identityId !== expected.identityId)) {
+                observation.identityId !== expected.identityId ||
+                (expected.connectionId !== undefined && observation.itemKey.connectionId !== expected.connectionId))) {
             throw new Error("Twig detail no longer matches the captured Bench, binding, and identity.");
         }
 
@@ -92,6 +93,68 @@ function validateObservation(value, workItemId, workspacePath) {
         value.iconAssetAuthority !== "unavailable") {
         throw new Error("Twig returned an unexpected semantic detail capability contract.");
     }
+
+    const { itemKey, item, document } = value;
+    if (![itemKey.connectionId, itemKey.bindingId, value.benchId, value.benchName, value.identityId].every(nonempty) ||
+        item.id !== workItemId || document.workItemId !== workItemId ||
+        !Number.isInteger(item.revision) || item.revision < 0 || document.revision !== item.revision ||
+        ![value.bindingRevision, value.selectionRevision].every((n) => Number.isInteger(n) && n >= 0) ||
+        typeof value.hasLocalChanges !== "boolean" || typeof item.isDirty !== "boolean" ||
+        typeof item.isSeed !== "boolean" ||
+        ![item.title, item.state, item.typeName].every((v) => typeof v === "string") ||
+        !isRecord(item.fields) || !Object.values(item.fields).every(nullableString) ||
+        ![document.workItemTypeReferenceName, document.processId].every(nonempty) ||
+        !validLayout(value) || !validDocument(document) ||
+        !validAppearance(value)) {
+        throw new Error("Twig returned incomplete or contradictory semantic detail version 2.");
+    }
+}
+
+function validLayout(value) {
+    if (value.layoutStatus === "served") return value.layoutSource === "server";
+    return ["locked", "unavailable"].includes(value.layoutStatus) &&
+        value.layoutSource === "twig-fallback" &&
+        value.document.processId === "twig.fallback" &&
+        (value.layoutStatus !== "locked" || nonempty(value.lockedTypeReferenceName));
+}
+
+function validDocument(document) {
+    return Array.isArray(document.systemControls) && document.systemControls.every(validControl) &&
+        Array.isArray(document.pages) && document.pages.every((page) =>
+            validLayoutNode(page) && typeof page.pageType === "string" &&
+            Array.isArray(page.sections) && page.sections.every((section) =>
+                isRecord(section) && typeof section.id === "string" &&
+                Array.isArray(section.groups) && section.groups.every((group) =>
+                    validLayoutNode(group) && Array.isArray(group.controls) && group.controls.every(validControl))));
+}
+
+function validLayoutNode(value) {
+    return isRecord(value) && typeof value.id === "string" && typeof value.label === "string" &&
+        typeof value.visible === "boolean" && typeof value.isContribution === "boolean";
+}
+
+function validControl(control) {
+    if (!validLayoutNode(control) || typeof control.readOnly !== "boolean" ||
+        typeof control.controlType !== "string") return false;
+    if (control.isContribution) return control.value == null;
+    const value = control.value;
+    return isRecord(value) && [0, 1, 2].includes(value.state) &&
+        (value.state === 0 ? typeof value.full === "string" : value.full == null) &&
+        nullableString(value.short);
+}
+
+function validAppearance(value) {
+    if (value.appearance == null) return value.appearanceSource === "unavailable";
+    return value.appearanceSource === "cached-process-metadata" && isRecord(value.appearance) &&
+        nonempty(value.appearance.name) && nullableString(value.appearance.color) && nullableString(value.appearance.iconId);
+}
+
+function nonempty(value) {
+    return typeof value === "string" && value.trim().length > 0;
+}
+
+function nullableString(value) {
+    return value == null || typeof value === "string";
 }
 
 function samePath(left, right) {

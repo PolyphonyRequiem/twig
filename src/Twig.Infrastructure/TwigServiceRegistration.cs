@@ -690,7 +690,7 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<IUnitOfWork>(),
                 // Declared repository policy (AB#1169): twig.policy.json at the repo root,
                 // judged against cached links for dependency integrity.
-                sp.GetService<IWorkItemLinkRepository>()));
+                sp.GetService<IWorkItemLinkRepository>());
         });
 
         return services;

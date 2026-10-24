@@ -1,6 +1,7 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Policy;

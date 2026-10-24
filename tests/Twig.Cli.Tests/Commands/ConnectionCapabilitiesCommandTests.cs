@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -7,6 +8,8 @@ using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
+using Twig.Infrastructure.Config;
+using Twig.Infrastructure.DependencyInjection;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -182,5 +185,49 @@ public sealed class ConnectionCapabilitiesCommandTests
             Arg.Any<string>(),
             Arg.Is<Dictionary<string, string>>(p => p["command"] == "connection capabilities" && !p.ContainsKey("provider")),
             Arg.Any<Dictionary<string, double>>());
+    }
+
+    // Composed through #1167's real provider factory (NetworkServiceModule), resolved exactly as
+    // CommandRegistrationModule wires the command. An explicitly configured provider without an
+    // adapter must fail closed with its reason code; it must never fall back to ADO's report.
+    [Theory]
+    [InlineData("github", "provider-unavailable:")]
+    [InlineData("jira", "provider-unknown:")]
+    public async Task ConfiguredProviderWithoutAdapter_FailsClosed_WithReasonCode(string stored, string reason)
+    {
+        using var services = BuildWithProvider(stored);
+
+        var (exit, stderr) = await StderrCapture.RunAsync(
+            () => CreateCommand(() => services.GetService<IWorkItemProvider>()).ExecuteAsync("json"));
+
+        exit.ShouldBe(1);
+        stderr.ShouldContain(reason);
+        stderr.ShouldNotContain("relationships");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ado")]
+    public async Task ConfiguredAdoProvider_ReportsAdoCatalog(string? stored)
+    {
+        using var services = BuildWithProvider(stored);
+
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => services.GetService<IWorkItemProvider>()).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        var kinds = ByKind(output, out var provider);
+        provider.ShouldBe("ado");
+        kinds.Values.ShouldAllBe(e => e.GetProperty("implementation").GetString() == "native");
+    }
+
+    private static ServiceProvider BuildWithProvider(string? stored)
+    {
+        var services = new ServiceCollection();
+        var config = new TwigConfiguration { Organization = "testorg", Project = "testproj", Provider = stored };
+        services.AddSingleton(config);
+        services.AddTwigNetworkServices(config);
+        services.AddSingleton(Substitute.For<IAuthenticationProvider>());
+        return services.BuildServiceProvider();
     }
 }

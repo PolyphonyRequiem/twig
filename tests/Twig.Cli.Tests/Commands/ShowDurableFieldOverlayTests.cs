@@ -93,6 +93,7 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         services.AddSingleton(_store);
         services.AddSingleton<IWorkItemProvider>(_provider);
         services.AddSingleton<IProviderWorkItemReader>(_reader);
+        services.AddSingleton(Substitute.For<IIterationService>());
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();

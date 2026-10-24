@@ -1182,6 +1182,16 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
         => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
 
+    /// <summary>Inspect an existing native recoverable draft without changing intent or applying it.</summary>
+    /// <param name="id">Native integer work-item ID or negative seed alias; no default or active-item selection.</param>
+    /// <param name="output">-o, Output format: human (default), json, minimal.</param>
+    /// <param name="document">Export semantic draft document version 1 (default false, requires -o json); may CAS local observation/conflict metadata, never creates a draft or mutation authority.</param>
+    /// <param name="ct">Cancellation token.</param>
+    [Command("draft show")]
+    public async Task<int> DraftShow([Argument] int id, string output = OutputFormatterFactory.DefaultFormat,
+        bool document = false, CancellationToken ct = default)
+        => await services.GetRequiredService<DraftCommand>().ShowAsync(id, output, document, ct);
+
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>
     /// <param name="view">Initial tree or table view (default tree).</param>
@@ -1832,6 +1842,7 @@ internal static class GroupedHelp
         "bench switch",
         "bench delete",
         "bench detail",
+        "draft show",
         "bench browser",
         "bench configuration",
         "bench configuration area candidates",
@@ -1975,6 +1986,7 @@ internal static class GroupedHelp
 
         // Group prefixes for compound commands without standalone handlers
         "link",
+        "draft",
         // ADO #148-150. `bench` has no bare handler — every verb is `bench <verb>` — but the
         // dispatcher only ever inspects args[0], so without this entry the whole group is
         // unreachable and `twig bench list` answers "Unknown command: 'bench'".

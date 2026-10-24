@@ -199,6 +199,7 @@ authorizer and rationale. Its `settled` result is distinct from successful execu
 
 |Command|Summary|Mutates|
 |---|---|---|
+|[`draft show`](draft-show.md)|Inspect an existing recoverable native draft; observation/conflict metadata may be CAS-written, intent is retained.|local|
 |[`proposal validate`](proposal-validate.md)|Validate a proposal v1 file; no ADO calls.|none|
 |[`proposal preview`](proposal-preview.md)|Import journal, snapshot pending, report digest and `canApply`, with optional native presentation and digest guard.|local|
 |[`proposal latest`](README.md#latest-unresolved-proposal)|Select the latest unresolved workspace preview without mutation.|none|

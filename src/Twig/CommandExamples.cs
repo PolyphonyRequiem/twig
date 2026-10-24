@@ -384,6 +384,11 @@ internal static class CommandExamples
             "twig bench configuration              Read current Bench pins, areas, sprints and ownership",
             "twig bench configuration -o json      Capture raw settings digest for guarded edits",
         ],
+        ["draft show"] =
+        [
+            "twig draft show 42                        Inspect an existing native recoverable draft",
+            "twig draft show 42 --document -o json     Export semantic inspection; may write local observation metadata, never applies",
+        ],
         ["bench detail"] =
         [
             "twig bench detail 42                  Read full cached detail without changing the active item",

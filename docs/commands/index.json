@@ -760,6 +760,14 @@
     "path": "plans/pending.md"
   },
   {
+    "command": "draft show",
+    "group": "plans",
+    "summary": "Inspect an existing native recoverable draft; may CAS local observation metadata, never intent or remote work.",
+    "stability": "experimental",
+    "mutates": "local",
+    "path": "plans/draft-show.md"
+  },
+  {
     "command": "plan apply",
     "group": "plans",
     "summary": "Deprecated alias for `proposal apply`.",

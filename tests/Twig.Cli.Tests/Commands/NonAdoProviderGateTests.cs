@@ -7,16 +7,19 @@ using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
 using Twig.DependencyInjection;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -131,6 +134,114 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         ado.GetRequiredService<IProcessRuleProvider>().ShouldBeOfType<AdoIterationService>();
         _transport.Requests.ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// Feature #1177: every command read path resolves the provider read boundary, not the ADO
+    /// client. A recording reader replaces the boundary registration in the otherwise real
+    /// composition; the read must reach it and no ADO work-item or WIQL request may leave.
+    /// </summary>
+    [Theory]
+    [InlineData("show")]
+    [InlineData("query")]
+    [InlineData("refresh")]
+    [InlineData("sync")]
+    public async Task CommandReads_UnderAdo_RouteThroughTheProviderReadBoundary(string command)
+    {
+        var reader = new RecordingProviderReader();
+        var runtime = await AttachAsync(provider: null, gitProject: "Project",
+            overrides: s => s.AddSingleton<IProviderWorkItemReader>(reader));
+        var commands = new TwigCommands(runtime);
+
+        Func<Task<int>> run = command switch
+        {
+            "show" => () => commands.Show(42, output: "json", refresh: true),
+            "query" => () => commands.Query("Fixture", output: "json"),
+            "refresh" => () => commands.Refresh("json"),
+            _ => () => commands.Sync("json", pullOnly: true),
+        };
+        var caught = await CaptureAsync(run);
+
+        caught.ShouldBeNull();
+        reader.Calls.ShouldNotBeEmpty($"{command} must read through IProviderWorkItemReader");
+        var adoReads = _transport.Requests.Where(r =>
+            r.Contains("/_apis/wit/workitems", StringComparison.OrdinalIgnoreCase)
+            || r.Contains("/_apis/wit/wiql", StringComparison.OrdinalIgnoreCase)).ToList();
+        adoReads.ShouldBeEmpty($"{command} bypassed the boundary: {string.Join(", ", adoReads)}");
+    }
+
+    [Theory]
+    [InlineData("show")]
+    [InlineData("query")]
+    [InlineData("refresh")]
+    [InlineData("sync")]
+    public async Task CommandReads_UnderGitHub_RefuseBeforeConstructingAdoOrSendingHttp(string command)
+    {
+        var adoConstructions = 0;
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: services =>
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                Interlocked.Increment(ref adoConstructions);
+                throw new InvalidOperationException("ADO reader must not be constructed");
+            }));
+        var commands = new TwigCommands(runtime);
+
+        Func<Task<int>> run = command switch
+        {
+            "show" => () => commands.Show(42, output: "json", refresh: true),
+            "query" => () => commands.Query("Fixture", output: "json"),
+            "refresh" => () => commands.Refresh("json"),
+            _ => () => commands.Sync("json", pullOnly: true),
+        };
+        var caught = await CaptureAsync(run);
+
+        caught.ShouldBeOfType<TwigConfigurationException>()
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        adoConstructions.ShouldBe(0, $"{command} must refuse before constructing an ADO reader");
+        _transport.Requests.ShouldBeEmpty(
+            $"{command} must refuse before ADO HTTP; observed: {string.Join(", ", _transport.Requests)}");
+    }
+
+    /// <summary>
+    /// Feature #1177: under a non-ADO provider both read boundaries refuse at resolution and the
+    /// ADO client is never constructed — the alias does not fall through to ADO.
+    /// </summary>
+    [Fact]
+    public async Task ReadBoundaries_UnderGitHub_RefuseWithoutConstructingTheAdoClient()
+    {
+        var adoConstructions = 0;
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: s =>
+            s.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                Interlocked.Increment(ref adoConstructions);
+                throw new InvalidOperationException("ADO client must not be constructed");
+            }));
+
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IProviderWorkItemReader>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IAuthoritativeWorkItemReader>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        adoConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AuthoritativeReader_UnderAdo_IsTheScopeCheckedAdoAdapter()
+    {
+        var runtime = await AttachAsync(provider: null, gitProject: "Project");
+
+        runtime.GetRequiredService<IAuthoritativeWorkItemReader>().ShouldBeOfType<AdoAuthoritativeWorkItemReader>();
+        runtime.GetRequiredService<IProviderWorkItemReader>()
+            .ShouldBeSameAs(runtime.GetRequiredService<IAdoWorkItemService>());
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Feature #1177 contract coverage: <see cref="IAdoWorkItemService"/> must keep inheriting
+    /// the boundary so the ADO adapter satisfies it without a wrapper and existing mocks bind.
+    /// </summary>
+    [Fact]
+    public void AdoWorkItemService_SatisfiesTheProviderReadBoundary()
+        => typeof(IProviderWorkItemReader).IsAssignableFrom(typeof(IAdoWorkItemService)).ShouldBeTrue();
 
     /// <summary>
     /// Every concrete ADO network client: a class in the <c>Twig.Infrastructure.Ado</c>
@@ -248,12 +359,14 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         }
     }
 
-    private async Task<ServiceProvider> AttachAsync(string? provider, string? gitProject = null, string checkout = "checkout")
+    private async Task<ServiceProvider> AttachAsync(
+        string? provider, string? gitProject = null, string checkout = "checkout", Action<IServiceCollection>? overrides = null)
     {
         var (config, paths) = await PrepareAsync(provider, checkout);
         _transport.Reset();
         var services = new ServiceCollection();
         Compose(services, config, paths, gitProject);
+        overrides?.Invoke(services);
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
         return runtime;
@@ -298,6 +411,67 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         services.AddTwigCommands();
     }
 
+    /// <summary>A provider read boundary that answers from fixtures and records each call.</summary>
+    private sealed class RecordingProviderReader : IProviderWorkItemReader
+    {
+        private readonly List<string> _calls = [];
+
+        public IReadOnlyList<string> Calls
+        {
+            get { lock (_calls) return _calls.ToList(); }
+        }
+
+        private void Record(string call)
+        {
+            lock (_calls) _calls.Add(call);
+        }
+
+        private static WorkItem Item(int id) => new WorkItemBuilder(id, "Boundary fixture").AsTask().Build();
+
+        public Task<WorkItem> FetchAsync(int id, CancellationToken ct = default)
+        {
+            Record(nameof(FetchAsync));
+            return Task.FromResult(Item(id));
+        }
+
+        public Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
+        {
+            Record(nameof(FetchWithLinksAsync));
+            return Task.FromResult<(WorkItem, IReadOnlyList<WorkItemLink>)>((Item(id), []));
+        }
+
+        public Task<(IReadOnlyList<WorkItem> Items, IReadOnlyList<WorkItemLink> Links)> FetchBatchWithLinksAsync(
+            IReadOnlyList<int> ids, CancellationToken ct = default)
+        {
+            Record(nameof(FetchBatchWithLinksAsync));
+            return Task.FromResult<(IReadOnlyList<WorkItem>, IReadOnlyList<WorkItemLink>)>((ids.Select(Item).ToList(), []));
+        }
+
+        public Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
+        {
+            Record(nameof(FetchChildrenAsync));
+            return Task.FromResult<IReadOnlyList<WorkItem>>([]);
+        }
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
+        {
+            Record(nameof(QueryByWiqlAsync));
+            return Task.FromResult<IReadOnlyList<int>>([42]);
+        }
+
+        public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
+        {
+            Record(nameof(QueryByWiqlAsync) + "(top)");
+            return Task.FromResult<IReadOnlyList<int>>([42]);
+        }
+
+        public Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default)
+        {
+            Record(nameof(FetchBatchAsync));
+            return Task.FromResult<IReadOnlyList<WorkItem>>(ids.Select(Item).ToList());
+        }
+    }
+
     /// <summary>Answers like ADO and records every request it sees.</summary>
     private sealed class RecordingAdoTransport : HttpMessageHandler
     {
@@ -326,6 +500,8 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(new { displayName = "Fixture", emailAddress = "fixture@fixture.example" });
+            if (path.Contains("/_apis/work/teamsettings/iterations", StringComparison.Ordinal))
+                return Reply(new { count = 1, value = new[] { new { id = "it-1", name = "Sprint 1", path = "Project\\Sprint 1" } } });
             if (path.Contains("/_apis/wit/workitems/42", StringComparison.OrdinalIgnoreCase))
             {
                 if (request.Method == HttpMethod.Patch) _revision++;

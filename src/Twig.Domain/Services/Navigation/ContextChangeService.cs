@@ -12,7 +12,7 @@ namespace Twig.Domain.Services.Navigation;
 /// </summary>
 public sealed class ContextChangeService(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemReader adoService,
     SyncCoordinator syncCoordinator,
     ProtectedCacheWriter protectedCacheWriter,
     IWorkItemLinkRepository? linkRepo = null)

@@ -349,9 +349,12 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         handler.SetRawResponse("/rules", payload == "null" ? """{"value":null}"""
             : payload == "missing" ? "{}" : "broken");
         var provider = FakeHandler.CreateService(handler);
-        (await provider.GetFormLayoutAsync("FixtureType")).ShouldBeOfType<FormLayoutResult.Served>();
-        var error = await Record.ExceptionAsync(() => provider.InspectFormAsync("FixtureType", default));
+        var source = new DetailDocumentSource(provider);
+        await source.GetAsync(new WorkItem { Id = 42, Type = WorkItemType.Parse("FixtureType").Value });
+        source.ServedLayout("FixtureType").ShouldNotBeNull();
+        var error = await Record.ExceptionAsync(() => source.InspectAsync("FixtureType", provider, default));
         error.ShouldNotBeNull();
+        source.ServedLayout("FixtureType").ShouldBeNull();
         if (payload == "malformed")
         {
             error.ShouldBeAssignableTo<JsonException>();

@@ -46,13 +46,15 @@ public sealed class RelationshipProvenanceSnapshotTests
     }
 
     [Theory]
-    [InlineData(CapabilityImplementation.Emulated)]
-    [InlineData(CapabilityImplementation.Unsupported)]
-    public void NonNativeKind_IsUnknown(CapabilityImplementation implementation)
+    [InlineData(true)]
+    [InlineData(false)]
+    public void NonNativeKind_IsUnknown(bool emulated)
     {
+        var implementation = emulated ? CapabilityImplementation.Emulated : CapabilityImplementation.Unsupported;
         var descriptor = new ProviderCapabilityDescriptor("test",
         [
             new RelationshipCapability(LinkKind.ParentChild, CapabilityImplementation.Native, EmulationStorage.None),
+            new RelationshipCapability(LinkKind.PredecessorSuccessor, CapabilityImplementation.Native, EmulationStorage.None),
             new RelationshipCapability(LinkKind.Related, implementation,
                 implementation == CapabilityImplementation.Emulated ? EmulationStorage.LocalOnly : EmulationStorage.None),
         ]);
@@ -60,17 +62,5 @@ public sealed class RelationshipProvenanceSnapshotTests
         RelationshipProvenance.OfProviderObservation(descriptor, Rel("test", "test", LinkKind.Related)).ShouldBeNull();
         RelationshipProvenance.OfProviderObservation(descriptor, Rel("test", "test", LinkKind.ParentChild))
             .ShouldBe(RelationshipOrigin.ProviderNative);
-    }
-
-    [Fact]
-    public void KindUndeclaredByDescriptor_IsUnknown()
-    {
-        var descriptor = new ProviderCapabilityDescriptor("test",
-        [
-            new RelationshipCapability(LinkKind.ParentChild, CapabilityImplementation.Native, EmulationStorage.None),
-        ]);
-
-        RelationshipProvenance.OfProviderObservation(descriptor, Rel("test", "test", LinkKind.PredecessorSuccessor))
-            .ShouldBeNull();
     }
 }

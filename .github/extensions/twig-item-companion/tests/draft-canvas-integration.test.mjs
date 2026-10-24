@@ -293,7 +293,9 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
     const calls = [];
     let declarations;
     let serverOptions;
-    class CanvasError extends Error {}
+    class CanvasError extends Error {
+        constructor(code, message) { super(message); this.code = code; }
+    }
     const fakeServer = {
         url: "http://127.0.0.1:1/",
         inspectDraft: async () => { calls.push("inspect"); return draft(); },
@@ -321,5 +323,9 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
     assert.deepEqual(calls, ["inspect"]);
     assert.equal(declarations[1].actions.some((value) => value.name === "inspect_draft"), false);
     await companion.onClose({ instanceId: "fictional" });
-    await assert.rejects(action.handler({ instanceId: "fictional", input: {} }), /Open the Twig item companion/);
+    await assert.rejects(action.handler({ instanceId: "fictional", input: {} }), (error) => {
+        assert.equal(error.code, "canvas_not_open");
+        assert.equal(error.message, "Open the Twig item companion before loading detail.");
+        return true;
+    });
 });

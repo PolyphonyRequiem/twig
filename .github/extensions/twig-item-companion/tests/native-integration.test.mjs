@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import test from "node:test";
 import { createNativeBenchReader } from "../native-bench.mjs";
 import { createNativeBenchDetailReader } from "../native-bench-detail.mjs";
@@ -31,7 +31,8 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
         for (const key of ["nativeSha", "binary", "workspacePath", "bench", "memberId", "nonMemberId", "currentBenchProbeArgs", "env"]) {
             assert.ok(manifest[key] !== undefined, `manifest is missing ${key}`);
         }
-        const exe = join(resolve(exeDir), manifest.binary.file);
+        const exe = resolve(exeDir, manifest.binary.file);
+        assert.equal(dirname(exe), resolve(exeDir), "manifest binary must be inside the exact build directory");
         const digest = createHash("sha256").update(await readFile(exe)).digest("hex");
         assert.equal(digest, manifest.binary.sha256, "binary under TWIG_NATIVE_EXE_DIR is not the manifest's exact build");
 
@@ -45,6 +46,7 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
             const probe = () => execFileSync(exe, manifest.currentBenchProbeArgs,
                 { cwd: manifest.workspacePath, encoding: "utf8", timeout: 15000, windowsHide: true });
             const currentBefore = probe();
+            assert.equal(JSON.parse(currentBefore).current, "Other", "fixture must start on the non-target Bench");
 
             const browse = await createNativeBenchReader()({ workspacePath: manifest.workspacePath, bench: manifest.bench });
             assert.equal(browse.version, 2);
@@ -67,7 +69,9 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
                 readDetail({ workItemId: manifest.nonMemberId, workspacePath: manifest.workspacePath, expected }),
                 /bench-item-not-member/);
 
-            assert.equal(probe(), currentBefore, "shared current-Bench pointer changed during explicit reads");
+            const currentAfter = probe();
+            assert.equal(JSON.parse(currentAfter).current, "Other", "explicit reads must preserve the non-target Bench");
+            assert.equal(currentAfter, currentBefore, "shared current-Bench pointer changed during explicit reads");
         } finally {
             for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
             Object.assign(process.env, savedEnv);

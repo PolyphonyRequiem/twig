@@ -105,7 +105,7 @@ plus a defensive parse of `ResultJson` and (as a fallback for `expectedRevision`
 | Key | Values |
 |---|---|
 | `disposition` | `verified`, `failed`, `outcome-unknown`, `in-flight`, `awaiting-verification`, `not-started` |
-| `code` | `verified`, `field-mismatch`, `missing-required-fields`, `revision-not-advanced`, `revision-conflict`, `readback-unavailable`, or `null` |
+| `code` | `verified`, `field-mismatch`, `missing-required-fields`, `revision-not-advanced`, `revision-conflict`, `readback-unavailable`, `revision-precondition-refused`, or `null` |
 | `fields[].classification` | `exact`, `cleared`, `canonicalized-html`, `canonicalized-identity`, `server-generated`, `mismatch`, `clear-failed` |
 
 For HTML fields, `canonicalized-html` can explain server-added trailing ASCII
@@ -120,6 +120,17 @@ When ADO refuses a stale revision without disclosing its current revision,
 `observedRevision` is `null` and the summary labels it unknown. The adapter's
 zero sentinel is not a server revision. The operation remains `failed`; this
 does not trigger another read or retry the refused write.
+
+When the provider adapter refuses the operation's revision precondition before
+sending anything (missing, minted by another provider, or not in its canonical
+encoding), `code` is `revision-precondition-refused` and the operation is
+`failed`. The summary names at most the reason (`Missing`, `ForeignProvider` or
+`MalformedToken`) and states that this operation was not sent; otherwise it uses
+a generic refusal wording. Earlier operations in the same apply keep their
+recorded outcomes — a refusal never implies rollback of an earlier write. The
+reason is not a separate projected key and remains only in the raw
+`resultJson`, as its top-level `failureDetail`. A newly reviewed proposal is required; the refused operation is
+never retried.
 
 Human and minimal output render disposition, revisions, and a bounded summary
 of at most eight field entries; JSON retains the complete field lists.

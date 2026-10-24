@@ -661,12 +661,18 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         refused.Diagnostics.Disposition.ShouldBe("failed");
         refused.Diagnostics.ExpectedRevision.ShouldBe(5);
         refused.Diagnostics.ObservedRevision.ShouldBeNull();
-        // The journal row carries the refusal code; the shared diagnostics projection
-        // allowlists known codes and does not surface this one yet, so read the raw row.
+        refused.Diagnostics.Code.ShouldBe("revision-precondition-refused");
+        refused.Diagnostics.Summary.ShouldBe(
+            "revision precondition refused (ForeignProvider): this operation was not sent; earlier operations keep their recorded outcomes; a newly reviewed proposal is required");
+        // The earlier write is preserved and acknowledged: no rollback is implied.
+        status.Operations[0].Diagnostics.Disposition.ShouldBe("verified");
+        status.Operations[0].Diagnostics.Code.ShouldBe("verified");
         using (var result = System.Text.Json.JsonDocument.Parse(refused.ResultJson!))
         {
             var diag = result.RootElement.GetProperty("diagnostics");
             diag.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+            result.RootElement.GetProperty("failureDetail").GetString().ShouldBe("ForeignProvider");
+            diag.TryGetProperty("failureDetail", out _).ShouldBeFalse();
             diag.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
             result.RootElement.TryGetProperty("rev", out _).ShouldBeFalse();
             result.RootElement.TryGetProperty("revision", out _).ShouldBeFalse();

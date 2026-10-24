@@ -106,6 +106,7 @@ public sealed record PlanOperationDiagnostics
         int? observedRevision = null;
         IReadOnlyList<PlanOperationDiagnosticField> fields = Array.Empty<PlanOperationDiagnosticField>();
         IReadOnlyList<string> missingFields = Array.Empty<string>();
+        string? refusalReason = null;
 
         // Defensive parse of ResultJson. Legacy authoritative-readback shapes
         // ({"revision":N}, {"deleted":true}, {"identity":…,"publishedId":N}) are honored
@@ -130,7 +131,17 @@ public sealed record PlanOperationDiagnostics
                         var candidateCode = ReadString(diag, "code");
                         code = candidateCode is "verified" or "field-mismatch" or "missing-required-fields"
                             or "revision-not-advanced" or "revision-conflict" or "readback-unavailable"
+                            or "revision-precondition-refused"
                             ? candidateCode : null;
+                        // Summary-only: the refusal reason is never a projected field, and only
+                        // the three refusal enum names may reach the summary. The executor
+                        // writes failureDetail at the ResultJson root, beside diagnostics.
+                        if (code == "revision-precondition-refused")
+                        {
+                            var candidateReason = ReadString(root, "failureDetail");
+                            refusalReason = candidateReason is "Missing" or "ForeignProvider" or "MalformedToken"
+                                ? candidateReason : null;
+                        }
                         expectedRevision = ReadRevision(diag, "expectedRevision");
                         var observedFromDiag = ReadRevision(diag, "observedRevision");
                         if (observedFromDiag is not null)
@@ -165,7 +176,7 @@ public sealed record PlanOperationDiagnostics
         }
 
         var summary = BuildSummary(
-            disposition, code, expectedRevision, observedRevision, fields, missingFields, operation);
+            disposition, code, expectedRevision, observedRevision, fields, missingFields, refusalReason, operation);
 
         return new PlanOperationDiagnostics
         {
@@ -262,6 +273,7 @@ public sealed record PlanOperationDiagnostics
         int? observedRevision,
         IReadOnlyList<PlanOperationDiagnosticField> fields,
         IReadOnlyList<string> missingFields,
+        string? refusalReason,
         PlanJournalOperation operation)
     {
         // No diagnostic code: fall back to disposition alone (plus a "detail withheld"
@@ -288,6 +300,8 @@ public sealed record PlanOperationDiagnostics
                 $"revision conflict: expected={FormatRevision(expectedRevision)} (server={FormatRevision(observedRevision)}); a newly reviewed proposal is required",
             "readback-unavailable" =>
                 "readback unavailable — outcome could not be verified",
+            "revision-precondition-refused" =>
+                $"revision precondition refused{(refusalReason is null ? "" : $" ({refusalReason})")}: this operation was not sent; earlier operations keep their recorded outcomes; a newly reviewed proposal is required",
             _ => $"{disposition} — diagnostic detail unavailable",
         };
     }

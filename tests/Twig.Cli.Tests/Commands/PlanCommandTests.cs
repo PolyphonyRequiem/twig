@@ -536,6 +536,40 @@ public sealed class PlanCommandTests
     }
 
     [Fact]
+    public async Task Status_JsonProjection_PreconditionRefusalAfterEarlierWrite_ProjectsCodeAndKeepsEarlierOutcome()
+    {
+        // #1178 D5: the structured diagnostics agree with the raw resultJson code, the
+        // refusal reason stays raw-only, and the earlier verified write is still reported.
+        const string verifiedEvidence = """{"revision":4,"diagnostics":{"code":"verified","expectedRevision":3,"observedRevision":4}}""";
+        const string refusedEvidence = """{"diagnostics":{"code":"revision-precondition-refused","expectedRevision":5,"observedRevision":null},"failureDetail":"ForeignProvider"}""";
+        PlanJournalOperation[] operations =
+        [
+            new() { Ordinal = 0, OpId = "a", Kind = PlanOperationKind.Batch, State = PlanOperationState.Verified, RequestJson = """{"expectedRevision":3}""", ResultJson = verifiedEvidence },
+            new() { Ordinal = 1, OpId = "b", Kind = PlanOperationKind.Batch, State = PlanOperationState.Failed, RequestJson = """{"expectedRevision":5}""", ResultJson = refusedEvidence, Error = "revision-precondition-refused: refused." },
+        ];
+        _lifecycle.StatusAsync("plan.json", Arg.Any<CancellationToken>())
+            .Returns(new PlanStatusResult { Found = true, Digest = "abc", State = PlanOperationState.Failed, Operations = operations });
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await CreateCommand(stdout, stderr).StatusAsync("plan.json", "json", default);
+
+        exit.ShouldBe(0);
+        using var document = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+        var rows = document.RootElement.GetProperty("operations");
+        rows[0].GetProperty("diagnostics").GetProperty("disposition").GetString().ShouldBe("verified");
+        rows[0].GetProperty("diagnostics").GetProperty("code").GetString().ShouldBe("verified");
+        var refused = rows[1].GetProperty("diagnostics");
+        refused.GetProperty("disposition").GetString().ShouldBe("failed");
+        refused.GetProperty("code").GetString().ShouldBe("revision-precondition-refused");
+        refused.GetProperty("expectedRevision").GetInt32().ShouldBe(5);
+        refused.TryGetProperty("failureDetail", out _).ShouldBeFalse();
+        refused.GetProperty("summary").GetString().ShouldBe(
+            "revision precondition refused (ForeignProvider): this operation was not sent; earlier operations keep their recorded outcomes; a newly reviewed proposal is required");
+        rows[1].GetProperty("resultJson").GetString().ShouldBe(refusedEvidence);
+    }
+
+    [Fact]
     public async Task Apply_JsonProjection_ExposesDiagnosticsBesideRawResultJson()
     {
         // AB#881: the JSON `diagnostics` object is additive — the raw `resultJson`,

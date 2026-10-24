@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 13;
+    internal const int DurableSchemaVersion = 14;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -804,6 +804,38 @@ public sealed class SqliteCacheStore : IDisposable
                 draft_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (checkout_root, connection_id, binding_id, work_item_id)
+            );
+            """,
+
+        // Versioned exact-payload discussion operations are written before dispatch. The
+        // current row supports recovery queries; the append-only journal preserves each
+        // generation, including a dispatch whose remote outcome became unknown.
+        [14] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.discussion_post_operations (
+                operation_id TEXT PRIMARY KEY,
+                checkout_root TEXT NOT NULL,
+                connection_id TEXT NOT NULL,
+                binding_id TEXT NOT NULL,
+                work_item_id INTEGER NOT NULL,
+                payload_digest TEXT NOT NULL CHECK (length(payload_digest) = 64),
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                state TEXT NOT NULL CHECK (state IN ('Prepared', 'Dispatching', 'Indeterminate', 'Confirmed')),
+                created_at TEXT NOT NULL,
+                post_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_discussion_post_unresolved
+                ON discussion_post_operations(
+                    checkout_root, connection_id, binding_id, work_item_id, created_at, operation_id
+                )
+                WHERE state IN ('Dispatching', 'Indeterminate');
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.discussion_post_journal (
+                operation_id TEXT NOT NULL,
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                state TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                post_json TEXT NOT NULL,
+                PRIMARY KEY (operation_id, generation)
             );
             """,
 

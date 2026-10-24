@@ -127,6 +127,8 @@ public static class TwigServiceRegistration
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IRecoverableWorkItemDraftStore>(sp =>
             new SqliteRecoverableWorkItemDraftStore(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IRecoverableDiscussionPostStore>(sp =>
+            new SqliteRecoverableDiscussionPostStore(sp.GetRequiredService<SqliteCacheStore>()));
         // IPendingChangeReader aliases the same SqlitePendingChangeStore instance so
         // read-only consumers (plan preview, MCP status) resolve without the mutating
         // surface. Cast is safe: SqlitePendingChangeStore implements both.

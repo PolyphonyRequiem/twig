@@ -222,6 +222,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.RecoverableWorkItemDraft))]
+[JsonSerializable(typeof(Twig.Domain.Services.Discussion.RecoverableDiscussionPost))]
+[JsonSerializable(typeof(Twig.Domain.Services.Discussion.DiscussionPostReceipt))]
 [JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

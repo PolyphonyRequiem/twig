@@ -90,6 +90,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPendingChangeReader pendingReader,
         IFieldDefinitionStore fieldDefinitionStore,
         IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
@@ -104,7 +105,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPlanOriginProvider origin,
         IUnitOfWork unitOfWork)
         : this(
-            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionBound, seedPublish,
+            parser, journal, pendingReader, fieldDefinitionStore, adoService, revisionCodec, revisionBound, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent,
             config, paths, clock, steering, origin, ruleProvider: null, unitOfWork)
     {
@@ -122,6 +123,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IPendingChangeReader pendingReader,
         IFieldDefinitionStore fieldDefinitionStore,
         IProviderWorkItemWriter adoService,
+        IProviderRevisionCodec revisionCodec,
         IRevisionBoundAdoWorkItemService revisionBound,
         SeedPublishOrchestrator seedPublish,
         IWorkItemRepository workItemRepo,
@@ -152,7 +154,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _paths = paths;
         _clock = clock;
         _executor = new PlanOperationExecutor(
-            adoService, revisionBound, fieldDefinitionStore, seedPublish,
+            adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);

@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
+using Twig.Cli.Tests.TestSupport;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -20,6 +21,7 @@ public class LinkCommandTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _writer;
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly OutputFormatterFactory _formatterFactory;
@@ -34,6 +36,7 @@ public class LinkCommandTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _writer = AdoWriterFixture.Wrap(_adoService);
         _linkRepo = Substitute.For<IWorkItemLinkRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
@@ -57,7 +60,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, rendererFactory: null, _telemetryClient, _stderr);
+        return new LinkCommand(resolver, _writer, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, rendererFactory: null, _telemetryClient, _stderr);
     }
 
     /// <summary>
@@ -575,7 +578,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _writer, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").Build();
         var parent = new WorkItemBuilder(100, "Parent Item").InState("Active").Build();
@@ -658,7 +661,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _writer, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
 
@@ -742,7 +745,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _writer, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(50).Build();
         var newParent = new WorkItemBuilder(200, "New Parent").InState("Active").Build();

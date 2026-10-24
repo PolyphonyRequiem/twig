@@ -16,6 +16,12 @@ public sealed class StateTransitionExecutorTests
 {
     private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
 
+    // Feature #1178: the executor drives the provider mutation port. It is the real ADO adapter
+    // over the client substitute, wrapped before any per-test stub so specific stubs still win.
+    private readonly IProviderWorkItemWriter _writer;
+
+    public StateTransitionExecutorTests() => _writer = AdoWriterFixture.Wrap(_ado);
+
     private static TypeConfig AgileUserStoryConfig() =>
         ProcessConfigBuilder.Agile().TypeConfigs[WorkItemType.UserStory];
 
@@ -36,7 +42,7 @@ public sealed class StateTransitionExecutorTests
                 10, Arg.Any<CancellationToken>())
             .Returns(11);
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Active", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Active", typeConfig, 10);
 
         result.IsSuccess.ShouldBeTrue();
         result.Path.ShouldBe(["New", "Active"]);
@@ -72,7 +78,7 @@ public sealed class StateTransitionExecutorTests
                 12, Arg.Any<CancellationToken>())
             .Returns(13);
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10);
 
         result.IsSuccess.ShouldBeTrue();
         result.Path.ShouldBe(["New", "Active", "Resolved", "Closed"]);
@@ -101,7 +107,7 @@ public sealed class StateTransitionExecutorTests
                 12, Arg.Any<CancellationToken>())
             .Returns(13);
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "New", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "New", typeConfig, 10);
 
         result.IsSuccess.ShouldBeTrue();
         result.Path.ShouldBe(["Closed", "Resolved", "Active", "New"]);
@@ -131,7 +137,7 @@ public sealed class StateTransitionExecutorTests
                 11, Arg.Any<CancellationToken>())
             .ThrowsAsync(TransitionError("Active", "Closed"));
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10);
 
         result.IsSuccess.ShouldBeFalse();
         result.Path.ShouldBe(["New", "Active"]);
@@ -162,7 +168,7 @@ public sealed class StateTransitionExecutorTests
                 11, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoBadRequestException(validationError));
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10);
 
         result.IsSuccess.ShouldBeFalse();
         result.Path.ShouldBe(["New", "Active"]);
@@ -180,7 +186,7 @@ public sealed class StateTransitionExecutorTests
             .ThrowsAsync(new AdoAuthenticationException());
 
         await Should.ThrowAsync<AdoAuthenticationException>(
-            () => StateTransitionExecutor.ExecuteAsync(_ado, item, "Active", typeConfig, 10));
+            () => StateTransitionExecutor.ExecuteAsync(_writer, item, "Active", typeConfig, 10));
 
         await _ado.Received(1).PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -201,7 +207,7 @@ public sealed class StateTransitionExecutorTests
             .ThrowsAsync(new AdoServerException(503));
 
         await Should.ThrowAsync<AdoServerException>(
-            () => StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10));
+            () => StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10));
     }
 
     [Fact]
@@ -214,7 +220,7 @@ public sealed class StateTransitionExecutorTests
         _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 10, Arg.Any<CancellationToken>())
             .ThrowsAsync(TransitionError("UnlistedState", "Closed"));
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10);
 
         result.IsSuccess.ShouldBeFalse();
         result.Path.ShouldBe(["UnlistedState"]);
@@ -235,7 +241,7 @@ public sealed class StateTransitionExecutorTests
                 10, Arg.Any<CancellationToken>())
             .ThrowsAsync(TransitionError("To Do", "Doing"));
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Doing", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Doing", typeConfig, 10);
 
         result.IsSuccess.ShouldBeFalse();
         result.Path.ShouldBe(["To Do"]);
@@ -267,7 +273,7 @@ public sealed class StateTransitionExecutorTests
                 11, Arg.Any<CancellationToken>())
             .Returns(12);
 
-        var result = await StateTransitionExecutor.ExecuteAsync(_ado, item, "Closed", typeConfig, 10);
+        var result = await StateTransitionExecutor.ExecuteAsync(_writer, item, "Closed", typeConfig, 10);
 
         result.IsSuccess.ShouldBeTrue();
         result.Path.ShouldBe(["New", "Resolved", "Closed"]);

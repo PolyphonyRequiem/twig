@@ -9,6 +9,7 @@ using Twig.Domain.Services.Mutation;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.Infrastructure.Tests.Ado;
 using Twig.TestKit;
 using Xunit;
 
@@ -30,6 +31,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -55,7 +57,7 @@ public sealed class StateTransitionWorkflowTests
             .Returns(Array.Empty<PendingChangeRecord>());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,
@@ -92,6 +94,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -128,7 +131,7 @@ public sealed class StateTransitionWorkflowTests
             .Returns(Array.Empty<PendingChangeRecord>());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,
@@ -170,6 +173,7 @@ public sealed class StateTransitionWorkflowTests
             .AsIssue()
             .InState("To Do")
             .WithField("Custom.Substate", "Valid")
+            .WithRevision(11)
             .Build();
         var updated = new WorkItemBuilder(42, "issue")
             .AsIssue()
@@ -177,6 +181,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -200,16 +205,16 @@ public sealed class StateTransitionWorkflowTests
         adoService.PatchAsync(
                 42,
                 Arg.Any<IReadOnlyList<FieldChange>>(),
-                0,
+                11,
                 Arg.Any<CancellationToken>())
-            .Returns(11);
+            .Returns(12);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(fresh, updated);
         pendingChanges.GetChangesAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,
@@ -225,7 +230,7 @@ public sealed class StateTransitionWorkflowTests
             Arg.Is<IReadOnlyList<FieldChange>>(changes =>
                 changes.Count == 1 &&
                 changes[0] == new FieldChange("System.State", "To Do", "Doing")),
-            0,
+            11,
             Arg.Any<CancellationToken>());
     }
 
@@ -238,6 +243,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -255,7 +261,7 @@ public sealed class StateTransitionWorkflowTests
         processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,
@@ -293,6 +299,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -311,7 +318,7 @@ public sealed class StateTransitionWorkflowTests
             .Returns(Array.Empty<PendingChangeRecord>());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,
@@ -341,6 +348,7 @@ public sealed class StateTransitionWorkflowTests
             .Build();
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
+        var writer = AdoWriterFixture.Wrap(adoService);
         var pendingChanges = Substitute.For<IPendingChangeStore>();
         var processConfig = Substitute.For<IProcessConfigurationProvider>();
         var ruleProvider = new FakeProcessRuleProvider(
@@ -371,7 +379,7 @@ public sealed class StateTransitionWorkflowTests
             .Returns(Array.Empty<PendingChangeRecord>());
         var workflow = new StateTransitionWorkflow(
             workItemRepo,
-            adoService,
+            writer,
             pendingChanges,
             processConfig,
             parentPropagation: null,

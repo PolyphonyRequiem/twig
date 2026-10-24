@@ -125,10 +125,20 @@ public static class NetworkServiceModule
         // edit, batch, the pending-change flusher and proposal apply resolve. Same ordering
         // as the read boundary: a non-ADO workspace refuses here, before any ADO client exists.
         // GitHub stays read-only — no non-ADO writer is registered until #1183.
+        // The ADO adapter owns the opaque-revision precondition check, so a foreign or
+        // non-canonical token is refused before any ADO call (#1178 AC (a)).
         services.AddSingleton<IProviderWorkItemWriter>(sp =>
         {
             RequireAdoBoundary(sp, "provider mutation boundary");
-            return sp.GetRequiredService<IAdoWorkItemService>();
+            return new AdoProviderWorkItemWriter(sp.GetRequiredService<IAdoWorkItemService>());
+        });
+        // Converts the cache's ADO int revision to and from the opaque token. It only exists
+        // at the ADO compatibility boundary; a non-ADO workspace refuses here with the port's
+        // exact wording, before any ADO client exists (#1178 AC (a)).
+        services.AddSingleton<IProviderRevisionCodec>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return AdoProviderRevisionCodec.Instance;
         });
         // Authoritative revision-bound pre-operation reads (#1169 / #1178), keyed by neutral
         // identity and opaque revision token rather than ADO integers.

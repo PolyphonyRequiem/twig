@@ -7,6 +7,13 @@ namespace Twig.TestKit;
 /// Fluent builder for <see cref="WorkItem"/> instances in tests.
 /// All fields default to sensible values so only the relevant properties need to be set.
 /// </summary>
+/// <remarks>
+/// <b>Revision default.</b> A built item is synced at revision <c>1</c>, as anything read from
+/// a provider is, unless it is a seed (<see cref="AsSeed"/>), which has never been published and
+/// so stays at revision <c>0</c>. Since Feature #1178 a provider write refuses revision <c>0</c> as a
+/// missing precondition, so a fixture that means "unsynced" or "revision 0" must say so with
+/// <see cref="WithRevision"/><c>(0)</c> rather than rely on this default.
+/// </remarks>
 public sealed class WorkItemBuilder
 {
     private int _id;
@@ -23,6 +30,7 @@ public sealed class WorkItemBuilder
     private StagedIdentity? _stagedIdentity;
     private DateTimeOffset? _lastSyncedAt;
     private bool _dirty;
+    private int? _revision;
     private readonly Dictionary<string, string?> _fields = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkItemBuilder(int id, string title)
@@ -63,6 +71,12 @@ public sealed class WorkItemBuilder
     public WorkItemBuilder LastSyncedAt(DateTimeOffset? value) { _lastSyncedAt = value; return this; }
     public WorkItemBuilder Dirty() { _dirty = true; return this; }
 
+    /// <summary>
+    /// Pins the built item's revision. <c>0</c> leaves it unsynced; any other value is applied
+    /// with <see cref="WorkItem.MarkSynced"/>. Overrides the default described on the class.
+    /// </summary>
+    public WorkItemBuilder WithRevision(int revision) { _revision = revision; return this; }
+
     public WorkItemBuilder WithField(string key, string? value)
     {
         _fields[key] = value;
@@ -94,6 +108,10 @@ public sealed class WorkItemBuilder
             StagedIdentity = _stagedIdentity,
             LastSyncedAt = _lastSyncedAt,
         };
+
+        var revision = _revision ?? (_isSeed ? 0 : 1);
+        if (revision != 0)
+            item.MarkSynced(revision);
 
         if (_dirty)
             item.SetDirty();

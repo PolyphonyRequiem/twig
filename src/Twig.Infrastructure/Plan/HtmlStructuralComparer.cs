@@ -5,7 +5,8 @@ namespace Twig.Infrastructure.Plan;
 
 /// <summary>
 /// Compares well-formed HTML fragments by their structural tokens without discarding text.
-/// ADO may normalize serialization and trailing ASCII whitespace at supported block edges.
+/// ADO may normalize serialization and trailing ASCII whitespace at supported block edges,
+/// and insert ASCII whitespace-only text between two supported block tags (AB#851).
 /// Inline word boundaries, preformatted content, and unknown rendering contexts stay strict.
 /// </summary>
 internal static class HtmlStructuralComparer
@@ -29,32 +30,49 @@ internal static class HtmlStructuralComparer
         var canonicalRootStart = 0;
         var normalizedRootStart = 0;
         var anchorDepth = 0;
+        var previousIsBlockBoundary = true;
         var index = 0;
 
         while (index < source.Length)
         {
             var tagStart = source.IndexOf('<', index);
+            var segment = tagStart < 0 ? source.AsSpan(index) : source.AsSpan(index, tagStart - index);
+            var rootLevel = openTags.Count == 0;
+
+            // AB#851: ADO inserts whitespace between block elements. A whitespace-only text
+            // node bounded on BOTH sides by block tags in a block (or root) context renders
+            // nothing, so the normalized stream drops it. At root level the stale root flag
+            // still describes the preceding root, so a styled neighbour keeps it strict.
+            var dropInterBlock = supportsNormalization && rootSupportsNormalization && previousIsBlockBoundary
+                && (rootLevel || IsBlockElement(openTags.Peek()))
+                && IsAsciiWhitespace(segment)
+                && (tagStart < 0 || IsBlockTag(source, tagStart));
+
             if (tagStart < 0)
             {
-                AppendText(builder, ref normalized, source.AsSpan(index), trimBlockEdge: false);
+                AppendText(builder, ref normalized, segment, trimBlockEdge: false, dropInterBlock);
                 break;
+            }
+
+            // A root's rollback span starts BEFORE its leading text, so a styled root that
+            // follows dropped whitespace restores that whitespace to the strict comparison.
+            if (rootLevel)
+            {
+                rootSupportsNormalization = true;
+                canonicalRootStart = builder.Length;
+                normalizedRootStart = normalized?.Length ?? builder.Length;
             }
 
             // Supported nesting guarantees a block cannot have an inline/preformatted
             // ancestor. Never trim before an inline closing tag: that can join words.
-            var trimBlockEdge = supportsNormalization && rootSupportsNormalization && openTags.Count > 0
+            var trimBlockEdge = supportsNormalization && rootSupportsNormalization && !rootLevel
                 && IsBlockElement(openTags.Peek())
                 && source.AsSpan(tagStart).StartsWith("</", StringComparison.Ordinal);
-            AppendText(builder, ref normalized, source.AsSpan(index, tagStart - index), trimBlockEdge);
+            AppendText(builder, ref normalized, segment, trimBlockEdge, dropInterBlock);
             index = tagStart;
             var tokenStart = builder.Length;
-            if (openTags.Count == 0)
-            {
-                rootSupportsNormalization = true;
-                canonicalRootStart = tokenStart;
-                normalizedRootStart = normalized?.Length ?? tokenStart;
-            }
             var rootWasSupported = rootSupportsNormalization;
+            previousIsBlockBoundary = IsBlockTag(source, tagStart);
             if (!TryAppendTag(source, ref index, builder, openTags, ref supportsNormalization, ref rootSupportsNormalization, ref anchorDepth))
                 return false;
             if (!supportsNormalization)
@@ -284,12 +302,20 @@ internal static class HtmlStructuralComparer
     }
 
     private static void AppendText(
-        StringBuilder builder, ref StringBuilder? normalized, ReadOnlySpan<char> text, bool trimBlockEdge)
+        StringBuilder builder, ref StringBuilder? normalized, ReadOnlySpan<char> text, bool trimBlockEdge,
+        bool dropFromNormalized)
     {
         if (text.Length == 0)
             return;
 
         var value = NormalizeText(text.ToString());
+        if (dropFromNormalized)
+        {
+            normalized ??= new StringBuilder(builder.Capacity).Append(builder);
+            builder.Append('T');
+            AppendToken(builder, value);
+            return;
+        }
         var trimmed = trimBlockEdge ? value.AsSpan().TrimEnd(" \t\r\n\f") : value.AsSpan();
         // Allocate a second token stream only at the first changed edge; tags are parsed
         // and attributes sorted once, with subsequent tokens shared between streams.
@@ -325,6 +351,21 @@ internal static class HtmlStructuralComparer
                 supportsNormalization = false;
             cursor++;
         }
+    }
+
+    private static bool IsAsciiWhitespace(ReadOnlySpan<char> text)
+        => text.Length > 0 && text.IndexOfAnyExcept(" \t\r\n\f") < 0;
+
+    /// <summary>True when the tag at <paramref name="tagStart"/> opens or closes a supported block.</summary>
+    private static bool IsBlockTag(string source, int tagStart)
+    {
+        var cursor = tagStart + 1;
+        if (cursor < source.Length && source[cursor] == '/')
+            cursor++;
+        var start = cursor;
+        while (cursor < source.Length && IsNameCharacter(source[cursor]))
+            cursor++;
+        return cursor > start && IsBlockElement(source.Substring(start, cursor - start).ToLowerInvariant());
     }
 
     private static bool IsNameCharacter(char value)

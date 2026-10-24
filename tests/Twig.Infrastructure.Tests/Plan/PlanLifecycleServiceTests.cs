@@ -705,6 +705,41 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task Apply_EntityBearingHtmlRoundTrip_JournalStateIsIdenticalAcrossHtmlFields(string field)
+    {
+        // AB#851: System.Description verified while Custom.FalsificationCriteria + State went
+        // Indeterminate for a write that landed. Equivalent writes must journal identically.
+        _fieldDefinitions
+            .GetByReferenceNameAsync(field, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<FieldDefinition?>(new FieldDefinition(field, field, "html", IsReadOnly: false)));
+        var file = WritePlan(BatchWithFields(42, 3,
+        [
+            ("System.State", "Done"),
+            (field, PlanOperationExecutorTests.Ab851Staged),
+        ]));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+        var refreshed = BuildWorkItem(42, rev: 4, state: "Done");
+        refreshed.UpdateField(field, PlanOperationExecutorTests.Ab851AdoStored);
+        _ado.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(refreshed);
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeFalse();
+        var persisted = (await _journal.GetAsync(digest))!.Operations[0];
+        persisted.State.ShouldBe(PlanOperationState.Verified);
+        persisted.Error.ShouldBeNull();
+        persisted.Warning.ShouldNotBeNull();
+        persisted.Diagnostics.Code.ShouldBe("verified");
+        persisted.Diagnostics.Fields.ShouldContain(f => f.Field == field && f.Classification == "canonicalized-html");
+        persisted.Diagnostics.Fields.ShouldContain(f => f.Field == "System.State" && f.Classification == "exact");
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Apply_RecoveryFromApplied_PreservesAcknowledgmentWithTerminalDiagnostics(bool readbackFails)

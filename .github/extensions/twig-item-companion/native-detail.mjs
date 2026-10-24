@@ -73,7 +73,7 @@ function execute(execFile, args, options) {
     });
 }
 
-function validateObservation(value, workItemId, workspacePath) {
+export function validateObservation(value, workItemId, workspacePath) {
     if (!isRecord(value) ||
         value.version !== 2 ||
         !isRecord(value.itemKey) ||

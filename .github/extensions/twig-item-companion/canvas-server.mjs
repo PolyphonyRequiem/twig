@@ -1,13 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { renderPage } from "./render.mjs";
+import { captureBench } from "./native-bench.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const state = {
         observation: null,
+        benchObservation: null,
         error: null,
         busy: false,
         closed: false,
@@ -48,6 +50,54 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
             identityId: current.identityId,
             connectionId: current.itemKey.connectionId,
         });
+    };
+
+    const loadBench = async (bench, expected) => {
+        if (!workbench || !readNativeBench) throw new Error("Native workbench browsing is unavailable.");
+        if (state.closed) throw new Error("This Twig workbench is closed.");
+        if (state.busy) throw new HttpError(409, "A Twig read is already in progress.");
+        state.busy = true;
+        state.error = null;
+        const controller = new AbortController();
+        state.controller = controller;
+        try {
+            const observation = await readNativeBench({
+                bench, workspacePath, expected, signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted) throw new Error("This Twig workbench is closed.");
+            state.benchObservation = observation;
+            return observation;
+        } catch (error) {
+            state.error = error instanceof Error ? error.message : "Native Bench read failed.";
+            throw error;
+        } finally {
+            state.controller = null;
+            state.busy = false;
+        }
+    };
+    const refreshBench = async () => {
+        if (!state.benchObservation) throw new Error("Load a saved Bench before re-reading its cache.");
+        return loadBench(state.benchObservation.benchId, captureBench(state.benchObservation));
+    };
+
+    const loadBenchDetail = async (workItemId) => {
+        if (!workbench || !readNativeBenchDetail) throw new Error("Native explicit-Bench detail is unavailable.");
+        if (state.closed) throw new Error("This Twig workbench is closed.");
+        if (!state.benchObservation) throw new Error("Load a saved Bench before reading item detail.");
+        if (state.busy) throw new HttpError(409, "A Twig read is already in progress.");
+        state.busy = true;
+        const controller = new AbortController();
+        state.controller = controller;
+        try {
+            const detail = await readNativeBenchDetail({
+                workItemId, workspacePath, expected: captureBench(state.benchObservation), signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted) throw new Error("This Twig workbench is closed.");
+            return detail;
+        } finally {
+            state.controller = null;
+            state.busy = false;
+        }
     };
 
     const server = createServer((request, response) => {
@@ -96,7 +146,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
                 "Content-Type": "text/html; charset=utf-8",
                 "Content-Security-Policy": contentSecurityPolicy(nonce),
             });
-            response.end(renderPage({ token, nonce }));
+            response.end(renderPage({ token, nonce, workbench }));
             return;
         }
 
@@ -108,13 +158,14 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
         if (request.method === "GET" && request.url === "/api/state") {
             sendJson(response, 200, {
                 observation: state.observation,
+                ...(workbench ? { benchObservation: state.benchObservation } : {}),
                 error: state.error,
                 busy: state.busy,
             });
             return;
         }
 
-        if (request.method !== "POST" || request.url !== "/api/detail") {
+        if (request.method !== "POST" || request.url !== (workbench ? "/api/bench" : "/api/detail")) {
             sendJson(response, 404, { error: "Unknown Twig companion route." });
             return;
         }
@@ -125,6 +176,18 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
         }
 
         const body = await readJsonBody(request);
+        if (workbench) {
+            if (body.action === "load" && typeof body.bench === "string" && body.bench.trim() && body.bench.length <= 512) {
+                sendJson(response, 200, { benchObservation: await loadBench(body.bench) });
+            } else if (body.action === "refresh") {
+                sendJson(response, 200, { benchObservation: await refreshBench() });
+            } else if (body.action === "detail" && isWorkItemId(body.workItemId)) {
+                sendJson(response, 200, { benchDetail: await loadBenchDetail(body.workItemId) });
+            } else {
+                sendJson(response, 400, { error: "Expected a saved Bench name or ID, or a refresh action." });
+            }
+            return;
+        }
         if (body.action === "load" && isWorkItemId(body.workItemId)) {
             sendJson(response, 200, { observation: await load(body.workItemId) });
             return;
@@ -141,6 +204,9 @@ export async function createCanvasServer({ workspacePath, readNativeDetail }) {
         url: `${origin}/`,
         load,
         refresh,
+        loadBench,
+        refreshBench,
+        loadBenchDetail,
         close: async () => {
             if (state.closed) return;
             state.closed = true;

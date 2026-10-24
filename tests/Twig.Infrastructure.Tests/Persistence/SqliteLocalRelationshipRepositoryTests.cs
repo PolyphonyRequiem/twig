@@ -23,8 +23,12 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
+    private static LocalWorkItemId Id(int value) =>
+        LocalWorkItemId.FromGuid(Guid.Parse($"00000000-0000-0000-0000-{value:D12}"));
+
     private static LocalRelationship Edge(int source, int target, LinkKind kind = LinkKind.PredecessorSuccessor) =>
-        new(source, target, kind, EmulationStorage.LocalWithProviderProjection, PublicationState.Pending, 0, false, Now);
+        new(Id(source), Id(target), kind, EmulationStorage.LocalWithProviderProjection,
+            PublicationState.Pending, 0, Now, Now, null);
 
     [Fact]
     public async Task Upsert_RoundTrips_AndStoresCanonicalTokens()
@@ -33,7 +37,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
         write.Status.ShouldBe(LocalRelationshipWriteStatus.Written);
         write.Current!.Revision.ShouldBe(1);
-        (await _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
+        (await _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
 
         using var cmd = _store.GetConnection().CreateCommand();
         cmd.CommandText = "SELECT kind, storage, publication FROM pending.local_relationships;";
@@ -63,14 +67,14 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
     {
         await _repo.UpsertAsync(Edge(1, 2), null);
 
-        (await _repo.TombstoneAsync(1, 2, LinkKind.PredecessorSuccessor, 5, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
-        var tomb = await _repo.TombstoneAsync(1, 2, LinkKind.PredecessorSuccessor, 1, Now);
+        (await _repo.TombstoneAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor, 5, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
+        var tomb = await _repo.TombstoneAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor, 1, Now);
         tomb.Current!.Deleted.ShouldBeTrue();
         tomb.Current.Revision.ShouldBe(2);
 
-        (await _repo.GetForItemsAsync([1])).ShouldBeEmpty();
-        (await _repo.GetForItemsAsync([2], includeDeleted: true)).Single().Deleted.ShouldBeTrue();
-        (await _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor))!.Deleted.ShouldBeTrue();
+        (await _repo.GetForItemsAsync([Id(1)])).ShouldBeEmpty();
+        (await _repo.GetForItemsAsync([Id(2)], includeDeleted: true)).Single().Deleted.ShouldBeTrue();
+        (await _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor))!.Deleted.ShouldBeTrue();
 
         (await _repo.UpsertAsync(Edge(1, 2), null)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
         var revived = await _repo.UpsertAsync(Edge(1, 2), 2);
@@ -80,11 +84,11 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
     [Fact]
     public async Task Tombstone_OfMissingEdge_IsConflict() =>
-        (await _repo.TombstoneAsync(8, 9, LinkKind.Related, 1, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
+        (await _repo.TombstoneAsync(Id(8), Id(9), LinkKind.Related, 1, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
 
     [Fact]
     public async Task Upsert_RejectsDeletedInput() =>
-        await Should.ThrowAsync<ArgumentException>(() => _repo.UpsertAsync(Edge(1, 2) with { Deleted = true }, null));
+        await Should.ThrowAsync<ArgumentException>(() => _repo.UpsertAsync(Edge(1, 2) with { DeletedAt = Now }, null));
 
     [Fact]
     public async Task GetForItems_MatchesEitherEndpoint()
@@ -93,7 +97,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         await _repo.UpsertAsync(Edge(3, 1, LinkKind.ParentChild), null);
         await _repo.UpsertAsync(Edge(5, 6), null);
 
-        (await _repo.GetForItemsAsync([1])).Count.ShouldBe(2);
+        (await _repo.GetForItemsAsync([Id(1)])).Count.ShouldBe(2);
         (await _repo.GetForItemsAsync([])).ShouldBeEmpty();
     }
 
@@ -103,13 +107,17 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         using (var cmd = _store.GetConnection().CreateCommand())
         {
             cmd.CommandText = """
-                INSERT INTO pending.local_relationships (source_id, target_id, kind, storage, publication, revision, deleted, updated_at)
-                VALUES (1, 2, 'Related', 'none', 'not-applicable', 1, 0, '2026-01-01T00:00:00+00:00');
+                INSERT INTO pending.local_relationships
+                    (source_local_id, target_local_id, kind, storage, publication, revision, created_at, updated_at, deleted_at)
+                VALUES (@source, @target, 'Related', 'none', 'not-applicable', 1,
+                    '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', NULL);
                 """;
+            cmd.Parameters.AddWithValue("@source", Id(1).ToString());
+            cmd.Parameters.AddWithValue("@target", Id(2).ToString());
             cmd.ExecuteNonQuery();
         }
 
-        var ex = await Should.ThrowAsync<InvalidOperationException>(() => _repo.GetForItemsAsync([1]));
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => _repo.GetForItemsAsync([Id(1)]));
         ex.Message.ShouldStartWith("local-relationship-unreadable:");
     }
 
@@ -122,7 +130,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         await links.SaveLinksAsync(1, [new WorkItemLink(1, 3, LinkTypes.Related)]);
         await links.SaveLinksAsync(1, []);
 
-        (await _repo.GetForItemsAsync([1])).Single().TargetId.ShouldBe(2);
+        (await _repo.GetForItemsAsync([Id(1)])).Single().TargetId.ShouldBe(Id(2));
     }
 
     [Fact]
@@ -146,7 +154,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");
             reopened.SchemaWasRebuilt.ShouldBeTrue("the mirror must actually have been rebuilt");
-            var edge = await new SqliteLocalRelationshipRepository(reopened).GetAsync(1, 2, LinkKind.PredecessorSuccessor);
+            var edge = await new SqliteLocalRelationshipRepository(reopened).GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor);
             edge.ShouldNotBeNull();
             edge.Revision.ShouldBe(1);
         });

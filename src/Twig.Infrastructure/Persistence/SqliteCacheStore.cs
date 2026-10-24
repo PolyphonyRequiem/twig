@@ -792,24 +792,50 @@ public sealed class SqliteCacheStore : IDisposable
                 WHERE publish_identity IS NOT NULL;
             """,
 
-        // Epic 1170: Twig-local relationship overlay. Durable on purpose — the mirror's
-        // work_item_links is replaced per source on refresh and dropped on rebuild, so emulated
-        // edges must never live there. kind/storage/publication hold canonical string tokens,
-        // never enum ordinals. revision is a local CAS counter; deleted rows are tombstones.
+        // Epic #1168 — provider-neutral durable records. local_work_items holds Twig-owned
+        // identity (GUIDv7 text), an integer local CAS revision and locally held field values
+        // (FieldValuesJsonConverter form); deleted_at is a terminal tombstone, and no history is
+        // kept. external_identities maps a provider key (kind, scope, opaque native id) to a
+        // local id and records the last observed opaque provider token. local_relationships
+        // holds Twig-owned edges only, keyed by stable LinkKindNames tokens; remote edges stay in
+        // the disposable mirror. Storage and publication retain #1170's emulation metadata.
+        // Additive only: no existing row is read or rewritten.
         [13] = $"""
-            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
-                source_id INTEGER NOT NULL,
-                target_id INTEGER NOT NULL,
-                kind TEXT NOT NULL,
-                storage TEXT NOT NULL,
-                publication TEXT NOT NULL,
-                revision INTEGER NOT NULL,
-                deleted INTEGER NOT NULL DEFAULT 0,
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_work_items (
+                local_id TEXT PRIMARY KEY,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                fields_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                PRIMARY KEY (source_id, target_id, kind)
+                deleted_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.external_identities (
+                provider_kind TEXT NOT NULL,
+                resource_scope TEXT NOT NULL,
+                native_id TEXT NOT NULL,
+                local_id TEXT NOT NULL,
+                provider_token TEXT,
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (provider_kind, resource_scope, native_id)
+            );
+            CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_external_identities_local
+                ON external_identities(local_id);
+
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.local_relationships (
+                source_local_id TEXT NOT NULL,
+                target_local_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                storage TEXT NOT NULL DEFAULT 'none',
+                publication TEXT NOT NULL DEFAULT 'not-applicable',
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT,
+                PRIMARY KEY (source_local_id, target_local_id, kind)
             );
             CREATE INDEX IF NOT EXISTS {DurableSchema}.idx_local_relationships_target
-                ON local_relationships(target_id);
+                ON local_relationships(target_local_id);
             """,
 
     };

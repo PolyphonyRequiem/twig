@@ -1222,3 +1222,246 @@ override Twig.Domain.ValueObjects.SeedPublishCorrelation.ToString() -> string!
 static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator !=(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool
 static Twig.Domain.ValueObjects.SeedPublishCorrelation.operator ==(Twig.Domain.ValueObjects.SeedPublishCorrelation? left, Twig.Domain.ValueObjects.SeedPublishCorrelation? right) -> bool
 static Twig.Domain.Services.Sync.SyncGuard.GetProtectedItemIdsFromJournalAsync(Twig.Domain.Interfaces.IWorkItemRepository! repo, Twig.Domain.Interfaces.IPendingChangeReader! pendingReader, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlySet<int>!>!
+~override Twig.Domain.ValueObjects.LocalWorkItemId.Equals(object obj) -> bool
+override Twig.Domain.Interfaces.LocalRevisionConflict.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.LocalRevisionConflict.GetHashCode() -> int
+override Twig.Domain.Interfaces.LocalRevisionConflict.ToString() -> string!
+override Twig.Domain.Interfaces.LocalWorkItemNotFound.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.LocalWorkItemNotFound.GetHashCode() -> int
+override Twig.Domain.Interfaces.LocalWorkItemNotFound.ToString() -> string!
+override Twig.Domain.Interfaces.LocalWorkItemRecord.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.LocalWorkItemRecord.GetHashCode() -> int
+override Twig.Domain.Interfaces.LocalWorkItemRecord.ToString() -> string!
+override Twig.Domain.Interfaces.LocalWorkItemTombstoned.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.LocalWorkItemTombstoned.GetHashCode() -> int
+override Twig.Domain.Interfaces.LocalWorkItemTombstoned.ToString() -> string!
+override Twig.Domain.Interfaces.LocalWriteApplied.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.LocalWriteApplied.GetHashCode() -> int
+override Twig.Domain.Interfaces.LocalWriteApplied.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.BooleanValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.BooleanValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.BooleanValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.DateTimeValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.DateTimeValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.DateTimeValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.DecimalValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.DecimalValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.DecimalValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.FieldValues.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.FieldValues.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> Twig.Domain.ValueObjects.Fields.FieldValues!
+override Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter.Write(System.Text.Json.Utf8JsonWriter! writer, Twig.Domain.ValueObjects.Fields.FieldValues! value, System.Text.Json.JsonSerializerOptions! options) -> void
+override Twig.Domain.ValueObjects.Fields.IdentityValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.IdentityValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.IdentityValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.IntegerValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.IntegerValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.IntegerValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.NullValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.NullValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.NullValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.RawValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.RawValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.RawValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.RichTextValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.RichTextValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.RichTextValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.StringListValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.StringListValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.StringListValue.ToString() -> string!
+override Twig.Domain.ValueObjects.Fields.TextValue.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.Fields.TextValue.GetHashCode() -> int
+override Twig.Domain.ValueObjects.Fields.TextValue.ToString() -> string!
+override Twig.Domain.ValueObjects.LocalWorkItemId.GetHashCode() -> int
+override Twig.Domain.ValueObjects.LocalWorkItemId.ToString() -> string!
+static Twig.Domain.Interfaces.LocalRevisionConflict.operator !=(Twig.Domain.Interfaces.LocalRevisionConflict? left, Twig.Domain.Interfaces.LocalRevisionConflict? right) -> bool
+static Twig.Domain.Interfaces.LocalRevisionConflict.operator ==(Twig.Domain.Interfaces.LocalRevisionConflict? left, Twig.Domain.Interfaces.LocalRevisionConflict? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemNotFound.operator !=(Twig.Domain.Interfaces.LocalWorkItemNotFound? left, Twig.Domain.Interfaces.LocalWorkItemNotFound? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemNotFound.operator ==(Twig.Domain.Interfaces.LocalWorkItemNotFound? left, Twig.Domain.Interfaces.LocalWorkItemNotFound? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemRecord.operator !=(Twig.Domain.Interfaces.LocalWorkItemRecord? left, Twig.Domain.Interfaces.LocalWorkItemRecord? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemRecord.operator ==(Twig.Domain.Interfaces.LocalWorkItemRecord? left, Twig.Domain.Interfaces.LocalWorkItemRecord? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemTombstoned.operator !=(Twig.Domain.Interfaces.LocalWorkItemTombstoned? left, Twig.Domain.Interfaces.LocalWorkItemTombstoned? right) -> bool
+static Twig.Domain.Interfaces.LocalWorkItemTombstoned.operator ==(Twig.Domain.Interfaces.LocalWorkItemTombstoned? left, Twig.Domain.Interfaces.LocalWorkItemTombstoned? right) -> bool
+static Twig.Domain.Interfaces.LocalWriteApplied.operator !=(Twig.Domain.Interfaces.LocalWriteApplied? left, Twig.Domain.Interfaces.LocalWriteApplied? right) -> bool
+static Twig.Domain.Interfaces.LocalWriteApplied.operator ==(Twig.Domain.Interfaces.LocalWriteApplied? left, Twig.Domain.Interfaces.LocalWriteApplied? right) -> bool
+static Twig.Domain.ValueObjects.Fields.BooleanValue.operator !=(Twig.Domain.ValueObjects.Fields.BooleanValue? left, Twig.Domain.ValueObjects.Fields.BooleanValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.BooleanValue.operator ==(Twig.Domain.ValueObjects.Fields.BooleanValue? left, Twig.Domain.ValueObjects.Fields.BooleanValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.DateTimeValue.operator !=(Twig.Domain.ValueObjects.Fields.DateTimeValue? left, Twig.Domain.ValueObjects.Fields.DateTimeValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.DateTimeValue.operator ==(Twig.Domain.ValueObjects.Fields.DateTimeValue? left, Twig.Domain.ValueObjects.Fields.DateTimeValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.DecimalValue.operator !=(Twig.Domain.ValueObjects.Fields.DecimalValue? left, Twig.Domain.ValueObjects.Fields.DecimalValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.DecimalValue.operator ==(Twig.Domain.ValueObjects.Fields.DecimalValue? left, Twig.Domain.ValueObjects.Fields.DecimalValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.FieldValues.Create(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string!, Twig.Domain.ValueObjects.Fields.FieldValue>>! values) -> Twig.Domain.ValueObjects.Fields.FieldValues!
+static Twig.Domain.ValueObjects.Fields.FieldValues.Empty.get -> Twig.Domain.ValueObjects.Fields.FieldValues!
+static Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter.ReadValue(ref System.Text.Json.Utf8JsonReader reader) -> Twig.Domain.ValueObjects.Fields.FieldValue
+static Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter.WriteValue(System.Text.Json.Utf8JsonWriter! writer, Twig.Domain.ValueObjects.Fields.FieldValue value) -> void
+static Twig.Domain.ValueObjects.Fields.IdentityValue.operator !=(Twig.Domain.ValueObjects.Fields.IdentityValue? left, Twig.Domain.ValueObjects.Fields.IdentityValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.IdentityValue.operator ==(Twig.Domain.ValueObjects.Fields.IdentityValue? left, Twig.Domain.ValueObjects.Fields.IdentityValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.IntegerValue.operator !=(Twig.Domain.ValueObjects.Fields.IntegerValue? left, Twig.Domain.ValueObjects.Fields.IntegerValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.IntegerValue.operator ==(Twig.Domain.ValueObjects.Fields.IntegerValue? left, Twig.Domain.ValueObjects.Fields.IntegerValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.NullValue.Instance.get -> Twig.Domain.ValueObjects.Fields.NullValue!
+static Twig.Domain.ValueObjects.Fields.NullValue.operator !=(Twig.Domain.ValueObjects.Fields.NullValue? left, Twig.Domain.ValueObjects.Fields.NullValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.NullValue.operator ==(Twig.Domain.ValueObjects.Fields.NullValue? left, Twig.Domain.ValueObjects.Fields.NullValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.RawValue.operator !=(Twig.Domain.ValueObjects.Fields.RawValue? left, Twig.Domain.ValueObjects.Fields.RawValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.RawValue.operator ==(Twig.Domain.ValueObjects.Fields.RawValue? left, Twig.Domain.ValueObjects.Fields.RawValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.RichTextValue.operator !=(Twig.Domain.ValueObjects.Fields.RichTextValue? left, Twig.Domain.ValueObjects.Fields.RichTextValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.RichTextValue.operator ==(Twig.Domain.ValueObjects.Fields.RichTextValue? left, Twig.Domain.ValueObjects.Fields.RichTextValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.StringListValue.operator !=(Twig.Domain.ValueObjects.Fields.StringListValue? left, Twig.Domain.ValueObjects.Fields.StringListValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.StringListValue.operator ==(Twig.Domain.ValueObjects.Fields.StringListValue? left, Twig.Domain.ValueObjects.Fields.StringListValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.TextValue.operator !=(Twig.Domain.ValueObjects.Fields.TextValue? left, Twig.Domain.ValueObjects.Fields.TextValue? right) -> bool
+static Twig.Domain.ValueObjects.Fields.TextValue.operator ==(Twig.Domain.ValueObjects.Fields.TextValue? left, Twig.Domain.ValueObjects.Fields.TextValue? right) -> bool
+static Twig.Domain.ValueObjects.LocalWorkItemId.FromGuid(System.Guid value) -> Twig.Domain.ValueObjects.LocalWorkItemId
+static Twig.Domain.ValueObjects.LocalWorkItemId.New() -> Twig.Domain.ValueObjects.LocalWorkItemId
+static Twig.Domain.ValueObjects.LocalWorkItemId.operator !=(Twig.Domain.ValueObjects.LocalWorkItemId left, Twig.Domain.ValueObjects.LocalWorkItemId right) -> bool
+static Twig.Domain.ValueObjects.LocalWorkItemId.operator ==(Twig.Domain.ValueObjects.LocalWorkItemId left, Twig.Domain.ValueObjects.LocalWorkItemId right) -> bool
+static Twig.Domain.ValueObjects.LocalWorkItemId.TryParse(string? text, out Twig.Domain.ValueObjects.LocalWorkItemId identity) -> bool
+Twig.Domain.Interfaces.ILocalWorkItemStore
+Twig.Domain.Interfaces.ILocalWorkItemStore.CreateAsync(Twig.Domain.ValueObjects.Fields.FieldValues! fields, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.LocalWorkItemRecord!>!
+Twig.Domain.Interfaces.ILocalWorkItemStore.DeleteAsync(Twig.Domain.ValueObjects.LocalWorkItemId id, long expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.LocalWriteResult>!
+Twig.Domain.Interfaces.ILocalWorkItemStore.GetAsync(Twig.Domain.ValueObjects.LocalWorkItemId id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.LocalWorkItemRecord?>!
+Twig.Domain.Interfaces.ILocalWorkItemStore.UpdateAsync(Twig.Domain.ValueObjects.LocalWorkItemId id, long expectedRevision, Twig.Domain.ValueObjects.Fields.FieldValues! fields, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.LocalWriteResult>!
+Twig.Domain.Interfaces.LocalRevisionConflict
+Twig.Domain.Interfaces.LocalRevisionConflict.<Clone>$() -> Twig.Domain.Interfaces.LocalRevisionConflict!
+Twig.Domain.Interfaces.LocalRevisionConflict.Current.get -> Twig.Domain.Interfaces.LocalWorkItemRecord!
+Twig.Domain.Interfaces.LocalRevisionConflict.Current.init -> void
+Twig.Domain.Interfaces.LocalRevisionConflict.Deconstruct(out Twig.Domain.Interfaces.LocalWorkItemRecord! Current) -> void
+Twig.Domain.Interfaces.LocalRevisionConflict.Equals(Twig.Domain.Interfaces.LocalRevisionConflict? other) -> bool
+Twig.Domain.Interfaces.LocalRevisionConflict.LocalRevisionConflict(Twig.Domain.Interfaces.LocalWorkItemRecord! Current) -> void
+Twig.Domain.Interfaces.LocalWorkItemNotFound
+Twig.Domain.Interfaces.LocalWorkItemNotFound.<Clone>$() -> Twig.Domain.Interfaces.LocalWorkItemNotFound!
+Twig.Domain.Interfaces.LocalWorkItemNotFound.Deconstruct(out Twig.Domain.ValueObjects.LocalWorkItemId Id) -> void
+Twig.Domain.Interfaces.LocalWorkItemNotFound.Equals(Twig.Domain.Interfaces.LocalWorkItemNotFound? other) -> bool
+Twig.Domain.Interfaces.LocalWorkItemNotFound.Id.get -> Twig.Domain.ValueObjects.LocalWorkItemId
+Twig.Domain.Interfaces.LocalWorkItemNotFound.Id.init -> void
+Twig.Domain.Interfaces.LocalWorkItemNotFound.LocalWorkItemNotFound(Twig.Domain.ValueObjects.LocalWorkItemId Id) -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord
+Twig.Domain.Interfaces.LocalWorkItemRecord.<Clone>$() -> Twig.Domain.Interfaces.LocalWorkItemRecord!
+Twig.Domain.Interfaces.LocalWorkItemRecord.CreatedAt.get -> System.DateTimeOffset
+Twig.Domain.Interfaces.LocalWorkItemRecord.CreatedAt.init -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.Deconstruct(out Twig.Domain.ValueObjects.LocalWorkItemId Id, out long Revision, out Twig.Domain.ValueObjects.Fields.FieldValues! Fields, out System.DateTimeOffset CreatedAt, out System.DateTimeOffset UpdatedAt, out System.DateTimeOffset? DeletedAt) -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.DeletedAt.get -> System.DateTimeOffset?
+Twig.Domain.Interfaces.LocalWorkItemRecord.DeletedAt.init -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.Equals(Twig.Domain.Interfaces.LocalWorkItemRecord? other) -> bool
+Twig.Domain.Interfaces.LocalWorkItemRecord.Fields.get -> Twig.Domain.ValueObjects.Fields.FieldValues!
+Twig.Domain.Interfaces.LocalWorkItemRecord.Fields.init -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.Id.get -> Twig.Domain.ValueObjects.LocalWorkItemId
+Twig.Domain.Interfaces.LocalWorkItemRecord.Id.init -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.IsDeleted.get -> bool
+Twig.Domain.Interfaces.LocalWorkItemRecord.LocalWorkItemRecord(Twig.Domain.ValueObjects.LocalWorkItemId Id, long Revision, Twig.Domain.ValueObjects.Fields.FieldValues! Fields, System.DateTimeOffset CreatedAt, System.DateTimeOffset UpdatedAt, System.DateTimeOffset? DeletedAt) -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.Revision.get -> long
+Twig.Domain.Interfaces.LocalWorkItemRecord.Revision.init -> void
+Twig.Domain.Interfaces.LocalWorkItemRecord.UpdatedAt.get -> System.DateTimeOffset
+Twig.Domain.Interfaces.LocalWorkItemRecord.UpdatedAt.init -> void
+Twig.Domain.Interfaces.LocalWorkItemTombstoned
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.<Clone>$() -> Twig.Domain.Interfaces.LocalWorkItemTombstoned!
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.Current.get -> Twig.Domain.Interfaces.LocalWorkItemRecord!
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.Current.init -> void
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.Deconstruct(out Twig.Domain.Interfaces.LocalWorkItemRecord! Current) -> void
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.Equals(Twig.Domain.Interfaces.LocalWorkItemTombstoned? other) -> bool
+Twig.Domain.Interfaces.LocalWorkItemTombstoned.LocalWorkItemTombstoned(Twig.Domain.Interfaces.LocalWorkItemRecord! Current) -> void
+Twig.Domain.Interfaces.LocalWriteApplied
+Twig.Domain.Interfaces.LocalWriteApplied.<Clone>$() -> Twig.Domain.Interfaces.LocalWriteApplied!
+Twig.Domain.Interfaces.LocalWriteApplied.Deconstruct(out Twig.Domain.Interfaces.LocalWorkItemRecord! Record) -> void
+Twig.Domain.Interfaces.LocalWriteApplied.Equals(Twig.Domain.Interfaces.LocalWriteApplied? other) -> bool
+Twig.Domain.Interfaces.LocalWriteApplied.LocalWriteApplied(Twig.Domain.Interfaces.LocalWorkItemRecord! Record) -> void
+Twig.Domain.Interfaces.LocalWriteApplied.Record.get -> Twig.Domain.Interfaces.LocalWorkItemRecord!
+Twig.Domain.Interfaces.LocalWriteApplied.Record.init -> void
+Twig.Domain.Interfaces.LocalWriteResult
+Twig.Domain.Interfaces.LocalWriteResult.LocalWriteResult() -> void
+Twig.Domain.Interfaces.LocalWriteResult.LocalWriteResult(Twig.Domain.Interfaces.LocalRevisionConflict! value) -> void
+Twig.Domain.Interfaces.LocalWriteResult.LocalWriteResult(Twig.Domain.Interfaces.LocalWorkItemNotFound! value) -> void
+Twig.Domain.Interfaces.LocalWriteResult.LocalWriteResult(Twig.Domain.Interfaces.LocalWorkItemTombstoned! value) -> void
+Twig.Domain.Interfaces.LocalWriteResult.LocalWriteResult(Twig.Domain.Interfaces.LocalWriteApplied! value) -> void
+Twig.Domain.Interfaces.LocalWriteResult.Value.get -> object?
+Twig.Domain.ValueObjects.Fields.BooleanValue
+Twig.Domain.ValueObjects.Fields.BooleanValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.BooleanValue!
+Twig.Domain.ValueObjects.Fields.BooleanValue.BooleanValue(bool Value) -> void
+Twig.Domain.ValueObjects.Fields.BooleanValue.Deconstruct(out bool Value) -> void
+Twig.Domain.ValueObjects.Fields.BooleanValue.Equals(Twig.Domain.ValueObjects.Fields.BooleanValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.BooleanValue.Value.get -> bool
+Twig.Domain.ValueObjects.Fields.BooleanValue.Value.init -> void
+Twig.Domain.ValueObjects.Fields.DateTimeValue
+Twig.Domain.ValueObjects.Fields.DateTimeValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.DateTimeValue!
+Twig.Domain.ValueObjects.Fields.DateTimeValue.DateTimeValue(System.DateTimeOffset Value) -> void
+Twig.Domain.ValueObjects.Fields.DateTimeValue.Deconstruct(out System.DateTimeOffset Value) -> void
+Twig.Domain.ValueObjects.Fields.DateTimeValue.Equals(Twig.Domain.ValueObjects.Fields.DateTimeValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.DateTimeValue.Value.get -> System.DateTimeOffset
+Twig.Domain.ValueObjects.Fields.DateTimeValue.Value.init -> void
+Twig.Domain.ValueObjects.Fields.DecimalValue
+Twig.Domain.ValueObjects.Fields.DecimalValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.DecimalValue!
+Twig.Domain.ValueObjects.Fields.DecimalValue.DecimalValue(decimal Value) -> void
+Twig.Domain.ValueObjects.Fields.DecimalValue.Deconstruct(out decimal Value) -> void
+Twig.Domain.ValueObjects.Fields.DecimalValue.Equals(Twig.Domain.ValueObjects.Fields.DecimalValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.DecimalValue.Value.get -> decimal
+Twig.Domain.ValueObjects.Fields.DecimalValue.Value.init -> void
+Twig.Domain.ValueObjects.Fields.FieldValue
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue() -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.BooleanValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.DateTimeValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.DecimalValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.IdentityValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.IntegerValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.NullValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.RawValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.RichTextValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.StringListValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.FieldValue(Twig.Domain.ValueObjects.Fields.TextValue! value) -> void
+Twig.Domain.ValueObjects.Fields.FieldValue.Value.get -> object?
+Twig.Domain.ValueObjects.Fields.FieldValues
+Twig.Domain.ValueObjects.Fields.FieldValues.ContainsKey(string! key) -> bool
+Twig.Domain.ValueObjects.Fields.FieldValues.Count.get -> int
+Twig.Domain.ValueObjects.Fields.FieldValues.Equals(Twig.Domain.ValueObjects.Fields.FieldValues? other) -> bool
+Twig.Domain.ValueObjects.Fields.FieldValues.GetEnumerator() -> System.Collections.Generic.IEnumerator<System.Collections.Generic.KeyValuePair<string!, Twig.Domain.ValueObjects.Fields.FieldValue>>!
+Twig.Domain.ValueObjects.Fields.FieldValues.Keys.get -> System.Collections.Generic.IEnumerable<string!>!
+Twig.Domain.ValueObjects.Fields.FieldValues.Remove(string! referenceName) -> Twig.Domain.ValueObjects.Fields.FieldValues!
+Twig.Domain.ValueObjects.Fields.FieldValues.Set(string! referenceName, Twig.Domain.ValueObjects.Fields.FieldValue value) -> Twig.Domain.ValueObjects.Fields.FieldValues!
+Twig.Domain.ValueObjects.Fields.FieldValues.this[string! key].get -> Twig.Domain.ValueObjects.Fields.FieldValue
+Twig.Domain.ValueObjects.Fields.FieldValues.TryGetValue(string! key, out Twig.Domain.ValueObjects.Fields.FieldValue value) -> bool
+Twig.Domain.ValueObjects.Fields.FieldValues.Values.get -> System.Collections.Generic.IEnumerable<Twig.Domain.ValueObjects.Fields.FieldValue>!
+Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter
+Twig.Domain.ValueObjects.Fields.FieldValuesJsonConverter.FieldValuesJsonConverter() -> void
+Twig.Domain.ValueObjects.Fields.IdentityValue
+Twig.Domain.ValueObjects.Fields.IdentityValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.IdentityValue!
+Twig.Domain.ValueObjects.Fields.IdentityValue.DisplayName.get -> string?
+Twig.Domain.ValueObjects.Fields.IdentityValue.Equals(Twig.Domain.ValueObjects.Fields.IdentityValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.IdentityValue.IdentityValue(string! nativeId, string? displayName) -> void
+Twig.Domain.ValueObjects.Fields.IdentityValue.NativeId.get -> string!
+Twig.Domain.ValueObjects.Fields.IntegerValue
+Twig.Domain.ValueObjects.Fields.IntegerValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.IntegerValue!
+Twig.Domain.ValueObjects.Fields.IntegerValue.Deconstruct(out long Value) -> void
+Twig.Domain.ValueObjects.Fields.IntegerValue.Equals(Twig.Domain.ValueObjects.Fields.IntegerValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.IntegerValue.IntegerValue(long Value) -> void
+Twig.Domain.ValueObjects.Fields.IntegerValue.Value.get -> long
+Twig.Domain.ValueObjects.Fields.IntegerValue.Value.init -> void
+Twig.Domain.ValueObjects.Fields.NullValue
+Twig.Domain.ValueObjects.Fields.NullValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.NullValue!
+Twig.Domain.ValueObjects.Fields.NullValue.Equals(Twig.Domain.ValueObjects.Fields.NullValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.RawValue
+Twig.Domain.ValueObjects.Fields.RawValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.RawValue!
+Twig.Domain.ValueObjects.Fields.RawValue.Equals(Twig.Domain.ValueObjects.Fields.RawValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.RawValue.ProviderDataType.get -> string!
+Twig.Domain.ValueObjects.Fields.RawValue.Raw.get -> string!
+Twig.Domain.ValueObjects.Fields.RawValue.RawValue(string! raw, string! providerDataType) -> void
+Twig.Domain.ValueObjects.Fields.RichTextFormat
+Twig.Domain.ValueObjects.Fields.RichTextFormat.Html = 0 -> Twig.Domain.ValueObjects.Fields.RichTextFormat
+Twig.Domain.ValueObjects.Fields.RichTextFormat.Markdown = 1 -> Twig.Domain.ValueObjects.Fields.RichTextFormat
+Twig.Domain.ValueObjects.Fields.RichTextValue
+Twig.Domain.ValueObjects.Fields.RichTextValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.RichTextValue!
+Twig.Domain.ValueObjects.Fields.RichTextValue.Content.get -> string!
+Twig.Domain.ValueObjects.Fields.RichTextValue.Equals(Twig.Domain.ValueObjects.Fields.RichTextValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.RichTextValue.Format.get -> Twig.Domain.ValueObjects.Fields.RichTextFormat
+Twig.Domain.ValueObjects.Fields.RichTextValue.RichTextValue(string! content, Twig.Domain.ValueObjects.Fields.RichTextFormat format) -> void
+Twig.Domain.ValueObjects.Fields.StringListValue
+Twig.Domain.ValueObjects.Fields.StringListValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.StringListValue!
+Twig.Domain.ValueObjects.Fields.StringListValue.Equals(Twig.Domain.ValueObjects.Fields.StringListValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.StringListValue.StringListValue(System.Collections.Generic.IEnumerable<string!>! values) -> void
+Twig.Domain.ValueObjects.Fields.StringListValue.Values.get -> System.Collections.Immutable.ImmutableArray<string!>
+Twig.Domain.ValueObjects.Fields.TextValue
+Twig.Domain.ValueObjects.Fields.TextValue.<Clone>$() -> Twig.Domain.ValueObjects.Fields.TextValue!
+Twig.Domain.ValueObjects.Fields.TextValue.Equals(Twig.Domain.ValueObjects.Fields.TextValue? other) -> bool
+Twig.Domain.ValueObjects.Fields.TextValue.TextValue(string! value) -> void
+Twig.Domain.ValueObjects.Fields.TextValue.Value.get -> string!
+Twig.Domain.ValueObjects.LocalWorkItemId
+Twig.Domain.ValueObjects.LocalWorkItemId.Equals(Twig.Domain.ValueObjects.LocalWorkItemId other) -> bool
+Twig.Domain.ValueObjects.LocalWorkItemId.IsEmpty.get -> bool
+Twig.Domain.ValueObjects.LocalWorkItemId.LocalWorkItemId() -> void
+Twig.Domain.ValueObjects.LocalWorkItemId.Value.get -> System.Guid

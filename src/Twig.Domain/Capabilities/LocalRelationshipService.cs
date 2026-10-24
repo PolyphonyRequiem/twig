@@ -1,4 +1,5 @@
 using Twig.Domain.Enums;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Capabilities;
 
@@ -34,7 +35,7 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     public async Task<LocalRelationshipResult> AddAsync(
-        ProviderCapabilityDescriptor descriptor, int sourceId, int targetId, LinkKind kind, CancellationToken ct = default)
+        ProviderCapabilityDescriptor descriptor, LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default)
     {
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
@@ -55,6 +56,7 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
                 return new(LocalRelationshipStatus.Invalid, null, route, SecondParentReason);
         }
 
+        var now = _clock.GetUtcNow();
         var candidate = new LocalRelationship(
             sourceId,
             targetId,
@@ -62,8 +64,9 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
             route.Storage,
             route.Storage == EmulationStorage.LocalWithProviderProjection ? PublicationState.Pending : PublicationState.NotApplicable,
             Revision: 0,
-            Deleted: false,
-            _clock.GetUtcNow());
+            CreatedAt: now,
+            UpdatedAt: now,
+            DeletedAt: null);
 
         var write = await repository.UpsertAsync(candidate, existing?.Revision, ct).ConfigureAwait(false);
         return write.Status == LocalRelationshipWriteStatus.Written
@@ -72,7 +75,7 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
     }
 
     public async Task<LocalRelationshipResult> RemoveAsync(
-        ProviderCapabilityDescriptor descriptor, int sourceId, int targetId, LinkKind kind, CancellationToken ct = default)
+        ProviderCapabilityDescriptor descriptor, LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default)
     {
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
@@ -90,7 +93,10 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
             : new(LocalRelationshipStatus.Conflict, write.Current, route);
     }
 
-    /// <summary>Related is symmetric: store it once, lower id as source.</summary>
-    internal static (int Source, int Target) Canonicalize(LinkKind kind, int sourceId, int targetId) =>
-        kind == LinkKind.Related && sourceId > targetId ? (targetId, sourceId) : (sourceId, targetId);
+    /// <summary>Related is symmetric: store it once, lower stable ID as source.</summary>
+    internal static (LocalWorkItemId Source, LocalWorkItemId Target) Canonicalize(
+        LinkKind kind, LocalWorkItemId sourceId, LocalWorkItemId targetId) =>
+        kind == LinkKind.Related && string.CompareOrdinal(sourceId.ToString(), targetId.ToString()) > 0
+            ? (targetId, sourceId)
+            : (sourceId, targetId);
 }

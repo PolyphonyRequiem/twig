@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Infrastructure.Persistence;
 
@@ -11,10 +12,10 @@ namespace Twig.Infrastructure.Persistence;
 /// </summary>
 internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) : ILocalRelationshipRepository
 {
-    private const string Columns = "source_id, target_id, kind, storage, publication, revision, deleted, updated_at";
+    private const string Columns = "source_local_id, target_local_id, kind, storage, publication, revision, created_at, updated_at, deleted_at";
 
     public Task<IReadOnlyList<LocalRelationship>> GetForItemsAsync(
-        IReadOnlyCollection<int> itemIds, bool includeDeleted = false, CancellationToken ct = default)
+        IReadOnlyCollection<LocalWorkItemId> itemIds, bool includeDeleted = false, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
         if (itemIds.Count == 0)
@@ -31,15 +32,15 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
         {
             var name = $"@id{index++}";
             names.Add(name);
-            cmd.Parameters.AddWithValue(name, id);
+            cmd.Parameters.AddWithValue(name, id.ToString());
         }
 
         var inList = string.Join(", ", names);
         cmd.CommandText = $"""
             SELECT {Columns} FROM local_relationships
-            WHERE (source_id IN ({inList}) OR target_id IN ({inList}))
-              AND (@includeDeleted = 1 OR deleted = 0)
-            ORDER BY source_id, target_id, kind;
+            WHERE (source_local_id IN ({inList}) OR target_local_id IN ({inList}))
+              AND (@includeDeleted = 1 OR deleted_at IS NULL)
+            ORDER BY source_local_id, target_local_id, kind;
             """;
         cmd.Parameters.AddWithValue("@includeDeleted", includeDeleted ? 1 : 0);
 
@@ -50,7 +51,8 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
         return Task.FromResult<IReadOnlyList<LocalRelationship>>(result);
     }
 
-    public Task<LocalRelationship?> GetAsync(int sourceId, int targetId, LinkKind kind, CancellationToken ct = default)
+    public Task<LocalRelationship?> GetAsync(
+        LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default)
     {
         using var bindingOperation = store.AcquireOperation();
         var conn = store.GetConnection();
@@ -63,6 +65,8 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
         ArgumentNullException.ThrowIfNull(relationship);
         if (relationship.Deleted)
             throw new ArgumentException("Use TombstoneAsync to delete a local relationship.", nameof(relationship));
+        if (relationship.SourceId.IsEmpty || relationship.TargetId.IsEmpty)
+            throw new ArgumentException("Local relationship endpoints must have minted local identities.", nameof(relationship));
 
         return Task.FromResult(InTransaction((conn, tx) =>
         {
@@ -70,18 +74,23 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
             if (current?.Revision != expectedRevision)
                 return new LocalRelationshipWrite(LocalRelationshipWriteStatus.Conflict, current);
 
-            var written = relationship with { Revision = (current?.Revision ?? 0) + 1, Deleted = false };
+            var written = relationship with
+            {
+                Revision = (current?.Revision ?? 0) + 1,
+                CreatedAt = current?.CreatedAt ?? relationship.CreatedAt,
+                DeletedAt = null,
+            };
             using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = $"""
                 INSERT INTO local_relationships ({Columns})
-                VALUES (@source, @target, @kind, @storage, @publication, @revision, 0, @updatedAt)
-                ON CONFLICT (source_id, target_id, kind) DO UPDATE SET
+                VALUES (@source, @target, @kind, @storage, @publication, @revision, @createdAt, @updatedAt, NULL)
+                ON CONFLICT (source_local_id, target_local_id, kind) DO UPDATE SET
                     storage = excluded.storage,
                     publication = excluded.publication,
                     revision = excluded.revision,
-                    deleted = 0,
-                    updated_at = excluded.updated_at;
+                    updated_at = excluded.updated_at,
+                    deleted_at = NULL;
                 """;
             Bind(cmd, written);
             cmd.ExecuteNonQuery();
@@ -90,7 +99,7 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
     }
 
     public Task<LocalRelationshipWrite> TombstoneAsync(
-        int sourceId, int targetId, LinkKind kind, long expectedRevision, DateTimeOffset updatedAt, CancellationToken ct = default)
+        LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, long expectedRevision, DateTimeOffset updatedAt, CancellationToken ct = default)
     {
         return Task.FromResult(InTransaction((conn, tx) =>
         {
@@ -98,13 +107,18 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
             if (current is null || current.Revision != expectedRevision)
                 return new LocalRelationshipWrite(LocalRelationshipWriteStatus.Conflict, current);
 
-            var written = current with { Revision = current.Revision + 1, Deleted = true, UpdatedAt = updatedAt };
+            var written = current with
+            {
+                Revision = current.Revision + 1,
+                UpdatedAt = updatedAt,
+                DeletedAt = updatedAt,
+            };
             using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
                 UPDATE local_relationships
-                SET deleted = 1, revision = @revision, updated_at = @updatedAt
-                WHERE source_id = @source AND target_id = @target AND kind = @kind;
+                SET deleted_at = @updatedAt, revision = @revision, updated_at = @updatedAt
+                WHERE source_local_id = @source AND target_local_id = @target AND kind = @kind;
                 """;
             Bind(cmd, written);
             cmd.ExecuteNonQuery();
@@ -126,16 +140,17 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
         return result;
     }
 
-    private static LocalRelationship? Find(SqliteConnection conn, SqliteTransaction? tx, int sourceId, int targetId, LinkKind kind)
+    private static LocalRelationship? Find(
+        SqliteConnection conn, SqliteTransaction? tx, LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = $"""
             SELECT {Columns} FROM local_relationships
-            WHERE source_id = @source AND target_id = @target AND kind = @kind;
+            WHERE source_local_id = @source AND target_local_id = @target AND kind = @kind;
             """;
-        cmd.Parameters.AddWithValue("@source", sourceId);
-        cmd.Parameters.AddWithValue("@target", targetId);
+        cmd.Parameters.AddWithValue("@source", sourceId.ToString());
+        cmd.Parameters.AddWithValue("@target", targetId.ToString());
         cmd.Parameters.AddWithValue("@kind", LinkKindTokens.ToToken(kind));
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Read(reader) : null;
@@ -143,12 +158,13 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
 
     private static void Bind(SqliteCommand cmd, LocalRelationship relationship)
     {
-        cmd.Parameters.AddWithValue("@source", relationship.SourceId);
-        cmd.Parameters.AddWithValue("@target", relationship.TargetId);
+        cmd.Parameters.AddWithValue("@source", relationship.SourceId.ToString());
+        cmd.Parameters.AddWithValue("@target", relationship.TargetId.ToString());
         cmd.Parameters.AddWithValue("@kind", LinkKindTokens.ToToken(relationship.Kind));
         cmd.Parameters.AddWithValue("@storage", CapabilityTokens.ToToken(CapabilityTokens.Storage, relationship.Storage));
         cmd.Parameters.AddWithValue("@publication", CapabilityTokens.ToToken(CapabilityTokens.Publication, relationship.Publication));
         cmd.Parameters.AddWithValue("@revision", relationship.Revision);
+        cmd.Parameters.AddWithValue("@createdAt", relationship.CreatedAt.ToString("o"));
         cmd.Parameters.AddWithValue("@updatedAt", relationship.UpdatedAt.ToString("o"));
     }
 
@@ -165,14 +181,23 @@ internal sealed class SqliteLocalRelationshipRepository(SqliteCacheStore store) 
                 $"local-relationship-unreadable: stored tokens '{kindToken}', '{storageToken}', '{publicationToken}' are not canonical.");
         }
 
+        if (!LocalWorkItemId.TryParse(reader.GetString(0), out var sourceId)
+            || !LocalWorkItemId.TryParse(reader.GetString(1), out var targetId))
+        {
+            throw new InvalidOperationException("local-relationship-unreadable: stored local identity is not canonical.");
+        }
+
         return new LocalRelationship(
-            reader.GetInt32(0),
-            reader.GetInt32(1),
+            sourceId,
+            targetId,
             kind,
             storage,
             publication,
             reader.GetInt64(5),
-            reader.GetInt64(6) != 0,
-            DateTimeOffset.Parse(reader.GetString(7), System.Globalization.CultureInfo.InvariantCulture));
+            DateTimeOffset.Parse(reader.GetString(6), System.Globalization.CultureInfo.InvariantCulture),
+            DateTimeOffset.Parse(reader.GetString(7), System.Globalization.CultureInfo.InvariantCulture),
+            reader.IsDBNull(8)
+                ? null
+                : DateTimeOffset.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture));
     }
 }

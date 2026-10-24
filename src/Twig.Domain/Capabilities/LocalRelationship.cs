@@ -1,4 +1,5 @@
 using Twig.Domain.Enums;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Capabilities;
 
@@ -8,22 +9,24 @@ namespace Twig.Domain.Capabilities;
 /// <see cref="Origin"/> is always <see cref="RelationshipOrigin.TwigLocal"/>.
 /// </summary>
 /// <remarks>
-/// Endpoints are current Twig work-item ids; they move to the provider-neutral identity once
-/// that contract exists. <see cref="Revision"/> is a local compare-and-swap counter, unrelated
+/// Endpoints use Twig's stable local work-item identities. <see cref="Revision"/> is a local
+/// compare-and-swap counter, unrelated
 /// to any provider revision token. A removed edge stays as a tombstone so a stale writer
 /// cannot resurrect it.
 /// </remarks>
 internal sealed record LocalRelationship(
-    int SourceId,
-    int TargetId,
+    LocalWorkItemId SourceId,
+    LocalWorkItemId TargetId,
     LinkKind Kind,
     EmulationStorage Storage,
     PublicationState Publication,
     long Revision,
-    bool Deleted,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? DeletedAt)
 {
     public RelationshipOrigin Origin => RelationshipOrigin.TwigLocal;
+    public bool Deleted => DeletedAt is not null;
 }
 
 internal enum LocalRelationshipWriteStatus
@@ -43,10 +46,10 @@ internal interface ILocalRelationshipRepository
 {
     /// <summary>Edges touching any of <paramref name="itemIds"/>, as source or target.</summary>
     Task<IReadOnlyList<LocalRelationship>> GetForItemsAsync(
-        IReadOnlyCollection<int> itemIds, bool includeDeleted = false, CancellationToken ct = default);
+        IReadOnlyCollection<LocalWorkItemId> itemIds, bool includeDeleted = false, CancellationToken ct = default);
 
     /// <summary>One edge, including a tombstone.</summary>
-    Task<LocalRelationship?> GetAsync(int sourceId, int targetId, LinkKind kind, CancellationToken ct = default);
+    Task<LocalRelationship?> GetAsync(LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default);
 
     /// <summary>
     /// Writes a live edge. <paramref name="expectedRevision"/> null requires that no row exists
@@ -58,5 +61,5 @@ internal interface ILocalRelationshipRepository
 
     /// <summary>Marks an edge deleted when <paramref name="expectedRevision"/> matches.</summary>
     Task<LocalRelationshipWrite> TombstoneAsync(
-        int sourceId, int targetId, LinkKind kind, long expectedRevision, DateTimeOffset updatedAt, CancellationToken ct = default);
+        LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, long expectedRevision, DateTimeOffset updatedAt, CancellationToken ct = default);
 }

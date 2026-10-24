@@ -32,8 +32,9 @@ public sealed class TwigServiceRegistrationTests
         {
             var config = new TwigConfiguration { Organization = "acme", Project = "durable" };
             var providerAdapter = Substitute.For<IAdoWorkItemService, IWorkItemProvider>();
-            providerAdapter.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
-            providerAdapter.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
+            var workItemProvider = (IWorkItemProvider)providerAdapter;
+            workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
+            workItemProvider.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult<string?>("ado-resource-scope"));
 
             var services = new ServiceCollection();
@@ -46,6 +47,7 @@ public sealed class TwigServiceRegistrationTests
             var identityMap = provider.GetRequiredService<IExternalIdentityMap>();
             localStore.ShouldBeSameAs(provider.GetRequiredService<SqliteLocalWorkItemRepository>());
             identityMap.ShouldBeSameAs(localStore);
+            provider.GetRequiredService<IWorkItemProvider>().ShouldBeSameAs(workItemProvider);
 
             var item = new WorkItemBuilder(42, "ADO item").Build();
             item.MarkSynced(8);

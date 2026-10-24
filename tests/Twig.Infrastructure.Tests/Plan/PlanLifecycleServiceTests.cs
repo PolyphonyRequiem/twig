@@ -3464,6 +3464,34 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_AndApply_BlockWhenDeclaredPolicyCannotLoad()
+    {
+        File.WriteAllText(_paths.PolicyPath, "{ not json");
+        var file = WritePlan(ValidPlanSource());
+        var svc = BuildService();
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var decision = preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldHaveSingleItem();
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Unavailable);
+        decision.IsBlocking.ShouldBeTrue();
+        decision.RuleId.ShouldBe(Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.PolicyLoad);
+        preview.ReviewModel.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("not valid JSON"));
+        preview.ReviewModel.AuthorizationChoices.ShouldNotContain("apply");
+
+        var apply = await svc.ApplyAsync(file, preview.Digest!, authorization: null);
+
+        apply.Error.ShouldNotBeNull();
+        apply.Error.ShouldContain("Declared policy refuses this proposal");
+        apply.Error.ShouldContain("policy-load");
+        apply.Error.ShouldContain("not valid JSON");
+        var journal = await _journal.GetAsync(preview.Digest!);
+        journal.ShouldNotBeNull();
+        journal!.State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
     public async Task RenderedProposal_KeepsItsDigestThroughPreviewAndJournalLookup()
     {
         // Defends against: the rendering path and the lifecycle path computing digests

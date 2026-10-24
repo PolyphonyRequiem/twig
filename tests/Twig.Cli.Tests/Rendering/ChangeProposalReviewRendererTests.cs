@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Rendering;
 using Twig.RenderTree;
@@ -168,6 +169,27 @@ public sealed class ChangeProposalReviewRendererTests
         var text = RenderText(blocked);
         text.ShouldContain("Pending local change for #740: 1 pending change staged");
         text.ShouldNotContain("authorization choices");
+    }
+
+    [Fact]
+    public void Render_ShowsEveryPolicyDecisionAndItsReason()
+    {
+        var text = RenderText(Model() with
+        {
+            PolicyDecisions =
+            [
+                new PolicyDecision { RuleId = "parent-rule", Kind = "parent-type", Outcome = PolicyOutcome.Permit, Reason = "Parent type is allowed.", WorkItemId = 729, OpId = "op-link" },
+                new PolicyDecision { RuleId = "label-rule", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing label violation is not worsened.", WorkItemId = 742, OpId = "op-batch" },
+                new PolicyDecision { RuleId = "dependency-rule", Kind = "dependency-integrity", Outcome = PolicyOutcome.Refuse, Reason = "The proposed edge creates a cycle.", WorkItemId = 729, OpId = "op-link" },
+                new PolicyDecision { RuleId = "policy-load", Kind = "policy-load", Outcome = PolicyOutcome.Unavailable, Reason = "Policy file could not be loaded." },
+            ],
+        });
+
+        text.ShouldContain("policy decisions (4):");
+        text.ShouldContain("[permit] parent-rule for #729 (operation op-link): Parent type is allowed.");
+        text.ShouldContain("[warn] label-rule for #742 (operation op-batch): Existing label violation is not worsened.");
+        text.ShouldContain("[refuse] dependency-rule for #729 (operation op-link): The proposed edge creates a cycle.");
+        text.ShouldContain("[unavailable] policy-load: Policy file could not be loaded.");
     }
 
     // T2 §4.3 rule 2. Defends against a build silently rendering the members it recognises out

@@ -39,9 +39,9 @@ test("real native twig: named Bench v2 browse, explicit-Bench detail, origin con
         const savedPath = process.env.PATH;
         const savedEnv = { ...process.env };
         const extra = { ...manifest.env, ...(process.env.TWIG_NATIVE_ENV ? JSON.parse(process.env.TWIG_NATIVE_ENV) : {}) };
-        // Only the exact build directory is on PATH, so a bare `twig` cannot resolve to an installed binary.
-        process.env.PATH = resolve(exeDir) + delimiter + resolve(exeDir);
         Object.assign(process.env, extra);
+        // Twig's checkout admission needs git; put the verified binary ahead of inherited tools.
+        process.env.PATH = resolve(exeDir) + delimiter + (savedPath ?? "");
         try {
             const probe = () => execFileSync(exe, manifest.currentBenchProbeArgs,
                 { cwd: manifest.workspacePath, encoding: "utf8", timeout: 15000, windowsHide: true });

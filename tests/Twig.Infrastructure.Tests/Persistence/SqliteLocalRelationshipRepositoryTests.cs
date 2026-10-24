@@ -23,25 +23,35 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
+    private static LocalWorkItemId Id(int n) => LocalWorkItemId.FromGuid(new Guid($"00000000-0000-7000-8000-{n:D12}"));
+
     private static LocalRelationship Edge(int source, int target, LinkKind kind = LinkKind.PredecessorSuccessor) =>
-        new(source, target, kind, EmulationStorage.LocalWithProviderProjection, PublicationState.Pending, 0, false, Now);
+        new(Id(source), Id(target), kind, EmulationStorage.LocalWithProviderProjection, PublicationState.Pending, 0, Now, Now);
 
     [Fact]
-    public async Task Upsert_RoundTrips_AndStoresCanonicalTokens()
+    public async Task Upsert_RoundTrips_AndStoresCanonicalValues()
     {
         var write = await _repo.UpsertAsync(Edge(1, 2), expectedRevision: null);
 
         write.Status.ShouldBe(LocalRelationshipWriteStatus.Written);
         write.Current!.Revision.ShouldBe(1);
-        (await _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
+        (await _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
 
         using var cmd = _store.GetConnection().CreateCommand();
-        cmd.CommandText = "SELECT kind, storage, publication FROM pending.local_relationships;";
+        cmd.CommandText = """
+            SELECT source_local_id, target_local_id, kind, storage, publication, created_at, updated_at, deleted_at
+            FROM pending.local_relationships;
+            """;
         using var reader = cmd.ExecuteReader();
         reader.Read().ShouldBeTrue();
-        reader.GetString(0).ShouldBe("predecessor-successor");
-        reader.GetString(1).ShouldBe("local-with-provider-projection");
-        reader.GetString(2).ShouldBe("pending");
+        reader.GetString(0).ShouldBe(Id(1).ToString());
+        reader.GetString(1).ShouldBe(Id(2).ToString());
+        reader.GetString(2).ShouldBe("predecessor-successor");
+        reader.GetString(3).ShouldBe("local-with-provider-projection");
+        reader.GetString(4).ShouldBe("pending");
+        reader.GetString(5).ShouldBe("2026-01-02T03:04:05.0000000+00:00");
+        reader.GetString(6).ShouldBe("2026-01-02T03:04:05.0000000+00:00");
+        reader.IsDBNull(7).ShouldBeTrue();
     }
 
     [Fact]
@@ -59,32 +69,63 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
     }
 
     [Fact]
-    public async Task Tombstone_HidesByDefault_AndBlocksBlindRecreate()
+    public async Task Tombstone_SetsDeletedAt_HidesByDefault_AndBlocksBlindRecreate()
     {
         await _repo.UpsertAsync(Edge(1, 2), null);
+        var later = Now.AddHours(1);
 
-        (await _repo.TombstoneAsync(1, 2, LinkKind.PredecessorSuccessor, 5, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
-        var tomb = await _repo.TombstoneAsync(1, 2, LinkKind.PredecessorSuccessor, 1, Now);
-        tomb.Current!.Deleted.ShouldBeTrue();
+        (await _repo.TombstoneAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor, 5, later)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
+        var tomb = await _repo.TombstoneAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor, 1, later);
+        tomb.Current!.DeletedAt.ShouldBe(later);
         tomb.Current.Revision.ShouldBe(2);
 
-        (await _repo.GetForItemsAsync([1])).ShouldBeEmpty();
-        (await _repo.GetForItemsAsync([2], includeDeleted: true)).Single().Deleted.ShouldBeTrue();
-        (await _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor))!.Deleted.ShouldBeTrue();
+        (await _repo.GetForItemsAsync([Id(1)])).ShouldBeEmpty();
+        (await _repo.GetForItemsAsync([Id(2)], includeDeleted: true)).Single().IsDeleted.ShouldBeTrue();
+        (await _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor))!.DeletedAt.ShouldBe(later);
 
         (await _repo.UpsertAsync(Edge(1, 2), null)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
-        var revived = await _repo.UpsertAsync(Edge(1, 2), 2);
-        revived.Current!.Deleted.ShouldBeFalse();
+        var revived = await _repo.UpsertAsync(Edge(1, 2) with { CreatedAt = later, UpdatedAt = later }, 2);
+        revived.Current!.IsDeleted.ShouldBeFalse();
         revived.Current.Revision.ShouldBe(3);
+        revived.Current.CreatedAt.ShouldBe(Now);
+        (await _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor)).ShouldBe(revived.Current);
     }
 
     [Fact]
     public async Task Tombstone_OfMissingEdge_IsConflict() =>
-        (await _repo.TombstoneAsync(8, 9, LinkKind.Related, 1, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
+        (await _repo.TombstoneAsync(Id(8), Id(9), LinkKind.Related, 1, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
 
     [Fact]
     public async Task Upsert_RejectsDeletedInput() =>
-        await Should.ThrowAsync<ArgumentException>(() => _repo.UpsertAsync(Edge(1, 2) with { Deleted = true }, null));
+        await Should.ThrowAsync<ArgumentException>(() => _repo.UpsertAsync(Edge(1, 2) with { DeletedAt = Now }, null));
+
+    [Fact]
+    public async Task Related_IsStoredOnceWithLesserEndpointFirst()
+    {
+        var write = await _repo.UpsertAsync(Edge(9, 4, LinkKind.Related), null);
+        write.Current!.Source.ShouldBe(Id(4));
+        write.Current.Target.ShouldBe(Id(9));
+
+        (await _repo.UpsertAsync(Edge(4, 9, LinkKind.Related), null)).Status.ShouldBe(LocalRelationshipWriteStatus.Conflict);
+        (await _repo.GetAsync(Id(9), Id(4), LinkKind.Related)).ShouldBe(write.Current);
+        (await _repo.TombstoneAsync(Id(9), Id(4), LinkKind.Related, 1, Now)).Status.ShouldBe(LocalRelationshipWriteStatus.Written);
+
+        using var cmd = _store.GetConnection().CreateCommand();
+        cmd.CommandText = "SELECT source_local_id, target_local_id FROM pending.local_relationships;";
+        using var reader = cmd.ExecuteReader();
+        reader.Read().ShouldBeTrue();
+        reader.GetString(0).ShouldBe(Id(4).ToString());
+        reader.GetString(1).ShouldBe(Id(9).ToString());
+        reader.Read().ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DirectedKinds_KeepTheirOrder()
+    {
+        await _repo.UpsertAsync(Edge(9, 4), null);
+        (await _repo.UpsertAsync(Edge(4, 9), null)).Status.ShouldBe(LocalRelationshipWriteStatus.Written);
+        (await _repo.GetForItemsAsync([Id(4)])).Count.ShouldBe(2);
+    }
 
     [Fact]
     public async Task GetForItems_MatchesEitherEndpoint()
@@ -93,23 +134,30 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         await _repo.UpsertAsync(Edge(3, 1, LinkKind.ParentChild), null);
         await _repo.UpsertAsync(Edge(5, 6), null);
 
-        (await _repo.GetForItemsAsync([1])).Count.ShouldBe(2);
+        (await _repo.GetForItemsAsync([Id(1)])).Count.ShouldBe(2);
         (await _repo.GetForItemsAsync([])).ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task Read_RefusesNonCanonicalStoredToken()
+    [Theory]
+    [InlineData("Related", "00000000-0000-7000-8000-000000000001")]
+    [InlineData("artifact", "00000000-0000-7000-8000-000000000001")]
+    [InlineData("related", "00000000-0000-7000-8000-00000000000A")]
+    public async Task Read_RefusesNonCanonicalStoredValues(string kind, string source)
     {
         using (var cmd = _store.GetConnection().CreateCommand())
         {
             cmd.CommandText = """
-                INSERT INTO pending.local_relationships (source_id, target_id, kind, storage, publication, revision, deleted, updated_at)
-                VALUES (1, 2, 'Related', 'none', 'not-applicable', 1, 0, '2026-01-01T00:00:00+00:00');
+                INSERT INTO pending.local_relationships
+                    (source_local_id, target_local_id, kind, storage, publication, revision, created_at, updated_at)
+                VALUES (@source, @target, @kind, 'local-only', 'not-applicable', 1, '2026-01-01T00:00:00.0000000+00:00', '2026-01-01T00:00:00.0000000+00:00');
                 """;
+            cmd.Parameters.AddWithValue("@source", source);
+            cmd.Parameters.AddWithValue("@target", Id(2).ToString());
+            cmd.Parameters.AddWithValue("@kind", kind);
             cmd.ExecuteNonQuery();
         }
 
-        var ex = await Should.ThrowAsync<InvalidOperationException>(() => _repo.GetForItemsAsync([1]));
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() => _repo.GetForItemsAsync([Id(2)]));
         ex.Message.ShouldStartWith("local-relationship-unreadable:");
     }
 
@@ -122,7 +170,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         await links.SaveLinksAsync(1, [new WorkItemLink(1, 3, LinkTypes.Related)]);
         await links.SaveLinksAsync(1, []);
 
-        (await _repo.GetForItemsAsync([1])).Single().TargetId.ShouldBe(2);
+        (await _repo.GetForItemsAsync([Id(1)])).Single().Target.ShouldBe(Id(2));
     }
 
     [Fact]
@@ -146,7 +194,7 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");
             reopened.SchemaWasRebuilt.ShouldBeTrue("the mirror must actually have been rebuilt");
-            var edge = await new SqliteLocalRelationshipRepository(reopened).GetAsync(1, 2, LinkKind.PredecessorSuccessor);
+            var edge = await new SqliteLocalRelationshipRepository(reopened).GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor);
             edge.ShouldNotBeNull();
             edge.Revision.ShouldBe(1);
         });
@@ -163,14 +211,20 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
                 await new SqlitePublishIntentRepository(store).RecordIntentAsync(identity, "Keep me", "Task");
                 var conn = store.GetConnection();
                 Exec(conn, "DROP TABLE pending.local_relationships;");
+                Exec(conn, "DROP TABLE pending.local_work_items;");
+                Exec(conn, "DROP TABLE pending.external_identities;");
                 Exec(conn, "PRAGMA pending.user_version = 12;");
             }
 
             using var reopened = new SqliteCacheStore($"Data Source={path}");
             var c = reopened.GetConnection();
             TableExists(c, "pending", "local_relationships").ShouldBeTrue();
-            Columns(c).ShouldContain("storage");
-            Columns(c).ShouldContain("publication");
+            TableExists(c, "pending", "local_work_items").ShouldBeTrue();
+            Columns(c).ShouldBe(
+            [
+                "source_local_id", "target_local_id", "kind", "revision", "created_at", "updated_at", "deleted_at",
+                "storage", "publication",
+            ]);
             DurableVersion(c).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
             (await new SqlitePublishIntentRepository(reopened).GetIntentAsync(identity)).ShouldNotBeNull();
         });
@@ -185,12 +239,21 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             {
                 var conn = store.GetConnection();
                 Exec(conn, "DROP TABLE pending.local_relationships;");
-                Exec(conn, """
+                // #1168's v13 DDL, verbatim, with a neutral-layer row that carries no emulation policy.
+                Exec(conn, $"""
                     CREATE TABLE pending.local_relationships (
-                        source_id INTEGER NOT NULL, target_id INTEGER NOT NULL, kind TEXT NOT NULL,
-                        revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
-                        PRIMARY KEY (source_id, target_id, kind));
-                    INSERT INTO pending.local_relationships VALUES (7, 8, 'related', 4, 0, '2026-01-01T00:00:00Z');
+                      source_local_id TEXT NOT NULL,
+                      target_local_id TEXT NOT NULL,
+                      kind TEXT NOT NULL,
+                      revision INTEGER NOT NULL CHECK (revision >= 1),
+                      created_at TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      deleted_at TEXT,
+                      PRIMARY KEY (source_local_id, target_local_id, kind)
+                    );
+                    CREATE INDEX pending.idx_local_relationships_target ON local_relationships(target_local_id);
+                    INSERT INTO pending.local_relationships
+                    VALUES ('{Id(7)}', '{Id(8)}', 'related', 4, '2026-01-01T00:00:00.0000000+00:00', '2026-01-01T00:00:00.0000000+00:00', NULL);
                     PRAGMA pending.user_version = 13;
                     """);
             }
@@ -200,9 +263,9 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             DurableVersion(c).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
             using (var cmd = c.CreateCommand())
             {
-                cmd.CommandText = """
+                cmd.CommandText = $"""
                     SELECT revision, storage IS NULL, publication IS NULL
-                    FROM pending.local_relationships WHERE source_id = 7 AND target_id = 8;
+                    FROM pending.local_relationships WHERE source_local_id = '{Id(7)}' AND target_local_id = '{Id(8)}';
                     """;
                 using var reader = cmd.ExecuteReader();
                 reader.Read().ShouldBeTrue();
@@ -214,22 +277,29 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
             var repo = new SqliteLocalRelationshipRepository(reopened);
             var write = await repo.UpsertAsync(Edge(1, 2), expectedRevision: null);
             write.Status.ShouldBe(LocalRelationshipWriteStatus.Written);
-            (await repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
+            (await repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor)).ShouldBe(write.Current);
         });
     }
 
     [Fact]
     public async Task Read_RowWithoutEmulationColumns_IsUnreadable()
     {
-        Exec(_store.GetConnection(), """
-            INSERT INTO pending.local_relationships (source_id, target_id, kind, revision, deleted, updated_at)
-            VALUES (1, 2, 'predecessor-successor', 1, 0, '2026-01-01T00:00:00Z');
+        Exec(_store.GetConnection(), $"""
+            INSERT INTO pending.local_relationships (source_local_id, target_local_id, kind, revision, created_at, updated_at)
+            VALUES ('{Id(1)}', '{Id(2)}', 'predecessor-successor', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
             """);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => _repo.GetAsync(1, 2, LinkKind.PredecessorSuccessor));
+            () => _repo.GetAsync(Id(1), Id(2), LinkKind.PredecessorSuccessor));
         ex.Message.ShouldStartWith("local-relationship-unreadable:");
     }
+
+    [Fact]
+    public void Schema_RejectsRevisionBelowOne() =>
+        Should.Throw<SqliteException>(() => Exec(_store.GetConnection(), $"""
+            INSERT INTO pending.local_relationships (source_local_id, target_local_id, kind, revision, created_at, updated_at, storage, publication)
+            VALUES ('{Id(1)}', '{Id(2)}', 'related', 0, 'x', 'x', 'local-only', 'not-applicable');
+            """));
 
     private static List<string> Columns(SqliteConnection conn)
     {

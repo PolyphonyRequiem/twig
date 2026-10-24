@@ -20,7 +20,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class BenchDetailCommandTests : RefreshCommandTestBase
+public sealed partial class BenchDetailCommandTests : RefreshCommandTestBase
 {
     private readonly IAuthenticationProvider _authentication = Substitute.For<IAuthenticationProvider, IConnectionOperationGuard>();
     private readonly IConnectionBindingService _bindings = Substitute.For<IConnectionBindingService>();
@@ -708,7 +708,8 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         var module = new BrowserReadModule(ctx, operations, _workItemRepo, _fieldDefinitionStore,
             _links, _pendingChangeStore, new StatusFieldConfigReader(_paths),
             new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, _links, 30, 30),
-            _processConfiguration, new SpectreTheme(_config.Display), formLayouts);
+            _processConfiguration, new SpectreTheme(_config.Display), formLayouts,
+            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), _pendingChangeStore));
         return new(ctx, module, new RendererFactory());
     }
 

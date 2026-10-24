@@ -1176,10 +1176,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="sync">Explicitly pull this positive item and its links before rendering (default false); never flush pending edits or fetch related targets.</param>
-    /// <param name="document">Export semantic JSON version 2 instead of ANSI (default false, requires -o json); may read server form metadata, but does not refresh the item or authorize edits.</param>
+    /// <param name="document">Export semantic JSON version 2 instead of ANSI (default false, requires -o json); may read server form metadata (never with --bench), but does not refresh the item or authorize edits.</param>
+    /// <param name="bench">Explicit saved Bench name or decimal id for a cache-only document read; requires --document and -o json, is a usage error with --sync or other modes, never falls back to or switches the current Bench, and refuses non-member items.</param>
     [Command("bench detail")]
-    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document);
+    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
 
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>

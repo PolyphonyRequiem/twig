@@ -13,10 +13,23 @@ namespace Twig.Commands;
 /// <summary>Formats one native browser observation without owning admission or storage.</summary>
 internal sealed class BenchDetailCommand(CommandContext ctx, BrowserReadModule browser, RendererFactory renderers)
 {
+    // Explicit-Bench refusals always lead with a stable machine code the extension can branch on.
+    private static string Coded(BrowserReadFailure failure)
+    {
+        if (failure.Message.StartsWith("bench-", StringComparison.Ordinal)) return failure.Message;
+        var code = failure.Kind switch
+        {
+            BrowserReadFailureKind.Usage => "bench-read-usage",
+            BrowserReadFailureKind.AuthorityInvalidated => "bench-origin-changed",
+            _ => "bench-read-unavailable",
+        };
+        return $"{code}: {failure.Message}";
+    }
+
     internal async Task<int> ExecuteAsync(int id, int width = 80,
         string output = OutputFormatterFactory.DefaultFormat,
         string? expectBench = null, string? expectBinding = null, string? expectIdentity = null,
-        bool sync = false, CancellationToken ct = default, bool document = false)
+        bool sync = false, CancellationToken ct = default, bool document = false, string? bench = null)
     {
         var started = Stopwatch.GetTimestamp();
         var exit = 1;
@@ -25,15 +38,21 @@ internal sealed class BenchDetailCommand(CommandContext ctx, BrowserReadModule b
             if (output.Equals("ids", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("A single-item detail supports human, json, and minimal output, not ids.");
             var json = output.ToLowerInvariant() is "json" or "json-full" or "json-compact";
+            if (bench is not null)
+            {
+                if (string.IsNullOrWhiteSpace(bench)) throw new ArgumentException("bench-read-usage: --bench requires a saved Bench name or id.");
+                if (!document || !json) throw new ArgumentException("bench-read-usage: --bench requires --document and JSON output (-o json); it is not supported by other detail modes.");
+                if (sync) throw new ArgumentException("bench-read-usage: --bench reads the cache only; --sync does not apply.");
+            }
             if (document && !json)
-                throw new ArgumentException("--document requires JSON output (-o json). It may read server form metadata; item refresh still requires --sync.");
+                throw new ArgumentException("--document requires JSON output (-o json). Without --bench it may read server form metadata; item refresh still requires --sync.");
             var ansi = !output.Equals("minimal", StringComparison.OrdinalIgnoreCase) && (json || !Console.IsOutputRedirected);
-            var result = await browser.ReadDetailAsync(new(id, width, ansi, expectBench, expectBinding, expectIdentity, sync, Document: document), ct);
+            var result = await browser.ReadDetailAsync(new(id, width, ansi, expectBench, expectBinding, expectIdentity, sync, Document: document, ExplicitBench: bench), ct);
             if (result.Failure is { } failure)
             {
                 if (failure.Kind == BrowserReadFailureKind.Canceled) throw new OperationCanceledException(failure.Message, ct);
                 exit = failure.Kind == BrowserReadFailureKind.Usage ? 2 : 1;
-                CommandError.Write(renderers, ctx.StderrWriter, output, failure.Message);
+                CommandError.Write(renderers, ctx.StderrWriter, output, bench is null ? failure.Message : Coded(failure));
                 return exit;
             }
             var observation = result.Observation!;

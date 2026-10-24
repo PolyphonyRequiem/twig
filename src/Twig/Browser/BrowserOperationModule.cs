@@ -24,6 +24,13 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
         bool initializeBench = false)
         => ExecuteCoreAsync(expected, action, null, ct, expectedBench, expectedBinding, expectedIdentity, initializeBench);
 
+    // Explicit, cache-only selection by saved name or id. It never falls back to, reads or mutates the shared
+    // current-Bench pointer, and every revalidation re-resolves the captured identity rather than the pointer.
+    internal Task<BrowserOperationResult<T>> ExecuteExplicitAsync<T>(string target,
+        Func<BrowserCapture, CancellationToken, Task<T>> action, CancellationToken ct = default,
+        string? expectedBench = null, string? expectedBinding = null, string? expectedIdentity = null)
+        => ExecuteCoreAsync(null, action, null, ct, expectedBench, expectedBinding, expectedIdentity, false, target);
+
     // Native workflows supply the exact committed arrangement. Never adopt whatever
     // Bench happens to be current after a mutation or relabel a concurrent change.
     internal Task<BrowserOperationResult<T>> ChangeBenchAsync<T>(BrowserCapture expected,
@@ -33,7 +40,8 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
 
     private async Task<BrowserOperationResult<T>> ExecuteCoreAsync<T>(BrowserCapture? expected,
         Func<BrowserCapture, CancellationToken, Task<T>> action, Func<T, BrowserCapture>? committed, CancellationToken ct,
-        string? expectedBench, string? expectedBinding, string? expectedIdentity, bool initializeBench)
+        string? expectedBench, string? expectedBinding, string? expectedIdentity, bool initializeBench,
+        string? explicitTarget = null)
     {
         IDisposable? admission = null;
         IDisposable? operation = null;
@@ -58,9 +66,11 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
                 throw Changed(ex.Message);
             }
             if (capture is not null && !capture.Matches(origin)) throw Changed();
-            var bench = initializeBench && capture is null && expectedBench is null
-                ? await resolver.ResolveStoredAsync(ct)
-                : await resolver.TryResolveStoredAsync(ct);
+            var bench = explicitTarget is not null
+                ? (await resolver.ResolveExplicitAsync(explicitTarget, expectedBench, origin.Identity.AccountName, ct)).Stored
+                : initializeBench && capture is null && expectedBench is null
+                    ? await resolver.ResolveStoredAsync(ct)
+                    : await resolver.TryResolveStoredAsync(ct);
             ct.ThrowIfCancellationRequested();
             if (bench is null)
             {
@@ -70,7 +80,8 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
             }
             if (expectedBench is not null && expectedBench != bench.Id.ToString(CultureInfo.InvariantCulture)) throw Changed();
             if (capture is not null && !capture.Matches(bench)) throw Changed();
-            capture ??= new(bench.Id.ToString(CultureInfo.InvariantCulture), bench.Name, origin, BenchQueryRule.ContentsDigest(bench.Selectors));
+            capture ??= new(bench.Id.ToString(CultureInfo.InvariantCulture), bench.Name, origin, BenchQueryRule.ContentsDigest(bench.Selectors),
+                explicitTarget is null ? null : bench.Id.ToString(CultureInfo.InvariantCulture));
             admitted = capture;
             if (committed is not null) await EnsureCurrentAsync(capture, ct);
             var value = await action(capture, ct);
@@ -112,9 +123,31 @@ internal sealed class BrowserOperationModule(CommandContext ctx, CurrentBenchRes
     {
         ct.ThrowIfCancellationRequested();
         await EnsureOriginAsync(capture.Origin, ct);
-        var bench = await resolver.TryResolveStoredAsync(ct);
-        if (bench is null || !capture.Matches(bench)) throw Changed();
+        var bench = capture.ExplicitTarget is null ? await resolver.TryResolveStoredAsync(ct) : await TryResolveExplicitAsync(capture, ct);
+        if (bench is null || !capture.Matches(bench))
+            throw capture.ExplicitTarget is null ? Changed()
+                : Changed("bench-target-changed: the requested Bench changed or was removed during the read.");
         ct.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>The effective (default-rule normalized) Bench for an explicit capture, pinned to its identity.</summary>
+    internal async Task<Domain.Aggregates.Bench> ResolveExplicitEffectiveAsync(BrowserCapture capture, CancellationToken ct = default)
+    {
+        var (effective, stored) = await resolver.ResolveExplicitAsync(capture.ExplicitTarget!, capture.BenchId,
+            capture.Origin.Identity.AccountName, ct);
+        if (!capture.Matches(stored))
+            throw Changed("bench-target-changed: the requested Bench changed or was removed during the read.");
+        return effective;
+    }
+
+    private async Task<Domain.Aggregates.Bench?> TryResolveExplicitAsync(BrowserCapture capture, CancellationToken ct)
+    {
+        try
+        {
+            return (await resolver.ResolveExplicitAsync(capture.ExplicitTarget!, capture.BenchId,
+                capture.Origin.Identity.AccountName, ct)).Stored;
+        }
+        catch (InvalidOperationException) { return null; }
     }
 
     private async Task EnsureOriginAsync(ResolvedConnectionBinding captured, CancellationToken ct)

@@ -37,17 +37,19 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     /// <summary>
     /// Builds the workspace mirror repository, projecting saves onto durable identities only when the
-    /// experimental neutral store is opted in (<see cref="NeutralStoreOptIn"/>) <b>and</b> the ADO
-    /// resource scope is known. A missing scope refuses the projection rather than inventing one;
-    /// mirror saves then behave exactly as before.
+    /// experimental neutral store is opted in (<see cref="NeutralStoreOptIn"/>) <b>and</b> an ADO
+    /// resource-scope source is supplied. The scope is resolved lazily on the first save; when it
+    /// resolves null the projection is refused rather than invented, and mirror saves behave
+    /// exactly as before.
     /// </summary>
     internal static SqliteWorkItemRepository CreateMirror(
-        SqliteCacheStore store, WorkItemMapper mapper, bool neutralStoreOptedIn, string? adoResourceScope)
+        SqliteCacheStore store, WorkItemMapper mapper, bool neutralStoreOptedIn,
+        Func<CancellationToken, Task<string?>>? resolveAdoResourceScope)
     {
-        if (!neutralStoreOptedIn || string.IsNullOrWhiteSpace(adoResourceScope))
+        if (!neutralStoreOptedIn || resolveAdoResourceScope is null)
             return new SqliteWorkItemRepository(store, mapper);
 
-        var projection = new AdoMirrorIdentityProjection(new SqliteLocalWorkItemRepository(store), adoResourceScope);
+        var projection = new AdoMirrorIdentityProjection(new SqliteLocalWorkItemRepository(store), resolveAdoResourceScope);
         return new SqliteWorkItemRepository(store, mapper, projection);
     }
 
@@ -280,8 +282,13 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
         if (_projection is not null)
-            return SaveProjectedAsync([workItem], ct);
+            return SaveProjectedAsync([workItem], () => SaveUnprojected(workItem), ct);
 
+        return SaveUnprojected(workItem);
+    }
+
+    private Task SaveUnprojected(WorkItem workItem)
+    {
         using var bindingOperation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
@@ -290,8 +297,13 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
         if (_projection is not null)
-            return SaveProjectedAsync(workItems, ct);
+            return SaveProjectedAsync(workItems, () => SaveBatchUnprojected(workItems), ct);
 
+        return SaveBatchUnprojected(workItems);
+    }
+
+    private Task SaveBatchUnprojected(IEnumerable<WorkItem> workItems)
+    {
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
@@ -311,8 +323,17 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
-    private async Task SaveProjectedAsync(IEnumerable<WorkItem> workItems, CancellationToken ct)
+    // Resolves the scope before any transaction opens; a refused (null) scope falls back to the
+    // caller's unprojected path so behaviour matches a mirror built without projection.
+    private async Task SaveProjectedAsync(IEnumerable<WorkItem> workItems, Func<Task> saveUnprojected, CancellationToken ct)
     {
+        var scope = await _projection!.ResolveScopeAsync(ct);
+        if (scope is null)
+        {
+            await saveUnprojected();
+            return;
+        }
+
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         var ambient = _store.ActiveTransaction;
@@ -324,7 +345,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             foreach (var item in workItems)
             {
                 SaveWorkItem(conn, item, tx);
-                await _projection!.ProjectAsync(item, ct);
+                await _projection.ProjectAsync(item, scope, ct);
             }
             owned?.Commit();
         }

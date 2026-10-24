@@ -16,7 +16,10 @@ namespace Twig.Infrastructure.Persistence;
 /// </para>
 /// <para>
 /// Seeds are skipped: they have no ADO identity until published. The resource scope is supplied by
-/// the caller and never derived here; the ADO adapter owns its normalization (Epic #1167).
+/// the ADO adapter (Epic #1167, <c>IWorkItemProvider.ResolveResourceScopeAsync</c>) and never derived
+/// here. It is resolved lazily, on the first save, and the outcome is kept for this instance's
+/// lifetime. A null or blank scope refuses projection; a failed resolution surfaces and is retried
+/// on the next save.
 /// </para>
 /// </remarks>
 internal sealed class AdoMirrorIdentityProjection
@@ -24,25 +27,58 @@ internal sealed class AdoMirrorIdentityProjection
     public const string ProviderKind = "ado";
 
     private readonly SqliteLocalWorkItemRepository _identities;
-    private readonly string _resourceScope;
+    private readonly Func<CancellationToken, Task<string?>> _resolveScope;
+    private string? _scope;
+    private bool _resolved;
 
-    public AdoMirrorIdentityProjection(SqliteLocalWorkItemRepository identities, string resourceScope)
+    public AdoMirrorIdentityProjection(
+        SqliteLocalWorkItemRepository identities, Func<CancellationToken, Task<string?>> resolveScope)
     {
         ArgumentNullException.ThrowIfNull(identities);
-        // Validates the scope with the identity contract's own rules rather than restating them.
-        _ = new ExternalWorkItemIdentity(ProviderKind, resourceScope, "0");
+        ArgumentNullException.ThrowIfNull(resolveScope);
         _identities = identities;
-        _resourceScope = resourceScope;
+        _resolveScope = resolveScope;
     }
 
-    public async Task ProjectAsync(WorkItem item, CancellationToken ct = default)
+    /// <summary>Projects with an already-known scope, validated immediately.</summary>
+    public AdoMirrorIdentityProjection(SqliteLocalWorkItemRepository identities, string resourceScope)
+        : this(identities, _ => Task.FromResult<string?>(resourceScope))
+    {
+        Validate(resourceScope);
+    }
+
+    /// <summary>
+    /// Returns the ADO resource scope, or null when the adapter cannot resolve one, in which case
+    /// projection is refused. Callers resolve before opening a transaction so no provider round
+    /// trip happens while the store is locked.
+    /// </summary>
+    public async Task<string?> ResolveScopeAsync(CancellationToken ct = default)
+    {
+        if (Volatile.Read(ref _resolved))
+            return _scope;
+
+        var scope = await _resolveScope(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(scope))
+            scope = null;
+        else
+            Validate(scope);
+
+        _scope = scope;
+        Volatile.Write(ref _resolved, true);
+        return scope;
+    }
+
+    // Validates the scope with the identity contract's own rules rather than restating them.
+    private static void Validate(string scope) => _ = new ExternalWorkItemIdentity(ProviderKind, scope, "0");
+
+    public async Task ProjectAsync(WorkItem item, string resourceScope, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(item);
         if (item.IsSeed || item.Id <= 0)
             return;
 
         var identity = new ExternalWorkItemIdentity(
-            ProviderKind, _resourceScope, item.Id.ToString(CultureInfo.InvariantCulture));
+            ProviderKind, resourceScope, item.Id.ToString(CultureInfo.InvariantCulture));
         var token = item.Revision > 0
             ? new ProviderRevisionToken(item.Revision.ToString(CultureInfo.InvariantCulture))
             : null;

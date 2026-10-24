@@ -172,6 +172,90 @@ public sealed class PlanDocumentParserTests
     }
 
     [Fact]
+    public void Parses_and_round_trips_v2_remove_link_with_opaque_binding()
+    {
+        var json = ValidProviderLink.Replace("\"add-link\"", "\"remove-link\"", StringComparison.Ordinal);
+
+        var result = Parser.Parse(json);
+
+        result.IsValid.ShouldBeTrue(FormatIssues(result));
+        var operation = result.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>();
+        operation.Kind.ShouldBe(PlanOperationKind.RemoveLink);
+        operation.Target.Item.LocalId.ToString().ShouldBe(LocalId);
+        operation.Target.Item.ExternalIdentity.ShouldBe(new ExternalWorkItemIdentity(
+            "github", "https://github.com/acme/widgets", "issue:7"));
+        operation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"abc\"");
+        operation.Relation.ShouldBe("related");
+        operation.Other!.LocalId.ToString().ShouldBe("0190f1f0-7b12-7abc-8abc-1234567890ab");
+        operation.Other.ExternalIdentity.ShouldBe(new ExternalWorkItemIdentity(
+            "github", "https://github.com/acme/widgets", "issue:8"));
+        operation.Fields.ShouldBeNull();
+
+        var written = PlanDocumentWriter.Write(result.Plan);
+        var roundTripped = Parser.Parse(written);
+        roundTripped.IsValid.ShouldBeTrue(FormatIssues(roundTripped));
+        roundTripped.Digest.ShouldBe(result.Digest);
+        var writtenOperation = roundTripped.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>();
+        writtenOperation.Kind.ShouldBe(PlanOperationKind.RemoveLink);
+        writtenOperation.Target.Item.ExternalIdentity.NativeId.ShouldBe("issue:7");
+        writtenOperation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"abc\"");
+        writtenOperation.Other!.ExternalIdentity.NativeId.ShouldBe("issue:8");
+    }
+
+    [Fact]
+    public void Parses_and_round_trips_v2_delete_with_opaque_binding()
+    {
+        var json = $$"""
+        {
+          "version": 2,
+          "workspace": { "organization": "acme", "project": "widgets" },
+          "operations": [
+            {
+              "id": "delete",
+              "kind": "delete",
+              "target": {
+                "item": {
+                  "localId": "{{LocalId}}",
+                  "externalIdentity": {
+                    "providerKind": "github",
+                    "resourceScope": "https://github.com/acme/widgets",
+                    "nativeId": "issue:7"
+                  }
+                },
+                "expectedProviderRevision": "etag:\"delete-revision\""
+              }
+            }
+          ]
+        }
+        """;
+
+        var result = Parser.Parse(json);
+
+        result.IsValid.ShouldBeTrue(FormatIssues(result));
+        var operation = result.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>();
+        operation.Kind.ShouldBe(PlanOperationKind.Delete);
+        operation.Target.Item.LocalId.ToString().ShouldBe(LocalId);
+        operation.Target.Item.ExternalIdentity.ShouldBe(new ExternalWorkItemIdentity(
+            "github", "https://github.com/acme/widgets", "issue:7"));
+        operation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"delete-revision\"");
+        operation.Other.ShouldBeNull();
+        operation.Relation.ShouldBeNull();
+        operation.Fields.ShouldBeNull();
+
+        var written = PlanDocumentWriter.Write(result.Plan);
+        var roundTripped = Parser.Parse(written);
+        roundTripped.IsValid.ShouldBeTrue(FormatIssues(roundTripped));
+        roundTripped.Digest.ShouldBe(result.Digest);
+        var writtenOperation = roundTripped.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>();
+        writtenOperation.Kind.ShouldBe(PlanOperationKind.Delete);
+        writtenOperation.Target.Item.ExternalIdentity.NativeId.ShouldBe("issue:7");
+        writtenOperation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"delete-revision\"");
+        writtenOperation.Other.ShouldBeNull();
+        writtenOperation.Relation.ShouldBeNull();
+        writtenOperation.Fields.ShouldBeNull();
+    }
+
+    [Fact]
     public void V2_digest_changes_when_any_provider_binding_component_changes()
     {
         var original = Parser.Parse(ValidProviderLink);

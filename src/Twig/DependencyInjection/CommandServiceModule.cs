@@ -67,6 +67,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>()));
+        services.AddSingleton<Func<IPendingChangeFlusher>>(
+            sp => () => sp.GetRequiredService<IPendingChangeFlusher>());
 
         // EPIC-2121: CommandContext parameter object — consolidates cross-cutting command deps
         services.AddSingleton(sp => new CommandContext(

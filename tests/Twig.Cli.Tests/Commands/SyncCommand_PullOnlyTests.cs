@@ -22,7 +22,7 @@ public sealed class SyncCommand_PullOnlyTests : RefreshCommandTestBase
     }
 
     private SyncCommand CreateSyncCommand(TextWriter? stderr = null) =>
-        new(_flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);
+        new(() => _flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);
 
     // ═══════════════════════════════════════════════════════════════
     //  --pull-only calls RefreshOrchestrator but NOT FlushAllAsync

@@ -25,7 +25,7 @@ public sealed class RefreshCommandDeprecationTests : RefreshCommandTestBase
     private TwigCommands CreateCommands()
     {
         var syncCommand = new SyncCommand(
-            _flusher, CreateRefreshCommand(), _formatterFactory);
+            () => _flusher, CreateRefreshCommand(), _formatterFactory);
 
         var services = new ServiceCollection()
             .AddSingleton(syncCommand)

@@ -177,4 +177,18 @@ empty rule set), which permits.
   (or another provider returning an empty rule set), since an unregistered provider fails
   closed; a networked composition that registers none is guarded by
   `NetworkServiceModuleTests.ProcessRuleProvider_IsRegistered_SoTheRequiredFieldGateNeverSilentlyPermits`.
+  Obligations for when those epics merge, none implementable here without importing their
+  unmerged types:
+  * **Process rules.** Their `IProcessRuleProvider` is still the ADO iteration service, resolved
+    behind the ADO-only provider gate, so a non-ADO workspace fails closed by exception before
+    any write. Activating a non-ADO provider must register its own rule source, or
+    `EmptyProcessRuleProvider.Instance`, so the gate can report an outcome.
+  * **Local relationship overlay.** `DeclaredPolicyEvaluator` reads cached native links only.
+    Emulated (local-overlay) edges are not visible to it. That is safe while `twig link` refuses
+    emulated kinds and nothing writes the overlay. Once an emulated route is wired,
+    `parent-type` and `dependency-integrity` must read overlay edges, or report `unavailable`
+    for any item whose edges may live there.
+  * **Proposal `add-link`.** Only `twig link` consults the capability descriptor. A proposal
+    `add-link` operation for a kind the provider does not support natively must be refused
+    before apply, matching `relationship-unsupported`.
 * Host skills keep every **Host** row above; Twig reports mechanical facts they can rely on.

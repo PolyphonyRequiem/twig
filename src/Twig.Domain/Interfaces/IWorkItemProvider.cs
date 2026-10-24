@@ -11,6 +11,14 @@ internal interface IWorkItemProvider
     ProviderCapabilityDescriptor Capabilities { get; }
 
     /// <summary>
+    /// Resolves the provider's normalized resource scope for durable external identities.
+    /// Returns null when the provider cannot authoritatively resolve a scope; transport and
+    /// authorization failures are surfaced to the caller.
+    /// </summary>
+    Task<string?> ResolveResourceScopeAsync(CancellationToken ct = default)
+        => Task.FromResult<string?>(null);
+
+    /// <summary>
     /// Returns runtime availability evidence. The default empty evidence set is reported as
     /// Unknown / not-probed by <see cref="CapabilityReport.Create"/>.
     /// Implementations must represent authorization and transport failures as evidence rather

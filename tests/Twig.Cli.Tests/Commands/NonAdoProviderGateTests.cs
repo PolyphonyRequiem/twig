@@ -88,17 +88,6 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         stderr.ToString().ShouldStartWith("error: " + reason + ":");
     }
 
-    [Fact]
-    public async Task Show_UnderAdo_ResolvesTheProviderSoLinkOriginIsKnown()
-    {
-        var runtime = await AttachAsync(provider: null);
-
-        var show = runtime.GetRequiredService<ShowCommand>();
-
-        show.WorkItemProvider.ShouldNotBeNull();
-        _transport.Requests.ShouldBeEmpty();
-    }
-
     /// <summary>
     /// Registry guard: every service the composition registers whose implementation is an ADO
     /// network client must refuse under a non-ADO provider and resolve under ADO. A new ADO

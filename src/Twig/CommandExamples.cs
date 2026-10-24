@@ -309,6 +309,8 @@ internal static class CommandExamples
             "twig workspace --view table   Show the current Bench as a table",
             "twig workspace --view tree    Explicitly show the current Bench as a hierarchy",
             "twig workspace --view tree -o json --include-browser  Read semantic nodes and captured Bench/connection identity",
+            "twig workspace --bench Focused --include-browser --browser-version 2 --view tree -o json  Cache-only explicit Bench read; no refresh/alternate layouts",
+            "twig workspace --bench 7 --expect-bench 7 --include-browser --browser-version 2 --view tree -o json  Refuse a changed target; --expect-* requires browser mode",
             "twig workspace --tree         Show the full backlog hierarchy",
             "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],

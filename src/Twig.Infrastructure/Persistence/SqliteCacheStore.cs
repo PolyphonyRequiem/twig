@@ -735,9 +735,8 @@ public sealed class SqliteCacheStore : IDisposable
         // both: the proposal alone cannot show what the reviewer saw, and the review model alone
         // is not what the apply was bound to.
         //
-        // `authorization_mode` holds the closed set `human|model`. It is NOT the HITL/AFK
-        // vocabulary of `Custom.WayfinderExecutionMode`, which describes a session rather than
-        // an apply.
+        // `authorization_mode` holds the closed set `human|model`. It is NOT any process field's
+        // session-steering vocabulary, which describes a session rather than an apply.
         [9] = $"""
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorization_mode TEXT;
             ALTER TABLE {DurableSchema}.proposal_journals ADD COLUMN authorizer_identity TEXT;

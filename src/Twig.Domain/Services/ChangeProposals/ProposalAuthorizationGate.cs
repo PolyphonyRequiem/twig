@@ -43,7 +43,7 @@ public readonly record struct ProposalAuthorizationDecision(
 /// </para>
 /// <para>
 /// <b>What this gate deliberately does NOT check.</b> Per Spec #729 §Authorization, additional
-/// AFK preflight gates — a refreshed read of the target, primary-scope matching, local-claim
+/// delegated-session preflight gates — a refreshed read of the target, primary-scope matching, local-claim
 /// ownership, rationale content — are out of scope for AB#743 and are not introduced here.
 /// Adding one silently would change what "authorized" means for every existing caller.
 /// </para>

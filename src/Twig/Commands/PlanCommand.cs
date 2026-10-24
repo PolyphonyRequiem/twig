@@ -170,7 +170,7 @@ public sealed class PlanCommand(
     /// <remarks>
     /// A missing <c>--authorize</c> is deliberately <b>not</b> a usage error. It is an
     /// authorization refusal, reported by the gate with the reason the session actually had —
-    /// which differs between a human-steered and an AFK session. Turning it into exit 2 would
+    /// which differs between a human-steered and a delegated session. Turning it into exit 2 would
     /// tell the user they mistyped a command when what really happened is that nobody signed
     /// the proposal off.
     /// </remarks>

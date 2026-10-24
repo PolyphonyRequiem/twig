@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -59,7 +60,8 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Doing", 10);
 
@@ -131,7 +133,8 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Done", 10);
 
@@ -211,7 +214,8 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Doing", 10);
 
@@ -256,7 +260,8 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Done", 10);
 
@@ -311,7 +316,8 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Done", 10);
 
@@ -370,11 +376,24 @@ public sealed class StateTransitionWorkflowTests
             processConfig,
             parentPropagation: null,
             promptStateWriter: null,
-            processRuleProvider: ruleProvider);
+            processRuleProvider: ruleProvider,
+            revisionBound: AuthoritativeAsCached(item));
 
         var outcome = await workflow.ExecuteAsync(item, "Done", 10);
 
         outcome.ShouldBeOfType<StateTransitionOutcome.Succeeded>();
+    }
+
+    /// <summary>
+    /// Authoritative revision source whose snapshot carries exactly the item's fields — for
+    /// tests whose subject is not the cache-vs-authoritative distinction (AB#1209).
+    /// </summary>
+    private static IRevisionBoundAdoWorkItemService AuthoritativeAsCached(WorkItem item)
+    {
+        var revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
+        revisionBound.FetchAtRevisionAsync(item.Id, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(call => new WorkItemMapper().ToSnapshot(item) with { Revision = call.ArgAt<int>(1) });
+        return revisionBound;
     }
 
     private sealed class FakeProcessRuleProvider(IReadOnlyList<ProcessRule> rules) : IProcessRuleProvider

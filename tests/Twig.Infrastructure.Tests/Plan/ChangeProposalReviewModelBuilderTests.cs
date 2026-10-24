@@ -369,7 +369,7 @@ public sealed class ChangeProposalReviewModelBuilderTests
         var decisions = new PolicyDecision[]
         {
             new() { RuleId = "label", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing violation is not worsened.", WorkItemId = 742, OpId = "op-1" },
-            new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Refuse, Reason = "The parent type is not allowed.", WorkItemId = 729, OpId = "op-2" },
+            new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Refuse, Reason = "The parent type is not allowed.", WorkItemId = 729, OpId = "op-2", ProviderIdentity = new ExternalWorkItemIdentity("github", "https://api.github.com", "I_729") },
         };
 
         var model = await Builder().BuildAsync(
@@ -393,6 +393,9 @@ public sealed class ChangeProposalReviewModelBuilderTests
         policyDecisions[1].GetProperty("outcome").GetString().ShouldBe("refuse");
         policyDecisions[1].GetProperty("blocking").GetBoolean().ShouldBeTrue();
         policyDecisions[1].GetProperty("workItemId").GetInt32().ShouldBe(729);
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("providerKind").GetString().ShouldBe("github");
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("resourceScope").GetString().ShouldBe("https://api.github.com");
+        policyDecisions[1].GetProperty("providerIdentity").GetProperty("nativeId").GetString().ShouldBe("I_729");
         policyDecisions[1].GetProperty("opId").GetString().ShouldBe("op-2");
     }
 

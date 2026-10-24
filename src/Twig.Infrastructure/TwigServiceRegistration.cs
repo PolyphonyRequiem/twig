@@ -649,7 +649,22 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<TwigConfiguration>(), sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IAuthenticationProvider>()));
         services.AddSingleton<Twig.Domain.Interfaces.IPlanLifecycleService>(sp =>
-            new Twig.Infrastructure.Plan.PlanLifecycleService(
+        {
+            var configuration = sp.GetRequiredService<Twig.Infrastructure.Config.TwigConfiguration>();
+            if (configuration.ResolveWorkItemProviderKind()
+                == Twig.Domain.Capabilities.ProviderCapabilityCatalog.GitHubProviderKind)
+            {
+                return new Twig.Infrastructure.Plan.PlanLifecycleService(
+                    sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
+                    sp.GetRequiredService<IPlanJournalRepository>(),
+                    sp.GetRequiredService<IPendingChangeReader>(),
+                    sp.GetRequiredService<IWorkItemRepository>(),
+                    configuration,
+                    sp.GetRequiredService<Twig.Infrastructure.Config.TwigPaths>(),
+                    sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemSnapshotReader>());
+            }
+
+            return new Twig.Infrastructure.Plan.PlanLifecycleService(
                 sp.GetRequiredService<Twig.Infrastructure.Plan.PlanDocumentParser>(),
                 sp.GetRequiredService<IPlanJournalRepository>(),
                 sp.GetRequiredService<IPendingChangeReader>(),
@@ -676,6 +691,7 @@ public static class TwigServiceRegistration
                 // Declared repository policy (AB#1169): twig.policy.json at the repo root,
                 // judged against cached links for dependency integrity.
                 sp.GetService<IWorkItemLinkRepository>()));
+        });
 
         return services;
     }

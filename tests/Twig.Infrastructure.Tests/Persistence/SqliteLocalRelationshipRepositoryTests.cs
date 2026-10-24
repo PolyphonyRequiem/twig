@@ -281,6 +281,44 @@ public sealed class SqliteLocalRelationshipRepositoryTests : IDisposable
         });
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DurableMigration_ReplayingV14OverExistingColumns_FailsLoudlyAndRollsBack(bool collideOnPublication)
+    {
+        // Repro for the Migration_To* fixture failure: a current store stamped back below 14
+        // while keeping v14's columns. Production must refuse rather than mask the collision,
+        // and the failed upgrade must not advance the stamped version.
+        await WithFileStore(path =>
+        {
+            using (var store = new SqliteCacheStore($"Data Source={path}"))
+            {
+                var conn = store.GetConnection();
+                if (collideOnPublication)
+                    Exec(conn, "ALTER TABLE pending.local_relationships DROP COLUMN storage;");
+                Exec(conn, "PRAGMA pending.user_version = 13;");
+            }
+
+            var ex = Should.Throw<InvalidOperationException>(() => new SqliteCacheStore($"Data Source={path}").Dispose());
+            var sqliteError = ex.InnerException.ShouldBeOfType<SqliteException>();
+            sqliteError.SqliteErrorCode.ShouldBe(1);
+            sqliteError.Message.ShouldContain($"duplicate column name: {(collideOnPublication ? "publication" : "storage")}");
+
+            SqliteConnection.ClearAllPools();
+            using var raw = new SqliteConnection($"Data Source={Path.Combine(Path.GetDirectoryName(path)!, "pending.db")}");
+            raw.Open();
+            using var cmd = raw.CreateCommand();
+            cmd.CommandText = "PRAGMA user_version;";
+            Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(13);
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_relationships') WHERE name = 'storage';";
+            Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(collideOnPublication ? 0 : 1,
+                "failure on the second ALTER must roll back the first ALTER");
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('local_relationships') WHERE name = 'publication';";
+            Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(1);
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task Read_RowWithoutEmulationColumns_IsUnreadable()
     {

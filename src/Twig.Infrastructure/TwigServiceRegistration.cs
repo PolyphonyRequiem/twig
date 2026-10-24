@@ -122,14 +122,7 @@ public static class TwigServiceRegistration
             return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
-        // Epic #1168: durable identity projection is opt-in and also needs an ADO resource-scope
-        // source. Epic #1167's IWorkItemProvider.ResolveResourceScopeAsync is that source; it is not on
-        // this branch yet, so integration binds
-        // `ct => sp.GetRequiredService<IWorkItemProvider>().ResolveResourceScopeAsync(ct)` here.
-        // Until then no source is supplied and projection stays refused.
-        services.AddSingleton<IWorkItemRepository>(sp => SqliteWorkItemRepository.CreateMirror(
-            sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper(),
-            NeutralStoreOptIn.IsEnabledFromEnvironment(), resolveAdoResourceScope: null));
+        services.AddSingleton<IWorkItemRepository>(sp => CreateMirrorRepository(sp, NeutralStoreOptIn.IsEnabledFromEnvironment()));
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));
@@ -697,6 +690,32 @@ public static class TwigServiceRegistration
         services.AddConnectionServices(config, twigDir, startDir);
         services.AddTwigNetworkServices(config, resolvedGitProject, resolvedRepository);
         return services;
+    }
+
+    /// <summary>
+    /// Builds the registered ADO mirror. Epic #1168: when the neutral store is opted in, mirror saves
+    /// project durable identities scoped by Epic #1167's
+    /// <see cref="IWorkItemProvider.ResolveResourceScopeAsync"/>. The provider is resolved inside
+    /// the delegate, on the first opted-in save, so constructing the mirror never needs the network
+    /// services, and with the opt-in off it is never resolved. A workspace whose configuration
+    /// yields no usable provider (for example a non-ADO <c>provider</c>) has no ADO scope, so the
+    /// projection fails closed; scope transport and authorization failures still surface.
+    /// </summary>
+    internal static IWorkItemRepository CreateMirrorRepository(IServiceProvider sp, bool neutralStoreOptedIn)
+        => SqliteWorkItemRepository.CreateMirror(
+            sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper(), neutralStoreOptedIn,
+            ct => ResolveConfiguredProvider(sp)?.ResolveResourceScopeAsync(ct) ?? Task.FromResult<string?>(null));
+
+    private static IWorkItemProvider? ResolveConfiguredProvider(IServiceProvider sp)
+    {
+        try
+        {
+            return sp.GetRequiredService<IWorkItemProvider>();
+        }
+        catch (TwigConfigurationException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

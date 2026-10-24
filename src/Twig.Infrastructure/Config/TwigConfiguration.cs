@@ -54,6 +54,15 @@ public sealed class TwigConfiguration
     public string Project { get => RepoCoords.Project; set => RepoCoords.Project = value; }
     public string Team { get => RepoCoords.Team; set => RepoCoords.Team = value; }
 
+    /// <summary>
+    /// Stored workspace provider token; null means the default. Use
+    /// <see cref="ResolveWorkItemProviderKind"/> for the effective kind.
+    /// </summary>
+    public string? Provider { get => RepoCoords.Provider; set => RepoCoords.Provider = value; }
+
+    /// <summary>The effective provider kind; fails closed on an unrecognized stored token.</summary>
+    public string ResolveWorkItemProviderKind() => WorkItemProviderSetting.Resolve(Provider);
+
     /// <summary>The team used for iteration requests when no explicit team is configured.</summary>
     public static string ResolveTeam(string project, string? team)
         => string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
@@ -457,7 +466,7 @@ public sealed class TwigConfiguration
     {
         return dotPath.ToLowerInvariant() switch
         {
-            "organization" or "project" or "team" or "processtemplate" => ConfigScope.Repo,
+            "organization" or "project" or "team" or "processtemplate" or "provider" => ConfigScope.Repo,
             "defaults.areapath" or "defaults.areapaths" or "defaults.iterationpath"
                 or "defaults.mode" or "defaults.areapathentries"
                 or "defaults.inheritparentarea" or "defaults.inheritparentiteration" => ConfigScope.Repo,
@@ -495,6 +504,8 @@ public sealed class TwigConfiguration
                 return (Team, true);
             case "processtemplate":
                 return (ProcessTemplate, true);
+            case "provider":
+                return (Provider ?? WorkItemProviderSetting.Default, true);
             case "auth.method":
                 return (Auth.Method, true);
             case "defaults.areapath":
@@ -590,6 +601,12 @@ public sealed class TwigConfiguration
                 return true;
             case "processtemplate":
                 ProcessTemplate = value;
+                return true;
+            case "provider":
+                var providerKind = WorkItemProviderSetting.Normalize(value);
+                if (providerKind is null)
+                    return false;
+                Provider = providerKind;
                 return true;
             case "auth.method":
                 var authLower = value.ToLowerInvariant();
@@ -816,6 +833,12 @@ public sealed class TwigRepoConfig
     public string Project { get; set; } = string.Empty;
     public string Team { get; set; } = string.Empty;
     public string ProcessTemplate { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Epic #1167 explicit workspace provider (<c>ado</c> or <c>github</c>). Null is
+    /// omitted from <c>twig.json</c> and means ADO, so existing manifests are unchanged.
+    /// </summary>
+    public string? Provider { get; set; }
     public DefaultsConfig Defaults { get; set; } = new();
     public SeedConfig Seed { get; set; } = new();
     public GitConfig Git { get; set; } = new();

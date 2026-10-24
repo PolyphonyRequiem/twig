@@ -73,9 +73,12 @@ public static class NetworkServiceModule
         // Process-wide ADO concurrency limiter — shared across all ADO HTTP call sites.
         services.TryAddSingleton<AdoConcurrencyThrottle>();
 
+        // Epic #1167: every ADO client below is built through AdoConfiguration, which refuses
+        // unless the workspace provider resolves to ADO. Aliases resolve through these
+        // factories, so they inherit the gate.
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             return new AdoRestClient(
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
@@ -84,6 +87,14 @@ public static class NetworkServiceModule
                 new WorkItemMapper(),
                 sp.GetService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
+        });
+        // Epic #1167: the active provider follows the explicit workspace `provider` setting
+        // (absent => ado). A selected provider without a registered adapter fails closed
+        // rather than silently falling back to ADO.
+        services.AddSingleton<IWorkItemProvider>(sp =>
+        {
+            AdoConfiguration(sp);
+            return (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>();
         });
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
@@ -103,19 +114,22 @@ public static class NetworkServiceModule
             var capturedGitProject = resolvedGitProject;
             var capturedRepository = resolvedRepository;
             services.AddSingleton<IAdoGitService>(sp =>
-                new AdoGitClient(
+            {
+                var cfg = AdoConfiguration(sp);
+                return new AdoGitClient(
                     sp.GetRequiredService<HttpClient>(),
                     sp.GetRequiredService<IAuthenticationProvider>(),
-                    sp.GetRequiredService<TwigConfiguration>().Organization,
+                    cfg.Organization,
                     capturedGitProject,
                     capturedRepository,
-                    sp.GetRequiredService<TwigConfiguration>().Project,
-                    throttle: sp.GetRequiredService<AdoConcurrencyThrottle>()));
+                    cfg.Project,
+                    throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
+            });
         }
 
         services.AddSingleton(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             var team = TwigConfiguration.ResolveTeam(cfg.Project, cfg.Team);
             return new AdoIterationService(
                 sp.GetRequiredService<HttpClient>(),
@@ -137,7 +151,7 @@ public static class NetworkServiceModule
         // silently break the no-caching ruling.
         services.AddSingleton<IProcessDescriptionSource>(sp =>
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
+            var cfg = AdoConfiguration(sp);
             return new AdoProcessDescriptionSource(
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
@@ -154,6 +168,13 @@ public static class NetworkServiceModule
         // trap wayfinder 0016 already recorded for the mutation providers.
 
         return services;
+    }
+
+    private static TwigConfiguration AdoConfiguration(IServiceProvider sp)
+    {
+        var cfg = sp.GetRequiredService<TwigConfiguration>();
+        WorkItemProviderSetting.RequireAdo(cfg.Provider);
+        return cfg;
     }
 
     internal static HttpClient CreateHttpClient()

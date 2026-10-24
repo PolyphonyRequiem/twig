@@ -23,7 +23,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// additive migration in <see cref="DurableMigrations"/>, and this number bumped to match.
     /// </para>
     /// </summary>
-    internal const int DurableSchemaVersion = 14;
+    internal const int DurableSchemaVersion = 15;
 
     /// <summary>The schema name the durable store is ATTACHed under.</summary>
     internal const string DurableSchema = "pending";
@@ -840,6 +840,19 @@ public sealed class SqliteCacheStore : IDisposable
         [14] = $"""
             ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN storage TEXT;
             ALTER TABLE {DurableSchema}.local_relationships ADD COLUMN publication TEXT;
+            """,
+
+        [15] = $"""
+            CREATE TABLE IF NOT EXISTS {DurableSchema}.recoverable_work_item_drafts (
+                checkout_root TEXT NOT NULL,
+                connection_id TEXT NOT NULL,
+                binding_id TEXT NOT NULL,
+                work_item_id INTEGER NOT NULL,
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                draft_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (checkout_root, connection_id, binding_id, work_item_id)
+            );
             """,
 
     };

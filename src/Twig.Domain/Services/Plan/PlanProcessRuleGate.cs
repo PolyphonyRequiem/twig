@@ -39,9 +39,11 @@ namespace Twig.Domain.Services.Plan;
 /// availability and returns a retryable precondition upstream when it cannot obtain one.
 /// </para>
 /// <para>
-/// 🔴 <b>Rule-load errors do not become policy decisions.</b> If the provider cannot load
-/// rules, this evaluator returns permit-all; a policy refusal on a load failure would
-/// deny valid batches for a transient reason.
+/// 🔴 <b>Rule-load errors are unavailable, never a permit (AB#1169, D3).</b> If the provider
+/// cannot load rules, this evaluator returns <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>:
+/// a retryable precondition, not a terminal refusal, so a transient outage holds the batch
+/// rather than either denying it permanently or letting an unchecked close gate through.
+/// A <c>null</c> provider (no network layer in the object graph) still permits.
 /// </para>
 /// <para>
 /// 🔴 <b>Old vs new views.</b> Generic rule verbs read from two views of the item, not one:
@@ -100,9 +102,9 @@ internal readonly record struct PlanProcessRuleGateOutcome(
 /// terminal — the plan row moves to Failed with the rule-refusal message.
 /// <c>NeedsRefresh</c> is a retryable precondition — the plan row MUST remain Confirmed
 /// and the caller returns a top-level busy refusal so the same digest re-applies once the
-/// upstream input is available again. The gate itself never produces
-/// <c>NeedsRefresh</c>; only the lifecycle does, when the authoritative snapshot required
-/// to evaluate a <see cref="BatchOperation"/> cannot be loaded.
+/// upstream input is available again. The gate produces <c>NeedsRefresh</c> when the
+/// process rule set cannot be loaded; the lifecycle produces it when the authoritative
+/// snapshot required to evaluate a <see cref="BatchOperation"/> cannot be loaded.
 /// </summary>
 internal enum PlanProcessRuleGateOutcomeKind
 {
@@ -153,10 +155,13 @@ internal sealed class PlanProcessRuleGate
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Rule-load failure is not a policy decision; see class remarks.
-            return PlanProcessRuleGateOutcome.Ok;
+            // AB#1169 / D3: an unreadable rule set is not a permit. The batch is held as a
+            // retryable precondition so the same digest re-applies once rules load again.
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules for type '{typeName}' could not be loaded ({ex.Message}); "
+                + "required-field gates cannot be evaluated. Retry once the process configuration is reachable.");
         }
         if (rules is null || rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
 

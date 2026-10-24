@@ -7,9 +7,11 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Policy;
 
 
 namespace Twig.Infrastructure.Plan;
@@ -78,6 +80,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly PlanProcessRuleGate _ruleGate;
     private readonly ChangeProposalReviewModelBuilder _reviewModel;
     private readonly ISessionSteeringModeProvider _steering;
+    private readonly DeclaredPolicyLoader _policyLoader;
+    private readonly DeclaredPolicyEvaluator _policyEvaluator;
 
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
@@ -135,7 +139,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         ISessionSteeringModeProvider steering,
         IPlanOriginProvider origin,
         IProcessRuleProvider? ruleProvider,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IWorkItemLinkRepository? linkRepo = null)
     {
         _parser = parser;
         _journal = journal;
@@ -157,6 +162,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
         _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);
         _steering = steering;
+        _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
+        _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, linkRepo);
     }
 
     /// <inheritdoc />
@@ -330,6 +337,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
                     : null;
         var previewIssues = originError is null ? parsed.Issues
             : [.. parsed.Issues, new PlanValidationIssue { Code = "native-settlement", Path = string.Empty, Message = originError }];
+        var policyDecisions = journal.State == PlanOperationState.Planned
+            ? await EvaluatePolicyAsync(parsed.Plan, ct).ConfigureAwait(false)
+            : [];
+        var previewCanApply = pending.Count == 0 && originError is null && !policyDecisions.Any(static d => d.IsBlocking);
 
         return new PlanPreviewResult
         {
@@ -338,11 +349,27 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             Issues = previewIssues,
             Workspace = parsed.Plan.Workspace,
             PendingChanges = pending,
-            CanApply = pending.Count == 0 && originError is null,
+            CanApply = previewCanApply,
             ReviewModel = await _reviewModel.BuildAsync(
-                parsed.Plan, journal.Digest, previewIssues, pending, pending.Count == 0 && originError is null, ct: ct)
+                parsed.Plan, journal.Digest, previewIssues, pending, previewCanApply, ct: ct,
+                policyDecisions: policyDecisions)
                 .ConfigureAwait(false),
         };
+    }
+
+    /// <summary>
+    /// Evaluates the repository's declared policy (AB#1169) against the proposal. No policy
+    /// file means no decisions; a policy that cannot be loaded yields a blocking
+    /// <c>unavailable</c> decision rather than a silent permit.
+    /// </summary>
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluatePolicyAsync(PlanDefinition plan, CancellationToken ct)
+    {
+        var loaded = await _policyLoader.LoadAsync(ct).ConfigureAwait(false);
+        if (loaded.Failure is { } failure)
+            return [failure];
+        if (loaded.Policy is not { } policy)
+            return [];
+        return await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -400,6 +427,21 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         if (originError is not null)
             return TopLevelApplyFailure(confirmedDigest, originError);
 
+        // Declared policy gate (AB#1169). Judged only before the first confirmation: once a
+        // journal has advanced, the cache already reflects the proposal's own effects, and
+        // re-judging them on resume would refuse the proposal for edges it created itself.
+        IReadOnlyList<PolicyDecision> policyDecisions = [];
+        if (journal.State == PlanOperationState.Planned)
+        {
+            policyDecisions = await EvaluatePolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            var blocking = policyDecisions.Where(static d => d.IsBlocking).ToArray();
+            if (blocking.Length > 0)
+                return TopLevelApplyFailure(
+                    confirmedDigest,
+                    "Declared policy refuses this proposal: "
+                    + string.Join("; ", blocking.Select(static d => $"[{d.RuleId}] {d.OutcomeName}: {d.Reason}")));
+        }
+
         // Authorization gate. Last of the top-level refusals and first thing after the journal
         // is in hand: it must run before any Planned→Confirmed transition, because confirming a
         // journal is already a claim that someone released this proposal.
@@ -415,7 +457,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         // separate invocations, so the surviving artifact must come from this process, and the
         // digest it embeds is the digest just verified against the file.
         var authorizedModel = await _reviewModel.BuildAsync(
-            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct)
+            parsed.Plan, parsed.Digest, parsed.Issues, pending, canApply: true, ct: ct,
+            policyDecisions: policyDecisions)
             .ConfigureAwait(false);
         await _journal.RecordAuthorizationAsync(
             parsed.Digest,

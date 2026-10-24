@@ -83,6 +83,13 @@ public sealed record ChangeProposalReviewModel
 
     /// <summary>Everything standing between this proposal and applying. May be empty.</summary>
     public required IReadOnlyList<ReviewBlocker> Blockers { get; init; }
+
+    /// <summary>
+    /// Every declared-policy decision evaluated for this proposal, with its reason. Empty when
+    /// no repository policy is declared. Blocking decisions are also projected into
+    /// <see cref="Blockers"/> with kind <c>policy</c>.
+    /// </summary>
+    public IReadOnlyList<Policy.PolicyDecision> PolicyDecisions { get; init; } = [];
 }
 
 /// <summary>A work item the proposal affects, with the context a reviewer needs to recognise it.</summary>
@@ -204,7 +211,10 @@ public sealed record ReviewConsequence
 /// <summary>Something preventing this proposal from applying right now.</summary>
 public sealed record ReviewBlocker
 {
-    /// <summary><c>pending</c> for a staged local edit, <c>issue</c> for a validation issue.</summary>
+    /// <summary>
+    /// <c>pending</c> for a staged local edit, <c>issue</c> for a validation issue,
+    /// <c>policy</c> for a blocking declared-policy decision.
+    /// </summary>
     public required string Kind { get; init; }
 
     /// <summary>The work item involved, when the blocker names one.</summary>

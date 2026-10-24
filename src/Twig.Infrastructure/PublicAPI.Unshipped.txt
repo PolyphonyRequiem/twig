@@ -83,7 +83,6 @@ Twig.Infrastructure.Persistence.SqliteWorkItemLinkRepository.GetLinksVerifiedAtA
 Twig.Infrastructure.Persistence.SqliteWorkItemLinkRepository.GetLinksVerifiedAtForSetAsync(System.Collections.Generic.IReadOnlyList<int>! workItemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<int, System.DateTimeOffset>!>!
 Twig.Infrastructure.Persistence.SqliteWorkItemLinkRepository.SaveLinksForSourcesAsync(System.Collections.Generic.IReadOnlyDictionary<int, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>! linksBySource, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder
-Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder.BuildAsync(Twig.Domain.Services.Plan.PlanDefinition! definition, string! digest, System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanValidationIssue!>! issues, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>! pendingChanges, bool canApply, string? rationale = null, Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? recipe = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel!>!
 Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder.ChangeProposalReviewModelBuilder(Twig.Domain.Interfaces.IWorkItemRepository! workItems) -> void
 Twig.Infrastructure.Plan.ChangeProposalReviewModelJson
 Twig.Infrastructure.Plan.ChangeRecipeRenderer
@@ -149,3 +148,24 @@ Twig.Infrastructure.Config.TwigConfiguration.GitHub.get -> Twig.Infrastructure.C
 Twig.Infrastructure.Config.TwigConfiguration.GitHub.set -> void
 Twig.Infrastructure.Config.TwigRepoConfig.GitHub.get -> Twig.Infrastructure.Config.GitHubConfig?
 Twig.Infrastructure.Config.TwigRepoConfig.GitHub.set -> void
+override Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Equals(object? obj) -> bool
+override Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.GetHashCode() -> int
+override Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.ToString() -> string!
+static readonly Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.None -> Twig.Infrastructure.Policy.DeclaredPolicyLoadResult!
+static Twig.Infrastructure.Policy.DeclaredPolicyLoader.Parse(string! json, string! source = "twig.policy.json") -> Twig.Infrastructure.Policy.DeclaredPolicyLoadResult!
+static Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.operator !=(Twig.Infrastructure.Policy.DeclaredPolicyLoadResult? left, Twig.Infrastructure.Policy.DeclaredPolicyLoadResult? right) -> bool
+static Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.operator ==(Twig.Infrastructure.Policy.DeclaredPolicyLoadResult? left, Twig.Infrastructure.Policy.DeclaredPolicyLoadResult? right) -> bool
+Twig.Infrastructure.Config.TwigPaths.PolicyPath.get -> string!
+Twig.Infrastructure.Policy.DeclaredPolicyLoader
+Twig.Infrastructure.Policy.DeclaredPolicyLoader.DeclaredPolicyLoader(string! policyPath) -> void
+Twig.Infrastructure.Policy.DeclaredPolicyLoader.LoadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Policy.DeclaredPolicyLoadResult!>!
+Twig.Infrastructure.Policy.DeclaredPolicyLoader.PolicyPath.get -> string!
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.<Clone>$() -> Twig.Infrastructure.Policy.DeclaredPolicyLoadResult!
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.DeclaredPolicyLoadResult() -> void
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Equals(Twig.Infrastructure.Policy.DeclaredPolicyLoadResult? other) -> bool
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Failure.get -> Twig.Domain.Services.Policy.PolicyDecision?
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Failure.init -> void
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Policy.get -> Twig.Domain.Services.Policy.DeclaredPolicy?
+Twig.Infrastructure.Policy.DeclaredPolicyLoadResult.Policy.init -> void
+Twig.Infrastructure.Plan.ChangeProposalReviewModelBuilder.BuildAsync(Twig.Domain.Services.Plan.PlanDefinition! definition, string! digest, System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Plan.PlanValidationIssue!>! issues, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.PendingChangeDetail!>! pendingChanges, bool canApply, string? rationale = null, Twig.Domain.Services.ChangeProposals.ChangeRecipeReference? recipe = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Policy.PolicyDecision!>? policyDecisions = null) -> System.Threading.Tasks.Task<Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel!>!

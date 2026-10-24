@@ -66,6 +66,17 @@ public abstract record StateTransitionOutcome
         : StateTransitionOutcome;
 
     /// <summary>
+    /// The process rule set for the item's type could not be loaded, so the required-field
+    /// gate could not be evaluated. Nothing was written. Retryable; distinct from
+    /// <see cref="RequiredFieldsMissing"/>, which is a definite refusal (AB#1169, D3).
+    /// </summary>
+    public sealed record ProcessRulesUnavailable(
+        int ItemId,
+        string ToState,
+        string Reason)
+        : StateTransitionOutcome;
+
+    /// <summary>
     /// ADO rejected one PATCH in the transition chain. <see cref="Path"/> is the prefix
     /// successfully traversed; <see cref="FinalState"/> is the last state reached.
     /// <see cref="CacheResyncWarning"/> is set if the best-effort cache resync after the

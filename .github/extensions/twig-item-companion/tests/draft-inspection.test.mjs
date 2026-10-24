@@ -81,6 +81,45 @@ test("unsafe or missing generation and every native revision refuse instead of r
     }
 });
 
+test("ordinal item-key checkout identity refuses a path-equivalent alias", async () => {
+    const doc = fixture();
+    doc.itemKey.checkoutRoot = checkout + (process.platform === "win32" ? "\\." : "/.");
+    assert.notEqual(doc.itemKey.checkoutRoot, key.checkoutRoot);
+    await assert.rejects(read(reader(doc)), /qualified item identity changed/);
+});
+
+test("native revision drift and retained conflicts exactly determine hasConflicts", () => {
+    const drift = fixture();
+    drift.observedRevision = drift.currentRevision = 4;
+    assert.notEqual(drift.baselineRevision, drift.observedRevision);
+    assert.throws(() => validateDraftDocument(drift, key, checkout), /conflict flag contradicts/);
+    drift.hasConflicts = true;
+    drift.status = drift.reconciliationState = "conflicted";
+    assert.equal(validateDraftDocument(drift, key, checkout).hasConflicts, true);
+    const mismatch = fixture();
+    mismatch.currentRevision = 4;
+    assert.throws(() => validateDraftDocument(mismatch, key, checkout), /observed and current/);
+    const falseConflict = fixture();
+    falseConflict.hasConflicts = true;
+    falseConflict.status = falseConflict.reconciliationState = "conflicted";
+    assert.throws(() => validateDraftDocument(falseConflict, key, checkout), /conflict flag contradicts/);
+});
+
+test("field references correlate case-insensitively without rewriting retained intent", () => {
+    const doc = fixture();
+    doc.hasConflicts = true;
+    doc.status = doc.reconciliationState = "conflicted";
+    doc.fields[0].fieldRef = "SYSTEM.TITLE";
+    doc.conflicts = [{ fieldRef: "system.title", baselineValue: null, observedValue: "prior", proposedValue: "" }];
+    assert.equal(validateDraftDocument(doc, key, checkout).conflicts[0].fieldRef, "system.title");
+    assert.equal(doc.changes[0].fieldRef, "System.Title");
+    for (const collection of ["changes", "fields", "conflicts"]) {
+        const duplicate = structuredClone(doc);
+        duplicate[collection].push({ ...duplicate[collection][0], fieldRef: "sYsTeM.tItLe" });
+        assert.throws(() => validateDraftDocument(duplicate, key, checkout), /unavailable/);
+    }
+});
+
 test("empty draft, conflict drift and blocked local work remain distinct inspection evidence", () => {
     const empty = fixture();
     empty.draftStatus = "empty";

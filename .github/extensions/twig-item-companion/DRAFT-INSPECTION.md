@@ -20,7 +20,11 @@ is not edited by this consumer. No SDK declaration or host action is registered;
 there is no automatic invocation from existing companion or workbench panels.
 
 Qualification correlates exactly checkout root, connection, binding and native
-item ID. Separate detail and draft observations are independently captured.
+item ID using ordinal key strings. Physical checkout comparison is separate;
+path-equivalent aliases cannot substitute a different qualified native key.
+Field-reference correlation and duplicate checks are case-insensitive while
+the original field strings and intent are retained verbatim.
+Separate detail and draft observations are independently captured.
 The draft document does not export complete Bench origin or expected-origin
 flags, so this consumer makes no whole-Bench origin-continuity claim. Item-key
 agreement is not host authentication, permission or cross-read atomicity.

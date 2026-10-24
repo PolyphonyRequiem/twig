@@ -69,6 +69,7 @@ public static class CommandRegistrationModule
             rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>())
         {
             WorkItemProvider = sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>(),
+            FieldOverlay = sp.GetService<Twig.Infrastructure.Persistence.DurableFieldOverlay>(),
         });
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();

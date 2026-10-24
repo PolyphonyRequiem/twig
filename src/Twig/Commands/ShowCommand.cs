@@ -56,6 +56,15 @@ public sealed class ShowCommand(
 
     private ProviderCapabilityDescriptor? Descriptor => WorkItemProvider?.Capabilities;
 
+    /// <summary>
+    /// Durable local composition of the shown item (Epic #1168); a pass-through unless the
+    /// neutral store is opted in. Display only: the composed copy is never saved.
+    /// </summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private Task<Domain.Aggregates.WorkItem> OverlayAsync(Domain.Aggregates.WorkItem item, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
@@ -202,6 +211,7 @@ public sealed class ShowCommand(
             resolvedId = item.Id;
         }
 
+        item = await OverlayAsync(item, ct);
         // AB#880 opt-in projection: bypass full-detail enrichment when the
         // caller asked for a slice; omit both flags to get the full read back.
         if (request.IsActive)
@@ -331,7 +341,7 @@ public sealed class ShowCommand(
                 var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
                 if (freshItem is not null)
                 {
-                    item = freshItem;
+                    item = await OverlayAsync(freshItem, ct);
                     children = await workItemRepo.GetChildrenAsync(item.Id, ct);
                     parent = item.ParentId.HasValue
                         ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
@@ -403,6 +413,7 @@ public sealed class ShowCommand(
                         {
                             var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
                             if (freshItem is null) return null;
+                            freshItem = await OverlayAsync(freshItem, ct);
 
                             var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, ct);
                             var freshParent = freshItem.ParentId.HasValue

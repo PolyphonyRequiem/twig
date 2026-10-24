@@ -55,6 +55,14 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     internal bool ProjectsDurableIdentities => _projection is not null;
 
+    /// <summary>
+    /// The projection's cached ADO resource-scope resolution, shared so readers of the durable
+    /// store resolve the scope once per process with the projection; <see langword="null"/> when
+    /// this mirror does not project (the neutral store is not opted in).
+    /// </summary>
+    internal Func<CancellationToken, Task<string?>>? DurableScope =>
+        _projection is null ? null : _projection.ResolveScopeAsync;
+
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
     // Browser callers lend only the origin from their still-live admitted provider lease.

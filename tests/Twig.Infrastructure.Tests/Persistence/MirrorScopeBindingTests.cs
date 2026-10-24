@@ -90,7 +90,7 @@ public sealed class MirrorScopeBindingTests : IDisposable
     }
 
     [Fact]
-    public async Task UnusableConfiguredProvider_FailsClosed_TheMirrorIsWrittenWithoutProjection()
+    public async Task UnusableConfiguredProvider_Surfaces_NothingIsWrittenOrProjected()
     {
         var services = new ServiceCollection().AddSingleton(_store)
             .AddSingleton<IWorkItemProvider>(_ => throw new TwigConfigurationException(
@@ -98,9 +98,10 @@ public sealed class MirrorScopeBindingTests : IDisposable
             .BuildServiceProvider();
         var mirror = TwigServiceRegistration.CreateMirrorRepository(services, neutralStoreOptedIn: true);
 
-        await mirror.SaveAsync(new WorkItemBuilder(42, "Item").Build());
+        var thrown = await Should.ThrowAsync<TwigConfigurationException>(() => mirror.SaveAsync(new WorkItemBuilder(42, "Item").Build()));
 
-        (await mirror.GetByIdAsync(42)).ShouldNotBeNull();
+        thrown.Message.ShouldStartWith("provider-unavailable");
+        (await mirror.GetByIdAsync(42)).ShouldBeNull();
         CountIdentities().ShouldBe(0);
     }
 

@@ -141,6 +141,11 @@ public static class TwigServiceRegistration
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
         services.AddReferenceProfileSeam();
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
+        // Display-only durable composition (Epic #1168); a pass-through unless the mirror projects.
+        services.AddSingleton(sp => DurableFieldOverlay.Create(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<SqliteCacheStore>(),
+            sp.GetRequiredService<IFieldDefinitionStore>()));
         services.AddSingleton(sp => new DetailDocumentSource(sp.GetService<IFormLayoutProvider>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
@@ -697,26 +702,15 @@ public static class TwigServiceRegistration
     /// project durable identities scoped by Epic #1167's
     /// <see cref="IWorkItemProvider.ResolveResourceScopeAsync"/>. The provider is resolved inside
     /// the delegate, on the first opted-in save, so constructing the mirror never needs the network
-    /// services, and with the opt-in off it is never resolved. A workspace whose configuration
-    /// yields no usable provider (for example a non-ADO <c>provider</c>) has no ADO scope, so the
-    /// projection fails closed; scope transport and authorization failures still surface.
+    /// services, and with the opt-in off it is never resolved. Every resolution and scope failure
+    /// surfaces from the save, including a configured non-ADO provider's refusal (Epic #1167 gates
+    /// the ADO client factories behind which <see cref="IWorkItemProvider"/> is registered), so an
+    /// opted-in write can never turn that refusal into success.
     /// </summary>
     internal static IWorkItemRepository CreateMirrorRepository(IServiceProvider sp, bool neutralStoreOptedIn)
         => SqliteWorkItemRepository.CreateMirror(
             sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper(), neutralStoreOptedIn,
-            ct => ResolveConfiguredProvider(sp)?.ResolveResourceScopeAsync(ct) ?? Task.FromResult<string?>(null));
-
-    private static IWorkItemProvider? ResolveConfiguredProvider(IServiceProvider sp)
-    {
-        try
-        {
-            return sp.GetRequiredService<IWorkItemProvider>();
-        }
-        catch (TwigConfigurationException)
-        {
-            return null;
-        }
-    }
+            ct => sp.GetRequiredService<IWorkItemProvider>().ResolveResourceScopeAsync(ct));
 
     /// <summary>
     /// Registers the T3 (AB#734) reference-profile seam and the AB#735 gates

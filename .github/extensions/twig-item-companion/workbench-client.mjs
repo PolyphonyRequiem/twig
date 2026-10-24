@@ -236,13 +236,13 @@ export const workbenchClient = `
     function setBenchBusy(busy) {
       benchBusy = busy;
       applyBusy();
+      renderRows();
     }
     function applyBusy() {
       const busy = benchBusy || detailInFlight;
       benchLoad.disabled = benchInput.disabled = busy;
       benchRefresh.disabled = busy || !observation;
       benchFilter.disabled = benchView.disabled = busy;
-      renderRows();
     }
     async function performBench(action, bench) {
       setBenchBusy(true);

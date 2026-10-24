@@ -167,6 +167,21 @@ public static class ChangeProposalReviewModelJson
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+
+        writer.WriteStartArray("policyDecisions");
+        foreach (var decision in model.PolicyDecisions)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("ruleId", decision.RuleId);
+            writer.WriteString("kind", decision.Kind);
+            writer.WriteString("outcome", decision.OutcomeName);
+            writer.WriteBoolean("blocking", decision.IsBlocking);
+            writer.WriteString("reason", decision.Reason);
+            WriteNullableInt(writer, "workItemId", decision.WorkItemId);
+            WriteNullableString(writer, "opId", decision.OpId);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 
     /// <summary>

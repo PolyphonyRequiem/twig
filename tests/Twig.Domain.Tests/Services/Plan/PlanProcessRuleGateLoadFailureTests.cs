@@ -1,0 +1,39 @@
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+using Shouldly;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Plan;
+using Twig.TestKit;
+using Xunit;
+
+namespace Twig.Domain.Tests.Services.Plan;
+
+/// <summary>
+/// AB#1169 / D3: a rule set that cannot be loaded must hold the batch, never permit it.
+/// </summary>
+public sealed class PlanProcessRuleGateLoadFailureTests
+{
+    [Fact]
+    public async Task RuleLoadFailure_RequiresRefresh_InsteadOfPermitAll()
+    {
+        var provider = Substitute.For<IProcessRuleProvider>();
+        provider.GetRulesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("offline"));
+        var item = new WorkItemBuilder(5, "x").AsTask().Build();
+
+        var outcome = await new PlanProcessRuleGate(provider).EvaluateAsync(
+            new BatchOperation
+            {
+                Id = "b",
+                WorkItemId = 5,
+                ExpectedRevision = 1,
+                Fields = new Dictionary<string, string?> { ["System.State"] = "Done" },
+            },
+            item,
+            CancellationToken.None);
+
+        outcome.IsOk.ShouldBeFalse();
+        outcome.IsRefreshRequired.ShouldBeTrue();
+        outcome.Message.ShouldNotBeNull().ShouldContain("could not be loaded");
+    }
+}

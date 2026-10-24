@@ -156,6 +156,12 @@ public sealed class StateCommand(
                     + "'twig proposal apply --confirm <digest> --authorize <identity>'.");
                 return 1;
 
+            case StateTransitionOutcome.ProcessRulesUnavailable x:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"#{x.ItemId} was not moved to '{x.ToState}': {x.Reason}"));
+                _stderr.WriteLine("Nothing was written. Retry once the process configuration can be loaded.");
+                return 1;
+
             case StateTransitionOutcome.ChainFailed x:
                 var failureMessage = x.Path.Count > 1
                     ? $"#{x.ItemId} chain stopped at '{x.FinalState}'. Reached: {string.Join(" → ", x.Path)}. ADO: {x.AdoError}"

@@ -1524,3 +1524,139 @@ Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces
 Twig.Domain.Services.Sync.SyncCoordinator.SyncCoordinator(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemReader! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int cacheStaleMinutes, bool evictMissing = true) -> void
 Twig.Domain.Services.Sync.SyncCoordinatorFactory.SyncCoordinatorFactory(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemReader! adoService, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IWorkItemLinkRepository? linkRepo, int readOnlyStaleMinutes, int readWriteStaleMinutes) -> void
 Twig.Domain.Services.Sync.WorkItemFetcher.WorkItemFetcher(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemReader! adoService) -> void
+abstract Twig.Domain.Services.Policy.DeclaredPolicyRule.<Clone>$() -> Twig.Domain.Services.Policy.DeclaredPolicyRule!
+abstract Twig.Domain.Services.Policy.DeclaredPolicyRule.Kind.get -> string!
+const Twig.Domain.Services.Policy.DeclaredPolicy.SupportedVersion = 1 -> int
+const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.DependencyIntegrity = "dependency-integrity" -> string!
+const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.LabelApplicability = "label-applicability" -> string!
+const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.ParentType = "parent-type" -> string!
+const Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds.PolicyLoad = "policy-load" -> string!
+const Twig.Domain.Services.Policy.DependencyIntegrityRule.DefaultMaxNodes = 200 -> int
+const Twig.Domain.Services.Policy.LabelApplicabilityRule.DefaultField = "System.Tags" -> string!
+override sealed Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
+override sealed Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
+override sealed Twig.Domain.Services.Policy.ParentTypeRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
+override Twig.Domain.Services.Policy.DeclaredPolicy.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.DeclaredPolicy.GetHashCode() -> int
+override Twig.Domain.Services.Policy.DeclaredPolicy.ToString() -> string!
+override Twig.Domain.Services.Policy.DeclaredPolicyRule.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.DeclaredPolicyRule.GetHashCode() -> int
+override Twig.Domain.Services.Policy.DeclaredPolicyRule.ToString() -> string!
+override Twig.Domain.Services.Policy.DependencyIntegrityRule.<Clone>$() -> Twig.Domain.Services.Policy.DependencyIntegrityRule!
+override Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.DependencyIntegrityRule.GetHashCode() -> int
+override Twig.Domain.Services.Policy.DependencyIntegrityRule.Kind.get -> string!
+override Twig.Domain.Services.Policy.DependencyIntegrityRule.ToString() -> string!
+override Twig.Domain.Services.Policy.LabelApplicabilityRule.<Clone>$() -> Twig.Domain.Services.Policy.LabelApplicabilityRule!
+override Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.LabelApplicabilityRule.GetHashCode() -> int
+override Twig.Domain.Services.Policy.LabelApplicabilityRule.Kind.get -> string!
+override Twig.Domain.Services.Policy.LabelApplicabilityRule.ToString() -> string!
+override Twig.Domain.Services.Policy.ParentTypeRule.<Clone>$() -> Twig.Domain.Services.Policy.ParentTypeRule!
+override Twig.Domain.Services.Policy.ParentTypeRule.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.ParentTypeRule.GetHashCode() -> int
+override Twig.Domain.Services.Policy.ParentTypeRule.Kind.get -> string!
+override Twig.Domain.Services.Policy.ParentTypeRule.ToString() -> string!
+override Twig.Domain.Services.Policy.PolicyDecision.Equals(object? obj) -> bool
+override Twig.Domain.Services.Policy.PolicyDecision.GetHashCode() -> int
+override Twig.Domain.Services.Policy.PolicyDecision.ToString() -> string!
+static Twig.Domain.Services.Policy.DeclaredPolicy.operator !=(Twig.Domain.Services.Policy.DeclaredPolicy? left, Twig.Domain.Services.Policy.DeclaredPolicy? right) -> bool
+static Twig.Domain.Services.Policy.DeclaredPolicy.operator ==(Twig.Domain.Services.Policy.DeclaredPolicy? left, Twig.Domain.Services.Policy.DeclaredPolicy? right) -> bool
+static Twig.Domain.Services.Policy.DeclaredPolicyRule.operator !=(Twig.Domain.Services.Policy.DeclaredPolicyRule? left, Twig.Domain.Services.Policy.DeclaredPolicyRule? right) -> bool
+static Twig.Domain.Services.Policy.DeclaredPolicyRule.operator ==(Twig.Domain.Services.Policy.DeclaredPolicyRule? left, Twig.Domain.Services.Policy.DeclaredPolicyRule? right) -> bool
+static Twig.Domain.Services.Policy.DependencyIntegrityRule.operator !=(Twig.Domain.Services.Policy.DependencyIntegrityRule? left, Twig.Domain.Services.Policy.DependencyIntegrityRule? right) -> bool
+static Twig.Domain.Services.Policy.DependencyIntegrityRule.operator ==(Twig.Domain.Services.Policy.DependencyIntegrityRule? left, Twig.Domain.Services.Policy.DependencyIntegrityRule? right) -> bool
+static Twig.Domain.Services.Policy.LabelApplicabilityRule.operator !=(Twig.Domain.Services.Policy.LabelApplicabilityRule? left, Twig.Domain.Services.Policy.LabelApplicabilityRule? right) -> bool
+static Twig.Domain.Services.Policy.LabelApplicabilityRule.operator ==(Twig.Domain.Services.Policy.LabelApplicabilityRule? left, Twig.Domain.Services.Policy.LabelApplicabilityRule? right) -> bool
+static Twig.Domain.Services.Policy.ParentTypeRule.operator !=(Twig.Domain.Services.Policy.ParentTypeRule? left, Twig.Domain.Services.Policy.ParentTypeRule? right) -> bool
+static Twig.Domain.Services.Policy.ParentTypeRule.operator ==(Twig.Domain.Services.Policy.ParentTypeRule? left, Twig.Domain.Services.Policy.ParentTypeRule? right) -> bool
+static Twig.Domain.Services.Policy.PolicyDecision.operator !=(Twig.Domain.Services.Policy.PolicyDecision? left, Twig.Domain.Services.Policy.PolicyDecision? right) -> bool
+static Twig.Domain.Services.Policy.PolicyDecision.operator ==(Twig.Domain.Services.Policy.PolicyDecision? left, Twig.Domain.Services.Policy.PolicyDecision? right) -> bool
+Twig.Domain.Services.Policy.DeclaredPolicy
+Twig.Domain.Services.Policy.DeclaredPolicy.<Clone>$() -> Twig.Domain.Services.Policy.DeclaredPolicy!
+Twig.Domain.Services.Policy.DeclaredPolicy.DeclaredPolicy() -> void
+Twig.Domain.Services.Policy.DeclaredPolicy.Equals(Twig.Domain.Services.Policy.DeclaredPolicy? other) -> bool
+Twig.Domain.Services.Policy.DeclaredPolicy.Rules.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Policy.DeclaredPolicyRule!>!
+Twig.Domain.Services.Policy.DeclaredPolicy.Rules.init -> void
+Twig.Domain.Services.Policy.DeclaredPolicyEvaluator
+Twig.Domain.Services.Policy.DeclaredPolicyEvaluator.DeclaredPolicyEvaluator(Twig.Domain.Interfaces.IWorkItemRepository! items, Twig.Domain.Interfaces.IWorkItemLinkRepository? links) -> void
+Twig.Domain.Services.Policy.DeclaredPolicyEvaluator.EvaluateAsync(Twig.Domain.Services.Policy.DeclaredPolicy! policy, Twig.Domain.Services.Plan.PlanDefinition! plan, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Policy.PolicyDecision!>!>!
+Twig.Domain.Services.Policy.DeclaredPolicyRule
+Twig.Domain.Services.Policy.DeclaredPolicyRule.DeclaredPolicyRule() -> void
+Twig.Domain.Services.Policy.DeclaredPolicyRule.DeclaredPolicyRule(Twig.Domain.Services.Policy.DeclaredPolicyRule! original) -> void
+Twig.Domain.Services.Policy.DeclaredPolicyRule.Enforcement.get -> Twig.Domain.Services.Policy.PolicyEnforcement
+Twig.Domain.Services.Policy.DeclaredPolicyRule.Enforcement.init -> void
+Twig.Domain.Services.Policy.DeclaredPolicyRule.Id.get -> string!
+Twig.Domain.Services.Policy.DeclaredPolicyRule.Id.init -> void
+Twig.Domain.Services.Policy.DeclaredPolicyRuleKinds
+Twig.Domain.Services.Policy.DependencyIntegrityRule
+Twig.Domain.Services.Policy.DependencyIntegrityRule.DependencyIntegrityRule() -> void
+Twig.Domain.Services.Policy.DependencyIntegrityRule.Equals(Twig.Domain.Services.Policy.DependencyIntegrityRule? other) -> bool
+Twig.Domain.Services.Policy.DependencyIntegrityRule.MaxNodes.get -> int
+Twig.Domain.Services.Policy.DependencyIntegrityRule.MaxNodes.init -> void
+Twig.Domain.Services.Policy.LabelApplicabilityRule
+Twig.Domain.Services.Policy.LabelApplicabilityRule.AllowedTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Policy.LabelApplicabilityRule.AllowedTypes.init -> void
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Equals(Twig.Domain.Services.Policy.LabelApplicabilityRule? other) -> bool
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Exclusive.get -> bool
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Exclusive.init -> void
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Field.get -> string!
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Field.init -> void
+Twig.Domain.Services.Policy.LabelApplicabilityRule.LabelApplicabilityRule() -> void
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Prefix.get -> string!
+Twig.Domain.Services.Policy.LabelApplicabilityRule.Prefix.init -> void
+Twig.Domain.Services.Policy.ParentTypeRule
+Twig.Domain.Services.Policy.ParentTypeRule.AllowedParentTypes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Policy.ParentTypeRule.AllowedParentTypes.init -> void
+Twig.Domain.Services.Policy.ParentTypeRule.ChildType.get -> string!
+Twig.Domain.Services.Policy.ParentTypeRule.ChildType.init -> void
+Twig.Domain.Services.Policy.ParentTypeRule.Equals(Twig.Domain.Services.Policy.ParentTypeRule? other) -> bool
+Twig.Domain.Services.Policy.ParentTypeRule.ParentTypeRule() -> void
+Twig.Domain.Services.Policy.PolicyDecision
+Twig.Domain.Services.Policy.PolicyDecision.<Clone>$() -> Twig.Domain.Services.Policy.PolicyDecision!
+Twig.Domain.Services.Policy.PolicyDecision.Equals(Twig.Domain.Services.Policy.PolicyDecision? other) -> bool
+Twig.Domain.Services.Policy.PolicyDecision.IsBlocking.get -> bool
+Twig.Domain.Services.Policy.PolicyDecision.Kind.get -> string!
+Twig.Domain.Services.Policy.PolicyDecision.Kind.init -> void
+Twig.Domain.Services.Policy.PolicyDecision.OpId.get -> string?
+Twig.Domain.Services.Policy.PolicyDecision.OpId.init -> void
+Twig.Domain.Services.Policy.PolicyDecision.Outcome.get -> Twig.Domain.Services.Policy.PolicyOutcome
+Twig.Domain.Services.Policy.PolicyDecision.Outcome.init -> void
+Twig.Domain.Services.Policy.PolicyDecision.OutcomeName.get -> string!
+Twig.Domain.Services.Policy.PolicyDecision.PolicyDecision() -> void
+Twig.Domain.Services.Policy.PolicyDecision.Reason.get -> string!
+Twig.Domain.Services.Policy.PolicyDecision.Reason.init -> void
+Twig.Domain.Services.Policy.PolicyDecision.RuleId.get -> string!
+Twig.Domain.Services.Policy.PolicyDecision.RuleId.init -> void
+Twig.Domain.Services.Policy.PolicyDecision.WorkItemId.get -> int?
+Twig.Domain.Services.Policy.PolicyDecision.WorkItemId.init -> void
+Twig.Domain.Services.Policy.PolicyEnforcement
+Twig.Domain.Services.Policy.PolicyEnforcement.Refuse = 0 -> Twig.Domain.Services.Policy.PolicyEnforcement
+Twig.Domain.Services.Policy.PolicyEnforcement.Warn = 1 -> Twig.Domain.Services.Policy.PolicyEnforcement
+Twig.Domain.Services.Policy.PolicyOutcome
+Twig.Domain.Services.Policy.PolicyOutcome.Permit = 0 -> Twig.Domain.Services.Policy.PolicyOutcome
+Twig.Domain.Services.Policy.PolicyOutcome.Refuse = 2 -> Twig.Domain.Services.Policy.PolicyOutcome
+Twig.Domain.Services.Policy.PolicyOutcome.Unavailable = 3 -> Twig.Domain.Services.Policy.PolicyOutcome
+Twig.Domain.Services.Policy.PolicyOutcome.Warn = 1 -> Twig.Domain.Services.Policy.PolicyOutcome
+virtual Twig.Domain.Services.Policy.DeclaredPolicyRule.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Policy.DeclaredPolicyRule.Equals(Twig.Domain.Services.Policy.DeclaredPolicyRule? other) -> bool
+virtual Twig.Domain.Services.Policy.DeclaredPolicyRule.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.PolicyDecisions.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.Policy.PolicyDecision!>!
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.PolicyDecisions.init -> void
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ToString() -> string!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Deconstruct(out int ItemId, out string! ToState, out string! Reason) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable? other) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ItemId.get -> int
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ItemId.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ProcessRulesUnavailable(int ItemId, string! ToState, string! Reason) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Reason.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Reason.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ToState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ToState.init -> void

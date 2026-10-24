@@ -19,6 +19,7 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.TestKit;
 using Xunit;
 
@@ -244,6 +245,100 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         => typeof(IProviderWorkItemReader).IsAssignableFrom(typeof(IAdoWorkItemService)).ShouldBeTrue();
 
     /// <summary>
+    /// Feature #1178: every write path that dispatches through the provider mutation port refuses
+    /// at resolution under GitHub with the port's own reason, and the ADO client is never
+    /// constructed. Before the port existed these refused only incidentally, inside the ADO
+    /// client factory, which is exactly the construction this pins out.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(IProviderWorkItemWriter))]
+    [InlineData(typeof(StateTransitionWorkflow))]
+    [InlineData(typeof(FieldUpdateWorkflow))]
+    [InlineData(typeof(NoteWorkflow))]
+    [InlineData(typeof(PatchWorkflow))]
+    [InlineData(typeof(IPendingChangeFlusher))]
+    [InlineData(typeof(IPlanLifecycleService))]
+    public async Task MutationPort_UnderGitHub_RefusesWithoutConstructingTheAdoClient(Type serviceType)
+    {
+        var adoConstructions = 0;
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: s =>
+            s.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                Interlocked.Increment(ref adoConstructions);
+                throw new InvalidOperationException("ADO client must not be constructed");
+            }));
+
+        var refusal = Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService(serviceType));
+
+        refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        refusal.Message.ShouldContain("provider mutation boundary");
+        adoConstructions.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Feature #1178: under GitHub every mutating command — including the ADO-only add/remove-link
+    /// path — refuses at resolution with no HTTP. GitHub writes stay unsupported.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(UpdateCommand))]
+    [InlineData(typeof(StateCommand))]
+    [InlineData(typeof(PatchCommand))]
+    [InlineData(typeof(EditCommand))]
+    [InlineData(typeof(BatchCommand))]
+    [InlineData(typeof(LinkCommand))]
+    public async Task MutatingCommands_UnderGitHub_RefuseWithNoHttp(Type commandType)
+    {
+        var runtime = await AttachAsync("github", gitProject: "Project");
+
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService(commandType))
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Feature #1178: under ADO the write commands dispatch through the mutation port. A recording
+    /// writer replaces the port in the otherwise real composition; the write must reach it and no
+    /// ADO PATCH or comment request may leave.
+    /// </summary>
+    [Theory]
+    [InlineData("patch", nameof(IProviderWorkItemWriter.PatchAsync))]
+    [InlineData("update", nameof(IProviderWorkItemWriter.PatchAsync))]
+    [InlineData("note", nameof(IProviderWorkItemWriter.AddCommentAsync))]
+    public async Task CommandWrites_UnderAdo_DispatchThroughTheMutationPort(string command, string expectedCall)
+    {
+        var writer = new RecordingProviderWriter();
+        var runtime = await AttachAsync(provider: null, gitProject: "Project",
+            overrides: s => s.AddSingleton<IProviderWorkItemWriter>(writer));
+        var commands = new TwigCommands(runtime);
+
+        Func<Task<int>> run = command switch
+        {
+            "patch" => () => commands.Patch(42, json: "{\"System.Title\":\"via port\"}", output: "json"),
+            "update" => () => commands.Update("System.Title", "via port", output: "json", id: 42),
+            _ => () => commands.Note("via port", output: "json", id: 42),
+        };
+        var caught = await CaptureAsync(run);
+
+        caught.ShouldBeNull();
+        writer.Calls.ShouldContain(expectedCall, $"{command} must write through IProviderWorkItemWriter");
+        var adoWrites = _transport.Requests.Where(r =>
+            r.StartsWith("PATCH ", StringComparison.Ordinal)
+            || r.Contains("/comments", StringComparison.OrdinalIgnoreCase)).ToList();
+        adoWrites.ShouldBeEmpty($"{command} bypassed the port: {string.Join(", ", adoWrites)}");
+    }
+
+    [Fact]
+    public async Task MutationPort_UnderAdo_IsTheAdoClient()
+    {
+        var runtime = await AttachAsync(provider: null, gitProject: "Project");
+
+        runtime.GetRequiredService<IProviderWorkItemWriter>()
+            .ShouldBeSameAs(runtime.GetRequiredService<IAdoWorkItemService>());
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// Every concrete ADO network client: a class in the <c>Twig.Infrastructure.Ado</c>
     /// namespaces that takes an <see cref="HttpClient"/>. Discovered reflectively so a new
     /// client is covered by both guards without editing this list.
@@ -411,8 +506,44 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         services.AddTwigCommands();
     }
 
+    /// <summary>A provider mutation port that accepts every write, advancing a fixture revision.</summary>
+    private sealed class RecordingProviderWriter : RecordingProviderReader, IProviderWorkItemWriter
+    {
+        private int _revision = 1;
+
+        public Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default)
+        {
+            Record(nameof(PatchAsync));
+            return Task.FromResult(Interlocked.Increment(ref _revision));
+        }
+
+        public Task AddCommentAsync(int id, string text, CancellationToken ct = default)
+        {
+            Record(nameof(AddCommentAsync));
+            return Task.CompletedTask;
+        }
+
+        public Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+        {
+            Record(nameof(AddLinkAsync));
+            return Task.CompletedTask;
+        }
+
+        public Task AddLinkWithCommentAsync(int sourceId, int targetId, string adoLinkType, string? comment, CancellationToken ct = default)
+        {
+            Record(nameof(AddLinkWithCommentAsync));
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+        {
+            Record(nameof(RemoveLinkAsync));
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>A provider read boundary that answers from fixtures and records each call.</summary>
-    private sealed class RecordingProviderReader : IProviderWorkItemReader
+    private class RecordingProviderReader : IProviderWorkItemReader
     {
         private readonly List<string> _calls = [];
 
@@ -421,7 +552,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
             get { lock (_calls) return _calls.ToList(); }
         }
 
-        private void Record(string call)
+        protected void Record(string call)
         {
             lock (_calls) _calls.Add(call);
         }

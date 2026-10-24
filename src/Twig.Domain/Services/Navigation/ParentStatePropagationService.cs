@@ -43,7 +43,7 @@ public sealed record ParentPropagationResult
 /// </summary>
 public sealed class ParentStatePropagationService(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IProcessConfigurationProvider processConfigProvider,
     ProtectedCacheWriter protectedCacheWriter)
 {
@@ -84,7 +84,7 @@ public sealed class ParentStatePropagationService(
                 }
             }
 
-            // Defensive: FetchAsync is non-nullable per IAdoWorkItemService contract, so this path
+            // Defensive: FetchAsync is non-nullable per IProviderWorkItemWriter contract, so this path
             // is unreachable in production. Retained to satisfy the nullable checker.
             System.Diagnostics.Debug.Assert(parent is not null, "IAdoWorkItemService.FetchAsync returned null despite non-nullable contract");
             if (parent is null)

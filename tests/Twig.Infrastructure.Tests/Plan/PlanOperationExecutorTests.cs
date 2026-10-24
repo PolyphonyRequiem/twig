@@ -23,7 +23,9 @@ namespace Twig.Infrastructure.Tests.Plan;
 /// </summary>
 public sealed class PlanOperationExecutorTests
 {
-    private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    // Feature #1178: the fixture is the provider-neutral mutation port, not the ADO client, so every
+    // journal, partial-failure and readback pin here proves proposal apply needs nothing ADO-only.
+    private readonly IProviderWorkItemWriter _ado = Substitute.For<IProviderWorkItemWriter>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
@@ -933,10 +935,12 @@ public sealed class PlanOperationExecutorTests
         var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
 
         _publishInvocations.ShouldBe(new[] { alias.Value });
-        // No wire-level create was issued through this test's ADO surface — the recovery
-        // path never bypasses the orchestrator into a fresh CreateAsync.
-        await _ado.DidNotReceive().CreateAsync(
-            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+        // No wire-level write was issued through the executor's mutation port — the recovery
+        // path never bypasses the orchestrator. (#1178: the port carries no CreateAsync, so a
+        // fresh create is unreachable by type; pin that only reads crossed the port.)
+        _ado.ReceivedCalls()
+            .Select(c => c.GetMethodInfo().Name)
+            .ShouldAllBe(name => name.StartsWith("Fetch", StringComparison.Ordinal));
         outcome.Ok.ShouldBeTrue();
         outcome.Deterministic.ShouldBeTrue();
     }

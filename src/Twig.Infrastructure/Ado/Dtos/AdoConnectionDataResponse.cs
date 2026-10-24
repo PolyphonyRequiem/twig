@@ -8,6 +8,9 @@ namespace Twig.Infrastructure.Ado.Dtos;
 /// </summary>
 internal sealed class AdoConnectionDataResponse
 {
+    [JsonPropertyName("instanceId")]
+    public string? InstanceId { get; set; }
+
     [JsonPropertyName("authenticatedUser")]
     public AdoAuthenticatedUser? AuthenticatedUser { get; set; }
 }

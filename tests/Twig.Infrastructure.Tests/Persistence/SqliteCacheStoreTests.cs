@@ -778,6 +778,26 @@ public class SqliteCacheStoreTests
             AssertOneRow(conn,
                 "SELECT COUNT(*) FROM pending.proposal_operations WHERE digest='digest-v6' AND ordinal=0 AND op_id='op-1';",
                 "proposal_operations row inserted after upgrade must be readable");
+
+            // v13/v14 shape on a genuine pre-v13 database: v13 creates the neutral tables in
+            // their narrow form and v14 then adds the emulation columns, with no pre-existing
+            // column for either ALTER to collide with.
+            DurableTableExists(conn, "local_work_items").ShouldBeTrue("v13 must create local_work_items on upgrade");
+            DurableTableExists(conn, "external_identities").ShouldBeTrue("v13 must create external_identities on upgrade");
+            DurableTableExists(conn, "local_relationships").ShouldBeTrue("v13 must create local_relationships on upgrade");
+            using (var columns = conn.CreateCommand())
+            {
+                columns.CommandText = "SELECT name FROM pending.pragma_table_info('local_relationships') ORDER BY cid;";
+                using var reader = columns.ExecuteReader();
+                var names = new List<string>();
+                while (reader.Read())
+                    names.Add(reader.GetString(0));
+                names.ShouldBe(
+                [
+                    "source_local_id", "target_local_id", "kind", "revision", "created_at", "updated_at", "deleted_at",
+                    "storage", "publication",
+                ], "v14 must append storage and publication after v13's columns");
+            }
         }
         finally
         {

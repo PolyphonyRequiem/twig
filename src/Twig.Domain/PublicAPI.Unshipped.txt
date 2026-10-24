@@ -1050,6 +1050,21 @@ Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.State.get -> string!
 Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.State.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Value.get -> string?
 Twig.Domain.Services.ChangeProposals.ReviewBeforeValue.Value.init -> void
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ProviderAffectedItems.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem!>?
+Twig.Domain.Services.ChangeProposals.ChangeProposalReviewModel.ProviderAffectedItems.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.<Clone>$() -> Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem!
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Equals(Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem? other) -> bool
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Item.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference!
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Item.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Role.get -> string!
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Role.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.ReviewProviderAffectedItem() -> void
+static Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.operator !=(Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem? left, Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem? right) -> bool
+static Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.operator ==(Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem? left, Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem? right) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.Equals(object? obj) -> bool
+override Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.GetHashCode() -> int
+override Twig.Domain.Services.ChangeProposals.ReviewProviderAffectedItem.ToString() -> string!
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Before.get -> Twig.Domain.Services.ChangeProposals.ReviewBeforeValue?
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Before.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.FieldLabel.get -> string?

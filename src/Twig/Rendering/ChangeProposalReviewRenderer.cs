@@ -36,6 +36,8 @@ public static class ChangeProposalReviewRenderer
             lines.Add(Text($"rationale: {model.Rationale}"));
 
         var items = model.ContextItems.Concat(model.AffectedItems).GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.Last());
+        var providerAffectedItems = model.ProviderAffectedItems ?? [];
+        var providerRoles = providerAffectedItems.ToDictionary(item => item.Item, item => item.Role);
         // One derived width across all siblings. The render provider additionally bounds it by terminal width.
         var labelWidth = model.Operations.SelectMany(o => o.Consequences)
             .Where(c => c.Field is not null).Select(c => Spectre.Console.Rendering.Segment.CellCount([new Spectre.Console.Rendering.Segment(Safe(c.FieldLabel ?? c.Field!))])).DefaultIfEmpty(1).Max();
@@ -62,7 +64,10 @@ public static class ChangeProposalReviewRenderer
         {
             var item = group.Target.WorkItemId is { } id ? items.GetValueOrDefault(id) : null;
             var parentId = item?.ParentId ?? group.Target.Seed?.ParentId;
-            var branch = new RenderTreeBranch(Identity(group.Target, item), []) { Body = group.Body };
+            var role = group.Target.ProviderWorkItem is { } providerItem
+                ? providerRoles.GetValueOrDefault(providerItem) ?? "target"
+                : null;
+            var branch = new RenderTreeBranch(Identity(group.Target, item, role), []) { Body = group.Body };
             if (parentId is { } parent && parent != group.Target.WorkItemId && items.TryGetValue(parent, out var context))
             {
                 if (roots.Count > 0 && AttachToTail(roots[^1], parent, branch) is { } attached)
@@ -75,6 +80,15 @@ public static class ChangeProposalReviewRenderer
         var represented = groups.Where(g => g.Target.WorkItemId is not null).Select(g => g.Target.WorkItemId!.Value).ToHashSet();
         foreach (var peer in model.AffectedItems.Where(i => !represented.Contains(i.Id)))
             roots.Add(new RenderTreeBranch(Identity(new ReviewTarget { WorkItemId = peer.Id }, peer), []));
+        var representedProviderItems = groups
+            .Where(group => group.Target.ProviderWorkItem is not null)
+            .Select(group => group.Target.ProviderWorkItem!)
+            .ToHashSet();
+        foreach (var affected in providerAffectedItems.Where(item => !representedProviderItems.Contains(item.Item)))
+            roots.Add(new RenderTreeBranch(
+                Identity(new ReviewTarget { ProviderWorkItem = affected.Item }, null, affected.Role), []));
+        if (providerAffectedItems.Count > 0)
+            lines.Add(Text($"affected items ({model.AffectedItems.Count + providerAffectedItems.Count}):"));
         var shown = new HashSet<int>();
         void Remember(RenderTreeBranch branch)
         {
@@ -172,7 +186,7 @@ public static class ChangeProposalReviewRenderer
         ? ProviderIdentityLabel(providerItem)
         : target.WorkItemId is { } id ? $"#{id}" : $"seed {target.StagedIdentity ?? "(unknown)"}";
 
-    private static RenderRow Identity(ReviewTarget target, ReviewAffectedItem? item)
+    private static RenderRow Identity(ReviewTarget target, ReviewAffectedItem? item, string? roleOverride = null)
     {
         var seed = target.Seed;
         var cells = new Dictionary<string, RenderCell>
@@ -181,7 +195,7 @@ public static class ChangeProposalReviewRenderer
             ["type"] = RenderCell.String(Safe(item?.Type ?? seed?.Type ?? "(uncached)")),
             ["title"] = RenderCell.String(Safe(item?.Title ?? seed?.Title ?? "(uncached)")),
             ["state"] = RenderCell.String(Safe(item?.State ?? seed?.State ?? "(uncached)")),
-            ["role"] = RenderCell.String(item?.Role ?? "staged draft"),
+            ["role"] = RenderCell.String(roleOverride ?? item?.Role ?? "staged draft"),
         };
         if (target.WorkItemId is { } id) cells["id"] = new RenderCell("", new RenderValue.Integer(id));
         if (target.ProviderWorkItem is { } providerItem)

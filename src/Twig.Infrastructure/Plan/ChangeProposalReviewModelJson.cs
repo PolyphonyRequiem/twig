@@ -21,9 +21,10 @@ namespace Twig.Infrastructure.Plan;
 /// reflection and no per-call allocation beyond the buffer.
 /// </para>
 /// <para>
-/// Every material entry is emitted in full — affected items, operations, preconditions,
-/// consequences, authorization choices and blockers are never summarised or truncated. Dropping
-/// one would make the reviewer authorize a mutation they were never shown.
+/// Every material entry is emitted in full — legacy and provider-qualified affected items,
+/// operations, preconditions, consequences, authorization choices and blockers are never
+/// summarised or truncated. Dropping one would make the reviewer authorize a mutation they
+/// were never shown.
 /// </para>
 /// </summary>
 public static class ChangeProposalReviewModelJson
@@ -66,6 +67,8 @@ public static class ChangeProposalReviewModelJson
         }
 
         WriteItems(writer, "affectedItems", model.AffectedItems);
+        if (model.ProviderAffectedItems is { } providerAffectedItems)
+            WriteProviderItems(writer, "providerAffectedItems", providerAffectedItems);
         WriteItems(writer, "contextItems", model.ContextItems);
 
         writer.WriteStartArray("operations");
@@ -222,6 +225,22 @@ public static class ChangeProposalReviewModelJson
             WriteNullableString(writer, "url", item.Url);
             WriteNullableInt(writer, "parentId", item.ParentId);
             WriteNullableInt(writer, "revision", item.Revision);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteProviderItems(
+        Utf8JsonWriter writer,
+        string name,
+        IReadOnlyList<ReviewProviderAffectedItem> items)
+    {
+        writer.WriteStartArray(name);
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            WriteProviderReference(writer, "item", item.Item);
+            writer.WriteString("role", item.Role);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

@@ -78,7 +78,7 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
         error.ToString().ShouldContain("export-incomplete");
         var journals = runtime.GetRequiredService<IPlanJournalRepository>();
         var journal = (await journals.GetUnresolvedAsync()).Single();
-        journal.Error.ShouldContain("export-incomplete");
+        journal.Error.ShouldNotBeNull().ShouldContain("export-incomplete");
         journal.ConfirmedAt.ShouldBeNull();
         File.Delete(directory);
         var cache = runtime.GetRequiredService<SqliteCacheStore>();
@@ -132,7 +132,7 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
         canceled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DraftCommand.ExportAsync(journal, canceled.Token));
         var retained = (await runtime.GetRequiredService<IPlanJournalRepository>().GetAsync(journal.Digest))!;
-        retained.Error.ShouldContain("export-incomplete");
+        retained.Error.ShouldNotBeNull().ShouldContain("export-incomplete");
         retained.AuthorizationMode.ShouldBeNull();
         File.Exists(journal.SourcePath).ShouldBeFalse();
         (await CaptureAsync(runtime, key, draft, capture, new StringWriter(), recover: journal.Digest)).ShouldBe(0);
@@ -152,7 +152,7 @@ public sealed class DraftCaptureCommandTests : IAsyncLifetime
         error.ToString().ShouldContain("not overwritten");
         (await File.ReadAllTextAsync(journal.SourcePath)).ShouldBe("different bytes");
         (await journals.GetUnresolvedAsync()).Count.ShouldBe(1);
-        (await journals.GetAsync(journal.Digest))!.Error.ShouldContain("export-incomplete");
+        (await journals.GetAsync(journal.Digest))!.Error.ShouldNotBeNull().ShouldContain("export-incomplete");
     }
 
     [HostMigrationTheory]

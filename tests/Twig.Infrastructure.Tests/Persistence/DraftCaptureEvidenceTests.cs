@@ -45,7 +45,7 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         journal.ConfirmedAt.ShouldBeNull();
         journal.State.ShouldBe(PlanOperationState.Planned);
         var retained = (await new SqlitePlanJournalRepository(cache).GetAsync(journal.Digest))!;
-        retained.Error.ShouldContain("export-incomplete");
+        retained.Error.ShouldNotBeNull().ShouldContain("export-incomplete");
         var batch = (BatchOperation)new PlanDocumentParser().Parse(journal.CanonicalJson).Plan!.Operations.Single();
         batch.Fields["System.AssignedTo"].ShouldBe("");
         retained.DraftCapture!.Draft.Changes.Single().BaselineValue.ShouldBeNull();

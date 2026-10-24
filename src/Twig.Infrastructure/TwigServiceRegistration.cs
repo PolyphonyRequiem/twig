@@ -405,7 +405,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ActiveItemResolver>(sp => new ActiveItemResolver(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>()));
+            sp.GetRequiredService<IProviderWorkItemReader>()));
 
         services.AddSingleton<ProtectedCacheWriter>(sp => new ProtectedCacheWriter(
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -418,7 +418,7 @@ public static class TwigServiceRegistration
             var display = sp.GetRequiredService<TwigConfiguration>().Display;
             return new SyncCoordinatorFactory(
                 sp.GetRequiredService<IWorkItemRepository>(),
-                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IProviderWorkItemReader>(),
                 sp.GetRequiredService<ProtectedCacheWriter>(),
                 sp.GetRequiredService<IPendingChangeStore>(),
                 sp.GetRequiredService<IWorkItemLinkRepository>(),
@@ -572,7 +572,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemReader>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
@@ -585,7 +585,7 @@ public static class TwigServiceRegistration
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemReader>(),
             sp.GetRequiredService<SyncCoordinator>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetService<IWorkItemLinkRepository>()));
@@ -596,7 +596,7 @@ public static class TwigServiceRegistration
         // Cache-first / ADO-fallback work item reads, shared by every surface.
         services.AddSingleton<WorkItemFetcher>(sp => new WorkItemFetcher(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>()));
+            sp.GetRequiredService<IProviderWorkItemReader>()));
 
         // Shared Change Proposal lifecycle service (twig proposal native, wayfinder 0016;
         // `twig plan` remains a deprecated alias). CLI + MCP + future TUI all route through

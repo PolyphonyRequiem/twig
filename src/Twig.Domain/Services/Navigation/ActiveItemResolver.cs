@@ -11,12 +11,12 @@ public sealed class ActiveItemResolver
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemReader _adoService;
 
     public ActiveItemResolver(
         IContextStore contextStore,
         IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService)
+        IProviderWorkItemReader adoService)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;

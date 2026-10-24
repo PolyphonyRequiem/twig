@@ -26,7 +26,7 @@ namespace Twig.Commands;
 /// the "no items found" info message, and hints.
 /// </remarks>
 public sealed partial class QueryCommand(
-    IAdoWorkItemService adoService,
+    IProviderWorkItemReader adoService,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,

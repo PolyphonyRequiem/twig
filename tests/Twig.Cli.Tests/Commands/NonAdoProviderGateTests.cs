@@ -16,6 +16,7 @@ using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
@@ -144,6 +145,60 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// #1169 C5 merge validation. A GitHub workspace with an explicit, well-formed repo scope
+    /// composes its scope and the explicit empty process-rule source, but the proposal
+    /// lifecycle host (preview, declared/process policy evaluation, apply) and the state
+    /// workflow still take ADO-only clients and an ADO revision-bound snapshot read. Until a
+    /// provider-neutral authoritative snapshot seam exists, they must refuse at composition
+    /// with <c>provider-unavailable</c> — never compose a success-shaped decision — and do so
+    /// before any credential acquisition or HTTP on either provider.
+    /// </summary>
+    [Fact]
+    public async Task ProposalLifecycle_UnderConfiguredGitHub_RefusesAtCompositionBeforeAnyNetwork()
+    {
+        var tokens = new CountingGitHubTokenSource();
+        var gitHubTransport = new RecordingGitHubTransport();
+        var github = await AttachAsync(
+            "github", gitProject: "Project",
+            gitHub: new GitHubConfig { Host = "github.com", Repository = "new/repo" },
+            overrides: services =>
+            {
+                services.AddSingleton<IGitHubTokenSource>(tokens);
+                services.AddSingleton(new GitHubTransportOverride(() => gitHubTransport));
+            });
+
+        github.GetRequiredService<GitHubWorkspaceScope>().Repository.ShouldBe("new/repo");
+        github.GetRequiredService<IProcessRuleProvider>().ShouldBeSameAs(EmptyProcessRuleProvider.Instance);
+        Should.Throw<TwigConfigurationException>(() => github.GetRequiredService<IPlanLifecycleService>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        Should.Throw<TwigConfigurationException>(
+                () => github.GetRequiredService<Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+
+        tokens.Calls.ShouldBe(0);
+        gitHubTransport.Requests.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("GitHub.com", "new/repo")]
+    [InlineData("github.com", "not-a-repo")]
+    public async Task GitHubScope_MissingOrMalformed_IsProviderUnconfigured(string? host, string? repository)
+    {
+        var tokens = new CountingGitHubTokenSource();
+        var github = await AttachAsync(
+            "github", gitProject: "Project",
+            gitHub: host is null && repository is null ? null : new GitHubConfig { Host = host, Repository = repository },
+            overrides: services => services.AddSingleton<IGitHubTokenSource>(tokens));
+
+        Should.Throw<TwigConfigurationException>(() => github.GetRequiredService<GitHubWorkspaceScope>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+        tokens.Calls.ShouldBe(0);
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// Every concrete ADO network client: a class in the <c>Twig.Infrastructure.Ado</c>
     /// namespaces that takes an <see cref="HttpClient"/>. Discovered reflectively so a new
     /// client is covered by both guards without editing this list.
@@ -259,11 +314,18 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         }
     }
 
-    private async Task<ServiceProvider> AttachAsync(string? provider, string? gitProject = null, string checkout = "checkout")
+    private async Task<ServiceProvider> AttachAsync(
+        string? provider,
+        string? gitProject = null,
+        string checkout = "checkout",
+        GitHubConfig? gitHub = null,
+        Action<IServiceCollection>? overrides = null)
     {
         var (config, paths) = await PrepareAsync(provider, checkout);
+        if (gitHub is not null) config.GitHub = gitHub;
         _transport.Reset();
         var services = new ServiceCollection();
+        overrides?.Invoke(services);
         Compose(services, config, paths, gitProject);
         var runtime = services.BuildServiceProvider();
         _runtimes.Add(runtime);
@@ -307,6 +369,32 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();
+    }
+
+    /// <summary>Fake credential boundary: counts acquisitions instead of shelling out to gh.</summary>
+    private sealed class CountingGitHubTokenSource : IGitHubTokenSource
+    {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+
+        public ValueTask<string> GetTokenAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _calls);
+            return ValueTask.FromResult("fixture-github-token");
+        }
+    }
+
+    /// <summary>Fake GitHub transport: counts requests and answers none successfully.</summary>
+    private sealed class RecordingGitHubTransport : HttpMessageHandler
+    {
+        private int _requests;
+        public int Requests => Volatile.Read(ref _requests);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _requests);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
     }
 
     /// <summary>Answers like ADO and records every request it sees.</summary>

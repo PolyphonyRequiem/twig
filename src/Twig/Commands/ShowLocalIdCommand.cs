@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -14,11 +15,12 @@ namespace Twig.Commands;
 /// Reads a canonical local work-item identity through the active provider without resolving
 /// the cache-first ShowCommand's process, synchronization, tree, or git dependencies.
 /// </summary>
-public sealed class ShowLocalIdCommand(
+internal sealed class ShowLocalIdCommand(
     IProviderWorkItemReadService? providerWorkItemReadService,
     RendererFactory rendererFactory,
     ITelemetryClient? telemetryClient = null,
-    TextWriter? stderrWriter = null)
+    TextWriter? stderrWriter = null,
+    IWorkItemProvider? provider = null)
 {
     private readonly TextWriter _stderrWriter = stderrWriter ?? Console.Error;
 
@@ -87,7 +89,7 @@ public sealed class ShowLocalIdCommand(
             }
             else
             {
-                WriteCanonicalRead(result);
+                WriteCanonicalRead(result, provider?.Capabilities);
                 exitCode = 0;
             }
         }
@@ -96,7 +98,7 @@ public sealed class ShowLocalIdCommand(
         return exitCode;
     }
 
-    private static void WriteCanonicalRead(ProviderWorkItemReadResult result)
+    private static void WriteCanonicalRead(ProviderWorkItemReadResult result, ProviderCapabilityDescriptor? descriptor)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
@@ -124,6 +126,11 @@ public sealed class ShowLocalIdCommand(
                 WriteIdentity(writer, relationship.Source);
                 writer.WritePropertyName("target");
                 WriteIdentity(writer, relationship.Target);
+                if (RelationshipProvenance.ToToken(
+                        RelationshipProvenance.OfProviderObservation(descriptor, relationship)) is { } origin)
+                {
+                    writer.WriteString("origin", origin);
+                }
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();

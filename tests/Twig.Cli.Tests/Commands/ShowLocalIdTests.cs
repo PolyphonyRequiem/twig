@@ -194,6 +194,60 @@ public sealed class ShowLocalIdTests
             .ShouldNotBeNull().ShouldContain("not available in this composition");
     }
 
+    [Fact]
+    public async Task LocalIdRead_LabelsRowsProviderNativeOnlyForMatchingActiveDescriptor()
+    {
+        var descriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.Ado;
+        var matching = new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "1");
+        var other = new ExternalWorkItemIdentity("fixture", "scope", "2");
+        var localId = LocalWorkItemId.New();
+        var now = DateTimeOffset.UtcNow;
+        var fields = FieldValues.Empty;
+        var result = new ProviderWorkItemReadResult(
+            matching,
+            new LocalWorkItemRecord(localId, 1, fields, now, now, DeletedAt: null),
+            null, fields, fields,
+            [
+                new ProviderWorkItemRelationship(matching, new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "3"), LinkKind.ParentChild),
+                new ProviderWorkItemRelationship(matching, other, LinkKind.ParentChild),
+            ]);
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>()).Returns(result);
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(descriptor);
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => new ShowLocalIdCommand(_reader, new RendererFactory(), stderrWriter: _stderr, provider: provider)
+                .ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(0);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.GetProperty("relationships");
+        rows[0].GetProperty("origin").GetString().ShouldBe("provider-native");
+        rows[1].TryGetProperty("origin", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task LocalIdRead_OmitsOriginWithoutActiveProvider()
+    {
+        var descriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.Ado;
+        var identity = new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "1");
+        var localId = LocalWorkItemId.New();
+        var now = DateTimeOffset.UtcNow;
+        var fields = FieldValues.Empty;
+        _reader.ReadByLocalIdAsync(localId, Arg.Any<CancellationToken>()).Returns(new ProviderWorkItemReadResult(
+            identity,
+            new LocalWorkItemRecord(localId, 1, fields, now, now, DeletedAt: null),
+            null, fields, fields,
+            [new ProviderWorkItemRelationship(identity, new ExternalWorkItemIdentity(descriptor.ProviderKind, "scope", "3"), LinkKind.ParentChild)]));
+
+        var (exitCode, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand().ExecuteAsync(outputFormat: "json", localIdText: localId.ToString()));
+
+        exitCode.ShouldBe(0);
+        JsonDocument.Parse(output).RootElement.GetProperty("relationships")[0]
+            .TryGetProperty("origin", out _).ShouldBeFalse();
+    }
+
     private ShowLocalIdCommand CreateCommand() =>
         new(_reader, new RendererFactory(), stderrWriter: _stderr);
 

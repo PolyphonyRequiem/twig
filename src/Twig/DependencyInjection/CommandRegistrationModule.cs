@@ -71,7 +71,8 @@ public static class CommandRegistrationModule
             sp.GetService<IProviderWorkItemReadService>(),
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
             sp.GetService<ITelemetryClient>(),
-            sp.GetService<TextWriter>()));
+            sp.GetService<TextWriter>(),
+            sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>

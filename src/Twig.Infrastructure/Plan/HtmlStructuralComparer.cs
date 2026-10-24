@@ -356,16 +356,44 @@ internal static class HtmlStructuralComparer
     private static bool IsAsciiWhitespace(ReadOnlySpan<char> text)
         => text.Length > 0 && text.IndexOfAnyExcept(" \t\r\n\f") < 0;
 
-    /// <summary>True when the tag at <paramref name="tagStart"/> opens or closes a supported block.</summary>
+    /// <summary>
+    /// True when the tag at <paramref name="tagStart"/> opens or closes a supported block whose
+    /// opening tag carries no <c>class</c> or <c>style</c>. Styling can make inter-block
+    /// whitespace render, so the drop decision itself refuses styled neighbours rather than
+    /// relying solely on the later root rollback.
+    /// </summary>
     private static bool IsBlockTag(string source, int tagStart)
     {
         var cursor = tagStart + 1;
-        if (cursor < source.Length && source[cursor] == '/')
+        var closing = cursor < source.Length && source[cursor] == '/';
+        if (closing)
             cursor++;
-        var start = cursor;
-        while (cursor < source.Length && IsNameCharacter(source[cursor]))
-            cursor++;
-        return cursor > start && IsBlockElement(source.Substring(start, cursor - start).ToLowerInvariant());
+        if (!TryReadName(source, ref cursor, out var name) || !IsBlockElement(name))
+            return false;
+        if (closing)
+            return true;
+
+        while (true)
+        {
+            while (cursor < source.Length && source[cursor] is ' ' or '\t' or '\r' or '\n' or '\f')
+                cursor++;
+            if (cursor >= source.Length)
+                return false;
+            if (source[cursor] is '>' or '/')
+                return true;
+            if (!TryReadName(source, ref cursor, out var attributeName) || attributeName is "class" or "style")
+                return false;
+            while (cursor < source.Length && source[cursor] is ' ' or '\t' or '\r' or '\n' or '\f')
+                cursor++;
+            if (cursor < source.Length && source[cursor] == '=')
+            {
+                cursor++;
+                while (cursor < source.Length && source[cursor] is ' ' or '\t' or '\r' or '\n' or '\f')
+                    cursor++;
+                if (!TryReadAttributeValue(source, ref cursor, out _))
+                    return false;
+            }
+        }
     }
 
     private static bool IsNameCharacter(char value)

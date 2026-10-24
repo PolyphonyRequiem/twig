@@ -198,7 +198,8 @@ entity decoding (`&quot;` → `"`) and its insertion of ASCII whitespace-only te
 between two supported block tags are also equivalent: `<p>A</p><p>B</p>` and
 `<p>A</p>\n<p>B</p>` verify identically for `System.Description` and custom HTML
 fields such as `Custom.FalsificationCriteria`. Whitespace beside inline or
-preformatted elements, nonbreaking spaces, and encoded whitespace stay strict.
+preformatted elements, beside a block carrying `class` or `style`, nonbreaking
+spaces, and encoded whitespace stay strict.
 
 The whitespace fallback is deliberately narrower than a browser renderer. It
 supports default-flow `div`, `p`, headings, block quotes, and lists, with balanced,

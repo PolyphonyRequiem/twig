@@ -311,6 +311,15 @@ public sealed class PlanOperationExecutorTests
     [InlineData("<p class='x'>A</p><p>B</p>", "<p class='x'>A</p>\n<p>B</p>", false)]
     [InlineData("<p>A</p><p class='x'>B</p>", "<p>A</p>\n<p class='x'>B</p>", false)]
     [InlineData("<div><p class='x'>A</p><p>B</p></div>", "<div><p class='x'>A</p>\n<p>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p class='x'>B</p></div>", "<div><p>A</p>\n<p class='x'>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p style='white-space:pre'>B</p></div>",
+        "<div><p>A</p>\n<p style='white-space:pre'>B</p></div>", false)]
+    [InlineData("<p style='margin:0'>A</p><p>B</p>", "<p style='margin:0'>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p style='margin:0'>B</p>", "<p>A</p>\n<p style='margin:0'>B</p>", false)]
+    [InlineData("<div class='x'><p>A</p></div>", "<div class='x'>\n<p>A</p></div>", false)]
+    [InlineData("<div><div class='x'><p>A</p><p>B</p></div></div>",
+        "<div><div class='x'><p>A</p>\n<p>B</p></div></div>", false)]
+    [InlineData("<p title='t'>A</p><p>B</p>", "<p title='t'>A</p>\n<p>B</p>", true)]
     [InlineData("<!-- c --><p>A</p><p>B</p>", "<!-- c --><p>A</p>\n<p>B</p>", false)]
     [InlineData("<p>A</p><p>B</p>", "<p>A</p>\n<p>C</p>", false)]
     public async Task ReadbackBatch_HtmlInterBlockWhitespace_OnlyBetweenBlockBoundaries(

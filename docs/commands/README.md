@@ -25,6 +25,7 @@ and updates.
 
 | Group | Command | Summary | Stability | Mutates |
 |---|---|---|---|---|
+| [Plans](plans/README.md) | [`twig draft show`](plans/draft-show.md) | Inspect existing native recoverable intent; may CAS observation/conflict metadata, never applies. | experimental | `local` |
 | [Getting Started](getting-started/README.md) | [`twig init`](getting-started/init.md) | Initialize a new Twig workspace at the current git-worktree root. | stable | `local` |
 | [Getting Started](getting-started/README.md) | [`twig refresh`](getting-started/refresh.md) | Deprecated alias for `twig sync --pull-only` — refresh the local cache from Azure DevOps. | stable | `local` |
 | [Getting Started](getting-started/README.md) | [`twig sync`](getting-started/sync.md) | Flush pending changes to Azure DevOps then refresh the local cache. | stable | `ado` |

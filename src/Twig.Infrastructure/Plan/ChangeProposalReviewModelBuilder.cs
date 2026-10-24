@@ -62,16 +62,24 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
 
         var operations = new List<ReviewOperation>(definition.Operations.Count);
         var roles = new Dictionary<int, string>();
+        var providerRoles = new Dictionary<ProviderWorkItemReference, string>();
 
         for (var ordinal = 0; ordinal < definition.Operations.Count; ordinal++)
         {
             var op = definition.Operations[ordinal];
-            operations.Add(ProjectOperation(ordinal, op, roles));
+            operations.Add(ProjectOperation(ordinal, op, roles, providerRoles));
         }
 
         var known = roles.Count == 0 ? [] : await _workItems.GetByIdsAsync(roles.Keys, ct).ConfigureAwait(false);
         var byId = known.ToDictionary(i => i.Id);
         var affected = roles.OrderBy(p => p.Key).Select(p => Item(p.Key, p.Value, byId.GetValueOrDefault(p.Key), definition.Workspace)).ToArray();
+        var providerAffected = providerRoles
+            .OrderBy(pair => pair.Key.LocalId.ToString(), StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.ProviderKind, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.ResourceScope, StringComparer.Ordinal)
+            .ThenBy(pair => pair.Key.ExternalIdentity.NativeId, StringComparer.Ordinal)
+            .Select(pair => new ReviewProviderAffectedItem { Item = pair.Key, Role = pair.Value })
+            .ToArray();
         var hasLegacyBatch = definition.Operations.Any(static operation => operation is BatchOperation);
         var fieldDefinitions = _fields is null || !hasLegacyBatch
             ? []
@@ -143,6 +151,7 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             Rationale = rationale,
             Recipe = recipe,
             AffectedItems = affected,
+            ProviderAffectedItems = providerAffected.Length == 0 ? null : providerAffected,
             ContextItems = context,
             Operations = operations,
             AuthorizationChoices = canApply ? ApplicableChoices : BlockedChoices,
@@ -153,7 +162,8 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     private static ReviewOperation ProjectOperation(
         int ordinal,
         PlanOperationDefinition op,
-        Dictionary<int, string> roles)
+        Dictionary<int, string> roles,
+        Dictionary<ProviderWorkItemReference, string> providerRoles)
     {
         switch (op)
         {
@@ -277,6 +287,9 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             case ProviderMutationOperation provider:
                 {
                     var item = provider.Target.Item;
+                    MarkProviderTarget(providerRoles, item);
+                    if (provider.Other is { } other)
+                        MarkProviderPeer(providerRoles, other);
                     var identity = ProviderIdentityLabel(item);
                     var consequences = provider.OperationKind switch
                     {
@@ -368,6 +381,18 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
     {
         if (!roles.ContainsKey(id))
             roles[id] = "peer";
+    }
+
+    private static void MarkProviderTarget(
+        Dictionary<ProviderWorkItemReference, string> roles,
+        ProviderWorkItemReference item) => roles[item] = "target";
+
+    private static void MarkProviderPeer(
+        Dictionary<ProviderWorkItemReference, string> roles,
+        ProviderWorkItemReference item)
+    {
+        if (!roles.ContainsKey(item))
+            roles[item] = "peer";
     }
 
     private static ReviewAffectedItem Item(int id, string role, WorkItem? item, PlanWorkspace workspace) => new()

@@ -186,6 +186,11 @@ public sealed class ChangeProposalReviewRendererTests
         var model = Model() with
         {
             AffectedItems = [],
+            ProviderAffectedItems =
+            [
+                new ReviewProviderAffectedItem { Item = target, Role = "target" },
+                new ReviewProviderAffectedItem { Item = peer, Role = "peer" },
+            ],
             Operations =
             [
                 new ReviewOperation
@@ -224,6 +229,9 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("github:repo:acme/widgets:issue:7");
         text.ShouldContain(peer.LocalId.ToString());
         text.ShouldContain("github:repo:acme/widgets:issue:8");
+        text.ShouldContain("affected items (2):");
+        text.ShouldContain("target");
+        text.ShouldContain("peer");
         text.ShouldContain("add related link to github:repo:acme/widgets:issue:8");
         text.ShouldContain("plan.unsupported_apply_version");
         text.ShouldNotContain("expectedProviderRevision");

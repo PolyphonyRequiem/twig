@@ -708,8 +708,8 @@ public sealed partial class BenchDetailCommandTests : RefreshCommandTestBase
         var module = new BrowserReadModule(ctx, operations, _workItemRepo, _fieldDefinitionStore,
             _links, _pendingChangeStore, new StatusFieldConfigReader(_paths),
             new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, _links, 30, 30),
-            _processConfiguration, new SpectreTheme(_config.Display), formLayouts,
-            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), _pendingChangeStore));
+            _processConfiguration, new SpectreTheme(_config.Display),
+            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), _pendingChangeStore), formLayouts);
         return new(ctx, module, new RendererFactory());
     }
 

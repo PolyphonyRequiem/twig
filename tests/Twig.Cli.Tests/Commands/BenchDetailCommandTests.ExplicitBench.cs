@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
@@ -133,7 +134,7 @@ public sealed partial class BenchDetailCommandTests
         using var store = new SqliteCacheStore("Data Source=:memory:");
         var benches = new SqliteBenchRepository(store);
         var selected = await PinnedAsync(benches, "Selected", 42);
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(async _ =>
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns<Task<WorkItem?>>(async _ =>
         {
             await benches.AddSelectorAsync(selected.Id, BenchSelector.ForItem(77));
             return CreateWorkItem(42, "Member");

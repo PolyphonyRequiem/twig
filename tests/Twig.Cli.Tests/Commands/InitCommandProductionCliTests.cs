@@ -375,6 +375,70 @@ public sealed class InitCommandProductionCliTests : IDisposable
         Directory.Exists(Path.Combine(_repoRoot, ".twig")).ShouldBeFalse();
     }
 
+    /// <summary>
+    /// Epic #1167: <c>init</c> constructs ADO clients directly rather than through DI, so the
+    /// provider gate must also run there. A tracked manifest selecting github, with a fully
+    /// bound and token-cached ADO identity, must refuse before any ADO request or local write.
+    /// </summary>
+    [Theory]
+    [InlineData("github", WorkItemProviderSetting.UnavailableReasonCode)]
+    [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
+    public async Task Init_ThroughProductionCli_NonAdoTrackedProviderRefusesBeforeAnyAdoHttp(
+        string provider, string reason)
+    {
+        await using var adoServer = InitAdoServer.Start();
+        const string project = "TestProject";
+        var twigDir = Path.Combine(_repoRoot, ".twig");
+        var contextPaths = TwigPaths.ForContext(twigDir, adoServer.BaseUrl, project, _repoRoot);
+        var manifestBytes = Encoding.UTF8.GetBytes($$$"""
+            {"organization":"{{{adoServer.BaseUrl}}}","project":"{{{project}}}","provider":"{{{provider}}}","auth":{"method":"aad"}}
+            """);
+        var manifestPath = await WriteTrackedManifestAsync(manifestBytes);
+        await File.WriteAllTextAsync(Path.Combine(_repoRoot, ".gitignore"), $".twig/{Environment.NewLine}");
+        var home = Path.Combine(_repoRoot, ".test-system");
+        await BindCachedAadIdentityAsync(home, adoServer.BaseUrl, project);
+
+        var (exitCode, stdout, stderr) = await RunTwigAsync(
+            "init", "--org", adoServer.BaseUrl, "--project", project);
+
+        adoServer.Requests.ShouldBeEmpty(
+            $"provider={provider} must not reach ADO; stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+        exitCode.ShouldBe(1);
+        stderr.ShouldContain(reason + ":");
+        File.Exists(contextPaths.DbPath).ShouldBeFalse();
+        (await File.ReadAllBytesAsync(manifestPath)).ShouldBe(manifestBytes);
+    }
+
+    private static async Task BindCachedAadIdentityAsync(string home, string organization, string project)
+    {
+        var tenant = "11111111-1111-1111-1111-111111111111";
+        var principal = "22222222-2222-2222-2222-222222222222";
+        var payload = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["aud"] = JwtAccessTokenInspector.AdoResourceId,
+            ["tid"] = tenant,
+            ["oid"] = principal,
+            ["iss"] = "https://sts.windows.net/" + tenant + "/",
+            ["exp"] = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds()
+        });
+        var token = "eyJhbGciOiJub25lIn0." + Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)).TrimEnd('=').Replace('+', '-').Replace('/', '_') + ".fixture";
+        var refresher = Substitute.For<ITokenRefresher>();
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((token, (string?)null, false));
+        using var bindings = new ConnectionBindingService(home, refresher);
+        var identity = await bindings.RegisterAadIdentityAsync("fixture", new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "fixture-refresh",
+            ClientId = "fixture-client",
+            TenantId = tenant,
+            ObjectId = principal,
+            AuthorityHost = "login.microsoftonline.com"
+        });
+        await bindings.CreateBindingAsync(organization, project, "fixture", makeDefault: true);
+        new TwigTokenFileCache(Path.Combine(home, "credentials", identity.CredentialRef + ".token-cache"))
+            .TryWrite(token, DateTimeOffset.UtcNow.AddHours(1));
+    }
+
     private static byte[] CreateManifestBytes(string organization, string project, string team) =>
         Encoding.UTF8.GetBytes($$"""
             {

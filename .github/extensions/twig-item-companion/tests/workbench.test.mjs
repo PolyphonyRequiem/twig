@@ -324,3 +324,81 @@ test("invalid explicit targets never launch Twig, and a valid read keeps the can
     assert.equal(calls[0].exe, "twig");
     assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
 });
+
+function deferredDetail(calls) {
+    const gates = [];
+    const read = (request) => new Promise((resolve) => {
+        calls.push(request);
+        gates.push((label) => resolve({
+            benchName: fixture.browser.benchName, benchId: fixture.browser.benchId,
+            membership: { selected: true, seed: false, pending: false },
+            completeness: { sourceComplete: false, sourceChildCount: null, cachedChildCount: 0, parentCached: null, linksVerified: false, reasons: ["source-unknown"] },
+            document: { systemControls: [{ id: "x", label, value: { state: 0, full: label } }], pages: [] },
+        }));
+    });
+    return { read, release: (index, label) => gates[index](label) };
+}
+async function until(check) {
+    for (let attempt = 0; attempt < 200; attempt++) {
+        if (check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.fail("Condition not reached");
+}
+async function openDeferred(calls) {
+    const detail = deferredDetail(calls);
+    const server = await createCanvasServer({
+        workspacePath, workbench: true, readNativeBench: reader(), readNativeBenchDetail: detail.read,
+    });
+    const ui = dom(await (await fetch(server.url)).text(), server.url);
+    await ui.settled();
+    await load(ui);
+    return { ...ui, server, detail };
+}
+const row42 = (ui) => descendants(ui.nodes.get("#bench-rows")).find((node) => node.textContent.startsWith("#42"));
+const back = (ui) => descendants(ui.nodes.get("#bench-selection")).find((node) => node.textContent === "Back to Bench");
+const occurrences = (ui, label) => flatten(ui.nodes.get("#bench-selection")).split(label).length - 1;
+
+test("detail: back then reselect the SAME item while a read is pending never accepts the old response and issues no duplicate read", async () => {
+    const calls = [];
+    const ui = await openDeferred(calls);
+    try {
+        row42(ui).listeners.click();
+        await until(() => calls.length === 1);
+        assert.equal(ui.nodes.get("#bench-load").disabled, true, "pending detail must be reflected as busy");
+        back(ui).listeners.click();
+        row42(ui).listeners.click();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.equal(calls.length, 1, "a second detail read must not start while one is in flight");
+        assert.match(flatten(ui.nodes.get("#bench-selection")), /Waiting for the previous detail read/);
+        ui.detail.release(0, "OLD-RESPONSE");
+        await until(() => calls.length === 2);
+        assert.equal(occurrences(ui, "OLD-RESPONSE"), 0, "the stale response must not publish into the new selection");
+        ui.detail.release(1, "NEW-RESPONSE");
+        await ui.settled();
+        await until(() => occurrences(ui, "NEW-RESPONSE") > 0);
+        assert.equal(occurrences(ui, "OLD-RESPONSE"), 0);
+        assert.equal(occurrences(ui, "Native detail (read-only)"), 1, "exactly one detail box");
+    } finally { await ui.server.close(); }
+});
+
+test("detail: a stale response after back and a reloaded Bench with the same item id is not published", async () => {
+    const calls = [];
+    const ui = await openDeferred(calls);
+    try {
+        row42(ui).listeners.click();
+        await until(() => calls.length === 1);
+        back(ui).listeners.click();
+        ui.detail.release(0, "OLD-RESPONSE");
+        await ui.settled();
+        assert.equal(occurrences(ui, "OLD-RESPONSE"), 0, "stale response must not touch the abandoned selection");
+        await load(ui);
+        row42(ui).listeners.click();
+        await until(() => calls.length === 2);
+        ui.detail.release(1, "NEW-RESPONSE");
+        await ui.settled();
+        await until(() => occurrences(ui, "NEW-RESPONSE") > 0);
+        assert.equal(occurrences(ui, "OLD-RESPONSE"), 0);
+        assert.equal(occurrences(ui, "Native detail (read-only)"), 1);
+    } finally { await ui.server.close(); }
+});

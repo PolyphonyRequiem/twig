@@ -61,11 +61,20 @@ public sealed class DraftCommandTests : IAsyncLifetime
             .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
         (await Command(runtime, new StringWriter()).SetAsync(42, "System.Title", "Updated title")).ShouldBe(0);
 
+        var nativeRead = await _fixture.CreateModule(runtime)
+            .ReadDetailAsync(new(42, Ansi: false, Document: true));
+        nativeRead.Failure.ShouldBeNull();
+        var nativeKey = nativeRead.Observation!.Document!.ItemKey;
         var output = new StringWriter();
         (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
         using var json = JsonDocument.Parse(output.ToString());
         var root = json.RootElement;
 
+        var key = root.GetProperty("itemKey");
+        key.GetProperty("checkoutRoot").GetString().ShouldBe(nativeKey.CheckoutRoot);
+        key.GetProperty("connectionId").GetString().ShouldBe(nativeKey.ConnectionId);
+        key.GetProperty("bindingId").GetString().ShouldBe(nativeKey.BindingId);
+        key.GetProperty("workItemId").GetInt32().ShouldBe(nativeKey.WorkItemId);
         root.GetProperty("draftDocumentVersion").GetInt32().ShouldBe(1);
         root.GetProperty("baselineRevision").GetInt32().ShouldBe(3);
         root.GetProperty("observedRevision").GetInt32().ShouldBe(3);
@@ -110,6 +119,7 @@ public sealed class DraftCommandTests : IAsyncLifetime
         using var json = JsonDocument.Parse(output.ToString());
         var root = json.RootElement;
         root.GetProperty("status").GetString().ShouldBe("field-unavailable");
+        root.GetProperty("draftStatus").GetString().ShouldBe("staged");
         root.GetProperty("reconciliationState").GetString().ShouldBe("field-unavailable");
         root.GetProperty("observationCompleteness").GetString().ShouldBe("incomplete-for-draft-effects");
         root.GetProperty("fields")[0].GetProperty("observedValueAvailable").GetBoolean().ShouldBeFalse();
@@ -119,6 +129,27 @@ public sealed class DraftCommandTests : IAsyncLifetime
         reason!.ShouldContain("absent from the native form");
         root.GetProperty("fields")[0].GetProperty("proposedValue").GetString().ShouldBe("intent");
         (await store.GetAsync(key))!.Changes[0].ProposedValue.ShouldBe("intent");
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task Show_WithoutDraftReturnsStructuredRefusalAndDoesNotCreateOne()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>()
+            .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var context = runtime.GetRequiredService<CommandContext>() with { Stderr = error };
+
+        (await Command(runtime, output, context).ShowAsync(42, "json")).ShouldBe(1);
+        output.ToString().ShouldBeEmpty();
+        using var json = JsonDocument.Parse(error.ToString());
+        json.RootElement.GetProperty("error").GetString()
+            .ShouldBe("No recoverable draft exists for work item #42.");
+        (await runtime.GetRequiredService<IRecoverableWorkItemDraftStore>()
+            .GetAsync(await KeyAsync(runtime, 42))).ShouldBeNull();
+        (await runtime.GetRequiredService<IPlanJournalRepository>().GetUnresolvedAsync()).ShouldBeEmpty();
         _fixture.Transport.Mutations.ShouldBe(0);
     }
 
@@ -146,6 +177,7 @@ public sealed class DraftCommandTests : IAsyncLifetime
         using var json = JsonDocument.Parse(output.ToString());
         var root = json.RootElement;
         root.GetProperty("status").GetString().ShouldBe("blocked-local-work");
+        root.GetProperty("draftStatus").GetString().ShouldBe("staged");
         root.GetProperty("observationCompleteness").GetString().ShouldBe("blocked-by-local-work");
         root.GetProperty("localPendingWork").GetBoolean().ShouldBeTrue();
         root.GetProperty("fields")[0].GetProperty("observedValueAvailable").GetBoolean().ShouldBeFalse();
@@ -205,12 +237,23 @@ public sealed class DraftCommandTests : IAsyncLifetime
         changed.MarkSynced(4);
         await repository.SaveAsync(changed);
         var output = new StringWriter();
-        (await Command(runtime, output).ShowAsync(42, "json")).ShouldBe(0);
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
         using var json = JsonDocument.Parse(output.ToString());
-        json.RootElement.GetProperty("status").GetString().ShouldBe("conflicted");
-        json.RootElement.GetProperty("observedRevision").GetInt64().ShouldBe(4);
-        json.RootElement.GetProperty("conflicts")[0].GetProperty("observedValue").GetString()
+        var root = json.RootElement;
+        root.GetProperty("status").GetString().ShouldBe("conflicted");
+        root.GetProperty("draftStatus").GetString().ShouldBe("staged");
+        root.GetProperty("baselineRevision").GetInt64().ShouldBe(3);
+        root.GetProperty("observedRevision").GetInt64().ShouldBe(4);
+        root.GetProperty("currentRevision").GetInt64().ShouldBe(4);
+        root.GetProperty("generation").GetInt64().ShouldBe(2);
+        root.GetProperty("conflicts")[0].GetProperty("observedValue").GetString()
             .ShouldBe("Server title");
+        var field = root.GetProperty("fields")[0];
+        field.GetProperty("baselineValue").GetString().ShouldBe("Original");
+        field.GetProperty("observedValue").GetString().ShouldBe("Server title");
+        field.GetProperty("proposedValue").GetString().ShouldBe("My title");
+        field.GetProperty("observedValueAvailable").GetBoolean().ShouldBeTrue();
+        root.GetProperty("eligibility").GetProperty("authorized").GetBoolean().ShouldBeFalse();
 
         var before = await runtime.GetRequiredService<IRecoverableWorkItemDraftStore>()
             .GetAsync(await KeyAsync(runtime, 42));

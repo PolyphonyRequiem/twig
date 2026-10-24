@@ -446,7 +446,7 @@ internal sealed class DraftCommand(
             }))).ToArray();
 
         fields["draftDocumentVersion"] = RenderCell.Integer(1);
-        fields["draftStatus"] = fields["status"];
+        fields["draftStatus"] = RenderCell.String(draft.Changes.Count == 0 ? "empty" : "staged");
         fields["status"] = RenderCell.String(reconciliationState);
         fields["reconciliationState"] = RenderCell.String(reconciliationState);
         fields["freshness"] = RenderCell.String("cached");

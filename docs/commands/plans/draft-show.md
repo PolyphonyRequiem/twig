@@ -25,7 +25,7 @@ qualified item key, draft baseline/observed/current revisions and generation,
 typed baseline/observed/proposed values for each draft effect, per-effect native
 persistability, reconciliation state, and rules eligibility. In this envelope,
 `status` is the reconciliation state and `draftStatus` records the local draft
-state. `freshness` is
+state (`empty` or `staged`) independently of conflicts or blockers. `freshness` is
 explicitly `cached`; this command does not refresh remote data. If unrelated
 pending work overlays the item, observed field values are withheld and
 `observationCompleteness` reports `blocked-by-local-work`. Missing form values,

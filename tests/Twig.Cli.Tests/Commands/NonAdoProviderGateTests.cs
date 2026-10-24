@@ -129,6 +129,24 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         _transport.Requests.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GitHubSnapshotTransport_DoesNotActivateTheCliProviderFactory(bool neutralStoreOptedIn)
+    {
+        var runtime = await AttachAsync("github", neutralStoreOptedIn: neutralStoreOptedIn);
+
+        runtime.GetService<IWorkItemSnapshotReader>().ShouldBeNull(
+            "the standalone GitHub snapshot transport is not an activated CLI adapter");
+        var refusal = Should.Throw<TwigConfigurationException>(
+            () => runtime.GetRequiredService<IWorkItemProvider>());
+        refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        using var stderr = new StringWriter();
+        ExceptionHandler.Handle(refusal, stderr).ShouldBe(1);
+        stderr.ToString().ShouldStartWith("error: " + WorkItemProviderSetting.UnavailableReasonCode + ":");
+        _transport.Requests.ShouldBeEmpty("provider refusal must happen before any HTTP");
+    }
+
     /// <summary>
     /// Registry guard: every service the composition registers whose implementation is an ADO
     /// network client must refuse under a non-ADO provider and resolve under ADO. A new ADO

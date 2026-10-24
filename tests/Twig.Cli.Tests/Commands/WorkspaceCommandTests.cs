@@ -139,8 +139,9 @@ public class WorkspaceCommandTests
         root.GetProperty("observation").GetString().ShouldBe("raw-mirror");
         var completeness = root.GetProperty("completeness");
         completeness.GetProperty("sourceComplete").GetBoolean().ShouldBeFalse();
-        (completeness.TryGetProperty("sourceChildCount", out var sourceTotal) ? sourceTotal.ValueKind : JsonValueKind.Null)
-            .ShouldBe(JsonValueKind.Null);
+        completeness.GetProperty("sourceMemberCount").ValueKind.ShouldBe(JsonValueKind.Null);
+        completeness.GetProperty("unknownMemberCount").ValueKind.ShouldBe(JsonValueKind.Null);
+        completeness.GetProperty("knownMemberCount").GetInt32().ShouldBe(0);
     }
 
     [Fact]

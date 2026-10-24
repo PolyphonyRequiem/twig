@@ -32,6 +32,8 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
     internal const string Project = "Work";
     internal const string Actor = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     internal const string Sibling = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    // Deterministic organization instance id served through the external transport boundary.
+    internal const string ResourceScopeId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
     internal const string ActorPat = "browser-actor-v1";
     internal const string RenewedPat = "browser-actor-v2";
     internal const string SiblingPat = "browser-sibling-v1";
@@ -194,7 +196,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
             if (actor is null) return Reply(HttpStatusCode.Unauthorized, new { message = "Unregistered credential" });
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/_apis/connectionData", StringComparison.Ordinal))
-                return Reply(HttpStatusCode.OK, new { authenticatedUser = new { id = actor, providerDisplayName = "Fixture reader" } });
+                return Reply(HttpStatusCode.OK, new { instanceId = ResourceScopeId, authenticatedUser = new { id = actor, providerDisplayName = "Fixture reader" } });
             if (path.EndsWith("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Fixture reader", emailAddress = actor + "@fixture.invalid" });
             const string segment = "/_apis/wit/workitems/";

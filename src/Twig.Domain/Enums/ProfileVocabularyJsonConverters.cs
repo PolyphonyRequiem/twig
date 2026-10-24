@@ -129,13 +129,5 @@ internal static class RoleTokens
 /// </summary>
 internal sealed class LinkKindJsonConverter : CanonicalEnumConverter<LinkKind>
 {
-    private static readonly (LinkKind, string)[] Tokens =
-    [
-        (LinkKind.ParentChild, "parent-child"),
-        (LinkKind.PredecessorSuccessor, "predecessor-successor"),
-        (LinkKind.Related, "related"),
-        (LinkKind.Artifact, "artifact"),
-    ];
-
-    protected override (LinkKind, string)[] Mapping => Tokens;
+    protected override (LinkKind, string)[] Mapping => LinkKindNames.Mapping;
 }

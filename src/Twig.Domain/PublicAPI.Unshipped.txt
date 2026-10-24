@@ -29,6 +29,9 @@ Twig.Domain.Enums.LinkKind.Artifact = 3 -> Twig.Domain.Enums.LinkKind
 Twig.Domain.Enums.LinkKind.ParentChild = 0 -> Twig.Domain.Enums.LinkKind
 Twig.Domain.Enums.LinkKind.PredecessorSuccessor = 1 -> Twig.Domain.Enums.LinkKind
 Twig.Domain.Enums.LinkKind.Related = 2 -> Twig.Domain.Enums.LinkKind
+Twig.Domain.Enums.LinkKindNames
+static Twig.Domain.Enums.LinkKindNames.ToStableName(Twig.Domain.Enums.LinkKind kind) -> string!
+static Twig.Domain.Enums.LinkKindNames.TryParseStableName(string? token, out Twig.Domain.Enums.LinkKind kind) -> bool
 Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Bug = 3 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Feature = 2 -> Twig.Domain.Enums.Role
@@ -535,6 +538,18 @@ Twig.Domain.Services.Seed.SeedPublishOrchestrator.SeedPublishOrchestrator(Twig.D
 Twig.Domain.Services.Sync.SyncCoordinator.SyncLinksForSetAsync(System.Collections.Generic.IReadOnlyList<int>! itemIds, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>!>!
 Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.get -> bool
 Twig.Domain.ValueObjects.FieldDefinition.IsIdentity.init -> void
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.<Clone>$() -> Twig.Domain.ValueObjects.ExternalWorkItemIdentity!
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.Equals(Twig.Domain.ValueObjects.ExternalWorkItemIdentity? other) -> bool
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.NativeId.get -> string!
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.ProviderKind.get -> string!
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.ResourceScope.get -> string!
+Twig.Domain.ValueObjects.ExternalWorkItemIdentity.ExternalWorkItemIdentity(string! providerKind, string! resourceScope, string! nativeId) -> void
+static Twig.Domain.ValueObjects.ExternalWorkItemIdentity.operator !=(Twig.Domain.ValueObjects.ExternalWorkItemIdentity? left, Twig.Domain.ValueObjects.ExternalWorkItemIdentity? right) -> bool
+static Twig.Domain.ValueObjects.ExternalWorkItemIdentity.operator ==(Twig.Domain.ValueObjects.ExternalWorkItemIdentity? left, Twig.Domain.ValueObjects.ExternalWorkItemIdentity? right) -> bool
+override Twig.Domain.ValueObjects.ExternalWorkItemIdentity.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.ExternalWorkItemIdentity.GetHashCode() -> int
+override Twig.Domain.ValueObjects.ExternalWorkItemIdentity.ToString() -> string!
 Twig.Domain.ValueObjects.PendingChangeDetail
 Twig.Domain.ValueObjects.PendingChangeDetail.<Clone>$() -> Twig.Domain.ValueObjects.PendingChangeDetail!
 Twig.Domain.ValueObjects.PendingChangeDetail.Deconstruct(out long PendingChangeId, out int WorkItemId, out string! Kind, out string? Field, out string? Note, out string? OldValue, out string? NewValue, out System.DateTimeOffset StagedAt, out Twig.Domain.ValueObjects.SeedRemapIdentity? SeedRemap) -> void
@@ -558,6 +573,28 @@ Twig.Domain.ValueObjects.PendingChangeDetail.StagedAt.get -> System.DateTimeOffs
 Twig.Domain.ValueObjects.PendingChangeDetail.StagedAt.init -> void
 Twig.Domain.ValueObjects.PendingChangeDetail.WorkItemId.get -> int
 Twig.Domain.ValueObjects.PendingChangeDetail.WorkItemId.init -> void
+Twig.Domain.ValueObjects.ProviderRevisionToken
+Twig.Domain.ValueObjects.ProviderRevisionToken.<Clone>$() -> Twig.Domain.ValueObjects.ProviderRevisionToken!
+Twig.Domain.ValueObjects.ProviderRevisionToken.Equals(Twig.Domain.ValueObjects.ProviderRevisionToken? other) -> bool
+Twig.Domain.ValueObjects.ProviderRevisionToken.ProviderRevisionToken(string! value) -> void
+Twig.Domain.ValueObjects.ProviderRevisionToken.Value.get -> string!
+static Twig.Domain.ValueObjects.ProviderRevisionToken.operator !=(Twig.Domain.ValueObjects.ProviderRevisionToken? left, Twig.Domain.ValueObjects.ProviderRevisionToken? right) -> bool
+static Twig.Domain.ValueObjects.ProviderRevisionToken.operator ==(Twig.Domain.ValueObjects.ProviderRevisionToken? left, Twig.Domain.ValueObjects.ProviderRevisionToken? right) -> bool
+override Twig.Domain.ValueObjects.ProviderRevisionToken.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.ProviderRevisionToken.GetHashCode() -> int
+override Twig.Domain.ValueObjects.ProviderRevisionToken.ToString() -> string!
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.<Clone>$() -> Twig.Domain.ValueObjects.ProviderWorkItemRelationship!
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.Equals(Twig.Domain.ValueObjects.ProviderWorkItemRelationship? other) -> bool
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.Kind.get -> Twig.Domain.Enums.LinkKind
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.ProviderWorkItemRelationship(Twig.Domain.ValueObjects.ExternalWorkItemIdentity! source, Twig.Domain.ValueObjects.ExternalWorkItemIdentity! target, Twig.Domain.Enums.LinkKind kind) -> void
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.Source.get -> Twig.Domain.ValueObjects.ExternalWorkItemIdentity!
+Twig.Domain.ValueObjects.ProviderWorkItemRelationship.Target.get -> Twig.Domain.ValueObjects.ExternalWorkItemIdentity!
+static Twig.Domain.ValueObjects.ProviderWorkItemRelationship.operator !=(Twig.Domain.ValueObjects.ProviderWorkItemRelationship? left, Twig.Domain.ValueObjects.ProviderWorkItemRelationship? right) -> bool
+static Twig.Domain.ValueObjects.ProviderWorkItemRelationship.operator ==(Twig.Domain.ValueObjects.ProviderWorkItemRelationship? left, Twig.Domain.ValueObjects.ProviderWorkItemRelationship? right) -> bool
+override Twig.Domain.ValueObjects.ProviderWorkItemRelationship.Equals(object? obj) -> bool
+override Twig.Domain.ValueObjects.ProviderWorkItemRelationship.GetHashCode() -> int
+override Twig.Domain.ValueObjects.ProviderWorkItemRelationship.ToString() -> string!
 Twig.Domain.ValueObjects.ReferenceProfile
 Twig.Domain.ValueObjects.ReferenceProfile.BaseProcess.get -> Twig.Domain.ValueObjects.ReferenceProfileBaseProcess!
 Twig.Domain.ValueObjects.ReferenceProfile.EmbeddedFingerprint.get -> string!

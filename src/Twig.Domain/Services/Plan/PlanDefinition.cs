@@ -1,13 +1,13 @@
 namespace Twig.Domain.Services.Plan;
 
 /// <summary>
-/// A validated plan v1 document. Immutable declarative input — carries no lifecycle
+/// A validated plan document. Immutable declarative input — carries no lifecycle
 /// state. The canonical digest of the original bytes is the only key the journal uses to
 /// bind execution state back to a source file.
 /// </summary>
 public sealed record PlanDefinition
 {
-    /// <summary>Plan schema version. Always 1 in this contract; anything else is a validation error.</summary>
+    /// <summary>Plan schema version. Version 1 retains integer ADO identities; version 2 binds provider identities.</summary>
     public required int Version { get; init; }
 
     /// <summary>Target workspace. Present-in-digest, so cross-workspace application is not silent.</summary>

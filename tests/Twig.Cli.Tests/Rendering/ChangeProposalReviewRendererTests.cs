@@ -192,6 +192,66 @@ public sealed class ChangeProposalReviewRendererTests
         text.ShouldContain("[unavailable] policy-load: Policy file could not be loaded.");
     }
 
+    [Fact]
+    public void Render_ShowsProviderBoundTargetAndPeerWhileV2ApplyIsBlocked()
+    {
+        var target = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        var peer = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:8"),
+        };
+        var model = Model() with
+        {
+            AffectedItems = [],
+            Operations =
+            [
+                new ReviewOperation
+                {
+                    Ordinal = 0,
+                    OpId = "provider-link",
+                    Kind = "add-link",
+                    Target = new ReviewTarget { ProviderWorkItem = target },
+                    Summary = "Add related link",
+                    Preconditions = [new ReviewPrecondition { Kind = "expectedProviderRevision", Value = "etag:opaque" }],
+                    Consequences =
+                    [
+                        new ReviewConsequence
+                        {
+                            Kind = "link-add",
+                            Relation = "related",
+                            OtherProviderWorkItem = peer,
+                        },
+                    ],
+                },
+            ],
+            AuthorizationChoices = ["revise", "decline"],
+            Blockers =
+            [
+                new ReviewBlocker
+                {
+                    Kind = "issue",
+                    Detail = "plan.unsupported_apply_version: Provider-bound operations are review-only.",
+                },
+            ],
+        };
+
+        var text = RenderText(model);
+
+        text.ShouldContain(target.LocalId.ToString());
+        text.ShouldContain("github:repo:acme/widgets:issue:7");
+        text.ShouldContain(peer.LocalId.ToString());
+        text.ShouldContain("github:repo:acme/widgets:issue:8");
+        text.ShouldContain("add related link to github:repo:acme/widgets:issue:8");
+        text.ShouldContain("plan.unsupported_apply_version");
+        text.ShouldNotContain("expectedProviderRevision");
+        text.ShouldNotContain("authorization choices");
+    }
+
     // T2 §4.3 rule 2. Defends against a build silently rendering the members it recognises out
     // of a newer model — showing a reviewer a proposal with unknown parts quietly missing.
     [Fact]

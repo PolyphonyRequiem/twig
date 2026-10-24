@@ -161,12 +161,15 @@ public sealed record ReviewTarget
 
     /// <summary>Unverified local staged display context; never a published identity.</summary>
     public ReviewSeedDisplay? Seed { get; init; }
+
+    /// <summary>Canonical local and provider-qualified identity for a provider-bound target.</summary>
+    public ProviderWorkItemReference? ProviderWorkItem { get; init; }
 }
 
 /// <summary>A condition checked at apply time; a mismatch refuses the operation.</summary>
 public sealed record ReviewPrecondition
 {
-    /// <summary><c>expectedRevision</c> or <c>expectedFingerprint</c>.</summary>
+    /// <summary><c>expectedRevision</c>, <c>expectedProviderRevision</c>, or <c>expectedFingerprint</c>.</summary>
     public required string Kind { get; init; }
 
     /// <summary>The exact value the operation is bound to.</summary>
@@ -206,6 +209,9 @@ public sealed record ReviewConsequence
 
     /// <summary>The far end of a link, or the item being deleted.</summary>
     public int? OtherId { get; init; }
+
+    /// <summary>Provider-qualified far end of a version 2 link or deleted item.</summary>
+    public ProviderWorkItemReference? OtherProviderWorkItem { get; init; }
 }
 
 /// <summary>Something preventing this proposal from applying right now.</summary>

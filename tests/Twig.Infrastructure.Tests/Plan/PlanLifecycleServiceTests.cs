@@ -291,6 +291,27 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_V2ShowsIdentityAndBlockerWithoutJournalImport()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var result = await BuildService(journal: journal).PreviewAsync(file);
+
+        result.Digest.ShouldNotBeNullOrWhiteSpace();
+        result.CanApply.ShouldBeFalse();
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
+        result.ReviewModel.ShouldNotBeNull();
+        result.ReviewModel!.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        result.ReviewModel.Blockers.ShouldContain(blocker =>
+            blocker.Kind == "issue" && blocker.Detail.Contains(PlanValidationCodes.UnsupportedApplyVersion));
+        var reviewedTarget = result.ReviewModel.Operations.Single().Target.ProviderWorkItem;
+        reviewedTarget.ShouldNotBeNull();
+        reviewedTarget!.ExternalIdentity.ProviderKind.ShouldBe("github");
+        reviewedTarget.LocalId.IsEmpty.ShouldBeFalse();
+        journal.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Preview_ExpectedDigestMismatchRefusesBeforeJournalImportOrPendingSnapshot()
     {
         var file = WritePlan(ValidPlanSource());
@@ -384,6 +405,24 @@ public sealed class PlanLifecycleServiceTests : IDisposable
 
         apply.Failed.ShouldBeTrue();
         apply.Error!.ShouldContain("No preview journal");
+    }
+
+    [Fact]
+    public async Task Apply_V2RefusesBeforeConfirmationAuthorizationJournalPendingOrProviderAccess()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var service = BuildService(journal: journal);
+
+        var result = await service.ApplyAsync(file, "unconfirmed-digest", authorization: null);
+
+        result.Failed.ShouldBeTrue();
+        result.Error.ShouldContain("cannot be applied");
+        result.Error.ShouldContain("No confirmation");
+        journal.ReceivedCalls().ShouldBeEmpty();
+        await _pending.DidNotReceive().GetAllChangesAsync(Arg.Any<CancellationToken>());
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
     }
 
     // ── apply: happy path (batch) ──────────────────────────────────────────
@@ -3512,6 +3551,33 @@ public sealed class PlanLifecycleServiceTests : IDisposable
           ]
         }
         """;
+
+    private static string ProviderPlanSource()
+    {
+        var item = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        return PlanDocumentWriter.Write(new PlanDefinition
+        {
+            Version = 2,
+            Workspace = new PlanWorkspace { Organization = "acme", Project = "cache" },
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "provider-delete",
+                    OperationKind = PlanOperationKind.Delete,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = item,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
+                    },
+                },
+            ],
+        });
+    }
 
     private static string BatchWithFields(
         int workItemId,

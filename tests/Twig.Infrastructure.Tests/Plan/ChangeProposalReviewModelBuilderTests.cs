@@ -414,6 +414,78 @@ public sealed class ChangeProposalReviewModelBuilderTests
     }
 
     [Fact]
+    public async Task Model_ProjectsV2ProviderIdentityAndOpaquePreconditionWithoutAdoAlias()
+    {
+        var source = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        var peer = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:8"),
+        };
+        var definition = new PlanDefinition
+        {
+            Version = 2,
+            Workspace = Workspace,
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "edit",
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("etag:\"opaque\""),
+                    },
+                    Fields = new Dictionary<string, string?> { ["System.Title"] = "Updated" },
+                },
+                new ProviderMutationOperation
+                {
+                    Id = "link",
+                    OperationKind = PlanOperationKind.AddLink,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque:next"),
+                    },
+                    Relation = "related",
+                    Other = peer,
+                },
+            ],
+        };
+
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+
+        model.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        model.Operations.Select(operation => operation.Target.ProviderWorkItem)
+            .ShouldBe(new ProviderWorkItemReference?[] { source, source });
+        model.Operations[0].Preconditions.Single().ShouldBe(new ReviewPrecondition
+        {
+            Kind = "expectedProviderRevision",
+            Value = "etag:\"opaque\"",
+        });
+        model.Operations[0].Consequences.Single().Field.ShouldBe("System.Title");
+        model.Operations[1].Consequences.Single().OtherProviderWorkItem.ShouldBe(peer);
+        model.Operations.Select(operation => operation.Summary).ShouldAllBe(summary =>
+            summary.Contains(source.ExternalIdentity.NativeId) && summary.Contains(source.LocalId.ToString()));
+        _workItems.ReceivedCalls().ShouldBeEmpty();
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var target = json.RootElement.GetProperty("operations")[0].GetProperty("target").GetProperty("providerWorkItem");
+        target.GetProperty("localId").GetString().ShouldBe(source.LocalId.ToString());
+        target.GetProperty("externalIdentity").GetProperty("nativeId").GetString().ShouldBe("issue:7");
+        json.RootElement.GetProperty("operations")[0].GetProperty("preconditions")[0]
+            .GetProperty("value").GetString().ShouldBe("etag:\"opaque\"");
+        json.RootElement.GetProperty("operations")[1].GetProperty("consequences")[0]
+            .GetProperty("otherProviderWorkItem").GetProperty("externalIdentity")
+            .GetProperty("nativeId").GetString().ShouldBe("issue:8");
+    }
+
+    [Fact]
     public async Task Model_MarksAnAdHocProposalByCarryingNoRecipe()
     {
         // Defends against: inventing a placeholder recipe reference for a hand-authored

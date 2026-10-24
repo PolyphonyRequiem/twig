@@ -228,6 +228,8 @@ Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.get -> string!
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Kind.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.get -> int?
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherId.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherProviderWorkItem.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference?
+Twig.Domain.Services.ChangeProposals.ReviewConsequence.OtherProviderWorkItem.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Relation.get -> string?
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.Relation.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewConsequence.ReviewConsequence() -> void
@@ -265,6 +267,8 @@ Twig.Domain.Services.ChangeProposals.ReviewTarget.Equals(Twig.Domain.Services.Ch
 Twig.Domain.Services.ChangeProposals.ReviewTarget.ReviewTarget() -> void
 Twig.Domain.Services.ChangeProposals.ReviewTarget.StagedIdentity.get -> string?
 Twig.Domain.Services.ChangeProposals.ReviewTarget.StagedIdentity.init -> void
+Twig.Domain.Services.ChangeProposals.ReviewTarget.ProviderWorkItem.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference?
+Twig.Domain.Services.ChangeProposals.ReviewTarget.ProviderWorkItem.init -> void
 Twig.Domain.Services.ChangeProposals.ReviewTarget.WorkItemId.get -> int?
 Twig.Domain.Services.ChangeProposals.ReviewTarget.WorkItemId.init -> void
 Twig.Domain.Services.ChangeProposals.SessionSteeringMode
@@ -409,6 +413,36 @@ Twig.Domain.Services.Plan.PlanOperationKind.Batch = 0 -> Twig.Domain.Services.Pl
 Twig.Domain.Services.Plan.PlanOperationKind.Delete = 4 -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.PlanOperationKind.PublishSeed = 3 -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.PlanOperationKind.RemoveLink = 2 -> Twig.Domain.Services.Plan.PlanOperationKind
+Twig.Domain.Services.Plan.ProviderMutationOperation
+Twig.Domain.Services.Plan.ProviderMutationOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+Twig.Domain.Services.Plan.ProviderMutationOperation.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>?
+Twig.Domain.Services.Plan.ProviderMutationOperation.Fields.init -> void
+Twig.Domain.Services.Plan.ProviderMutationOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
+Twig.Domain.Services.Plan.ProviderMutationOperation.OperationKind.get -> Twig.Domain.Services.Plan.PlanOperationKind
+Twig.Domain.Services.Plan.ProviderMutationOperation.OperationKind.init -> void
+Twig.Domain.Services.Plan.ProviderMutationOperation.Other.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference?
+Twig.Domain.Services.Plan.ProviderMutationOperation.Other.init -> void
+Twig.Domain.Services.Plan.ProviderMutationOperation.ProviderMutationOperation() -> void
+Twig.Domain.Services.Plan.ProviderMutationOperation.Relation.get -> string?
+Twig.Domain.Services.Plan.ProviderMutationOperation.Relation.init -> void
+Twig.Domain.Services.Plan.ProviderMutationOperation.Target.get -> Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget!
+Twig.Domain.Services.Plan.ProviderMutationOperation.Target.init -> void
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.<Clone>$() -> Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget!
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.Equals(Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget? other) -> bool
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.ExpectedProviderRevision.get -> Twig.Domain.ValueObjects.ProviderRevisionToken!
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.ExpectedProviderRevision.init -> void
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.Item.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference!
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.Item.init -> void
+Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.ProviderWorkItemMutationTarget() -> void
+Twig.Domain.Services.Plan.ProviderWorkItemReference
+Twig.Domain.Services.Plan.ProviderWorkItemReference.<Clone>$() -> Twig.Domain.Services.Plan.ProviderWorkItemReference!
+Twig.Domain.Services.Plan.ProviderWorkItemReference.Equals(Twig.Domain.Services.Plan.ProviderWorkItemReference? other) -> bool
+Twig.Domain.Services.Plan.ProviderWorkItemReference.ExternalIdentity.get -> Twig.Domain.ValueObjects.ExternalWorkItemIdentity!
+Twig.Domain.Services.Plan.ProviderWorkItemReference.ExternalIdentity.init -> void
+Twig.Domain.Services.Plan.ProviderWorkItemReference.LocalId.get -> Twig.Domain.ValueObjects.LocalWorkItemId
+Twig.Domain.Services.Plan.ProviderWorkItemReference.LocalId.init -> void
+Twig.Domain.Services.Plan.ProviderWorkItemReference.ProviderWorkItemReference() -> void
 Twig.Domain.Services.Plan.PlanOperationState
 Twig.Domain.Services.Plan.PlanOperationState.Applied = 3 -> Twig.Domain.Services.Plan.PlanOperationState
 Twig.Domain.Services.Plan.PlanOperationState.Applying = 2 -> Twig.Domain.Services.Plan.PlanOperationState
@@ -701,12 +735,16 @@ const Twig.Domain.Services.Plan.PlanValidationCodes.EmptyString = "plan.empty_st
 const Twig.Domain.Services.Plan.PlanValidationCodes.IntegerOutOfRange = "plan.integer_out_of_range" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.InvalidRelation = "plan.invalid_relation" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.InvalidStagedIdentity = "plan.invalid_staged_identity" -> string!
+const Twig.Domain.Services.Plan.PlanValidationCodes.InvalidProviderIdentity = "plan.invalid_provider_identity" -> string!
+const Twig.Domain.Services.Plan.PlanValidationCodes.InvalidProviderRevision = "plan.invalid_provider_revision" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.JsonInvalid = "plan.json_invalid" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.MissingProperty = "plan.missing_property" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.NotAnObject = "plan.not_an_object" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownKind = "plan.unknown_kind" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnknownProperty = "plan.unknown_property" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.UnsupportedVersion = "plan.unsupported_version" -> string!
+const Twig.Domain.Services.Plan.PlanValidationCodes.UnsupportedApplyVersion = "plan.unsupported_apply_version" -> string!
+const Twig.Domain.Services.Plan.PlanValidationCodes.UnsupportedOperationVersion = "plan.unsupported_operation_version" -> string!
 const Twig.Domain.Services.Plan.PlanValidationCodes.WrongType = "plan.wrong_type" -> string!
 const Twig.Domain.ValueObjects.ReferenceProfileErrors.BaseProcessParentMismatch = "base-process-parent-mismatch" -> string!
 const Twig.Domain.ValueObjects.ReferenceProfileErrors.BaseProcessVersionMismatch = "base-process-version-mismatch" -> string!
@@ -824,6 +862,12 @@ override Twig.Domain.Services.Plan.RemoveLinkOperation.ToString() -> string!
 override Twig.Domain.ValueObjects.PendingChangeDetail.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.PendingChangeDetail.GetHashCode() -> int
 override Twig.Domain.ValueObjects.PendingChangeDetail.ToString() -> string!
+override Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.Equals(object? obj) -> bool
+override Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.GetHashCode() -> int
+override Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.ToString() -> string!
+override Twig.Domain.Services.Plan.ProviderWorkItemReference.Equals(object? obj) -> bool
+override Twig.Domain.Services.Plan.ProviderWorkItemReference.GetHashCode() -> int
+override Twig.Domain.Services.Plan.ProviderWorkItemReference.ToString() -> string!
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.Equals(object? obj) -> bool
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.GetHashCode() -> int
 override Twig.Domain.ValueObjects.ReferenceProfileBaseProcess.ToString() -> string!
@@ -849,6 +893,7 @@ override sealed Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Serv
 override sealed Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.PublishSeedOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.ProviderMutationOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 static Twig.Domain.Extensions.WorkItemExtensions.ReadCommentCount(this Twig.Domain.Aggregates.WorkItem! item) -> int
 static Twig.Domain.ReadModels.WorkItemGraph.Build(System.Collections.Generic.IReadOnlyList<Twig.Domain.Aggregates.WorkItem!>! items, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.WorkItemLink>? links = null) -> Twig.Domain.ReadModels.WorkItemGraph!
 static Twig.Domain.Services.ChangeProposals.ChangeProposal.operator !=(Twig.Domain.Services.ChangeProposals.ChangeProposal? left, Twig.Domain.Services.ChangeProposals.ChangeProposal? right) -> bool
@@ -885,6 +930,12 @@ static Twig.Domain.Services.Plan.BatchOperation.operator !=(Twig.Domain.Services
 static Twig.Domain.Services.Plan.BatchOperation.operator ==(Twig.Domain.Services.Plan.BatchOperation? left, Twig.Domain.Services.Plan.BatchOperation? right) -> bool
 static Twig.Domain.Services.Plan.DeleteOperation.operator !=(Twig.Domain.Services.Plan.DeleteOperation? left, Twig.Domain.Services.Plan.DeleteOperation? right) -> bool
 static Twig.Domain.Services.Plan.DeleteOperation.operator ==(Twig.Domain.Services.Plan.DeleteOperation? left, Twig.Domain.Services.Plan.DeleteOperation? right) -> bool
+static Twig.Domain.Services.Plan.ProviderMutationOperation.operator !=(Twig.Domain.Services.Plan.ProviderMutationOperation? left, Twig.Domain.Services.Plan.ProviderMutationOperation? right) -> bool
+static Twig.Domain.Services.Plan.ProviderMutationOperation.operator ==(Twig.Domain.Services.Plan.ProviderMutationOperation? left, Twig.Domain.Services.Plan.ProviderMutationOperation? right) -> bool
+static Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.operator !=(Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget? left, Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget? right) -> bool
+static Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget.operator ==(Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget? left, Twig.Domain.Services.Plan.ProviderWorkItemMutationTarget? right) -> bool
+static Twig.Domain.Services.Plan.ProviderWorkItemReference.operator !=(Twig.Domain.Services.Plan.ProviderWorkItemReference? left, Twig.Domain.Services.Plan.ProviderWorkItemReference? right) -> bool
+static Twig.Domain.Services.Plan.ProviderWorkItemReference.operator ==(Twig.Domain.Services.Plan.ProviderWorkItemReference? left, Twig.Domain.Services.Plan.ProviderWorkItemReference? right) -> bool
 static Twig.Domain.Services.Plan.PlanApplyResult.operator !=(Twig.Domain.Services.Plan.PlanApplyResult? left, Twig.Domain.Services.Plan.PlanApplyResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanApplyResult.operator ==(Twig.Domain.Services.Plan.PlanApplyResult? left, Twig.Domain.Services.Plan.PlanApplyResult? right) -> bool
 static Twig.Domain.Services.Plan.PlanDefinition.operator !=(Twig.Domain.Services.Plan.PlanDefinition? left, Twig.Domain.Services.Plan.PlanDefinition? right) -> bool

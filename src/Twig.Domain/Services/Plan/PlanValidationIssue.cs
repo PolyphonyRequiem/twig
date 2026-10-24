@@ -37,10 +37,22 @@ public static class PlanValidationCodes
     /// <summary>A JSON value was of the wrong type (e.g. string where int expected).</summary>
     public const string WrongType = "plan.wrong_type";
 
-    /// <summary>Plan version was not <c>1</c>.</summary>
+    /// <summary>Plan version is not recognized.</summary>
     public const string UnsupportedVersion = "plan.unsupported_version";
 
-    /// <summary>Operation kind is not one of the five supported values.</summary>
+    /// <summary>A recognized plan version contains an operation not defined by that version.</summary>
+    public const string UnsupportedOperationVersion = "plan.unsupported_operation_version";
+
+    /// <summary>A provider-qualified reference or opaque provider revision token is invalid.</summary>
+    public const string InvalidProviderIdentity = "plan.invalid_provider_identity";
+
+    /// <summary>A provider-owned mutation precondition token is invalid.</summary>
+    public const string InvalidProviderRevision = "plan.invalid_provider_revision";
+
+    /// <summary>A valid plan version is reviewable but not executable by this lifecycle.</summary>
+    public const string UnsupportedApplyVersion = "plan.unsupported_apply_version";
+
+    /// <summary>Operation kind is not supported by the declared plan version.</summary>
     public const string UnknownKind = "plan.unknown_kind";
 
     /// <summary>Two operations share an id.</summary>

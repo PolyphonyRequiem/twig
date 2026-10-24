@@ -11,7 +11,8 @@ mutates: none
 Reads the workspace's per-proposal journal and reports the current state
 for the file's digest — the top-level plan state, per-operation states in
 declaration order, any terminal error captured on apply. Cache-only; makes
-no ADO calls.
+no provider calls. A valid v2 file has no journal row because v2 preview does
+not import one.
 
 ## Synopsis
 
@@ -31,7 +32,7 @@ twig proposal status --file <path> [-o human|json|minimal]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior
@@ -46,7 +47,8 @@ distinct shapes and the exit code discriminates between them
 2. **Valid digest, no journal.** The lifecycle service returns `null` and
    the command emits a `proposalStatusNotFound` document
    (`src/Twig/Commands/PlanCommand.cs:154-158`). Exit 1 — the file parsed
-   cleanly but has never been previewed.
+   cleanly but has no imported journal row. Version 2 previews intentionally
+   do not import one.
 3. **Input error.** The lifecycle service returns a non-null result with
    `Found=false` and `Issues` populated (path outside workspace, unreadable
    file, invalid JSON, workspace mismatch). Exit 2.

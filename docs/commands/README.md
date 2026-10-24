@@ -127,7 +127,7 @@ and updates.
 | [Plans and Proposals](plans/README.md) | [`twig proposal latest`](plans/README.md#latest-unresolved-proposal) | Show the latest previewed unresolved proposal in this workspace. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal seed`](plans/proposal-seed.md) | Describe a staged seed's identity and fingerprint for proposal authoring. | stable | `none` |
 | [Plans and Proposals](plans/README.md) | [`twig proposal status`](plans/proposal-status.md) | Show journal state for a proposal file, keyed on its digest. | stable | `none` |
-| [Plans and Proposals](plans/README.md) | [`twig proposal validate`](plans/proposal-validate.md) | Validate a proposal v1 file without touching ADO. | stable | `none` |
+| [Plans and Proposals](plans/README.md) | [`twig proposal validate`](plans/proposal-validate.md) | Validate proposal v1/v2 without touching providers. | stable | `none` |
 | [Configuration](configuration/README.md) | [`twig config`](configuration/config.md) | Read or set a configuration value. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig config status-fields`](configuration/config-status-fields.md) | Configure which fields appear in the status view. | stable | `local` |
 | [Configuration](configuration/README.md) | [`twig help`](configuration/help.md) | Progressive offline root, group and leaf help. | stable | `none` |

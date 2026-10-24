@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
@@ -196,6 +197,16 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(FingerprintDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
+[JsonSerializable(typeof(ProviderCapabilityDescriptor))]
+[JsonSerializable(typeof(RelationshipCapability))]
+[JsonSerializable(typeof(CapabilityAvailabilityEvidence))]
+[JsonSerializable(typeof(CapabilityReportEntry))]
+[JsonSerializable(typeof(CapabilityReport))]
+[JsonSerializable(typeof(CapabilityImplementation))]
+[JsonSerializable(typeof(CapabilityAvailability))]
+[JsonSerializable(typeof(EmulationStorage))]
+[JsonSerializable(typeof(RelationshipOrigin))]
+[JsonSerializable(typeof(PublicationState))]
 // Provider-neutral work-item identities, tokens, and relationships.
 [JsonSerializable(typeof(ExternalWorkItemIdentity))]
 [JsonSerializable(typeof(ProviderRevisionToken))]

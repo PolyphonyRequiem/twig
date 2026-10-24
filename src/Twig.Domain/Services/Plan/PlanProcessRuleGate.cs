@@ -144,7 +144,9 @@ internal sealed class PlanProcessRuleGate
         if (_rules is null) return PlanProcessRuleGateOutcome.Ok;
 
         var typeName = source.Type.Value;
-        if (string.IsNullOrEmpty(typeName)) return PlanProcessRuleGateOutcome.Ok;
+        if (string.IsNullOrWhiteSpace(typeName))
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules cannot be evaluated because the type of work item {source.Id} is unknown; refresh the item and retry.");
 
         IReadOnlyList<ProcessRule> rules;
         try
@@ -163,7 +165,10 @@ internal sealed class PlanProcessRuleGate
                 $"Process rules for type '{typeName}' could not be loaded ({ex.Message}); "
                 + "required-field gates cannot be evaluated. Retry once the process configuration is reachable.");
         }
-        if (rules is null || rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
+        if (rules is null)
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                $"Process rules for type '{typeName}' returned no rule set; required-field gates cannot be evaluated.");
+        if (rules.Count == 0) return PlanProcessRuleGateOutcome.Ok;
 
         // Cheap short-circuit: with no enabled makeRequired candidate in the rule set,
         // no refusal path exists — skip the pre/post overlay build entirely.

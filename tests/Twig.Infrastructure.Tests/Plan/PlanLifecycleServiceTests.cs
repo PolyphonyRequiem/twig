@@ -76,7 +76,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                     {
                         Id = id,
                         Revision = ci.ArgAt<int>(1),
-                        TypeName = string.Empty,
+                        TypeName = "FixtureType",
                         Title = string.Empty,
                         State = string.Empty,
                         Fields = new Dictionary<string, string?>(),
@@ -2829,6 +2829,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var file = WritePlan(plan);
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         // Fresh authoritative snapshot for op-1: no Custom.Gated yet.
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
@@ -2952,10 +2953,12 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             """;
         var file = WritePlan(plan);
         var svc = BuildService();
-        var digest = (await svc.PreviewAsync(file)).Digest!;
 
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
             AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing"));
+        _revisionBound.FetchAtRevisionAsync(42, 4, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
+            throw new InvalidOperationException(
+                "Preview must project the add-link operation instead of fetching the future revision."));
         _revisionBound.FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>()).Returns<WorkItemSnapshot>(_ =>
             throw new InvalidOperationException(
                 "AB#721 regression: post-link batch refetched instead of consuming the advanced carry."));
@@ -2969,6 +2972,15 @@ public sealed class PlanLifecycleServiceTests : IDisposable
                 ],
                 [new RuleAction("makeRequired", "Custom.Gated", null)],
                 IsDisabled: false)]));
+
+        var preview = await svc.PreviewAsync(file);
+        preview.CanApply.ShouldBeTrue();
+        preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldBeEmpty();
+        await _revisionBound.Received(1).FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>());
+        await _revisionBound.DidNotReceive().FetchAtRevisionAsync(42, 4, Arg.Any<CancellationToken>());
+        await _revisionBound.DidNotReceive().FetchAtRevisionAsync(42, 5, Arg.Any<CancellationToken>());
+        var digest = preview.Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         _ado.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
             .Returns(4);
@@ -3015,6 +3027,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var file = WritePlan(plan);
         var svc = BuildService();
         var digest = (await svc.PreviewAsync(file)).Digest!;
+        _revisionBound.ClearReceivedCalls();
 
         _revisionBound.FetchAtRevisionAsync(42, 3, Arg.Any<CancellationToken>()).Returns(
             AuthoritativeSnapshot(42, 3, "Frobnicator", "Doing", ("Custom.Gated", "signed-42")));
@@ -3489,6 +3502,69 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var journal = await _journal.GetAsync(preview.Digest!);
         journal.ShouldNotBeNull();
         journal!.State.ShouldBe(PlanOperationState.Planned);
+    }
+
+    [Fact]
+    public async Task Preview_ProjectsProcessRequiredFieldRefusalAsPolicyDecision()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        var digest = (await svc.PreviewAsync(file)).Digest!;
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult<IReadOnlyList<ProcessRule>>(
+            [
+                new ProcessRule(DoneCondition, [new RuleAction("makeRequired", "Custom.Gated", null)], IsDisabled: false),
+            ]));
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var model = preview.ReviewModel.ShouldNotBeNull();
+        var decision = model.PolicyDecisions.ShouldHaveSingleItem();
+        decision.RuleId.ShouldBe("process-rule-gate");
+        decision.Kind.ShouldBe("process-required-fields");
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Refuse);
+        decision.WorkItemId.ShouldBe(42);
+        decision.OpId.ShouldBe("op");
+        decision.Reason.ShouldContain("Custom.Gated");
+        model.Blockers.ShouldContain(b => b.Kind == "policy" && b.Detail.Contains("Custom.Gated"));
+        model.AuthorizationChoices.ShouldNotContain("apply");
+
+        var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
+
+        apply.Failed.ShouldBeTrue();
+        var operation = apply.Operations.ShouldHaveSingleItem();
+        operation.State.ShouldBe(PlanOperationState.Failed);
+        operation.Error.ShouldNotBeNull();
+        operation.Error.ShouldContain("Custom.Gated");
+        await _ado.DidNotReceive().PatchAsync(
+            Arg.Any<int>(),
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+        (await _journal.GetAsync(digest))!.State.ShouldBe(PlanOperationState.Failed);
+    }
+
+    [Fact]
+    public async Task Preview_ProjectsProcessRuleLoadFailureAsUnavailablePolicyDecision()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Done"));
+        var svc = BuildService();
+        await svc.PreviewAsync(file);
+        _workItems.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(GatedSource());
+        _ruleProvider.GetRulesAsync("Frobnicator", Arg.Any<CancellationToken>())
+            .ThrowsAsyncForAnyArgs(new HttpRequestException("offline"));
+
+        var preview = await svc.PreviewAsync(file);
+
+        preview.CanApply.ShouldBeFalse();
+        var decision = preview.ReviewModel.ShouldNotBeNull().PolicyDecisions.ShouldHaveSingleItem();
+        decision.RuleId.ShouldBe("process-rule-gate");
+        decision.Outcome.ShouldBe(Twig.Domain.Services.Policy.PolicyOutcome.Unavailable);
+        decision.IsBlocking.ShouldBeTrue();
+        decision.Reason.ShouldContain("could not be loaded");
+        decision.Reason.ShouldContain("offline");
     }
 
     [Fact]

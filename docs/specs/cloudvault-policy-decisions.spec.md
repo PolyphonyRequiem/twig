@@ -55,7 +55,7 @@ Category key: **Native** — enforced by Twig; **Existing** — already enforced
 | 2 | No self-dependency, duplicate dependency, or dependency cycle within scope | `relationships.md` *Validate within scope* | Native | `dependency-integrity` rule kind |
 | 3 | `orchestration:` labels only on User Story / Bug, one value | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind |
 | 4 | `execution:` labels only on Task, one value; labels do not inherit | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind (evaluated per item, never inherited) |
-| 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate`; rule-load failure now refuses (D3) instead of permitting |
+| 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate`; rule-load failure now refuses (D3) instead of permitting; decisions surface in proposal previews |
 | 6 | Unknown/unverifiable state is distinct from violated | `enforcement.md` | Native | `unavailable` outcome, blocking (D3) |
 | 7 | Exact digest, expected revision, journaled apply | `publication.md`, `enforcement.md` | Existing | proposal digest, revision guards, journal |
 | 8 | Human vs model authorization mode | `publication.md` | Existing | `ProposalAuthorizationGate` |
@@ -154,9 +154,11 @@ not a subset of the pre-change ones (D4).
 ## Process-rule gate change (D3)
 
 `PlanProcessRuleGate` previously returned *permit* when the process rule set could not be
-loaded. It now returns *refresh required*: plan apply leaves the operation confirmed and
-returns a retryable refusal, and `twig state` refuses with an explanation. A null provider
-(no process-rule support configured) still permits.
+loaded. It now returns *refresh required*: plan preview reports an `unavailable` decision,
+and the per-operation pre-write gate re-evaluates before an ADO write while preserving its
+retryable or terminal journal outcome. `twig state` also refuses with an explanation. An
+unknown work-item type or a missing rule set is `unavailable` because required-field gates
+cannot be evaluated. A null provider (no process-rule support configured) still permits.
 
 ## Boundaries
 

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -18,7 +19,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -30,6 +31,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     private readonly IFieldDefinitionStore? _fieldDefStore;
     private readonly AdoConcurrencyThrottle? _throttle;
     private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
+
+    public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.Ado;
 
     public AdoRestClient(
         HttpClient httpClient,

@@ -123,6 +123,77 @@ public sealed class DraftCommandTests : IAsyncLifetime
     }
 
     [HostMigrationFact]
+    public async Task Show_WithUnrelatedPendingWorkPreservesEveryPendingRecordAndReportsBlocker()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>()
+            .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
+        (await Command(runtime, new StringWriter()).SetAsync(42, "System.Title", "Draft title")).ShouldBe(0);
+
+        var pending = runtime.GetRequiredService<IPendingChangeStore>();
+        await pending.AddChangeAsync(42, "field", "System.Description", "Remote description", "Local description");
+        await pending.AddChangeAsync(42, "note", null, null, "Unrelated pending note");
+        var beforePending = (await pending.GetChangesAsync(42)).ToArray();
+        beforePending.Length.ShouldBe(2);
+
+        var drafts = runtime.GetRequiredService<IRecoverableWorkItemDraftStore>();
+        var key = await KeyAsync(runtime, 42);
+        var beforeDraft = await drafts.GetAsync(key);
+        beforeDraft.ShouldNotBeNull();
+
+        var output = new StringWriter();
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
+        using var json = JsonDocument.Parse(output.ToString());
+        var root = json.RootElement;
+        root.GetProperty("status").GetString().ShouldBe("blocked-local-work");
+        root.GetProperty("observationCompleteness").GetString().ShouldBe("blocked-by-local-work");
+        root.GetProperty("localPendingWork").GetBoolean().ShouldBeTrue();
+        root.GetProperty("fields")[0].GetProperty("observedValueAvailable").GetBoolean().ShouldBeFalse();
+        root.GetProperty("fields")[0].GetProperty("observedValue").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        (await pending.GetChangesAsync(42)).ShouldBe(beforePending);
+        AssertDraftEqual(beforeDraft!, await drafts.GetAsync(key));
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
+    public async Task Show_IsInspectionOnlyAndCreatesNoProposalJournalOrAuthorization()
+    {
+        var runtime = await _fixture.CreateRuntimeAsync();
+        await runtime.GetRequiredService<IWorkItemRepository>()
+            .SaveAsync(NativeBrowserFixture.Item(42, "Original"));
+        (await Command(runtime, new StringWriter()).SetAsync(42, "System.Title", "Draft title")).ShouldBe(0);
+
+        var key = await KeyAsync(runtime, 42);
+        var drafts = runtime.GetRequiredService<IRecoverableWorkItemDraftStore>();
+        var draftBefore = await drafts.GetAsync(key);
+        draftBefore.ShouldNotBeNull();
+        var pending = runtime.GetRequiredService<IPendingChangeStore>();
+        var pendingBefore = (await pending.GetChangesAsync(42)).ToArray();
+        var journal = runtime.GetRequiredService<IPlanJournalRepository>();
+        var unresolvedBefore = await journal.GetUnresolvedAsync();
+        unresolvedBefore.ShouldBeEmpty();
+        var latestBefore = await journal.GetLatestUnresolvedAsync();
+        latestBefore.ShouldBeNull();
+        var sentinelDigest = new string('0', 64);
+        (await journal.GetAsync(sentinelDigest)).ShouldBeNull();
+
+        var output = new StringWriter();
+        (await Command(runtime, output).ShowAsync(42, "json", document: true)).ShouldBe(0);
+        using var json = JsonDocument.Parse(output.ToString());
+        var eligibility = json.RootElement.GetProperty("eligibility");
+        eligibility.GetProperty("authorized").GetBoolean().ShouldBeFalse();
+        eligibility.GetProperty("inspectionOnly").GetBoolean().ShouldBeTrue();
+
+        AssertDraftEqual(draftBefore!, await drafts.GetAsync(key));
+        (await pending.GetChangesAsync(42)).ShouldBe(pendingBefore);
+        (await journal.GetUnresolvedAsync()).ShouldBeEmpty();
+        (await journal.GetLatestUnresolvedAsync()).ShouldBe(latestBefore);
+        (await journal.GetAsync(sentinelDigest)).ShouldBeNull();
+        _fixture.Transport.Mutations.ShouldBe(0);
+    }
+
+    [HostMigrationFact]
     public async Task RevisionDriftIsRecordedAndRefusesFurtherEditsWithoutDroppingIntent()
     {
         var runtime = await _fixture.CreateRuntimeAsync();
@@ -237,6 +308,17 @@ public sealed class DraftCommandTests : IAsyncLifetime
             []);
         (await realStore.TrySaveAsync(concurrent, expectedGeneration, cancellationToken)).ShouldBeTrue();
         return await realStore.TrySaveAsync(requested, expectedGeneration, cancellationToken);
+    }
+
+    private static void AssertDraftEqual(RecoverableWorkItemDraft expected, RecoverableWorkItemDraft? actual)
+    {
+        actual.ShouldNotBeNull();
+        actual!.ItemKey.ShouldBe(expected.ItemKey);
+        actual.BaselineRevision.ShouldBe(expected.BaselineRevision);
+        actual.ObservedRevision.ShouldBe(expected.ObservedRevision);
+        actual.Generation.ShouldBe(expected.Generation);
+        actual.Changes.ShouldBe(expected.Changes);
+        actual.Conflicts.ShouldBe(expected.Conflicts);
     }
 
     private async Task<QualifiedWorkItemKey> KeyAsync(ServiceProvider runtime, int id)

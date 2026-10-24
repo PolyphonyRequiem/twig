@@ -164,10 +164,10 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
     }
 
     private static async Task<string> ShowAsync(
-        IServiceProvider services, int id, string format = "json", string? sections = null)
+        IServiceProvider services, int id, string format = "json", string? sections = null, string? fields = null)
     {
         var (exit, output) = await StdoutCapture.RunAsync(() =>
-            services.GetRequiredService<ShowCommand>().ExecuteAsync(id, format, sections: sections));
+            services.GetRequiredService<ShowCommand>().ExecuteAsync(id, format, sections: sections, fields: fields));
         exit.ShouldBe(0);
         return output;
     }
@@ -237,7 +237,7 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         await SeedAsync(services, 42, "Remote title", "Local title", parentId: 41);
         await SeedAsync(services, 43, "Remote child", "Local child", parentId: 42);
 
-        var output = await ShowAsync(services, 42, sections: "parent,children");
+        var output = await ShowAsync(services, 42, sections: "parent,children", fields: "System.Title");
 
         output.ShouldContain("Local title");
         output.ShouldContain("Local parent");
@@ -338,7 +338,7 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
 
         var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync(42, "json", refresh: true));
         var (projectedExit, projected) = await StdoutCapture.RunAsync(() =>
-            command.ExecuteAsync(42, "json", refresh: true, sections: "parent,children"));
+            command.ExecuteAsync(42, "json", refresh: true, sections: "parent,children", fields: "System.Title"));
 
         exit.ShouldBe(0);
         projectedExit.ShouldBe(0);

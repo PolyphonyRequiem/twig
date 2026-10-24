@@ -63,6 +63,10 @@ public sealed class TwigConfiguration
     /// <summary>The effective provider kind; fails closed on an unrecognized stored token.</summary>
     public string ResolveWorkItemProviderKind() => WorkItemProviderSetting.Resolve(Provider);
 
+    /// <summary>Explicit GitHub workspace scope; null unless <c>github.*</c> keys are set.</summary>
+    [JsonPropertyName("github")]
+    public GitHubConfig? GitHub { get => RepoCoords.GitHub; set => RepoCoords.GitHub = value; }
+
     /// <summary>The team used for iteration requests when no explicit team is configured.</summary>
     public static string ResolveTeam(string project, string? team)
         => string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
@@ -473,6 +477,7 @@ public sealed class TwigConfiguration
             "areas.mode" or "areas.paths" => ConfigScope.Repo,
             "seed.staledays" => ConfigScope.Repo,
             "git.branchpattern" or "git.project" or "git.repository" => ConfigScope.Repo,
+            "github.host" or "github.repository" => ConfigScope.Repo,
             "workspace.workinglevel" or "workspace.sprints" => ConfigScope.Repo,
             "auth.method" => ConfigScope.User,
             "user.displayname" or "user.email" => ConfigScope.User,
@@ -566,6 +571,10 @@ public sealed class TwigConfiguration
                 return (Git.Project ?? "", true);
             case "git.repository":
                 return (Git.Repository ?? "", true);
+            case "github.host":
+                return (GitHub?.Host ?? "", true);
+            case "github.repository":
+                return (GitHub?.Repository ?? "", true);
             case "workspace.working_level":
                 return (Workspace.WorkingLevel ?? "", true);
             case "workspace.sprints":
@@ -693,6 +702,18 @@ public sealed class TwigConfiguration
                 return true;
             case "git.repository":
                 Git.Repository = value;
+                return true;
+            case "github.host":
+                var gitHubHost = GitHubWorkspaceScope.NormalizeHost(value);
+                if (gitHubHost is null)
+                    return false;
+                (GitHub ??= new GitHubConfig()).Host = gitHubHost;
+                return true;
+            case "github.repository":
+                var gitHubRepository = GitHubWorkspaceScope.NormalizeRepository(value);
+                if (gitHubRepository is null)
+                    return false;
+                (GitHub ??= new GitHubConfig()).Repository = gitHubRepository;
                 return true;
             case "display.fillratethreshold":
                 if (double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0.0 && threshold <= 1.0)
@@ -839,6 +860,13 @@ public sealed class TwigRepoConfig
     /// omitted from <c>twig.json</c> and means ADO, so existing manifests are unchanged.
     /// </summary>
     public string? Provider { get; set; }
+
+    /// <summary>
+    /// Epic #1167 explicit GitHub scope, read only under <c>provider=github</c>. Null is omitted
+    /// from <c>twig.json</c>, so existing manifests are unchanged.
+    /// </summary>
+    [JsonPropertyName("github")]
+    public GitHubConfig? GitHub { get; set; }
     public DefaultsConfig Defaults { get; set; } = new();
     public SeedConfig Seed { get; set; } = new();
     public GitConfig Git { get; set; } = new();

@@ -1,8 +1,9 @@
-# Native draft inspection consumer - source only
+# Native draft inspection consumer - JavaScript-qualified foundation
 
 This bounded foundation consumes the flat `draftDocumentVersion: 1` document
-authored in native `e735705db8290944ca304e69ed9b56111e3f5283`.
-That native change is source-only and is not assumed available in an installed
+originally authored in native `e735705db8290944ca304e69ed9b56111e3f5283`,
+with source-contract corrections at `043277`. Native G2 remains source-only and
+unintegrated here; it is not assumed available in an installed
 binary. This consumer does not modify the native implementation.
 
 `createNativeDraftReader()` accepts an explicit native integer `workItemId`,
@@ -44,7 +45,10 @@ It has no buttons, editor, capture or Save affordances. Native flags must remain
 `authorized:false`, `inspectionOnly:true`, `serverIsFinalAuthority:true`;
 persistability or accepted rules never grants this surface authority.
 
-The authored tests use fictional flat JSON, fake `execFile` and a minimal DOM.
-They are not proof of native execution, merged delivery, host registration,
-installation, reload, live credentials, or authenticated Save. Runtime and
-JavaScript qualification await the coordinator's validation lease.
+Both module syntax checks and all 10 focused tests passed with zero skips and
+exit 0 at `28e3d2cde06852e8aa485c7c531bd47139ebe9f3`. The executable and
+test file blobs were preserved exactly when restacked at `3018b7da`.
+Those tests use fictional flat JSON, fake `execFile` and a minimal DOM; they
+prove the JavaScript consumer boundary, not native execution or G2 integration.
+Merged native delivery, host registration, installation, reload, live credentials
+and authenticated Save remain unproven by this foundation.

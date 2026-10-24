@@ -18,7 +18,7 @@ namespace Twig.Commands;
 /// Implements <c>twig seed new [--type &lt;type&gt;] [--editor] "title"</c>: writes a seed work item
 /// to the local store under the active parent. The seed itself is never pushed to ADO, but a
 /// bound-identity lookup is issued against the connection to resolve the default assignee
-/// (AFK Task #1106) — pass <c>--field System.AssignedTo=&lt;upn&gt;</c> to author an explicit
+/// (Task #1106) — pass <c>--field System.AssignedTo=&lt;upn&gt;</c> to author an explicit
 /// assignee and skip that lookup. Also backs the bare <c>twig seed "title"</c> shortcut.
 /// </summary>
 /// <remarks>
@@ -165,7 +165,7 @@ public sealed class SeedNewCommand(
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        // AFK Task #1106: default assignee is the bound ADO principal's canonical
+        // Task #1106: default assignee is the bound ADO principal's canonical
         // uniqueName. `twig seed new` doesn't contact ADO to persist the seed itself,
         // but it does need a bound identity lookup to decide the authoring default.
         // Explicit --field System.AssignedTo wins and skips the lookup.

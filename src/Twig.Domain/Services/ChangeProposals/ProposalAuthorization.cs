@@ -5,7 +5,7 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// fixes for the journal's <c>authorization_mode</c> column.
 /// <para>
 /// <b>This is an audit fact, not a session property.</b> It is deliberately NOT the same
-/// vocabulary as any session-steering mode (e.g. <c>HITL</c>/<c>AFK</c>), which describes
+/// vocabulary as any session-steering mode (attended or delegated), which describes
 /// how a session is being steered. The two are kept distinct because conflating them makes an
 /// audit trail unreconstructable: a session's steering mode can change, be resolved late, or be
 /// unknown, while "a human signed this" and "a model signed this" are facts about one apply that
@@ -17,7 +17,7 @@ public enum ProposalAuthorizationMode
     /// <summary>A human sign-off. Serialized as <c>human</c>.</summary>
     Human = 0,
 
-    /// <summary>A model authorization recorded on an AFK-steered session. Serialized as <c>model</c>.</summary>
+    /// <summary>A model authorization recorded on a delegated session. Serialized as <c>model</c>.</summary>
     Model = 1,
 }
 
@@ -49,7 +49,7 @@ public sealed record ProposalAuthorization
     public required ProposalAuthorizationMode Mode { get; init; }
 
     /// <summary>
-    /// The signing human's identity, or the model identity for an AFK authorization. Must be
+    /// The signing human's identity, or the model identity for a delegated authorization. Must be
     /// non-blank: an audit row naming nobody records that something was authorized without
     /// recording who is answerable for it.
     /// <para>

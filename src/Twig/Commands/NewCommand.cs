@@ -214,7 +214,7 @@ public sealed class NewCommand(
 
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        // AFK Task #1106: the default assignee is the bound ADO principal's canonical
+        // Task #1106: the default assignee is the bound ADO principal's canonical
         // uniqueName — not config.User.DisplayName, which is an unverified rendering.
         // An explicit --field System.AssignedTo=<value> takes precedence and bypasses
         // the lookup entirely, so a format-aware error here is only raised when the

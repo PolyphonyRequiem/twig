@@ -64,7 +64,7 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
             typeOverride = typeResult.Value;
         }
 
-        // AFK Task #1106: when the caller did not supply an explicit assignee, resolve
+        // Task #1106: when the caller did not supply an explicit assignee, resolve
         // the bound ADO principal's canonical uniqueName and use it as the authoring
         // default. If the connection cannot supply a uniqueName, refuse before any
         // mint/save so the local store never ends up with a seed authored to a
@@ -529,7 +529,7 @@ public sealed class SeedTools(ConnectionResolver resolver, SeedFactory seedFacto
         if (fetchErr is not null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
-        // AFK Task #1106: resolve the bound default once for the chain so a transient
+        // Task #1106: resolve the bound default once for the chain so a transient
         // metadata failure doesn't persist some seeds under the bound identity and
         // others under nothing. Explicit assignedTo bypasses the lookup entirely.
         string? effectiveAssignedTo = assignedTo;

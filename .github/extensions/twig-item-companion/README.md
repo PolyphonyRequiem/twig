@@ -138,13 +138,13 @@ against the real loopback server and production reader, with only the CLI
 process/filesystem boundary faked. Fixture evidence is not real-binary or host
 qualification.
 
-## Retained proposal-review consumer (source-only foundation)
+## Retained proposal-review consumer
 
 `retained-review.mjs` exports `retainProposalReview(rawJson, expected)` and
-`mountRetainedReview(root, rawJson, expected)`. These are not canvas declarations
-or an acquisition endpoint. Nothing calls the Twig CLI, previews a file, reads the
-workspace, or authorizes/applies a proposal. SDK registration awaits the supported
-extension guide/scaffold tools; host discovery and placement are not qualified.
+`mountRetainedReview(root, rawJson, expected)`. These pure functions do not acquire
+or authenticate a capture, call Twig, or authorize/apply. The separately declared
+`twig-proposal-review` canvas now wires native acquisition to this same renderer;
+host discovery and placement remain unqualified.
 
 The caller supplies one complete retained native `proposal preview -o json`
 envelope and an explicit expectation:
@@ -182,9 +182,63 @@ Authorization choices remain evidence in that envelope, never actionable control
 The complete envelope is limited to 4 Mi characters; oversized input refuses,
 never partially renders.
 
-Acquisition is deliberately absent. In particular, native `proposal preview`
+Acquisition is absent from the pure consumer. In particular, native `proposal preview`
 imports/updates the local proposal journal: it is not a read-only acquisition
 operation even though it does not apply ADO changes. No automatic preview,
 refresh/re-preview, ANSI parsing, Save, approval or apply path is provided.
 The authored tests use fictional JSON and a minimal DOM; they are not native
 capture verification or end-to-end installed-host evidence.
+
+### Explicit native acquisition canvas (#1195, JavaScript-qualified)
+
+Open `twig-proposal-review` to get an empty, inert panel. The `acquire_review`
+SDK action and the labelled form both require `{file, digest, workspace:
+{organization, project}}`. They accept no pasted JSON, authority or origin claims.
+One explicit action invokes exactly:
+
+```text
+twig proposal preview --file <physical-contained-file> --expect-digest <exact-digest> -o json
+```
+
+**This acquisition writes locally:** native preview may import a journal row and
+update last-preview ordering. It never authorizes or applies. Invalid or unsupported
+output may be refused after those local effects; cancellation is not rollback.
+There is no automatic retry, refresh, validation preflight or second preview.
+Native expected-digest checking precedes journal import. The native command also
+owns admission, physical containment, workspace validation and journal origin.
+
+The adapter pins physical session checkout/file and the exact expected/reported
+workspace/digest, with a 15-second child timeout, 4 MiB output bound, abort signal
+and no shell. The preview envelope does **not** export full connection/binding/
+identity/Bench origin, so the canvas claims no full-origin continuity or host
+authentication. Provider/model-v2 material remains explicitly unsupported: it is
+not downgraded or partially rendered.
+
+The complete validated observation is detached and frozen. Details/Back, Show
+retained observation, iframe reload and close perform no preview. The protected
+loopback state restores the same observation while this provider instance lives;
+provider restart or a fresh panel starts empty, not with invented durable recovery.
+Retained file/revision/readiness freshness is unknown until another explicit
+acquisition. A failed replacement clears old success. Close aborts the owned child
+and suppresses late publication; no Apply, Save or authorization route exists.
+
+Qualification on base `9bf9372e3f7acbd65798527dff4cb77408ee1ba4` used the exact
+reviewed executable/test blobs: eight `node --check` children passed in one
+60-second bounded command, then one 60-second bounded command ran exactly
+`proposal-canvas.test.mjs` (12), `retained-review.test.mjs` (8),
+`workbench.test.mjs` (13) and `draft-canvas-integration.test.mjs` (11).
+All **44 executed, 44 passed, zero failed/cancelled/skipped/todo**; Node and wrapper
+exits were 0, duration 1922.9733 ms. Raw receipts are retained as
+`1195-source-syntax8.log` and `1195-source-focused44.log` in the implementation
+session's artifacts. The initial seven-file syntax inventory was corrected to
+eight before execution; it was not a failed invocation. This ledger-only update
+does not change those executable/test blobs.
+
+These are fake-process, real-loopback, SDK-mock and inert-DOM results, not actual
+native preview or installed review-canvas proof. Separately, the coordinator
+opened an existing companion shell successfully, but its actual item load failed
+with `Argument '--document' is not recognized` from the installed CLI. That
+host/CLI mismatch remains a real failed load, not a passing native integration or
+an eligibility/authorization refusal. No retry, installation or reload was
+performed. The new review canvas is not yet discovered in that host; no Save,
+host authorization or full-native-origin acceptance is claimed.

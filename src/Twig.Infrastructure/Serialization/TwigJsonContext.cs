@@ -196,6 +196,10 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(FingerprintDto))]
 [JsonSerializable(typeof(Role))]
 [JsonSerializable(typeof(LinkKind))]
+// Provider-neutral work-item identities, tokens, and relationships.
+[JsonSerializable(typeof(ExternalWorkItemIdentity))]
+[JsonSerializable(typeof(ProviderRevisionToken))]
+[JsonSerializable(typeof(ProviderWorkItemRelationship))]
 // Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]

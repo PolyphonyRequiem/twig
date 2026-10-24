@@ -4,9 +4,12 @@ import { createNativeDetailReader } from "./native-detail.mjs";
 import { createNativeBenchReader } from "./native-bench.mjs";
 import { createNativeBenchDetailReader } from "./native-bench-detail.mjs";
 import { createNativeDraftReader } from "./native-draft.mjs";
+import { createNativeProposalReader } from "./native-proposal.mjs";
+import { createReviewServer } from "./review-server.mjs";
 
 const instances = new Map();
 const workbenchInstances = new Map();
+const reviewInstances = new Map();
 const readNativeDetail = createNativeDetailReader();
 const readNativeBench = createNativeBenchReader();
 const readNativeBenchDetail = createNativeBenchDetailReader();
@@ -166,4 +169,48 @@ const workbenchCanvas = createCanvas({
     },
 });
 
-session = await joinSession({ canvases: [canvas, workbenchCanvas] });
+const reviewCanvas = createCanvas({
+    id: "twig-proposal-review",
+    displayName: "Twig proposal review",
+    description: "Review one retained native proposal; explicit acquisition may write its local journal but never authorizes or applies.",
+    actions: [{
+        name: "acquire_review",
+        description: "Explicitly preview one workspace proposal at its exact expected digest. May import a local journal row/update last-preview ordering. Reopen or show retained state to view it; no authorization or apply.",
+        inputSchema: {
+            type: "object", additionalProperties: false, required: ["file", "digest", "workspace"],
+            properties: {
+                file: { type: "string", minLength: 1, maxLength: 4096 },
+                digest: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                workspace: {
+                    type: "object", additionalProperties: false, required: ["organization", "project"],
+                    properties: { organization: { type: "string", minLength: 1, maxLength: 512 },
+                        project: { type: "string", minLength: 1, maxLength: 512 } },
+                },
+            },
+        },
+        handler: async (ctx) => {
+            const instance = reviewInstances.get(ctx.instanceId);
+            if (!instance) throw new CanvasError("canvas_not_open", "Open Twig proposal review before explicit acquisition.");
+            try { return await instance.acquire(ctx.input); }
+            catch (error) { throw asCanvasError(error); }
+        },
+    }],
+    open: async (ctx) => {
+        if (!session?.workspacePath) throw new CanvasError("workspace_unavailable", "Proposal review requires a project session with an admitted workspace.");
+        let instance = reviewInstances.get(ctx.instanceId);
+        if (!instance) {
+            instance = await createReviewServer({ workspacePath: session.workspacePath, readNativeProposal: createNativeProposalReader() });
+            reviewInstances.set(ctx.instanceId, instance);
+        }
+        return { url: instance.url, title: "Twig proposal review", status: "Retained evidence only; preview acquisition is explicit and may write the local journal" };
+    },
+    onClose: async (ctx) => {
+        const instance = reviewInstances.get(ctx.instanceId);
+        if (instance) {
+            reviewInstances.delete(ctx.instanceId);
+            await instance.close();
+        }
+    },
+});
+
+session = await joinSession({ canvases: [canvas, workbenchCanvas, reviewCanvas] });

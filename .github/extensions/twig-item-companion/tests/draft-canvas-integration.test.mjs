@@ -311,7 +311,7 @@ test("existing SDK declaration wires only explicit inspection with no caller-sup
         createNativeBenchDetailReader: () => "bench-detail-reader",
     });
     await new Script("(async () => {\n" + source.replace(/^import .*;\r?$/gm, "") + "\n})()").runInContext(context);
-    assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench"]);
+    assert.deepEqual(Array.from(declarations, (canvas) => canvas.id), ["twig-item-companion", "twig-workbench", "twig-proposal-review"]);
     const companion = declarations[0];
     const action = companion.actions.find((value) => value.name === "inspect_draft");
     assert.deepEqual(JSON.parse(JSON.stringify(action.inputSchema)), { type: "object", properties: {}, additionalProperties: false });

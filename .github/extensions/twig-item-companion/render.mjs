@@ -1,14 +1,15 @@
 import { workbenchClient, workbenchMarkup } from "./workbench-client.mjs";
 import { validateDraftDocument } from "./draft-document.mjs";
 import { renderDraftInspection } from "./draft-inspection.mjs";
+import { reviewMarkup, reviewClient } from "./review-page.mjs";
 
-export function renderPage({ token, nonce, workbench = false }) {
+export function renderPage({ token, nonce, workbench = false, review = false }) {
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Twig item companion</title>
+  <title>${review ? "Twig proposal review" : "Twig item companion"}</title>
   <style nonce="${nonce}">
     :root {
       font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
@@ -107,8 +108,8 @@ export function renderPage({ token, nonce, workbench = false }) {
 <body>
   <main>
     <header>
-      <h1>${workbench ? "Twig workbench" : "Twig item companion"}</h1>
-      <p class="muted">${workbench ? "Read-only explicitly selected Bench evidence from the native cache." : "Read-only semantic detail from the current admitted Twig workspace."} This view does not edit, save, apply, or publish work.</p>
+      <h1>${review ? "Twig proposal review" : workbench ? "Twig workbench" : "Twig item companion"}</h1>
+      <p class="muted">${review ? "Retained native proposal evidence. Explicit acquisition may write the local journal." : workbench ? "Read-only explicitly selected Bench evidence from the native cache." : "Read-only semantic detail from the current admitted Twig workspace."} This view does not edit, save, apply, or publish work.</p>
     </header>
     <div class="row">
       <label for="theme-mode">Theme
@@ -120,7 +121,7 @@ export function renderPage({ token, nonce, workbench = false }) {
       </label>
       <span id="theme-status" class="muted" role="status" aria-live="polite"></span>
     </div>
-    ${workbench ? workbenchMarkup : `<form id="load-form" class="row">
+    ${review ? reviewMarkup : workbench ? workbenchMarkup : `<form id="load-form" class="row">
       <label for="work-item-id">Work item ID or local seed ID
         <input id="work-item-id" name="workItemId" type="number" step="1" required aria-describedby="id-help">
       </label>
@@ -186,7 +187,12 @@ export function renderPage({ token, nonce, workbench = false }) {
       return node;
     }
 
-    ${workbench ? workbenchClient : `
+    ${review ? `(${reviewClient.toString()})({
+      document, request,
+      loadModule: () => import("/review-module.mjs?token=" + encodeURIComponent(token))
+    }).catch((error) => {
+      document.querySelector("#review-status").textContent = "Review unavailable: " + error.message;
+    });` : workbench ? workbenchClient : `
     const form = document.querySelector("#load-form");
     const input = document.querySelector("#work-item-id");
     const loadButton = document.querySelector("#load-button");

@@ -1,12 +1,15 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Services.Process;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.GitHub;
 
 namespace Twig.Infrastructure.DependencyInjection;
 
@@ -89,13 +92,17 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
         // Epic #1167: the active provider follows the explicit workspace `provider` setting
-        // (absent => ado). A selected provider without a registered adapter fails closed
-        // rather than silently falling back to ADO.
+        // (absent => ado). GitHub resolves only from explicit github.* scope plus the gh CLI
+        // credential; anything missing fails closed rather than silently falling back to ADO.
         services.AddSingleton<IWorkItemProvider>(sp =>
         {
+            var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+            if (kind == ProviderCapabilityCatalog.GitHubProviderKind)
+                return sp.GetRequiredService<GitHubWorkItemProvider>();
             AdoConfiguration(sp);
             return (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>();
         });
+        AddGitHubReadOnlyProvider(services, config);
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
         // same AdoRestClient instance so interface-segregated consumers (plan
@@ -140,7 +147,12 @@ public static class NetworkServiceModule
                 throttle: sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
         services.AddSingleton<IIterationService>(sp => sp.GetRequiredService<AdoIterationService>());
-        services.AddSingleton<IProcessRuleProvider>(sp => sp.GetRequiredService<AdoIterationService>());
+        // AB#1169 obligation: a GitHub workspace has no process rules, so it registers the
+        // explicit empty source rather than reaching ADO. ADO keeps AdoIterationService.
+        services.AddSingleton<IProcessRuleProvider>(sp =>
+            sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind() == ProviderCapabilityCatalog.GitHubProviderKind
+                ? EmptyProcessRuleProvider.Instance
+                : sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IFormLayoutProvider>(sp => sp.GetRequiredService<AdoIterationService>());
         services.AddSingleton<IProcessTypeFieldProvider>(sp => sp.GetRequiredService<AdoIterationService>());
 
@@ -175,6 +187,47 @@ public static class NetworkServiceModule
         var cfg = sp.GetRequiredService<TwigConfiguration>();
         WorkItemProviderSetting.RequireAdo(cfg.Provider);
         return cfg;
+    }
+
+    /// <summary>
+    /// Epic #1167 read-only GitHub activation. Every piece resolves lazily from the live
+    /// configuration, so nothing (process, credential, network) is touched until a GitHub read
+    /// is actually requested. The snapshot reader is registered only for an explicit
+    /// <c>provider=github</c> workspace.
+    /// </summary>
+    private static void AddGitHubReadOnlyProvider(IServiceCollection services, TwigConfiguration config)
+    {
+        services.TryAddSingleton<IBoundedProcessRunner, BoundedProcessRunner>();
+        services.TryAddSingleton(sp => GitHubScope(sp.GetRequiredService<TwigConfiguration>()));
+        services.TryAddSingleton<IGitHubTokenSource>(sp => new GhCliTokenSource(
+            sp.GetRequiredService<IBoundedProcessRunner>(),
+            sp.GetRequiredService<GitHubWorkspaceScope>().Host));
+        services.TryAddSingleton(sp =>
+        {
+            var scope = sp.GetRequiredService<GitHubWorkspaceScope>();
+            var http = GitHubReadOnlyAuthHandler.CreateClient(
+                sp.GetRequiredService<IGitHubTokenSource>(),
+                scope.GraphQlEndpoint,
+                sp.GetService<GitHubTransportOverride>()?.CreateHandler());
+            return new GitHubWorkItemProvider(http, scope.GraphQlEndpoint, scope.Repository);
+        });
+
+        if (string.Equals(config.Provider, ProviderCapabilityCatalog.GitHubProviderKind, StringComparison.Ordinal))
+            services.AddSingleton<IWorkItemSnapshotReader>(sp => sp.GetRequiredService<GitHubWorkItemProvider>());
+    }
+
+    private static GitHubWorkspaceScope GitHubScope(TwigConfiguration cfg)
+    {
+        if (cfg.ResolveWorkItemProviderKind() != ProviderCapabilityCatalog.GitHubProviderKind)
+            throw new TwigConfigurationException(
+                $"{WorkItemProviderSetting.UnavailableReasonCode}: the GitHub adapter is available only when provider=github.",
+                new NotSupportedException(WorkItemProviderSetting.UnavailableReasonCode));
+        if (!GitHubWorkspaceScope.TryCreate(cfg.GitHub, out var scope, out var problem))
+            throw new TwigConfigurationException(
+                $"{WorkItemProviderSetting.UnconfiguredReasonCode}: {problem}. " +
+                "Run `twig config github.host <host>` and `twig config github.repository <owner/name>`.",
+                new InvalidDataException(WorkItemProviderSetting.UnconfiguredReasonCode));
+        return scope!;
     }
 
     internal static HttpClient CreateHttpClient()

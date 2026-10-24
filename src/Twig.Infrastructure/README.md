@@ -36,10 +36,39 @@ network services (auth, HTTP, ADO REST clients, iteration service).
 ## Experimental GitHub snapshot transport
 
 The internal `GitHubWorkItemProvider` implements `IWorkItemSnapshotReader` using
-an injected `HttpClient` and GraphQL **queries only**. It is not registered by the
-composition root: selecting `provider=github` still fails closed. Authentication,
-alias resolution, writes, device sign-in and GitHub persistence are not part of
-this transport increment.
+GraphQL **queries only**. It is registered as `IWorkItemProvider` and
+`IWorkItemSnapshotReader` only when the workspace explicitly sets
+`provider=github`; an absent setting still means ADO and an unknown provider
+still fails closed. Writes, device sign-in, alias resolution and GitHub
+persistence are not part of this increment.
+
+### Activation (`provider=github`)
+
+- **Scope** comes only from explicit Repo-scoped config — `twig config github.host
+  <host>` and `twig config github.repository <owner/name>` — never from the git
+  remote. Missing or malformed scope fails closed with `provider-unconfigured:`.
+  The GraphQL endpoint is `https://api.github.com/graphql` for `github.com`,
+  otherwise `https://<host>/api/graphql`. Snapshots for issues outside the
+  configured repository are refused.
+- **Credential** comes only from the GitHub CLI: `gh auth token --hostname
+  <host>`, run as an argument array with no shell, a 10 s timeout and bounded
+  output. The token is held in memory for the process only — never persisted,
+  logged or sent to telemetry. If `gh` is missing, not logged in, times out or
+  returns no usable token, the read fails closed with
+  `GitHubCredentialUnavailableException` ("Run `gh auth login --hostname <host>`")
+  and there is no fallback source.
+- **Read-only is enforced by Twig, not by the token.** The token's real scope is
+  whatever the user granted `gh`. `GitHubReadOnlyAuthHandler` admits only a POST
+  to the exact configured HTTPS GraphQL endpoint whose body is exactly one of the
+  adapter's fixed read documents (`GitHubIssueQueries`) with the expected
+  `id`/`after` variables. Any other verb, destination, document, mutation or
+  envelope is refused before the token is requested or the network is touched.
+  Automatic redirects are disabled and any 3xx response is refused, so the bearer
+  token never follows a response to another origin.
+- **Process rules**: under `provider=github`, `IProcessRuleProvider` is the
+  explicit `EmptyProcessRuleProvider`; ADO keeps `AdoIterationService`.
+- ADO-only services still refuse under `provider=github` with
+  `provider-unavailable:`.
 
 `FetchSnapshotAsync` accepts a qualified identity: provider `github`, the
 lowercase HTTPS API origin without a trailing slash (for example

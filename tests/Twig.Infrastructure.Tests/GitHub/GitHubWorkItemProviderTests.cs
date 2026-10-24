@@ -145,6 +145,22 @@ public sealed class GitHubWorkItemProviderTests
             """[{"id":"U_a","login":"alpha"},{"id":"U_z","login":"zeta"}]""", "github.assignees.v1"));
     }
 
+    [Theory]
+    [InlineData("new/repo", true)]
+    [InlineData("NEW/Repo", true)]
+    [InlineData("other/repo", false)]
+    public async Task ExpectedRepository_RefusesIssuesOutsideTheConfiguredRepository(string configured, bool admitted)
+    {
+        using var transport = new RecordingTransport();
+        using var http = new HttpClient(transport);
+        var provider = new GitHubWorkItemProvider(http, expectedRepository: configured);
+
+        if (admitted)
+            (await provider.FetchSnapshotAsync(Identity)).Identity.ShouldBe(Identity);
+        else
+            await Should.ThrowAsync<JsonException>(() => provider.FetchSnapshotAsync(Identity));
+    }
+
     [Fact]
     public async Task ObservedEmpty_IsExplicitNullOrEmpty_NotAnUnavailableRead()
     {
@@ -320,7 +336,7 @@ public sealed class GitHubWorkItemProviderTests
             }
             """;
 
-    private sealed class RecordingTransport : HttpMessageHandler
+    internal sealed class RecordingTransport : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Uri, string Body)> Requests { get; } = [];
         public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
@@ -332,7 +348,7 @@ public sealed class GitHubWorkItemProviderTests
         public const string DefaultMetadata = """
             {"data":{"node":{"__typename":"Issue","id":"I_caseSensitive","number":42,
             "title":"Issue title","state":"OPEN","body":"**body**","url":"https://github.com/new/repo/issues/42",
-            "parent":{"id":"I_parent"},"milestone":null}}}
+            "parent":{"id":"I_parent"},"milestone":null,"repository":{"nameWithOwner":"new/repo"}}}}
             """;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

@@ -137,3 +137,54 @@ prerequisite SHA. The workbench harness runs the real rendered client script
 against the real loopback server and production reader, with only the CLI
 process/filesystem boundary faked. Fixture evidence is not real-binary or host
 qualification.
+
+## Retained proposal-review consumer (source-only foundation)
+
+`retained-review.mjs` exports `retainProposalReview(rawJson, expected)` and
+`mountRetainedReview(root, rawJson, expected)`. These are not canvas declarations
+or an acquisition endpoint. Nothing calls the Twig CLI, previews a file, reads the
+workspace, or authorizes/applies a proposal. SDK registration awaits the supported
+extension guide/scaffold tools; host discovery and placement are not qualified.
+
+The caller supplies one complete retained native `proposal preview -o json`
+envelope and an explicit expectation:
+
+```javascript
+{
+    captureId: "host-observation-id",
+    expectedCaptureId: "host-observation-id",
+    expectedModelVersion: 1,
+    digest: "<exact reported 64-character SHA-256>",
+    workspace: { organization: "<reported organization>", project: "<reported project>" },
+    sourceKind: "host-supplied-native-preview",
+}
+```
+
+The expectation is caller context, not a new native wire schema or authentication
+credential. The native envelope has no capture-authentication field. Validation
+checks the known `twig.change-proposal.review` version-1 shape and internal
+workspace/digest/ordered-operation correspondence. It cannot prove that JSON came
+from Twig or detect a consistently forged or consistently shortened envelope.
+The view labels workspace/digest/source as **reported**, and capture authenticity
+as unverified. Missing expected identity/version, malformed or structurally
+truncated input, unsupported kinds and contradictory evidence show unavailable.
+Provider-qualified targets/peers, provider affected items and provider revision
+preconditions are explicitly refused until their native consumer contract lands;
+opaque identities are never coerced to integer ADO IDs.
+
+Details and Back only switch the same detached, frozen observation; neither
+acquires another preview. Brief retains every operation, effect, precondition,
+issue, blocker, policy decision and pending-change record. Long `System.Description` field-set bodies (case-insensitive native classification)
+are explicitly deferred to Details, which includes the complete envelope and
+exact retained values. Text, links and markup remain inert `textContent`.
+Authorization choices remain evidence in that envelope, never actionable controls.
+`canApply` or a favorable policy assessment does not grant this consumer authority.
+The complete envelope is limited to 4 Mi characters; oversized input refuses,
+never partially renders.
+
+Acquisition is deliberately absent. In particular, native `proposal preview`
+imports/updates the local proposal journal: it is not a read-only acquisition
+operation even though it does not apply ADO changes. No automatic preview,
+refresh/re-preview, ANSI parsing, Save, approval or apply path is provided.
+The authored tests use fictional JSON and a minimal DOM; they are not native
+capture verification or end-to-end installed-host evidence.

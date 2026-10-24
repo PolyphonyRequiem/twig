@@ -647,7 +647,9 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<IUnitOfWork>(),
                 // Relationship capability gate (#1169 obligation, AB#1170): proposal add-link
                 // routes through the active provider's descriptor exactly as `twig link` does.
-                sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>()));
+                // Required, not optional: the gate treats a null provider as permit, so a
+                // composition that cannot resolve one must fail closed here instead.
+                sp.GetRequiredService<Twig.Domain.Interfaces.IWorkItemProvider>()));
 
         return services;
     }

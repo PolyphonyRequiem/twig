@@ -82,6 +82,9 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     private readonly ISessionSteeringModeProvider _steering;
     private readonly IWorkItemProvider? _workItemProvider;
 
+    /// <summary>The provider whose descriptor gates add-link; exposed for composition tests.</summary>
+    internal IWorkItemProvider? RelationshipCapabilityProvider => _workItemProvider;
+
     /// <summary>
     /// Constructs the service. Every dependency is a Twig-shared singleton; the executor is
     /// created inline over those collaborators so plan readback uses the same field metadata
@@ -1184,8 +1187,10 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
 
     /// <summary>
     /// #1170: refusal text for an add-link whose relationship kind the active provider does
-    /// not route natively, or <c>null</c> when it may proceed. Without a provider (test
-    /// composition) nothing is refused, mirroring the process-rule gate. Unknown relations
+    /// not route natively, or <c>null</c> when it may proceed. Production composition always
+    /// supplies the provider (resolved as required); only direct construction by tests and
+    /// harnesses omits it,
+    /// and then nothing is refused, mirroring the process-rule gate. Unknown relations
     /// pass through to the executor, which already rejects them. Remove-link is not gated.
     /// </summary>
     private string? RelationshipCapabilityRefusal(PlanOperationDefinition opDef)

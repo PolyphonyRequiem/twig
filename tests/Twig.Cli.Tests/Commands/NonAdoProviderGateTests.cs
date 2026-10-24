@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Shouldly;
 using Twig.Cli.Tests.TestSupport;
 using Twig.Commands;
@@ -225,6 +226,51 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         var services = new ServiceCollection();
         Compose(services, config, paths, gitProject: "Project");
         return services;
+    }
+
+    /// <summary>
+    /// #1170: the add-link capability gate treats a null provider as permit, so production
+    /// composition must hand the lifecycle the active provider itself, never null.
+    /// </summary>
+    [Fact]
+    public async Task PlanLifecycle_UnderAdo_IsComposedWithTheActiveProvider()
+    {
+        var runtime = await AttachAsync(provider: null);
+
+        var lifecycle = runtime.GetRequiredService<IPlanLifecycleService>()
+            .ShouldBeOfType<Twig.Infrastructure.Plan.PlanLifecycleService>();
+
+        lifecycle.RelationshipCapabilityProvider.ShouldNotBeNull();
+        lifecycle.RelationshipCapabilityProvider.ShouldBeSameAs(runtime.GetRequiredService<IWorkItemProvider>());
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PlanLifecycle_WithoutAResolvableProvider_FailsClosedInsteadOfPermitting()
+    {
+        var (config, paths) = await PrepareAsync(provider: null, "no-provider-checkout");
+        _transport.Reset();
+        var services = new ServiceCollection();
+        Compose(services, config, paths, gitProject: null);
+        services.RemoveAll<IWorkItemProvider>();
+        var runtime = services.BuildServiceProvider();
+        _runtimes.Add(runtime);
+
+        Should.Throw<InvalidOperationException>(() => runtime.GetRequiredService<IPlanLifecycleService>())
+            .Message.ShouldContain(nameof(IWorkItemProvider));
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("github", WorkItemProviderSetting.UnavailableReasonCode)]
+    [InlineData("gitlab", WorkItemProviderSetting.UnknownReasonCode)]
+    public async Task PlanLifecycle_UnderNonAdoProvider_RefusesToCompose(string provider, string reason)
+    {
+        var runtime = await AttachAsync(provider);
+
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IPlanLifecycleService>())
+            .Message.ShouldStartWith(reason + ":");
+        _transport.Requests.ShouldBeEmpty();
     }
 
     private static async Task<Exception?> CaptureAsync(Func<Task<int>> run)

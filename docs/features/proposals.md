@@ -193,7 +193,13 @@ The projection is safe by construction:
 For fields whose metadata declares HTML, supported serialization differences
 verify with a normalization warning, using the same comparison in normal apply
 and recovery. This includes trailing ASCII whitespace directly before a block
-closing tag: `<p>Alpha</p>` and `<p>Alpha </p>` compare equivalent.
+closing tag: `<p>Alpha</p>` and `<p>Alpha </p>` compare equivalent. ADO's
+entity decoding (`&quot;` → `"`) and its insertion of ASCII whitespace-only text
+between two supported block tags are also equivalent: `<p>A</p><p>B</p>` and
+`<p>A</p>\n<p>B</p>` verify identically for `System.Description` and custom HTML
+fields such as `Custom.FalsificationCriteria`. Whitespace beside inline or
+preformatted elements, beside a block carrying `class` or `style`, nonbreaking
+spaces, and encoded whitespace stay strict.
 
 The whitespace fallback is deliberately narrower than a browser renderer. It
 supports default-flow `div`, `p`, headings, block quotes, and lists, with balanced,

@@ -229,6 +229,122 @@ public sealed class PlanOperationExecutorTests
         outcome.Error!.ShouldContain("System.Description");
     }
 
+    // ── AB#851: entity decoding + inter-element whitespace insertion ─────────
+
+    /// <summary>
+    /// The AB#851 shape: ADO stores an HTML field with entities decoded AND whitespace
+    /// inserted between block elements. Observed live on a Bug close
+    /// (<c>Custom.FalsificationCriteria</c> + <c>System.State</c>): the write landed but the
+    /// readback reported Indeterminate. Built-in and custom HTML fields must reach the same
+    /// verdict for the same write.
+    /// </summary>
+    internal const string Ab851Staged =
+        "<h2>Falsification</h2><p>Fails if <code>apply</code> reports &quot;Indeterminate&quot; &amp; the write landed.</p>"
+        + "<ul><li>Entity: &#39;quoted&#39;</li><li>Second</li></ul><blockquote><p>Quoted</p></blockquote><p>Done.</p>";
+
+    internal const string Ab851AdoStored =
+        "<h2>Falsification</h2>\n<p>Fails if <code>apply</code> reports \"Indeterminate\" &amp; the write landed.</p>\n"
+        + "<ul>\n<li>Entity: 'quoted'</li>\n<li>Second</li>\n</ul>\n<blockquote>\n<p>Quoted</p>\n</blockquote>\n<p>Done.</p>";
+
+    [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task ReadbackBatch_EntityBearingHtmlRoundTripThroughAdoNormalization_Verifies(string field)
+    {
+        StubFieldDefinition(field, "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.State"] = "Done",
+                [field] = Ab851Staged,
+            },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.ChangeState("Done");
+        wi.UpdateField(field, Ab851AdoStored);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeTrue(outcome.Error);
+        outcome.Warning.ShouldNotBeNull();
+        outcome.Warning.ShouldContain(field);
+        outcome.Warning.ShouldContain("canonicalized HTML");
+    }
+
+    [Theory]
+    [InlineData("System.Description")]
+    [InlineData("Custom.FalsificationCriteria")]
+    public async Task ReadbackBatch_EntityBearingHtmlWithChangedText_RemainsNonVerified(string field)
+    {
+        StubFieldDefinition(field, "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { [field] = Ab851Staged },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField(field, Ab851AdoStored.Replace("Second", "Other", StringComparison.Ordinal));
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBeFalse();
+        outcome.Error!.ShouldContain(field);
+        outcome.Warning.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\n<p>B</p>", true)]
+    [InlineData("<div><p>A</p></div>", "<div>\n<p>A</p>\n</div>\n", true)]
+    [InlineData("<ol><li><p>A</p></li></ol>", "<ol>\n<li>\n<p>A</p>\n</li>\n</ol>", true)]
+    [InlineData("<span>a</span><span>b</span>", "<span>a</span>\n<span>b</span>", false)]
+    [InlineData("<p>A</p><span>b</span>", "<p>A</p> <span>b</span>", false)]
+    [InlineData("<p>a<strong>b</strong></p>", "<p>a\n<strong>b</strong></p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\u00a0<p>B</p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>&#10;<p>B</p>", false)]
+    [InlineData("<pre>a</pre><pre>b</pre>", "<pre>a</pre>\n<pre>b</pre>", false)]
+    [InlineData("<p class='x'>A</p><p>B</p>", "<p class='x'>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p class='x'>B</p>", "<p>A</p>\n<p class='x'>B</p>", false)]
+    [InlineData("<div><p class='x'>A</p><p>B</p></div>", "<div><p class='x'>A</p>\n<p>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p class='x'>B</p></div>", "<div><p>A</p>\n<p class='x'>B</p></div>", false)]
+    [InlineData("<div><p>A</p><p style='white-space:pre'>B</p></div>",
+        "<div><p>A</p>\n<p style='white-space:pre'>B</p></div>", false)]
+    [InlineData("<p style='margin:0'>A</p><p>B</p>", "<p style='margin:0'>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p style='margin:0'>B</p>", "<p>A</p>\n<p style='margin:0'>B</p>", false)]
+    [InlineData("<div class='x'><p>A</p></div>", "<div class='x'>\n<p>A</p></div>", false)]
+    [InlineData("<div><div class='x'><p>A</p><p>B</p></div></div>",
+        "<div><div class='x'><p>A</p>\n<p>B</p></div></div>", false)]
+    [InlineData("<p title='t'>A</p><p>B</p>", "<p title='t'>A</p>\n<p>B</p>", true)]
+    [InlineData("<!-- c --><p>A</p><p>B</p>", "<!-- c --><p>A</p>\n<p>B</p>", false)]
+    [InlineData("<p>A</p><p>B</p>", "<p>A</p>\n<p>C</p>", false)]
+    public async Task ReadbackBatch_HtmlInterBlockWhitespace_OnlyBetweenBlockBoundaries(
+        string expected, string actual, bool equivalent)
+    {
+        StubFieldDefinition("Custom.FalsificationCriteria", "html");
+        var op = new BatchOperation
+        {
+            Id = "html", WorkItemId = 1, ExpectedRevision = 1,
+            Fields = new Dictionary<string, string?> { ["Custom.FalsificationCriteria"] = expected },
+        };
+        var wi = new WorkItem { Id = 1, Title = "T" };
+        wi.MarkSynced(2);
+        wi.UpdateField("Custom.FalsificationCriteria", actual);
+        _ado.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(wi);
+
+        var outcome = await _executor.ReadbackAsync(op, default, CancellationToken.None);
+
+        outcome.Ok.ShouldBe(equivalent);
+        if (equivalent)
+            outcome.Warning.ShouldNotBeNull();
+        else
+            outcome.Warning.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("<p>Alpha</p>", "<p>Alpha \t\r\n</p>", true)]
     [InlineData("<div><h2>Title</h2><p>A <strong>B</strong> C</p></div>",

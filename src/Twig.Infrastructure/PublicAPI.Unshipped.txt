@@ -137,3 +137,4 @@ const Twig.Infrastructure.Config.WorkItemProviderSetting.UnknownReasonCode = "pr
 static Twig.Infrastructure.Config.WorkItemProviderSetting.KnownKinds.get -> System.Collections.Generic.IReadOnlyList<string!>!
 static Twig.Infrastructure.Config.WorkItemProviderSetting.Normalize(string? value) -> string?
 static Twig.Infrastructure.Config.WorkItemProviderSetting.Resolve(string? stored) -> string!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.RequireAdo(string? stored) -> void

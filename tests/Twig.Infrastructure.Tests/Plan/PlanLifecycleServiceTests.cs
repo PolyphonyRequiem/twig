@@ -312,6 +312,19 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_V1PreservesCanonicalRequestJsonInTheJournal()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Doing"));
+
+        var preview = await BuildService().PreviewAsync(file);
+
+        preview.CanApply.ShouldBeTrue();
+        var journal = (await _journal.GetAsync(preview.Digest!))!;
+        journal.Operations.ShouldHaveSingleItem().RequestJson.ShouldBe(
+            "{\"expectedRevision\":3,\"fields\":{\"System.State\":\"Doing\"},\"id\":\"op\",\"kind\":\"batch\",\"workItemId\":42}");
+    }
+
+    [Fact]
     public async Task Preview_ExpectedDigestMismatchRefusesBeforeJournalImportOrPendingSnapshot()
     {
         var file = WritePlan(ValidPlanSource());

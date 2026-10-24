@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Shouldly;
 using Twig.Domain.Services.Plan;
 using Twig.Domain.ValueObjects;
@@ -53,6 +54,39 @@ public sealed class PlanDocumentParserTests
             "expectedProviderRevision": "opaque:rev/42"
           },
           "fields": { "System.Title": "New title" }
+        }
+      ]
+    }
+    """;
+
+    private const string ValidProviderLink = /*lang=json,strict*/ """
+    {
+      "version": 2,
+      "workspace": { "organization": "acme", "project": "widgets" },
+      "operations": [
+        {
+          "id": "link",
+          "kind": "add-link",
+          "target": {
+            "item": {
+              "localId": "018f3f5a-6b7c-7d8e-9f01-234567890abc",
+              "externalIdentity": {
+                "providerKind": "github",
+                "resourceScope": "https://github.com/acme/widgets",
+                "nativeId": "issue:7"
+              }
+            },
+            "expectedProviderRevision": "opaque:rev/42"
+          },
+          "relation": "related",
+          "other": {
+            "localId": "0190f1f0-7b12-7abc-8abc-1234567890ab",
+            "externalIdentity": {
+              "providerKind": "github",
+              "resourceScope": "https://github.com/acme/widgets",
+              "nativeId": "issue:8"
+            }
+          }
         }
       ]
     }
@@ -135,6 +169,66 @@ public sealed class PlanDocumentParserTests
         op.Other!.LocalId.ToString().ShouldBe("0190f1f0-7b12-7abc-8abc-1234567890ab");
         op.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"abc\"");
         Parser.Parse(PlanDocumentWriter.Write(result.Plan!)).Digest.ShouldBe(result.Digest);
+    }
+
+    [Fact]
+    public void V2_digest_changes_when_any_provider_binding_component_changes()
+    {
+        var original = Parser.Parse(ValidProviderLink);
+        original.IsValid.ShouldBeTrue(FormatIssues(original));
+        var originalDigest = original.Digest;
+
+        var mutations = new (string Name, Action<JsonObject> Apply)[]
+        {
+            ("target localId", root =>
+                root["operations"]![0]!["target"]!["item"]!["localId"] = "0190f1f0-7b12-7abc-8abc-1234567890ac"),
+            ("target providerKind", root =>
+                root["operations"]![0]!["target"]!["item"]!["externalIdentity"]!["providerKind"] = "github-enterprise"),
+            ("target resourceScope", root =>
+                root["operations"]![0]!["target"]!["item"]!["externalIdentity"]!["resourceScope"] = "https://github.com/acme/other"),
+            ("target nativeId", root =>
+                root["operations"]![0]!["target"]!["item"]!["externalIdentity"]!["nativeId"] = "issue:70"),
+            ("expected provider revision", root =>
+                root["operations"]![0]!["target"]!["expectedProviderRevision"] = "opaque:rev/43"),
+            ("peer localId", root =>
+                root["operations"]![0]!["other"]!["localId"] = "0190f1f0-7b12-7abc-8abc-1234567890ac"),
+            ("peer providerKind", root =>
+                root["operations"]![0]!["other"]!["externalIdentity"]!["providerKind"] = "github-enterprise"),
+            ("peer resourceScope", root =>
+                root["operations"]![0]!["other"]!["externalIdentity"]!["resourceScope"] = "https://github.com/acme/other"),
+            ("peer nativeId", root =>
+                root["operations"]![0]!["other"]!["externalIdentity"]!["nativeId"] = "issue:80"),
+        };
+
+        foreach (var (name, apply) in mutations)
+        {
+            var changedDocument = JsonNode.Parse(ValidProviderLink)!.AsObject();
+            apply(changedDocument);
+
+            var changed = Parser.Parse(changedDocument.ToJsonString());
+
+            changed.IsValid.ShouldBeTrue($"{name}: {FormatIssues(changed)}");
+            changed.Digest.ShouldNotBe(originalDigest, $"{name} must participate in the v2 digest");
+        }
+    }
+
+    [Fact]
+    public void V2_digest_is_stable_across_nested_property_order_and_whitespace()
+    {
+        const string reordered = """
+            { "operations" : [ {
+              "other" : { "externalIdentity" : { "nativeId" : "issue:8", "resourceScope" : "https://github.com/acme/widgets", "providerKind" : "github" }, "localId" : "0190f1f0-7b12-7abc-8abc-1234567890ab" },
+              "relation" : "related",
+              "target" : { "expectedProviderRevision" : "opaque:rev/42", "item" : { "externalIdentity" : { "nativeId" : "issue:7", "resourceScope" : "https://github.com/acme/widgets", "providerKind" : "github" }, "localId" : "018f3f5a-6b7c-7d8e-9f01-234567890abc" } },
+              "kind" : "add-link", "id" : "link"
+            } ], "workspace" : { "project" : "widgets", "organization" : "acme" }, "version" : 2 }
+            """;
+
+        var original = Parser.Parse(ValidProviderLink);
+        var equivalent = Parser.Parse(reordered);
+
+        equivalent.IsValid.ShouldBeTrue(FormatIssues(equivalent));
+        equivalent.Digest.ShouldBe(original.Digest);
     }
 
     [Fact]

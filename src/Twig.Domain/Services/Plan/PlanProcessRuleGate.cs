@@ -43,7 +43,8 @@ namespace Twig.Domain.Services.Plan;
 /// cannot load rules, this evaluator returns <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>:
 /// a retryable precondition, not a terminal refusal, so a transient outage holds the batch
 /// rather than either denying it permanently or letting an unchecked close gate through.
-/// A <c>null</c> provider (no network layer in the object graph) still permits.
+/// A <c>null</c> provider (no rule source in the object graph) is likewise unavailable: a
+/// provider with genuinely no rules registers <see cref="EmptyProcessRuleProvider"/>.
 /// </para>
 /// <para>
 /// 🔴 <b>Old vs new views.</b> Generic rule verbs read from two views of the item, not one:
@@ -119,9 +120,10 @@ internal sealed class PlanProcessRuleGate
 
     /// <summary>
     /// Constructs a gate over the given rule provider. A <c>null</c> provider produces a
-    /// gate that always permits — the same shape a DI graph missing the network layer
-    /// would produce, and the state <see cref="PlanLifecycleService"/> should still be
-    /// usable in.
+    /// gate that never permits: every evaluation returns
+    /// <see cref="PlanProcessRuleGateOutcome.RequiresRefresh(string)"/>, because an absent
+    /// rule source cannot vouch for close gates (AB#1169). Compositions whose provider has
+    /// no rules pass <see cref="EmptyProcessRuleProvider.Instance"/>.
     /// </summary>
     public PlanProcessRuleGate(IProcessRuleProvider? rules) => _rules = rules;
 
@@ -141,7 +143,10 @@ internal sealed class PlanProcessRuleGate
         WorkItem source,
         CancellationToken ct = default)
     {
-        if (_rules is null) return PlanProcessRuleGateOutcome.Ok;
+        if (_rules is null)
+            return PlanProcessRuleGateOutcome.RequiresRefresh(
+                "No process-rule provider is registered, so required-field gates cannot be evaluated. "
+                + "Run with a configured work-item provider; providers without process rules must register an empty rule provider.");
 
         var typeName = source.Type.Value;
         if (string.IsNullOrWhiteSpace(typeName))

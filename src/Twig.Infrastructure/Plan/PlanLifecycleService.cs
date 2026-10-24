@@ -118,7 +118,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     /// Composition-root overload that additionally accepts the process-rule provider used
     /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
     /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
-    /// delegates in with a null provider, which the gate treats as permit-all.
+    /// delegates in with a null provider, which the gate treats as unavailable (AB#1169), so
+    /// proposals built through it preview and apply as blocked until a provider is supplied.
     /// </summary>
     internal PlanLifecycleService(
         PlanDocumentParser parser,

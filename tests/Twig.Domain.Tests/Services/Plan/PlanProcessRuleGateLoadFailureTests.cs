@@ -15,6 +15,46 @@ namespace Twig.Domain.Tests.Services.Plan;
 public sealed class PlanProcessRuleGateLoadFailureTests
 {
     [Fact]
+    public async Task NullProvider_RequiresRefresh_InsteadOfPermitAll()
+    {
+        var item = new WorkItemBuilder(5, "x").AsTask().Build();
+
+        var outcome = await new PlanProcessRuleGate(rules: null).EvaluateAsync(
+            new BatchOperation
+            {
+                Id = "b",
+                WorkItemId = 5,
+                ExpectedRevision = 1,
+                Fields = new Dictionary<string, string?> { ["System.State"] = "Done" },
+            },
+            item,
+            CancellationToken.None);
+
+        outcome.IsOk.ShouldBeFalse();
+        outcome.IsRefreshRequired.ShouldBeTrue();
+        outcome.Message.ShouldNotBeNull().ShouldContain("No process-rule provider");
+    }
+
+    [Fact]
+    public async Task ExplicitEmptyProvider_Permits()
+    {
+        var item = new WorkItemBuilder(5, "x").AsTask().Build();
+
+        var outcome = await new PlanProcessRuleGate(EmptyProcessRuleProvider.Instance).EvaluateAsync(
+            new BatchOperation
+            {
+                Id = "b",
+                WorkItemId = 5,
+                ExpectedRevision = 1,
+                Fields = new Dictionary<string, string?> { ["System.State"] = "Done" },
+            },
+            item,
+            CancellationToken.None);
+
+        outcome.IsOk.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task UnknownWorkItemType_RequiresRefresh_InsteadOfPermitAll()
     {
         var provider = Substitute.For<IProcessRuleProvider>();

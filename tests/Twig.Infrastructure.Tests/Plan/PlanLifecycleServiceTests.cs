@@ -1504,7 +1504,7 @@ public sealed class PlanLifecycleServiceTests : IDisposable
             new PlanDocumentParser(), _journal, _pending, _fieldDefinitions, _ado, _revisionBound,
             _seedPublish.Orchestrator, _workItems, _seedLinks, _stagedRegistry, _publishIdMap,
             _publishIntent, _config, _paths, boundClock, new StubSteering(() => _steeringMode), new FixtureOrigin(_repoRoot),
-            Substitute.For<IUnitOfWork>());
+            _ruleProvider, Substitute.For<IUnitOfWork>());
 
         var digest = (await svc.PreviewAsync(file)).Digest!;
 

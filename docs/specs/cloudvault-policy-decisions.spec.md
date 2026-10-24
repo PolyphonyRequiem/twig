@@ -158,7 +158,11 @@ loaded. It now returns *refresh required*: plan preview reports an `unavailable`
 and the per-operation pre-write gate re-evaluates before an ADO write while preserving its
 retryable or terminal journal outcome. `twig state` also refuses with an explanation. An
 unknown work-item type or a missing rule set is `unavailable` because required-field gates
-cannot be evaluated. A null provider (no process-rule support configured) still permits.
+cannot be evaluated. A null provider (no process-rule provider registered) is also
+`unavailable`: an absent provider is indistinguishable from a forgotten registration, so it
+fails closed rather than permitting. A provider whose process has no rules must say so
+explicitly by registering `EmptyProcessRuleProvider.Instance` (or any provider returning an
+empty rule set), which permits.
 
 ## Boundaries
 
@@ -169,7 +173,8 @@ cannot be evaluated. A null provider (no process-rule support configured) still 
   covers parent-child, predecessor-successor and related links). They define no process-rule
   seam, and no GitHub work-item adapter exists yet, so the evaluator's provider-neutral input
   stays `IProcessRuleProvider` (work-item type → `ProcessRule` list), implemented today by ADO
-  only. A provider with no process rules must register a provider that returns an empty rule
-  set; a networked composition that registers none is guarded by
+  only. A provider with no process rules must register `EmptyProcessRuleProvider.Instance`
+  (or another provider returning an empty rule set), since an unregistered provider fails
+  closed; a networked composition that registers none is guarded by
   `NetworkServiceModuleTests.ProcessRuleProvider_IsRegistered_SoTheRequiredFieldGateNeverSilentlyPermits`.
 * Host skills keep every **Host** row above; Twig reports mechanical facts they can rely on.

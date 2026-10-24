@@ -39,8 +39,10 @@ The internal `GitHubWorkItemProvider` implements `IWorkItemSnapshotReader` using
 GraphQL **queries only**. It is registered as `IWorkItemProvider` and
 `IWorkItemSnapshotReader` only when the workspace explicitly sets
 `provider=github`; an absent setting still means ADO and an unknown provider
-still fails closed. Writes, device sign-in, alias resolution and GitHub
-persistence are not part of this increment.
+still fails closed. This increment registers the provider transport only; it
+does not dispatch CLI read commands through it. Writes, write readiness,
+device sign-in, alias resolution and GitHub persistence are not part of this
+increment.
 
 ### Activation (`provider=github`)
 
@@ -99,7 +101,9 @@ incomplete pagination fail explicitly instead of returning empty observations.
 read's evidence (`read-denied`, `read-failed` or `read-incomplete`), without
 changing static Native/Unsupported declarations. Before a read, and after a
 successful read, availability remains unprobed; a read cannot establish write
-permission. Multi-request reads do not promise an atomic remote snapshot.
+permission or write readiness. CLI read-command dispatch through this snapshot
+reader is not included. Multi-request reads do not promise an atomic remote
+snapshot.
 
 ## License
 

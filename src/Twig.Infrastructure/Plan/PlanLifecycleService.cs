@@ -163,7 +163,11 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
             adoService, revisionCodec, revisionBound, fieldDefinitionStore, seedPublish,
             workItemRepo, seedLinkRepo, stagedRegistry, publishIdMap, publishIntent, pendingReader, unitOfWork);
         _ruleGate = new PlanProcessRuleGate(ruleProvider);
-        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore);
+        _reviewModel = new ChangeProposalReviewModelBuilder(workItemRepo, fieldDefinitionStore)
+        {
+            CapabilityDescriptor = Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(
+                config.ResolveWorkItemProviderKind(), out var capabilityDescriptor) ? capabilityDescriptor : null,
+        };
         _steering = steering;
         _policyLoader = new DeclaredPolicyLoader(paths.PolicyPath);
         _policyEvaluator = new DeclaredPolicyEvaluator(workItemRepo, linkRepo);

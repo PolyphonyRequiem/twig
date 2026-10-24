@@ -80,6 +80,36 @@ public sealed class ChangeProposalReviewRendererTests
         return output.ToString();
     }
 
+    // A declared capability is shown as declared and not observed, in both densities, and never as an origin.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Render_ShowsDeclaredCapabilityAdvisory_NotObservedOrigin(bool full)
+    {
+        var model = Model();
+        model = model with
+        {
+            Operations = [.. model.Operations.Select(o => o.Kind == "add-link"
+                ? o with { Capability = new ReviewCapabilityAdvisory { Relationship = "predecessor-successor", Declared = "native", Availability = "unknown", Reason = "not-probed" } }
+                : o)],
+        };
+
+        var output = new StringWriter();
+        new RendererFactory().GetRenderer("human", output)
+            .Render(new RenderTree.RenderTree(ChangeProposalReviewRenderer.Render(model, full)));
+        var text = output.ToString();
+
+        text.ShouldContain("declared capability: native");
+        text.ShouldContain("not yet observed");
+        text.ShouldContain("not-probed");
+        text.ShouldNotContain("provider-native");
+        text.ShouldNotContain("origin");
+    }
+
+    [Fact]
+    public void Render_WithoutAdvisory_EmitsNoCapabilityLine() =>
+        RenderText(Model()).ShouldNotContain("declared capability");
+
     // The human projection keeps material effects, warnings and blockers, but no approval controls.
     // Digest, workspace and wire-level operation bookkeeping remain machine data.
     [Fact]

@@ -584,6 +584,96 @@ public sealed class ChangeProposalReviewModelBuilderTests
         rendered.Recipe.Version.ShouldBe(2);
     }
 
+    // ── declared capability advisory (AB#1191) ────────────────────────────
+
+    private static PlanDefinition AddLink(string relation) => Document(new AddLinkOperation
+    {
+        Id = "op-1",
+        WorkItemId = 742,
+        ExpectedRevision = 4,
+        Relation = relation,
+        OtherId = 740,
+    });
+
+    private static async Task<ReviewOperation> BuildAddLinkAsync(
+        IWorkItemRepository workItems, string relation, Twig.Domain.Capabilities.ProviderCapabilityDescriptor? descriptor)
+    {
+        var builder = new ChangeProposalReviewModelBuilder(workItems) { CapabilityDescriptor = descriptor };
+        var model = await builder.BuildAsync(AddLink(relation), "d".PadLeft(64, 'a'), [], [], canApply: true);
+        return model.Operations.Single();
+    }
+
+    [Theory]
+    [InlineData("github", "parent", "parent-child", "native")]
+    [InlineData("github", "predecessor", "predecessor-successor", "native")]
+    [InlineData("github", "related", "related", "unsupported")]
+    [InlineData("ado", "related", "related", "native")]
+    public async Task AddLink_CarriesDeclaredNotObservedAdvisory(string provider, string relation, string kind, string declared)
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet(provider, out var descriptor).ShouldBeTrue();
+
+        var op = await BuildAddLinkAsync(_workItems, relation, descriptor);
+
+        op.Capability.ShouldNotBeNull();
+        op.Capability!.Relationship.ShouldBe(kind);
+        op.Capability.Declared.ShouldBe(declared);
+        op.Capability.Availability.ShouldBe("unknown");
+        op.Capability.Reason.ShouldBe("not-probed");
+    }
+
+    [Fact]
+    public async Task AddLink_WithoutDescriptor_StillEmitsDeclaredUnknown()
+    {
+        var op = await BuildAddLinkAsync(_workItems, "parent", descriptor: null);
+
+        op.Capability.ShouldNotBeNull();
+        op.Capability!.Declared.ShouldBe("unknown");
+        op.Capability.Availability.ShouldBe("unknown");
+    }
+
+    [Fact]
+    public async Task AddLink_WithUnknownRelation_IsDeclaredUnknown()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+
+        var op = await BuildAddLinkAsync(_workItems, "mystery", descriptor);
+
+        op.Capability!.Relationship.ShouldBe("unknown");
+        op.Capability.Declared.ShouldBe("unknown");
+    }
+
+    [Fact]
+    public async Task NonAddLinkOperations_CarryNoAdvisory()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+
+        var model = await builder.BuildAsync(AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        model.Operations.Where(o => o.Kind != "add-link").ShouldAllBe(o => o.Capability == null);
+    }
+
+    [Fact]
+    public async Task Advisory_JsonNamesDeclaredOnly_AndLegacyShapeIsUnchangedWithoutIt()
+    {
+        Twig.Domain.Capabilities.ProviderCapabilityCatalog.TryGet("github", out var descriptor).ShouldBeTrue();
+        var builder = new ChangeProposalReviewModelBuilder(_workItems) { CapabilityDescriptor = descriptor };
+        var model = await builder.BuildAsync(AddLink("parent"), "d".PadLeft(64, 'a'), [], [], canApply: true);
+
+        var json = ChangeProposalReviewModelJson.Serialize(model);
+        var stripped = ChangeProposalReviewModelJson.Serialize(model with
+        {
+            Operations = [.. model.Operations.Select(o => o with { Capability = null })],
+        });
+
+        json.ShouldContain("\"capability\":{\"relationship\":\"parent-child\",\"declared\":\"native\",\"availability\":\"unknown\",\"reason\":\"not-probed\"}");
+        json.ShouldNotContain("provider-native");
+        json.ShouldNotContain("origin");
+        stripped.ShouldNotContain("\"capability\"");
+        json.Replace(",\"capability\":{\"relationship\":\"parent-child\",\"declared\":\"native\",\"availability\":\"unknown\",\"reason\":\"not-probed\"}", "")
+            .ShouldBe(stripped);
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     private static PlanDefinition Document(params PlanOperationDefinition[] operations) => new()

@@ -54,6 +54,9 @@ public static class ChangeProposalReviewRenderer
                         DescribeField(con, full))], labelWidth));
                 else body.Add(Text(DescribeConsequence(con)));
             }
+            if (op.Capability is { } capability)
+                body.Add(Text($"declared capability: {capability.Declared} ({capability.Relationship}); " +
+                    $"not yet observed, availability {capability.Availability} ({capability.Reason})"));
             foreach (var warning in ObservationWarnings(op))
                 body.Add(new RenderNode.Text(warning, Severity.Warning));
         }

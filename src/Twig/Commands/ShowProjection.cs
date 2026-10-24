@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Projections;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
@@ -89,7 +90,8 @@ internal static class ShowProjection
         string? connection,
         ReadRoute route,
         bool? hasLocalChanges = null,
-        IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions = null)
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefinitions = null,
+        ProviderCapabilityDescriptor? descriptor = null)
     {
         var fields = new List<DocumentField>
         {
@@ -104,7 +106,7 @@ internal static class ShowProjection
             fields.Add(new DocumentField("requestedFields", BuildRequestedFields(item, request.Fields, fieldDefinitions)));
 
         if (request.Sections.Count > 0)
-            fields.Add(new DocumentField("requestedSections", BuildRequestedSections(item, request.Sections, links, parent, children, linksVerifiedAt)));
+            fields.Add(new DocumentField("requestedSections", BuildRequestedSections(item, request.Sections, links, parent, children, linksVerifiedAt, descriptor)));
 
         fields.Add(new DocumentField("freshness", BuildFreshness(item, linksVerifiedAt, hasLocalChanges)));
         fields.Add(new DocumentField("completeness", BuildCompleteness(route)));
@@ -203,7 +205,8 @@ internal static class ShowProjection
         IReadOnlyList<string> sectionNames,
         IReadOnlyList<WorkItemLink> links,
         WorkItem? parent,
-        IReadOnlyList<WorkItem> children, DateTimeOffset? linksVerifiedAt)
+        IReadOnlyList<WorkItem> children, DateTimeOffset? linksVerifiedAt,
+        ProviderCapabilityDescriptor? descriptor)
     {
         var docFields = new List<DocumentField>(sectionNames.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -219,7 +222,7 @@ internal static class ShowProjection
             }
 
             var normalized = raw.ToLowerInvariant();
-            docFields.Add(new DocumentField(normalized, BuildSectionBody(normalized, item, links, parent, children, linksVerifiedAt)));
+            docFields.Add(new DocumentField(normalized, BuildSectionBody(normalized, item, links, parent, children, linksVerifiedAt, descriptor)));
         }
         return new RenderNode.Document(null, docFields);
     }
@@ -235,7 +238,8 @@ internal static class ShowProjection
         WorkItem item,
         IReadOnlyList<WorkItemLink> links,
         WorkItem? parent,
-        IReadOnlyList<WorkItem> children, DateTimeOffset? linksVerifiedAt)
+        IReadOnlyList<WorkItem> children, DateTimeOffset? linksVerifiedAt,
+        ProviderCapabilityDescriptor? descriptor)
     {
         switch (name)
         {
@@ -243,7 +247,7 @@ internal static class ShowProjection
             {
                 var cells = new List<RenderCell>(links.Count);
                 foreach (var link in links)
-                    cells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
+                    cells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link, descriptor))));
                 return new RenderNode.Document(null, new List<DocumentField>
                 {
                     new("status", KeyValue("status", RenderCell.String(linksVerifiedAt is null ? "unknown" : "present"))),
@@ -295,12 +299,13 @@ internal static class ShowProjection
         }
     }
 
-    private static Dictionary<string, RenderCell> BuildLinkCells(WorkItemLink link)
+    private static Dictionary<string, RenderCell> BuildLinkCells(WorkItemLink link, ProviderCapabilityDescriptor? descriptor)
         => new(StringComparer.Ordinal)
         {
             ["sourceId"] = RenderCell.Integer(link.SourceId),
             ["targetId"] = RenderCell.Integer(link.TargetId),
             ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
+            ["origin"] = LinkOriginCell.For(descriptor, link.LinkType),
         };
 
     private static Dictionary<string, RenderCell> BuildChildCells(WorkItem child)

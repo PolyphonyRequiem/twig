@@ -3,6 +3,8 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -22,6 +24,7 @@ public class LinkCommandTests : IDisposable
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
+    private readonly IWorkItemProvider _workItemProvider;
     private readonly StringWriter _stderr;
     private readonly StringWriter _stdout;
     private readonly TextWriter _originalOut;
@@ -34,6 +37,8 @@ public class LinkCommandTests : IDisposable
         _linkRepo = Substitute.For<IWorkItemLinkRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
+        _workItemProvider = Substitute.For<IWorkItemProvider>();
+        _workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
 
         _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
@@ -52,7 +57,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, rendererFactory: null, _telemetryClient, _stderr);
+        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, rendererFactory: null, _telemetryClient, _stderr);
     }
 
     /// <summary>
@@ -570,7 +575,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").Build();
         var parent = new WorkItemBuilder(100, "Parent Item").InState("Active").Build();
@@ -653,7 +658,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
 
@@ -737,7 +742,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _workItemProvider, telemetryClient: null, stderr: _stderr);
 
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(50).Build();
         var newParent = new WorkItemBuilder(200, "New Parent").InState("Active").Build();
@@ -1344,6 +1349,177 @@ public class LinkCommandTests : IDisposable
 
         result.ShouldBe(0);
         await _adoService.Received(1).AddLinkAsync(42, 100, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
+    }
+
+    // ── AB#1170: capability routing and provenance ─────────────────────
+    // Mutations route through the active provider's capability descriptor. Unsupported kinds are
+    // refused before any item is resolved or any provider call is made, and emulated kinds are
+    // refused until the Twig-local route exists, so nothing silently falls through to a native write.
+
+    private static ProviderCapabilityDescriptor Descriptor(
+        CapabilityImplementation parentChild,
+        CapabilityImplementation dependency,
+        CapabilityImplementation related)
+    {
+        static RelationshipCapability Cap(LinkKind kind, CapabilityImplementation implementation)
+            => new(kind, implementation,
+                implementation == CapabilityImplementation.Emulated ? EmulationStorage.LocalOnly : EmulationStorage.None);
+
+        return new ProviderCapabilityDescriptor("test-provider",
+        [
+            Cap(LinkKind.ParentChild, parentChild),
+            Cap(LinkKind.PredecessorSuccessor, dependency),
+            Cap(LinkKind.Related, related),
+        ]);
+    }
+
+    private static string Compact(string json)
+        => string.Concat(json.Where(ch => !char.IsWhiteSpace(ch)));
+
+    [Fact]
+    public async Task RelatedAsync_UnsupportedByProvider_RefusesWithoutProviderCall()
+    {
+        _workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("relationship-unsupported");
+        _stderr.ToString().ShouldContain("'related'");
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _contextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UnrelateAsync_UnsupportedByProvider_RefusesWithoutProviderCall()
+    {
+        _workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+
+        var cmd = CreateCommand();
+        var result = await cmd.UnrelateAsync(615);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("relationship-unsupported");
+        await _adoService.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DependencyAsync_NativeOnGitHubDescriptor_IsNotRefused()
+    {
+        _workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+        var source = new WorkItemBuilder(619, "Source").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target").InState("Active").Build();
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Predecessor) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync("predecessor", 615);
+
+        result.ShouldBe(0);
+        _stderr.ToString().ShouldNotContain("relationship-");
+    }
+
+    [Fact]
+    public async Task HierarchyVerbs_UnsupportedParentChild_RefuseWithoutProviderCall()
+    {
+        _workItemProvider.Capabilities.Returns(Descriptor(
+            CapabilityImplementation.Unsupported, CapabilityImplementation.Native, CapabilityImplementation.Native));
+
+        var cmd = CreateCommand();
+        (await cmd.ParentAsync(100)).ShouldBe(1);
+        (await cmd.UnparentAsync()).ShouldBe(1);
+        (await cmd.ReparentAsync(200)).ShouldBe(1);
+
+        _stderr.ToString().Split("relationship-unsupported").Length.ShouldBe(4);
+        _stderr.ToString().ShouldContain("'parent-child'");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _contextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EmulatedKind_IsRefusedUntilLocalRouteExists()
+    {
+        _workItemProvider.Capabilities.Returns(Descriptor(
+            CapabilityImplementation.Native, CapabilityImplementation.Emulated, CapabilityImplementation.Native));
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync("successor", 615);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain(LinkCommand.EmulationUnwiredReason);
+        _stderr.ToString().ShouldContain("'predecessor-successor'");
+        await _adoService.DidNotReceive().AddLinkWithCommentAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LinkResult_Json_ReportsOriginFromDescriptor()
+    {
+        var source = new WorkItemBuilder(619, "Source").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target").InState("Active").Build();
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Related) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615, outputFormat: "json");
+
+        result.ShouldBe(0);
+        var json = Compact(_stdout.ToString());
+        json.ShouldContain("\"origin\":\"provider-native\"");
+    }
+
+    [Fact]
+    public async Task LinkResult_Json_NonNativeKind_ReportsUnknownOrigin()
+    {
+        // GitHub declares 'related' unsupported, so an observed related link cannot be proven
+        // provider-native — and a provider observation can never prove a Twig-local edge.
+        _workItemProvider.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+        var source = new WorkItemBuilder(619, "Source").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target").InState("Active").Build();
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new WorkItemLink(619, 615, LinkTypes.Predecessor),
+            new WorkItemLink(619, 700, LinkTypes.Related),
+        });
+
+        var cmd = CreateCommand();
+        var result = await cmd.DependencyAsync("predecessor", 615, outputFormat: "json");
+
+        result.ShouldBe(0);
+        var json = Compact(_stdout.ToString());
+        json.ShouldContain("\"origin\":\"provider-native\"");
+        json.ShouldContain("\"origin\":null");
+    }
+
+    [Fact]
+    public async Task LinkResult_Human_NativeKind_HasNoOriginMarker()
+    {
+        var source = new WorkItemBuilder(619, "Source").InState("Active").Build();
+        var target = new WorkItemBuilder(615, "Target").InState("Active").Build();
+        SetActiveItem(source);
+        SetResolvable(target);
+        _linkRepo.GetLinksAsync(619, Arg.Any<CancellationToken>()).Returns(
+            new[] { new WorkItemLink(619, 615, LinkTypes.Related) });
+
+        var cmd = CreateCommand();
+        var result = await cmd.RelatedAsync(615);
+
+        result.ShouldBe(0);
+        _stdout.ToString().ShouldNotContain("origin unknown");
     }
 
     public void Dispose()

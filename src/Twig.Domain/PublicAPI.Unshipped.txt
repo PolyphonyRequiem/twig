@@ -417,7 +417,6 @@ Twig.Domain.Services.Plan.ProviderMutationOperation
 Twig.Domain.Services.Plan.ProviderMutationOperation.Equals(Twig.Domain.Services.Plan.ProviderMutationOperation? other) -> bool
 Twig.Domain.Services.Plan.ProviderMutationOperation.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>?
 Twig.Domain.Services.Plan.ProviderMutationOperation.Fields.init -> void
-Twig.Domain.Services.Plan.ProviderMutationOperation.Kind.get -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.ProviderMutationOperation.OperationKind.get -> Twig.Domain.Services.Plan.PlanOperationKind
 Twig.Domain.Services.Plan.ProviderMutationOperation.OperationKind.init -> void
 Twig.Domain.Services.Plan.ProviderMutationOperation.Other.get -> Twig.Domain.Services.Plan.ProviderWorkItemReference?
@@ -892,6 +891,7 @@ override sealed Twig.Domain.Services.Plan.AddLinkOperation.Equals(Twig.Domain.Se
 override sealed Twig.Domain.Services.Plan.BatchOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.DeleteOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.PublishSeedOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
+override sealed Twig.Domain.Services.Plan.ProviderMutationOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override sealed Twig.Domain.Services.Plan.RemoveLinkOperation.Equals(Twig.Domain.Services.Plan.PlanOperationDefinition? other) -> bool
 override Twig.Domain.Services.Plan.ProviderMutationOperation.<Clone>$() -> Twig.Domain.Services.Plan.ProviderMutationOperation!
 override Twig.Domain.Services.Plan.ProviderMutationOperation.Equals(object? obj) -> bool

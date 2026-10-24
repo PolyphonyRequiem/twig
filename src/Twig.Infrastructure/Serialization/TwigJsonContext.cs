@@ -21,6 +21,8 @@ namespace Twig.Infrastructure.Serialization;
 /// Add <c>[JsonSerializable]</c> attributes here for every DTO type as they are introduced.
 /// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
+[JsonSerializable(typeof(BenchReadEnvelope))]
+[JsonSerializable(typeof(BenchReadError))]
 [JsonSerializable(typeof(TwigRepoConfig))]
 [JsonSerializable(typeof(TwigUserConfig))]
 [JsonSerializable(typeof(AuthConfig))]
@@ -237,6 +239,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
 // Epic #1168 provider-neutral field values (canonical hand-written converter on the type)
 [JsonSerializable(typeof(Twig.Domain.ValueObjects.Fields.FieldValues))]
+[JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

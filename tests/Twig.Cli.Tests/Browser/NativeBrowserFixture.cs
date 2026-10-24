@@ -137,7 +137,7 @@ internal sealed class NativeBrowserFixture : IAsyncDisposable
         runtime.GetRequiredService<IWorkItemLinkRepository>(),
         runtime.GetRequiredService<IPendingChangeStore>(), runtime.GetRequiredService<StatusFieldConfigReader>(),
         runtime.GetRequiredService<SyncCoordinatorFactory>(), runtime.GetRequiredService<IProcessConfigurationProvider>(),
-        runtime.GetRequiredService<SpectreTheme>());
+        runtime.GetRequiredService<SpectreTheme>(), runtime.GetRequiredService<BenchEvaluator>());
 
     internal async Task SwitchAsync(string binding)
     {

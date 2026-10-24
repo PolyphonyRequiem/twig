@@ -7,6 +7,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Projections;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -19,12 +20,13 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class BenchDetailCommandTests : RefreshCommandTestBase
+public sealed partial class BenchDetailCommandTests : RefreshCommandTestBase
 {
     private readonly IAuthenticationProvider _authentication = Substitute.For<IAuthenticationProvider, IConnectionOperationGuard>();
     private readonly IConnectionBindingService _bindings = Substitute.For<IConnectionBindingService>();
     private readonly IWorkItemLinkRepository _links = Substitute.For<IWorkItemLinkRepository>();
     private readonly IProcessConfigurationProvider _processConfiguration = Substitute.For<IProcessConfigurationProvider>();
+    private readonly IFormLayoutProvider _formLayouts = Substitute.For<IFormLayoutProvider>();
 
     public BenchDetailCommandTests()
     {
@@ -39,6 +41,8 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+        _formLayouts.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FormLayoutResult.Unavailable());
     }
 
     [Theory]
@@ -62,7 +66,7 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
             new FieldDefinition("Custom.Body", "Body", "html", false),
             new FieldDefinition("Custom.Acceptance", "Acceptance Criteria", "html", false),
         ]);
-        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter()).ExecuteAsync(42, width: width, output: "json",
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter(), _formLayouts).ExecuteAsync(42, width: width, output: "json",
             expectBench: bench.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), expectBinding: "binding", expectIdentity: "actor"));
         exit.ShouldBe(0);
         using var json = JsonDocument.Parse(output);
@@ -99,7 +103,281 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         plain.ShouldNotContain("╯");
         _adoService.ReceivedCalls().ShouldBeEmpty();
         _contextStore.ReceivedCalls().ShouldBeEmpty();
+        _formLayouts.ReceivedCalls().ShouldBeEmpty();
         await _iterationService.DidNotReceive().GetAuthenticatedUserIdentityAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Document_ExportsQualifiedCachedBaselineInsteadOfAnsi()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        var item = CreateWorkItem(42, "Semantic detail");
+        item.MarkSynced(17);
+        item.ImportFields(new Dictionary<string, string?> { ["Custom.Body"] = "<p>" + new string('x', 500) + " tail</p>" });
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter())
+            .ExecuteAsync(42, output: "json", document: true));
+        exit.ShouldBe(0);
+        using var json = JsonDocument.Parse(output);
+        var root = json.RootElement;
+        root.GetProperty("version").GetInt32().ShouldBe(2);
+        root.TryGetProperty("ansi", out _).ShouldBeFalse();
+        root.GetProperty("itemKey").GetProperty("workItemId").GetInt32().ShouldBe(42);
+        root.GetProperty("itemKey").GetProperty("connectionId").GetString().ShouldBe("connection");
+        root.GetProperty("itemKey").GetProperty("bindingId").GetString().ShouldBe("binding");
+        root.GetProperty("itemKey").GetProperty("checkoutRoot").GetString().ShouldBe(_testDir);
+        root.GetProperty("itemKey").TryGetProperty("revision", out _).ShouldBeFalse();
+        root.GetProperty("item").GetProperty("revision").GetInt32().ShouldBe(17);
+        root.GetProperty("item").GetProperty("fields").GetProperty("Custom.Body").GetString().ShouldEndWith(" tail</p>");
+        root.GetProperty("document").GetProperty("revision").GetInt32().ShouldBe(17);
+        root.GetProperty("layoutStatus").GetString().ShouldBe("unavailable");
+        root.GetProperty("layoutSource").GetString().ShouldBe("twig-fallback");
+        root.GetProperty("document").GetProperty("processId").GetString().ShouldBe("twig.fallback");
+        root.GetProperty("editing").GetString().ShouldBe("unavailable");
+        root.GetProperty("relatedItemsCoverage").GetString().ShouldBe("not-exported");
+        output.ShouldNotContain("credential");
+        _adoService.ReceivedCalls().ShouldBeEmpty();
+        _contextStore.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Document_ServedLayoutPreservesNativeStructureValuesAndAppearance()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        var item = new WorkItem { Id = 42, Title = "Local title", Type = WorkItemType.Parse("Delivery slice").Value };
+        item.MarkSynced(17);
+        item.SetDirty();
+        var body = "<p>" + new string('x', 500) + " tail</p>";
+        item.ImportFields(new Dictionary<string, string?> { ["Custom.Body"] = body });
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns([
+            new FieldDefinition("Custom.Empty", "Empty", "string", false),
+            new FieldDefinition("Custom.Boolean", "Boolean", "boolean", false),
+        ]);
+        var layout = new FormLayout("Custom.DeliverySlice", "process-from-provider", [
+            new("details", "Details", "custom", false, false, [
+                new("left", [new("values", "Values", true, false, [
+                    new("Custom.Body", "Body", "HtmlFieldControl", false, true, false),
+                    new("Custom.Empty", "Empty", "FieldControl", false, true, false),
+                    new("Custom.Boolean", "Boolean", "FieldControl", false, true, false),
+                ])]),
+                new("right", [new("extension", "Extension", false, true, [
+                    new("contribution.id", "Contribution", "CustomControl", true, false, true),
+                ])]),
+            ]),
+            new("history", "History", "history", true, false, []),
+        ])
+        { SystemControls = [new("System.Title", "Title", "FieldControl", false, true, false)] };
+        _formLayouts.GetFormLayoutAsync("Delivery slice", Arg.Any<CancellationToken>())
+            .Returns(new FormLayoutResult.Served(layout));
+        _config.TypeAppearances = [new() { Name = "Delivery slice", IconId = "icon_from_metadata", Color = "123456" }];
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter(), _formLayouts)
+            .ExecuteAsync(42, width: 1, output: "json", document: true));
+        exit.ShouldBe(0);
+        using var json = JsonDocument.Parse(output);
+        var root = json.RootElement;
+        root.GetProperty("layoutStatus").GetString().ShouldBe("served");
+        root.GetProperty("layoutSource").GetString().ShouldBe("server");
+        root.GetProperty("hasLocalChanges").GetBoolean().ShouldBeTrue();
+        root.GetProperty("item").GetProperty("revision").GetInt32().ShouldBe(17);
+        var document = root.GetProperty("document");
+        document.GetProperty("workItemTypeReferenceName").GetString().ShouldBe("Custom.DeliverySlice");
+        document.GetProperty("processId").GetString().ShouldBe("process-from-provider");
+        document.GetProperty("systemControls")[0].GetProperty("value").GetProperty("full").GetString().ShouldBe("Local title");
+        var pages = document.GetProperty("pages");
+        pages.GetArrayLength().ShouldBe(2);
+        pages[0].GetProperty("visible").GetBoolean().ShouldBeFalse();
+        pages[1].GetProperty("pageType").GetString().ShouldBe("history");
+        var sections = pages[0].GetProperty("sections");
+        sections[0].GetProperty("id").GetString().ShouldBe("left");
+        sections[1].GetProperty("id").GetString().ShouldBe("right");
+        var controls = sections[0].GetProperty("groups")[0].GetProperty("controls");
+        controls[0].GetProperty("value").GetProperty("state").GetInt32().ShouldBe((int)DetailFieldState.HasValue);
+        controls[0].GetProperty("value").GetProperty("full").GetString().ShouldBe(body);
+        controls[1].GetProperty("value").GetProperty("state").GetInt32().ShouldBe((int)DetailFieldState.EmptyOnServer);
+        controls[2].GetProperty("value").GetProperty("state").GetInt32().ShouldBe((int)DetailFieldState.NotCarriedByTwig);
+        var contribution = sections[1].GetProperty("groups")[0].GetProperty("controls")[0];
+        contribution.GetProperty("isContribution").GetBoolean().ShouldBeTrue();
+        contribution.TryGetProperty("value", out _).ShouldBeFalse();
+        root.GetProperty("appearance").GetProperty("iconId").GetString().ShouldBe("icon_from_metadata");
+        root.GetProperty("appearance").GetProperty("color").GetString().ShouldBe("123456");
+        root.GetProperty("iconAssetAuthority").GetString().ShouldBe("unavailable");
+        root.GetProperty("editing").GetString().ShouldBe("unavailable");
+        _adoService.ReceivedCalls().ShouldBeEmpty();
+        _contextStore.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("served")]
+    [InlineData("locked")]
+    [InlineData("unavailable")]
+    public async Task Document_EmptyServedLockedAndUnavailableAreDistinct(string status)
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+        FormLayoutResult result = status switch
+        {
+            "served" => new FormLayoutResult.Served(new("Custom.Empty", "actual-process", [])),
+            "locked" => new FormLayoutResult.Locked("Custom.Locked"),
+            _ => new FormLayoutResult.Unavailable(),
+        };
+        _formLayouts.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(result);
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter(), _formLayouts)
+            .ExecuteAsync(42, output: "json-compact", document: true));
+        exit.ShouldBe(0);
+        using var json = JsonDocument.Parse(output);
+        var root = json.RootElement;
+        root.GetProperty("layoutStatus").GetString().ShouldBe(status);
+        root.GetProperty("layoutSource").GetString().ShouldBe(status == "served" ? "server" : "twig-fallback");
+        root.GetProperty("document").GetProperty("pages").GetArrayLength().ShouldBe(status == "served" ? 0 : 1);
+        if (status == "locked") root.GetProperty("lockedTypeReferenceName").GetString().ShouldBe("Custom.Locked");
+        else root.TryGetProperty("lockedTypeReferenceName", out _).ShouldBeFalse();
+        root.GetProperty("appearanceSource").GetString().ShouldBe("unavailable");
+        root.TryGetProperty("appearance", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Document_RevisionDriftRetainsStableKeyButChangesBaseline()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        var item = CreateWorkItem(42, "Item");
+        item.MarkSynced(17);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        var command = CreateCommand(benches, new StringWriter());
+        var (firstExit, firstOutput) = await CaptureAsync(() => command.ExecuteAsync(42, output: "json-full", document: true));
+        firstExit.ShouldBe(0);
+        using var first = JsonDocument.Parse(firstOutput);
+        item.MarkSynced(18);
+        var (nextExit, nextOutput) = await CaptureAsync(() => command.ExecuteAsync(42, output: "json-full", document: true));
+        nextExit.ShouldBe(0);
+        using var next = JsonDocument.Parse(nextOutput);
+        first.RootElement.GetProperty("itemKey").GetRawText().ShouldBe(next.RootElement.GetProperty("itemKey").GetRawText());
+        first.RootElement.GetProperty("item").GetProperty("revision").GetInt32().ShouldBe(17);
+        next.RootElement.GetProperty("item").GetProperty("revision").GetInt32().ShouldBe(18);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Document_OriginOrBenchChangeDuringLayoutRefusesAllOutput(bool changeBench)
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        var captured = (await benches.CreateAsync("captured"))!;
+        var replacement = (await benches.CreateAsync("replacement"))!;
+        await benches.SetCurrentAsync(captured.Id);
+        var binding = await _bindings.ResolveAsync(_config, _paths);
+        _bindings.ResolveAsync(Arg.Any<TwigConfiguration>(), Arg.Any<TwigPaths>(), Arg.Any<CancellationToken>()).Returns(_ => binding);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Private item"));
+        _formLayouts.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(async _ =>
+        {
+            if (changeBench) await benches.SetCurrentAsync(replacement.Id);
+            else binding = binding with { Identity = binding.Identity with { IdentityId = "different-actor" } };
+            return (FormLayoutResult)new FormLayoutResult.Served(new("Custom.Type", "process", []));
+        });
+        var stderr = new StringWriter();
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, stderr, _formLayouts)
+            .ExecuteAsync(42, output: "json", document: true));
+        exit.ShouldBe(1);
+        output.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(stderr.ToString());
+        error.RootElement.GetProperty("error").GetString()!.ShouldContain("changed");
+    }
+
+    [Fact]
+    public async Task Document_ProviderFailureIsNotReportedAsSuccessfulFallback()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+        _formLayouts.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<FormLayoutResult>(new IOException("Layout read failed")));
+        var stderr = new StringWriter();
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, stderr, _formLayouts)
+            .ExecuteAsync(42, output: "json", document: true));
+        exit.ShouldBe(1);
+        output.ShouldBeEmpty();
+        using var error = JsonDocument.Parse(stderr.ToString());
+        error.RootElement.GetProperty("error").GetString().ShouldBe("Layout read failed");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Document_SeedDoesNotFetchServerLayoutOrPublish(bool sync)
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        _workItemRepo.GetByIdAsync(-3, Arg.Any<CancellationToken>())
+            .Returns(new WorkItem { Id = -3, Title = "Seed", Type = WorkItemType.Parse("Delivery slice").Value, IsSeed = true });
+        var stderr = new StringWriter();
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, stderr, _formLayouts)
+            .ExecuteAsync(-3, output: "json", sync: sync, document: true));
+        exit.ShouldBe(sync ? 2 : 0);
+        if (sync) output.ShouldBeEmpty();
+        else
+        {
+            using var json = JsonDocument.Parse(output);
+            json.RootElement.GetProperty("item").GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+            json.RootElement.GetProperty("layoutStatus").GetString().ShouldBe("unavailable");
+        }
+        _formLayouts.ReceivedCalls().ShouldBeEmpty();
+        _adoService.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Document_CancellationDuringLayoutNeverEmitsAnObservation()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        await benches.GetOrCreateDefaultAsync([]);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+        using var cancellation = new CancellationTokenSource();
+        _formLayouts.GetFormLayoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromCanceled<FormLayoutResult>(cancellation.Token);
+        });
+        var stderr = new StringWriter();
+        var original = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CreateCommand(benches, stderr, _formLayouts)
+                .ExecuteAsync(42, output: "json", ct: cancellation.Token, document: true));
+        }
+        finally { Console.SetOut(original); }
+        output.ToString().ShouldBeEmpty();
+        stderr.ToString().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("human")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task Document_NonJsonRefusesBeforeAnyNativeRead(string format)
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var benches = new SqliteBenchRepository(store);
+        var stderr = new StringWriter();
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, stderr, _formLayouts)
+            .ExecuteAsync(42, output: format, document: true));
+        exit.ShouldBe(2);
+        output.ShouldBeEmpty();
+        stderr.ToString().ShouldNotBeNullOrWhiteSpace();
+        _workItemRepo.ReceivedCalls().ShouldBeEmpty();
+        _formLayouts.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
@@ -241,8 +519,10 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         _contextStore.ReceivedCalls().ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task ExplicitSync_CanRetrieveCacheMissButNeverMaterializesLinkedTargetsOrChildren()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitSync_CanRetrieveCacheMissButNeverMaterializesLinkedTargetsOrChildren(bool document)
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");
         var benches = new SqliteBenchRepository(store);
@@ -260,13 +540,22 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         _links.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(_ => cachedLinks);
         _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
             .Returns((remote, (IReadOnlyList<WorkItemLink>)[new(42, 99, LinkTypes.Related)]));
-        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter()).ExecuteAsync(42, output: "json", sync: true));
+        var (exit, output) = await CaptureAsync(() => CreateCommand(benches, new StringWriter()).ExecuteAsync(42, output: "json", sync: true, document: document));
         exit.ShouldBe(0);
         using var json = JsonDocument.Parse(output);
-        var ansi = json.RootElement.GetProperty("ansi").GetString()!;
-        ansi.ShouldContain("Fetched description");
-        ansi.ShouldContain("Cached child");
-        ansi.ShouldContain("#99");
+        if (document)
+        {
+            json.RootElement.GetProperty("item").GetProperty("fields").GetProperty("System.Description")
+                .GetString().ShouldBe("<p>Fetched description</p>");
+            json.RootElement.GetProperty("relatedItemsCoverage").GetString().ShouldBe("not-exported");
+        }
+        else
+        {
+            var ansi = json.RootElement.GetProperty("ansi").GetString()!;
+            ansi.ShouldContain("Fetched description");
+            ansi.ShouldContain("Cached child");
+            ansi.ShouldContain("#99");
+        }
         _adoService.ReceivedCalls().Select(call => call.GetMethodInfo().Name).ShouldBe(["FetchWithLinksAsync"]);
         _contextStore.ReceivedCalls().ShouldBeEmpty();
     }
@@ -410,7 +699,7 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         item.Fields["Custom.Value"]!.ShouldContain("\u001b");
     }
 
-    private BenchDetailCommand CreateCommand(IBenchRepository benches, TextWriter stderr)
+    private BenchDetailCommand CreateCommand(IBenchRepository benches, TextWriter stderr, IFormLayoutProvider? formLayouts = null)
     {
         var ctx = new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }), _config, Stderr: stderr);
@@ -419,7 +708,8 @@ public sealed class BenchDetailCommandTests : RefreshCommandTestBase
         var module = new BrowserReadModule(ctx, operations, _workItemRepo, _fieldDefinitionStore,
             _links, _pendingChangeStore, new StatusFieldConfigReader(_paths),
             new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, _links, 30, 30),
-            _processConfiguration, new SpectreTheme(_config.Display));
+            _processConfiguration, new SpectreTheme(_config.Display),
+            new BenchEvaluator(_workItemRepo, Substitute.For<IIterationCalendar>(), _pendingChangeStore), formLayouts);
         return new(ctx, module, new RendererFactory());
     }
 

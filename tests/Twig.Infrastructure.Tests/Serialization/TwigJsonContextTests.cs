@@ -158,4 +158,19 @@ public class TwigJsonContextTests
         deserialized.ShouldNotBeNull();
         deserialized.Incomplete[0].ParentId.ShouldBeNull();
     }
+
+    [Fact]
+    public void FieldValues_AndCanvasDetailExport_AreRegisteredAndFieldValuesRoundTrip()
+    {
+        TwigJsonContext.Default.CanvasDetailExport.ShouldNotBeNull();
+        var values = Twig.Domain.ValueObjects.Fields.FieldValues.Empty
+            .Set("a", new Twig.Domain.ValueObjects.Fields.TextValue("x"));
+
+        var json = JsonSerializer.Serialize(values, TwigJsonContext.Default.FieldValues);
+        var back = JsonSerializer.Deserialize(json, TwigJsonContext.Default.FieldValues);
+
+        json.ShouldContain("\"a\"");
+        back.ShouldNotBeNull();
+        JsonSerializer.Serialize(back, TwigJsonContext.Default.FieldValues).ShouldBe(json);
+    }
 }

@@ -1045,8 +1045,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
     /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
     /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
+    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
+    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
+    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -1059,8 +1062,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="includeBrowser">Add the versioned semantic browser envelope; requires --view tree -o json.</param>
     /// <param name="expectBinding">Optional expected native binding ID; refuses a different connection selection.</param>
     /// <param name="expectIdentity">Optional expected native identity ID; refuses a different authenticated principal.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity);
+    /// <param name="bench">Explicit saved Bench name or stable ID; requires --include-browser --browser-version 2 --view tree -o json. No refresh or alternate layouts.</param>
+    /// <param name="browserVersion">Semantic contract version: unset preserves v1; 2 requires --include-browser and --bench. Other values are refused.</param>
+    /// <param name="expectBench">Optional expected explicit Bench ID; only valid with --bench and --browser-version 2. Never selects the current Bench.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool refresh = false, bool flat = false, bool tree = false, string? view = null, bool includeBrowser = false, string? expectBinding = null, string? expectIdentity = null, string? bench = null, int? browserVersion = null, string? expectBench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, refresh, ct, flat: flat, tree: tree, view: view, includeBrowser: includeBrowser, expectBinding: expectBinding, expectIdentity: expectIdentity, bench: bench, browserVersion: browserVersion, expectBench: expectBench);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -1170,9 +1176,11 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="expectBinding">Optional captured binding ID; never selects a connection.</param>
     /// <param name="expectIdentity">Optional captured identity ID; never selects a principal.</param>
     /// <param name="sync">Explicitly pull this positive item and its links before rendering (default false); never flush pending edits or fetch related targets.</param>
+    /// <param name="document">Export semantic JSON version 2 instead of ANSI (default false, requires -o json); may read server form metadata (never with --bench), but does not refresh the item or authorize edits.</param>
+    /// <param name="bench">Explicit saved Bench name or decimal id for a cache-only document read; requires --document and -o json, is a usage error with --sync or other modes, never falls back to or switches the current Bench, and refuses non-member items.</param>
     [Command("bench detail")]
-    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, CancellationToken ct = default)
-        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct);
+    public async Task<int> BenchDetail([Argument] int id, int width = 80, string output = OutputFormatterFactory.DefaultFormat, string? expectBench = null, string? expectBinding = null, string? expectIdentity = null, bool sync = false, bool document = false, string? bench = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BenchDetailCommand>().ExecuteAsync(id: id, width: width, output: output, expectBench: expectBench, expectBinding: expectBinding, expectIdentity: expectIdentity, sync: sync, ct: ct, document: document, bench: bench);
 
     /// <summary>Open the native Bench browser standalone or route a captured native Herdr action. Windows/Linux tui uses the same application.</summary>
     /// <param name="cwd">Captured source working directory; defaults to invocation CWD. Never selects an authentication identity.</param>

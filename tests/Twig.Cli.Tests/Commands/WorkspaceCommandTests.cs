@@ -97,6 +97,7 @@ public class WorkspaceCommandTests
         var benches = Substitute.For<IBenchRepository>();
         benches.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
         benches.GetByNameAsync(bench.Name, Arg.Any<CancellationToken>()).Returns(bench);
+        benches.GetAllAsync(Arg.Any<CancellationToken>()).Returns([bench]);
         var calendar = Substitute.For<IIterationCalendar>();
         calendar.GetCurrentIterationsAsync(Arg.Any<CancellationToken>())
             .Returns([IterationPath.Parse("Project\\Sprint 1").Value]);
@@ -113,6 +114,102 @@ public class WorkspaceCommandTests
                 "C:/checkout", "checkout-binding-pin", 1,
                 new ConnectionOperationSnapshot("org", "Project", "Team", "fingerprint", 1, "portable", "preferences", "unicode", "portable"))),
         };
+    }
+
+    [Fact]
+    public async Task BrowserV2_ExplicitBenchIsRawMirrorWithUnknownSourceTotalAndNeverClaimsCompleteness()
+    {
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var stderr = new StringWriter();
+        var priorError = Console.Error;
+        Console.SetError(stderr);
+        int exit; string output;
+        try
+        {
+            (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+                view: "tree", includeBrowser: true, browserVersion: 2, bench: "Empty", expectBench: "7"));
+        }
+        finally { Console.SetError(priorError); }
+
+        exit.ShouldBe(0, stderr.ToString());
+        using var doc = JsonDocument.Parse(output);
+        var root = doc.RootElement.GetProperty("browser");
+        root.GetProperty("benchId").GetString().ShouldBe("7");
+        root.GetProperty("observation").GetString().ShouldBe("raw-mirror");
+        var completeness = root.GetProperty("completeness");
+        completeness.GetProperty("sourceComplete").GetBoolean().ShouldBeFalse();
+        completeness.GetProperty("sourceMemberCount").ValueKind.ShouldBe(JsonValueKind.Null);
+        completeness.GetProperty("unknownMemberCount").ValueKind.ShouldBe(JsonValueKind.Null);
+        completeness.GetProperty("knownMemberCount").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task BrowserV2_MismatchedExpectedBenchIsRefusedWithEmptyStdout()
+    {
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+            view: "tree", includeBrowser: true, browserVersion: 2, bench: "Empty", expectBench: "8"));
+
+        exit.ShouldBe(1);
+        output.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task BrowserV1_AndDefaultEmptyOutputRemainByteIdenticalToThePreV2Contract()
+    {
+        const string workspace = """
+            {
+              "context": null,
+              "sprintItems": [],
+              "seeds": [],
+              "staleSeeds": [],
+              "sections": [],
+              "excludedItemIds": [],
+              "dirtyCount": 0
+            }
+            """;
+        var (defaultExit, defaultOutput) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("json"));
+        defaultExit.ShouldBe(0);
+        defaultOutput.ShouldBe(workspace.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine);
+
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+            view: "tree", includeBrowser: true));
+        exit.ShouldBe(0);
+        var expected = $$"""
+            {
+              "context": null,
+              "sprintItems": [],
+              "seeds": [],
+              "staleSeeds": [],
+              "sections": [],
+              "excludedItemIds": [],
+              "dirtyCount": 0,
+              "browser": {
+                "version": 1,
+                "benchId": "7",
+                "benchName": "Empty",
+                "bindingId": "binding-1",
+                "identityId": "identity-1",
+                "worktreeRoot": "C:/checkout",
+                "effectiveTeam": "Team",
+                "configuration": {
+                  "version": 1,
+                  "settingsDigest": "{{BenchQueryRule.SettingsDigest(bench.Selectors)}}",
+                  "areas": [],
+                  "sprints": [],
+                  "automaticEnabled": false,
+                  "assigneeSummary": "No automatic ownership rule",
+                  "pins": []
+                },
+                "roots": []
+              }
+            }
+            """;
+        output.ShouldBe(expected.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine);
     }
 
     [Fact]

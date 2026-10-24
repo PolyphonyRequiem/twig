@@ -7,9 +7,11 @@ using Twig.Commands;
 using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
+using Twig.Infrastructure.GitHub;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -104,6 +106,76 @@ public sealed class ConnectionCapabilitiesCommandTests
         var kinds = ByKind(output, out _);
         kinds["predecessor-successor"].GetProperty("implementation").GetString().ShouldBe("emulated");
         kinds["predecessor-successor"].GetProperty("storage").GetString().ShouldBe("local-only");
+    }
+
+    // The report must follow the resolved descriptor's declarations, never a lookup keyed by the
+    // provider name. Each well-known name carries the OTHER catalog's declarations, so any
+    // name-keyed shortcut reports the wrong implementation for at least one kind.
+    [Theory]
+    [InlineData("github", "native")]
+    [InlineData("ado", "unsupported")]
+    public async Task Json_FollowsDeclarations_NotProviderName(string name, string related)
+    {
+        var declarations = name == "github" ? ProviderCapabilityCatalog.Ado : ProviderCapabilityCatalog.GitHub;
+        var descriptor = new ProviderCapabilityDescriptor(name, declarations.Relationships);
+
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => Provider(descriptor)).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        var kinds = ByKind(output, out var provider);
+        provider.ShouldBe(name);
+        kinds["related"].GetProperty("implementation").GetString().ShouldBe(related);
+    }
+
+    // The real (not yet DI-registered) GitHub adapter, passed straight to the command: its own
+    // descriptor drives the report, its probe evidence comes only from its latest read, and
+    // producing the report makes no HTTP request.
+    [Fact]
+    public async Task RealGitHubAdapter_ReportsOwnDescriptor_AndLatestReadEvidence_WithoutHttp()
+    {
+        using var transport = new CountingDeniedTransport();
+        using var http = new HttpClient(transport);
+        var adapter = new GitHubWorkItemProvider(http);
+
+        var (exit, output) = await StdoutCapture.RunAsync(() => CreateCommand(() => adapter).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        transport.Requests.ShouldBe(0);
+        var kinds = ByKind(output, out var provider);
+        provider.ShouldBe("github");
+        kinds.Values.ShouldAllBe(e => e.GetProperty("reason").GetString() == CapabilityReport.NotProbedReason);
+
+        await Should.ThrowAsync<HttpRequestException>(() => adapter.FetchSnapshotAsync(
+            new ExternalWorkItemIdentity("github", "https://api.github.com", "I_denied")));
+        var requestsAfterRead = transport.Requests;
+        requestsAfterRead.ShouldBeGreaterThan(0);
+
+        (exit, output) = await StdoutCapture.RunAsync(() => CreateCommand(() => adapter).ExecuteAsync("json"));
+
+        exit.ShouldBe(0);
+        transport.Requests.ShouldBe(requestsAfterRead);
+        kinds = ByKind(output, out _);
+        foreach (var kind in new[] { "parent-child", "predecessor-successor" })
+        {
+            kinds[kind].GetProperty("implementation").GetString().ShouldBe("native");
+            kinds[kind].GetProperty("availability").GetString().ShouldBe("unavailable");
+            kinds[kind].GetProperty("reason").GetString().ShouldBe("read-denied");
+        }
+
+        kinds["related"].GetProperty("implementation").GetString().ShouldBe("unsupported");
+        kinds["related"].GetProperty("reason").GetString().ShouldBe(CapabilityReport.NotProbedReason);
+    }
+
+    private sealed class CountingDeniedTransport : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden));
+        }
     }
 
     [Fact]

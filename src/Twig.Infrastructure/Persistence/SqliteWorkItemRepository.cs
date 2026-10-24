@@ -16,11 +16,23 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 {
     private readonly SqliteCacheStore _store;
     private readonly WorkItemMapper _mapper;
+    private readonly AdoMirrorIdentityProjection? _projection;
 
     public SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper)
     {
         _store = store;
         _mapper = mapper;
+    }
+
+    /// <summary>
+    /// Also projects each saved item onto its durable local identity, in the same transaction as
+    /// the mirror write (Epic #1168).
+    /// </summary>
+    internal SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper, AdoMirrorIdentityProjection projection)
+        : this(store, mapper)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        _projection = projection;
     }
 
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
@@ -249,6 +261,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
+        if (_projection is not null)
+            return SaveProjectedAsync([workItem], ct);
+
         using var bindingOperation = _store.AcquireOperation();
         SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
@@ -256,6 +271,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default)
     {
+        if (_projection is not null)
+            return SaveProjectedAsync(workItems, ct);
+
         using var bindingOperation = _store.AcquireOperation();
         var conn = _store.GetConnection();
         using var tx = conn.BeginTransaction();
@@ -273,6 +291,30 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             throw;
         }
         return Task.CompletedTask;
+    }
+
+    private async Task SaveProjectedAsync(IEnumerable<WorkItem> workItems, CancellationToken ct)
+    {
+        using var bindingOperation = _store.AcquireOperation();
+        var conn = _store.GetConnection();
+        var ambient = _store.ActiveTransaction;
+        using var owned = ambient is null ? conn.BeginTransaction() : null;
+        var tx = ambient ?? owned!;
+        _store.ActiveTransaction = tx;
+        try
+        {
+            foreach (var item in workItems)
+            {
+                SaveWorkItem(conn, item, tx);
+                await _projection!.ProjectAsync(item, ct);
+            }
+            owned?.Commit();
+        }
+        finally
+        {
+            if (owned is not null)
+                _store.ActiveTransaction = null;
+        }
     }
 
     public Task DeleteByIdAsync(int id, CancellationToken ct = default)

@@ -296,19 +296,61 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     private async Task SaveProjectedAsync(IEnumerable<WorkItem> workItems, CancellationToken ct)
     {
         using var bindingOperation = _store.AcquireOperation();
+        var items = workItems.ToArray();
+        var resourceScope = await _projection!.PrepareAsync(items, ct).ConfigureAwait(false);
         var conn = _store.GetConnection();
         var ambient = _store.ActiveTransaction;
         using var owned = ambient is null ? conn.BeginTransaction() : null;
         var tx = ambient ?? owned!;
+        var savepoint = $"ado_mirror_projection_{Guid.NewGuid():N}";
+        var savepointCreated = false;
+        var savepointReleased = false;
         _store.ActiveTransaction = tx;
         try
         {
-            foreach (var item in workItems)
+            tx.Save(savepoint);
+            savepointCreated = true;
+            foreach (var item in items)
             {
                 SaveWorkItem(conn, item, tx);
-                await _projection!.ProjectAsync(item, ct);
+                if (_projection.ShouldProject(item))
+                {
+                    await _projection.ProjectAsync(
+                        item,
+                        resourceScope ?? throw new InvalidOperationException("The ADO projection scope was not prepared."),
+                        ct).ConfigureAwait(false);
+                }
             }
+            tx.Release(savepoint);
+            savepointReleased = true;
             owned?.Commit();
+        }
+        catch (Exception operationError)
+        {
+            if (!savepointCreated)
+                throw;
+
+            try
+            {
+                if (savepointReleased)
+                {
+                    if (owned is not null)
+                        tx.Rollback();
+                }
+                else
+                {
+                    tx.Rollback(savepoint);
+                    tx.Release(savepoint);
+                }
+            }
+            catch (Exception rollbackError)
+            {
+                throw new InvalidOperationException(
+                    "ADO mirror projection failed and its SQLite savepoint could not be rolled back.",
+                    new AggregateException(operationError, rollbackError));
+            }
+
+            throw;
         }
         finally
         {

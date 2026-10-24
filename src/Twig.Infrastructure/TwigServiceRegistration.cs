@@ -122,7 +122,25 @@ public static class TwigServiceRegistration
             return SqliteCacheStore.OpenWorkspace(paths, sp.GetRequiredService<IConnectionBindingService>().RegistryPath);
         });
 
-        services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));
+        services.AddSingleton<SqliteLocalWorkItemRepository>(sp =>
+            new SqliteLocalWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ILocalWorkItemStore>(sp => sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+        services.AddSingleton<IExternalIdentityMap>(sp => sp.GetRequiredService<SqliteLocalWorkItemRepository>());
+        services.AddSingleton<IWorkItemRepository>(sp =>
+        {
+            var store = sp.GetRequiredService<SqliteCacheStore>();
+            var mapper = new WorkItemMapper();
+            if (sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind()
+                != ProviderCapabilityCatalog.AdoProviderKind)
+            {
+                return new SqliteWorkItemRepository(store, mapper);
+            }
+
+            var projection = new AdoMirrorIdentityProjection(
+                sp.GetRequiredService<SqliteLocalWorkItemRepository>(),
+                () => sp.GetRequiredService<IWorkItemProvider>());
+            return new SqliteWorkItemRepository(store, mapper, projection);
+        });
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));

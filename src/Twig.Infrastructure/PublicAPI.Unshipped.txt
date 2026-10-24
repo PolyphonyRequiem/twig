@@ -125,3 +125,16 @@ Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.GetUnresolvedAsync(S
 Twig.Infrastructure.Plan.PlanLifecycleService.ReconcileAsync(string! file, string! confirmedDigest, string! opId, Twig.Domain.Services.Plan.PlanOutcomeKind kind, Twig.Domain.Services.ChangeProposals.ProposalAuthorization? authorization, string? replacementDigest = null, string? replacementOpId = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Plan.PlanReconciliationResult!>!
 Twig.Infrastructure.Persistence.SqlitePlanJournalRepository.TryAppendReceiptAsync(Twig.Domain.Services.Plan.PlanOutcomeReceipt! receipt, Twig.Domain.Services.Plan.PlanOperationState expectedState, string? expectedResultJson, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 static Twig.Infrastructure.Persistence.SqliteCacheStore.OpenWorkspace(Twig.Infrastructure.Config.TwigPaths! paths) -> Twig.Infrastructure.Persistence.SqliteCacheStore!
+Twig.Infrastructure.Config.TwigConfiguration.Provider.get -> string?
+Twig.Infrastructure.Config.TwigConfiguration.Provider.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.ResolveWorkItemProviderKind() -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Provider.get -> string?
+Twig.Infrastructure.Config.TwigRepoConfig.Provider.set -> void
+Twig.Infrastructure.Config.WorkItemProviderSetting
+const Twig.Infrastructure.Config.WorkItemProviderSetting.Default = "ado" -> string!
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnavailableReasonCode = "provider-unavailable" -> string!
+const Twig.Infrastructure.Config.WorkItemProviderSetting.UnknownReasonCode = "provider-unknown" -> string!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.KnownKinds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.Normalize(string? value) -> string?
+static Twig.Infrastructure.Config.WorkItemProviderSetting.Resolve(string? stored) -> string!
+static Twig.Infrastructure.Config.WorkItemProviderSetting.RequireAdo(string? stored) -> void

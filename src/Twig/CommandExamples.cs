@@ -534,6 +534,11 @@ internal static class CommandExamples
             "twig connection check                 Inspect every native unfinished-work/claim blocker without changing identity",
             "twig connection check --output json   Emit exact blocker identities and observed selection revisions",
         ],
+        ["connection capabilities"] =
+        [
+            "twig connection capabilities                 Show how the active provider implements each relationship kind",
+            "twig connection capabilities --output json   Emit implementation, storage and availability per kind for agents",
+        ],
         ["connection migrate"] =
         [
             "twig connection migrate --identity work --method aad --output json  Preview explicit legacy AAD import and host/store blockers",

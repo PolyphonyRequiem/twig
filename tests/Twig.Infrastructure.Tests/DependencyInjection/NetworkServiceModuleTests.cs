@@ -80,6 +80,45 @@ public sealed class NetworkServiceModuleTests
             .ShouldAllBe(entry => entry.Availability == CapabilityAvailability.Unknown);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ado")]
+    public void WorkItemProvider_AdoSetting_ResolvesAdoAdapter(string? stored)
+    {
+        using var provider = BuildWithProvider(stored);
+
+        provider.GetRequiredService<IWorkItemProvider>()
+            .ShouldBeSameAs(provider.GetRequiredService<IAdoWorkItemService>());
+    }
+
+    [Fact]
+    public void WorkItemProvider_GitHubSetting_FailsClosedInsteadOfFallingBackToAdo()
+    {
+        using var provider = BuildWithProvider("github");
+
+        var ex = Should.Throw<TwigConfigurationException>(() => provider.GetRequiredService<IWorkItemProvider>());
+        ex.Message.ShouldStartWith("provider-unavailable:");
+    }
+
+    [Fact]
+    public void WorkItemProvider_UnknownSetting_FailsClosed()
+    {
+        using var provider = BuildWithProvider("jira");
+
+        var ex = Should.Throw<TwigConfigurationException>(() => provider.GetRequiredService<IWorkItemProvider>());
+        ex.Message.ShouldStartWith("provider-unknown:");
+    }
+
+    private static ServiceProvider BuildWithProvider(string? stored)
+    {
+        var services = new ServiceCollection();
+        var config = new TwigConfiguration { Organization = "testorg", Project = "testproj", Provider = stored };
+        services.AddSingleton(config);
+        services.AddTwigNetworkServices(config);
+        services.AddSingleton(Substitute.For<IAuthenticationProvider>());
+        return services.BuildServiceProvider();
+    }
+
     [Fact]
     public void SocketsHandler_AutomaticDecompression_IsGZipAndBrotli()
     {

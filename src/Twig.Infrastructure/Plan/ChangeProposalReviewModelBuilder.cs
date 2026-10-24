@@ -16,11 +16,11 @@ namespace Twig.Infrastructure.Plan;
 /// <see cref="ChangeProposalReviewModel"/> for the full rule.
 /// </para>
 /// <para>
-/// <b>Enrichment reads the local cache only.</b> Preview is a non-mutating, offline path
-/// today; issuing a network refresh per affected item would add latency and a new failure
-/// mode to a path whose entire job is to describe a document. An item the cache does not know
-/// is emitted with a null type/title/state rather than omitted — dropping it would hide an
-/// affected item from the reviewer, which is the one outcome the model exists to prevent.
+/// <b>Enrichment reads the local cache only.</b> This builder makes no network requests and
+/// does not write the proposal journal. The surrounding lifecycle preview may import or update
+/// journal state before building this projection. An item the cache does not know is emitted
+/// with a null type/title/state rather than omitted — dropping it would hide an affected item
+/// from the reviewer, which is the one outcome the model exists to prevent.
 /// </para>
 /// </summary>
 public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workItems)

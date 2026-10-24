@@ -64,6 +64,28 @@ twig config <key> [<value>] [--global] [--unset] [-o|--output human|json|minimal
   keyed by `key`, `value`, and (write only) `message` — see
   `src/Twig/Commands/ConfigCommand.cs:83-107`.
 
+### Work-item provider
+
+`provider` is a repo-scoped setting in `twig.json`. When it is absent, Twig keeps
+existing behavior and resolves the provider to `ado` without adding a field to
+existing manifests. User input is trimmed and case-insensitive; Twig stores only
+the canonical tokens `ado` and `github`. A non-canonical or unknown value already
+stored in the manifest is rejected rather than guessed.
+
+In the provider-selection increment, only the ADO adapter is registered. Selecting
+`github` therefore fails closed with `provider-unavailable:`; Twig does not fall
+back to ADO. Provider selection alone does not enable GitHub requests or writes.
+GitHub remains unavailable until its separate read-only transport is included.
+
+```
+$ twig config provider
+ado
+$ twig config provider GitHub
+Set provider = GitHub
+$ twig config provider
+github
+```
+
 ### Icon display
 
 `display.icons` falls back to `auto` when neither the workspace nor the global

@@ -22,7 +22,7 @@ namespace Twig.Commands;
 /// </remarks>
 public sealed class LinkCommand(
     ActiveItemResolver activeItemResolver,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IWorkItemLinkRepository linkRepo,
     SyncCoordinatorFactory syncCoordinatorFactory,
     OutputFormatterFactory formatterFactory,

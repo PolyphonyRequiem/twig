@@ -27,7 +27,7 @@ namespace Twig.Commands;
 /// </remarks>
 public sealed class PatchCommand(
     ActiveItemResolver activeItemResolver,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IConsoleInput consoleInput,
     IWorkItemRepository workItemRepo,
     IFieldDefinitionStore fieldDefStore,

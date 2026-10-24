@@ -46,7 +46,7 @@ public static class AutoPushNotesHelper
     public static async Task PushAndClearAsync(
         int workItemId,
         IPendingChangeStore pendingChangeStore,
-        IAdoWorkItemService adoService)
+        IProviderWorkItemWriter adoService)
     {
         var pendingChanges = await pendingChangeStore.GetChangesAsync(workItemId);
         var hasNotes = false;

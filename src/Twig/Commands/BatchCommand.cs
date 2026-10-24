@@ -43,7 +43,7 @@ public sealed class BatchCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
     IFieldDefinitionStore fieldDefStore,

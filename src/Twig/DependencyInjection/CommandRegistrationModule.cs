@@ -149,6 +149,11 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConnectionListCommand>();
         services.AddSingleton<ConnectionStatusCommand>();
         services.AddSingleton<ConnectionCheckCommand>();
+        services.AddSingleton(sp => new ConnectionCapabilitiesCommand(
+            () => sp.GetService<Twig.Domain.Interfaces.IWorkItemProvider>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetService<Twig.Rendering.RendererFactory>(),
+            sp.GetService<Twig.Domain.Interfaces.ITelemetryClient>()));
         services.AddSingleton<ConnectionMigrateCommand>();
         services.AddSingleton<ConnectionPinCommand>();
         services.AddSingleton<ConnectionWritesCommand>();

@@ -1,8 +1,13 @@
 using Microsoft.Data.Sqlite;
+using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
+using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
 using Xunit;
@@ -59,13 +64,51 @@ public sealed class AdoMirrorIdentityProjectionTests : IDisposable
     }
 
     [Fact]
-    public async Task UnsyncedRevision_IsRecordedAsNoToken()
+    public async Task RepeatedMirrorSave_PreservesExistingLocalFieldsAndRelationships()
     {
-        await _mirror.SaveAsync(new WorkItemBuilder(7, "Never synced").Build());
+        var identity = Ado(42);
+        var mapping = await _identities.ResolveAsync(identity, new ProviderRevisionToken("1"));
+        var initialFields = FieldValues.Empty.Set("Local.Custom", new TextValue("keep me"));
+        (await _identities.UpdateAsync(mapping.Id, 1, initialFields)).Value
+            .ShouldBeOfType<LocalWriteApplied>();
 
-        var observed = await _identities.GetObservedTokenAsync(Ado(7));
-        observed.ShouldNotBeNull();
-        observed.Token.ShouldBeNull();
+        var other = LocalWorkItemId.New();
+        var relationships = new SqliteLocalRelationshipRepository(_store);
+        var edge = new LocalRelationship(
+            mapping.Id,
+            other,
+            LinkKind.Related,
+            EmulationStorage.LocalOnly,
+            PublicationState.NotApplicable,
+            0,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
+        (await relationships.UpsertAsync(edge, expectedRevision: null)).Status
+            .ShouldBe(LocalRelationshipWriteStatus.Written);
+
+        var localRevisionBefore = (await _identities.GetAsync(mapping.Id))!.Revision;
+        var localRelationshipBefore = await relationships.GetAsync(mapping.Id, other, LinkKind.Related);
+
+        await _mirror.SaveAsync(Synced(42, 2));
+        await _mirror.SaveAsync(Synced(42, 3));
+
+        (await _identities.FindAsync(identity)).ShouldBe(mapping.Id);
+        var localItemAfter = await _identities.GetAsync(mapping.Id);
+        localItemAfter!.Fields.ShouldBe(initialFields);
+        localItemAfter.Revision.ShouldBe(localRevisionBefore);
+        (await relationships.GetAsync(mapping.Id, other, LinkKind.Related)).ShouldBe(localRelationshipBefore);
+        (await _identities.GetObservedTokenAsync(identity))!.Token.ShouldBe(new ProviderRevisionToken("3"));
+    }
+
+    [Fact]
+    public async Task UnsyncedRevision_IsRejectedWithoutCreatingMirrorOrDurableIdentity()
+    {
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => _mirror.SaveAsync(new WorkItemBuilder(7, "Never synced").Build()));
+
+        CountRows("main.work_items").ShouldBe(0);
+        CountRows("pending.external_identities").ShouldBe(0);
+        CountRows("pending.local_work_items").ShouldBe(0);
     }
 
     [Fact]
@@ -136,11 +179,120 @@ public sealed class AdoMirrorIdentityProjectionTests : IDisposable
     }
 
     [Fact]
+    public async Task IdentityMappingConflict_RollsBackMirrorAndDurableRowsTogether()
+    {
+        RejectIdentityMappingInDatabase();
+
+        await Should.ThrowAsync<SqliteException>(() => _mirror.SaveAsync(Synced(42, 1)));
+
+        _store.ActiveTransaction.ShouldBeNull();
+        CountRows("main.work_items").ShouldBe(0);
+        CountRows("pending.external_identities").ShouldBe(0);
+        CountRows("pending.local_work_items").ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task IdentityMappingConflict_RollsBackToSavepointInsideAmbientTransaction()
+    {
+        RejectIdentityMappingInDatabase();
+        var tx = _store.GetConnection().BeginTransaction();
+        _store.ActiveTransaction = tx;
+
+        try
+        {
+            await Should.ThrowAsync<SqliteException>(() => _mirror.SaveAsync(Synced(42, 1)));
+
+            _store.ActiveTransaction.ShouldBeSameAs(tx);
+            tx.Commit();
+        }
+        finally
+        {
+            _store.ActiveTransaction = null;
+            tx.Dispose();
+        }
+
+        CountRows("main.work_items").ShouldBe(0);
+        CountRows("pending.external_identities").ShouldBe(0);
+        CountRows("pending.local_work_items").ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ProjectionIsOff_ForThePublicConstructor()
     {
         await new SqliteWorkItemRepository(_store, new WorkItemMapper()).SaveAsync(Synced(42, 1));
 
         CountRows("main.work_items").ShouldBe(1);
+        CountRows("pending.external_identities").ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Projection_UsesTheAdoProvidersResolvedScopeAndRealRevision()
+    {
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
+        provider.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>("resolved-ado-scope"));
+        var projection = new AdoMirrorIdentityProjection(_identities, () => provider);
+        var mirror = new SqliteWorkItemRepository(_store, new WorkItemMapper(), projection);
+
+        await mirror.SaveAsync(Synced(42, 7));
+
+        var identity = new ExternalWorkItemIdentity("ado", "resolved-ado-scope", "42");
+        (await _identities.FindAsync(identity)).ShouldNotBeNull();
+        (await _identities.GetObservedTokenAsync(identity))!.Token.ShouldBe(new ProviderRevisionToken("7"));
+    }
+
+    [Fact]
+    public async Task Projection_RejectsAnUnresolvedProviderScopeWithoutWritingTheMirror()
+    {
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
+        provider.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(null));
+        var mirror = new SqliteWorkItemRepository(
+            _store,
+            new WorkItemMapper(),
+            new AdoMirrorIdentityProjection(_identities, () => provider));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => mirror.SaveAsync(Synced(42, 7)));
+
+        CountRows("main.work_items").ShouldBe(0);
+        CountRows("pending.external_identities").ShouldBe(0);
+        CountRows("pending.local_work_items").ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Projection_RejectsAnInvalidProviderScopeWithoutWritingTheMirror()
+    {
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
+        provider.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(" padded-scope"));
+        var mirror = new SqliteWorkItemRepository(
+            _store,
+            new WorkItemMapper(),
+            new AdoMirrorIdentityProjection(_identities, () => provider));
+
+        await Should.ThrowAsync<ArgumentException>(() => mirror.SaveAsync(Synced(42, 7)));
+
+        CountRows("main.work_items").ShouldBe(0);
+        CountRows("pending.external_identities").ShouldBe(0);
+        CountRows("pending.local_work_items").ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Projection_RejectsAProviderWithoutAdoIdentitySemantics()
+    {
+        var provider = Substitute.For<IWorkItemProvider>();
+        provider.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+        var mirror = new SqliteWorkItemRepository(
+            _store,
+            new WorkItemMapper(),
+            new AdoMirrorIdentityProjection(_identities, () => provider));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => mirror.SaveAsync(Synced(42, 7)));
+
+        CountRows("main.work_items").ShouldBe(0);
         CountRows("pending.external_identities").ShouldBe(0);
     }
 
@@ -197,5 +349,18 @@ public sealed class AdoMirrorIdentityProjectionTests : IDisposable
         using var cmd = _store.GetConnection().CreateCommand();
         cmd.CommandText = $"SELECT COUNT(*) FROM {table};";
         return Convert.ToInt64(cmd.ExecuteScalar());
+    }
+
+    private void RejectIdentityMappingInDatabase()
+    {
+        using var cmd = _store.GetConnection().CreateCommand();
+        cmd.CommandText = """
+            CREATE TRIGGER pending.reject_identity_mapping
+            BEFORE INSERT ON external_identities
+            BEGIN
+                SELECT RAISE(ABORT, 'forced identity mapping conflict');
+            END;
+            """;
+        cmd.ExecuteNonQuery();
     }
 }

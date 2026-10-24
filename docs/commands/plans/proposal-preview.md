@@ -8,11 +8,12 @@ mutates: local
 
 # `twig proposal preview`
 
-Reads a proposal v1 file, imports its journal row (if any), snapshots every
-currently-staged pending change, and reports the canonical digest and the
-`canApply` gate — the boolean that `proposal apply` will consult. Preview
-never mutates ADO; the "local" mutation flag reflects that importing a
-journal row is a write into the workspace's per-proposal store.
+Reads a version 1 or 2 proposal file and reports its canonical digest and
+review. Version 1 imports its journal row and snapshots pending changes.
+Version 2 is review-only: it shows its provider-qualified identities and an
+unsupported-apply blocker, sets `canApply=false`, and does not import a journal
+row. Preview never mutates a provider; the "local" mutation flag reflects
+version 1 journal writes.
 
 ## Synopsis
 
@@ -32,7 +33,7 @@ twig proposal preview --file <path> [--full] [--expect-digest <digest>] [--inter
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`. The rendering opt-in requires `json`.|
 |`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
 |`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|
@@ -51,10 +52,10 @@ including authorization choices, for hosts and separate apply authorization.
 
 - **Canonical digest.** Recomputed exactly as validate reports it; this is
   the value the caller will pass to `proposal apply --confirm`.
-- **Journal import.** The journal row keyed on the digest is loaded into the
+- **Journal import.** For version 1, the journal row keyed on the digest is loaded into the
   workspace store; a fresh proposal creates a row in its initial state, and a re-preview
   updates only the separate last-preview ordering timestamp. Original `previewed_at` and
-  lifecycle state remain unchanged.
+  lifecycle state remain unchanged. Version 2 skips all journal access.
 - **Digest guard.** When `--expect-digest` is supplied, the current canonical digest must
   match exactly. A mismatch returns a clear issue before journal import or review-model
   construction, so neither an invalid proposal nor stale bytes can move latest selection.
@@ -63,9 +64,14 @@ including authorization choices, for hosts and separate apply authorization.
   `canApply` false — proposal v1 is declarative-only and will not
   auto-flush pending edits
   (`src/Twig.Domain/Services/Plan/PlanPreviewResult.cs:26-37`).
-- **`canApply` gate.** True iff the proposal is valid, its workspace matches
-  the active config, no pending row exists, and the journal was imported
-  successfully. False otherwise, and the reason is on `Issues`.
+- **Version 2 apply blocker.** A valid version 2 proposal always has
+  `canApply=false` with `plan.unsupported_apply_version`. Its complete
+  identity-aware review is still returned, but preview does not inspect or
+  import the journal and does not imply provider mutation authority.
+- **`canApply` gate.** For version 1, true iff the proposal is valid, its
+  workspace matches the active config, no pending row exists, and the journal
+  was imported successfully. Version 2 is always false because apply is
+  unsupported; the reason is on `Issues`.
 
 ### Native presentation for OMP
 

@@ -4,7 +4,7 @@ using Twig.Domain.Services.Plan;
 namespace Twig.Infrastructure.Plan;
 
 /// <summary>
-/// Serializes a <see cref="PlanDefinition"/> back into a Plan v1 JSON document.
+/// Serializes a <see cref="PlanDefinition"/> back into its versioned JSON document.
 /// <para>
 /// This is the inverse of <see cref="PlanDocumentParser"/> and exists so a Change Recipe can
 /// render structured operations rather than hand-assembling JSON text. The output is fed
@@ -25,7 +25,7 @@ namespace Twig.Infrastructure.Plan;
 public static class PlanDocumentWriter
 {
     /// <summary>
-    /// Writes <paramref name="definition"/> as a Plan v1 JSON document.
+    /// Writes <paramref name="definition"/> as a versioned plan JSON document.
     /// </summary>
     public static string Write(PlanDefinition definition)
     {
@@ -45,7 +45,7 @@ public static class PlanDocumentWriter
 
             writer.WriteStartArray("operations");
             foreach (var op in definition.Operations)
-                WriteOperation(writer, op);
+                WriteOperation(writer, op, definition.Version);
             writer.WriteEndArray();
 
             writer.WriteEndObject();
@@ -54,8 +54,18 @@ public static class PlanDocumentWriter
         return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    private static void WriteOperation(Utf8JsonWriter writer, PlanOperationDefinition op)
+    private static void WriteOperation(Utf8JsonWriter writer, PlanOperationDefinition op, int version)
     {
+        if (op is ProviderMutationOperation providerOperation)
+        {
+            if (version != 2)
+                throw new InvalidOperationException("Provider-identity operations require plan version 2.");
+            WriteProviderMutation(writer, providerOperation);
+            return;
+        }
+        if (version != 1)
+            throw new InvalidOperationException($"Legacy operation kind '{op.Kind}' cannot be written in plan version {version}.");
+
         writer.WriteStartObject();
         writer.WriteString("id", op.Id);
         writer.WriteString("kind", WireKind(op.Kind));
@@ -100,6 +110,55 @@ public static class PlanDocumentWriter
                     "adding a sixth requires updating the parser, the writer, and the review model together.");
         }
 
+        writer.WriteEndObject();
+    }
+
+    private static void WriteProviderMutation(Utf8JsonWriter writer, ProviderMutationOperation op)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("id", op.Id);
+        writer.WriteString("kind", WireKind(op.Kind));
+        writer.WriteStartObject("target");
+        WriteProviderReference(writer, "item", op.Target.Item);
+        writer.WriteString("expectedProviderRevision", op.Target.ExpectedProviderRevision.Value);
+        writer.WriteEndObject();
+
+        switch (op.OperationKind)
+        {
+            case PlanOperationKind.Batch when op.Fields is not null && op.Relation is null && op.Other is null:
+                writer.WriteStartObject("fields");
+                foreach (var (field, value) in op.Fields)
+                {
+                    if (value is null) writer.WriteNull(field);
+                    else writer.WriteString(field, value);
+                }
+                writer.WriteEndObject();
+                break;
+            case PlanOperationKind.AddLink or PlanOperationKind.RemoveLink
+                when op.Relation is not null && op.Other is not null && op.Fields is null:
+                writer.WriteString("relation", op.Relation);
+                WriteProviderReference(writer, "other", op.Other);
+                break;
+            case PlanOperationKind.Delete when op.Relation is null && op.Other is null && op.Fields is null:
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Provider mutation kind '{op.OperationKind}' has missing or incompatible members.");
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteProviderReference(
+        Utf8JsonWriter writer, string propertyName, ProviderWorkItemReference reference)
+    {
+        writer.WriteStartObject(propertyName);
+        writer.WriteString("localId", reference.LocalId.ToString());
+        writer.WriteStartObject("externalIdentity");
+        writer.WriteString("providerKind", reference.ExternalIdentity.ProviderKind);
+        writer.WriteString("resourceScope", reference.ExternalIdentity.ResourceScope);
+        writer.WriteString("nativeId", reference.ExternalIdentity.NativeId);
+        writer.WriteEndObject();
         writer.WriteEndObject();
     }
 

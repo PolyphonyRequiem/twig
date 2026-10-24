@@ -292,6 +292,40 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Preview_V2ShowsIdentityAndBlockerWithoutJournalImport()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var result = await BuildService(journal: journal).PreviewAsync(file);
+
+        result.Digest.ShouldNotBeNullOrWhiteSpace();
+        result.CanApply.ShouldBeFalse();
+        result.Issues.ShouldContain(issue => issue.Code == PlanValidationCodes.UnsupportedApplyVersion);
+        result.ReviewModel.ShouldNotBeNull();
+        result.ReviewModel!.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        result.ReviewModel.Blockers.ShouldContain(blocker =>
+            blocker.Kind == "issue" && blocker.Detail.Contains(PlanValidationCodes.UnsupportedApplyVersion));
+        var reviewedTarget = result.ReviewModel.Operations.Single().Target.ProviderWorkItem;
+        reviewedTarget.ShouldNotBeNull();
+        reviewedTarget!.ExternalIdentity.ProviderKind.ShouldBe("github");
+        reviewedTarget.LocalId.IsEmpty.ShouldBeFalse();
+        journal.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Preview_V1PreservesCanonicalRequestJsonInTheJournal()
+    {
+        var file = WritePlan(BatchOnlyPlan(workItemId: 42, expectedRev: 3, state: "Doing"));
+
+        var preview = await BuildService().PreviewAsync(file);
+
+        preview.CanApply.ShouldBeTrue();
+        var journal = (await _journal.GetAsync(preview.Digest!))!;
+        journal.Operations.ShouldHaveSingleItem().RequestJson.ShouldBe(
+            "{\"expectedRevision\":3,\"fields\":{\"System.State\":\"Doing\"},\"id\":\"op\",\"kind\":\"batch\",\"workItemId\":42}");
+    }
+
+    [Fact]
     public async Task Preview_ExpectedDigestMismatchRefusesBeforeJournalImportOrPendingSnapshot()
     {
         var file = WritePlan(ValidPlanSource());
@@ -384,7 +418,27 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var apply = await svc.ApplyAsync(file, digest, Authorize(digest));
 
         apply.Failed.ShouldBeTrue();
-        apply.Error!.ShouldContain("No preview journal");
+        var error = apply.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("No preview journal");
+    }
+
+    [Fact]
+    public async Task Apply_V2RefusesBeforeConfirmationAuthorizationJournalPendingOrProviderAccess()
+    {
+        var file = WritePlan(ProviderPlanSource());
+        var journal = Substitute.For<IPlanJournalRepository>();
+        var service = BuildService(journal: journal);
+
+        var result = await service.ApplyAsync(file, "unconfirmed-digest", authorization: null);
+
+        result.Failed.ShouldBeTrue();
+        var error = result.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("cannot be applied");
+        error.ShouldContain("No confirmation");
+        journal.ReceivedCalls().ShouldBeEmpty();
+        await _pending.DidNotReceive().GetAllChangesAsync(Arg.Any<CancellationToken>());
+        _ado.ReceivedCalls().ShouldBeEmpty();
+        _revisionBound.ReceivedCalls().ShouldBeEmpty();
     }
 
     // ── apply: happy path (batch) ──────────────────────────────────────────
@@ -3550,6 +3604,33 @@ public sealed class PlanLifecycleServiceTests : IDisposable
           ]
         }
         """;
+
+    private static string ProviderPlanSource()
+    {
+        var item = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        return PlanDocumentWriter.Write(new PlanDefinition
+        {
+            Version = 2,
+            Workspace = new PlanWorkspace { Organization = "acme", Project = "cache" },
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "provider-delete",
+                    OperationKind = PlanOperationKind.Delete,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = item,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque-revision"),
+                    },
+                },
+            ],
+        });
+    }
 
     private static string BatchWithFields(
         int workItemId,

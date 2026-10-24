@@ -1,19 +1,18 @@
 # Change proposals
 
-The change-proposal path is how a mutation gets from an author's intent onto
-someone's Azure DevOps board with a paper trail. A **proposal** is an
-immutable JSON declaration of one or more work-item mutations, identified by
-the SHA-256 digest of its canonical bytes, applied through the sequence
-`validate → preview → apply --confirm <digest>`. The digest is the only thing
-that carries authorization from a reviewer to the code that writes to ADO, so
-every step of the workflow exists to keep that binding intact.
+The change-proposal path is how an author's intent becomes a reviewed,
+auditable work-item mutation. A **proposal** is an immutable JSON declaration
+identified by the SHA-256 digest of its canonical bytes. Version 1 retains the
+existing ADO mutation lifecycle `validate → preview → apply --confirm <digest>`.
+Version 2 adds provider-qualified identities and opaque provider revision
+tokens, but is currently validation- and review-only; it cannot be applied.
 
 This page is the concept map. For flags, exit tables, and per-command output
 shapes see the [plans command group](../commands/plans/README.md).
 
 ## Why the workflow looks like this
 
-Every apply eventually calls a PATCH against ADO. Two things have to be true
+Every version 1 apply eventually calls a PATCH against ADO. Two things have to be true
 before that happens: someone (or something) has to have _looked at exactly
 this mutation_ and said yes, and the record of that sign-off has to survive
 long enough for a later reader to reconstruct what happened. The proposal
@@ -44,6 +43,54 @@ Internally, the domain type is `ChangeProposal`
 a validated `PlanDefinition`, its `CanonicalJson`, its `Digest`, an optional
 recipe reference, and a free-text rationale. Every member is `init`-only on a
 `sealed record`, so once rendered a proposal cannot be mutated at all.
+
+## Schema versions and identity binding
+
+Version 1 is the existing proposal contract. Its integer `workItemId` and
+`expectedRevision` fields, canonical bytes, digests, and authorization behavior
+are unchanged.
+
+Version 2 replaces integer target aliases with an explicit binding between a
+Twig-local identity and a provider-qualified identity. Its mutation target is
+shaped like this:
+
+```json
+{
+  "target": {
+    "item": {
+      "localId": "018f3f5a-6b7c-7d8e-9f01-234567890abc",
+      "externalIdentity": {
+        "providerKind": "provider-kind",
+        "resourceScope": "stable-provider-resource-scope",
+        "nativeId": "opaque-native-id"
+      }
+    },
+    "expectedProviderRevision": "opaque-provider-token"
+  }
+}
+```
+
+These values illustrate the shape only; the provider adapter owns the
+provider-specific scope and native-ID encodings.
+
+`localId` must use the existing canonical `LocalWorkItemId` persisted spelling;
+the external identity keeps provider kind, stable resource scope, and opaque
+native ID separate. The provider token is preserved as an opaque string and
+belongs only to the mutation target. A v2 link's `other` endpoint uses the same
+local/provider identity pair but carries no mutation token. The supported v2
+operation kinds are `batch`, `add-link`, `remove-link`, and `delete`;
+`publish-seed` remains a v1-only operation.
+
+These fields describe proposal identity and the expected token, not proof that a
+provider offers atomic conditional mutation. The current lifecycle deliberately
+does not import v2 into the journal or execute it: preview returns the complete
+identity-aware review with `canApply=false` and a
+`plan.unsupported_apply_version` blocker, and apply refuses immediately after
+parsing a valid document, before checking the confirmation digest. That refusal
+precedes journal access or mutation, pending-state reads, authorization
+recording, and provider calls.
+Consequently, version 2 cannot inherit v1 integer identities or v1 authorization
+semantics by conversion, and no existing v1 document or digest is rewritten.
 
 ## The lifecycle
 
@@ -82,7 +129,7 @@ another.
 
 ### 2. `preview` — import the journal row and evaluate `canApply`
 
-`twig proposal preview` recomputes the digest exactly as validate did, then
+For version 1, `twig proposal preview` recomputes the digest exactly as validate did, then
 does three things a validate cannot: it **imports the journal row** keyed
 on the digest, **snapshots every currently-staged pending change** in exact
 staging order, and evaluates the **`canApply` gate**
@@ -106,9 +153,11 @@ preview reports, in the same order.
 
 Preview builds one canonical `reviewModel` for the built-in terminal presenter
 and structured CLI/MCP consumers. It carries ordered operations, preconditions,
-effects, blockers, choices and the exact digest. Cache-only enrichment adds
-readable field labels, item links, immediate parent context and staged seed
-display metadata; none changes the proposal identity or apply policy.
+effects, blockers, choices and the exact digest. For version 1, cache-only
+enrichment adds readable field labels, item links, immediate parent context and
+staged seed display metadata; none changes the proposal identity or apply policy.
+Version 2 review instead exposes its explicit provider identities and revision
+precondition, without ADO-cache enrichment or journal import.
 
 Human preview is brief by default: grouped item headings, scalar before-to-after
 rows, and description replacement sizes instead of full bodies. Before values

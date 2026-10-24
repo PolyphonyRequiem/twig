@@ -9,9 +9,11 @@ mutates: ado
 # `twig proposal apply`
 
 The only command in the plans group that writes to Azure DevOps. Apply
-consumes a proposal v1 file, verifies the caller-supplied digest matches
-the current file digest exactly, verifies an identity has authorized the
-apply, and then runs each declared operation as a journalled row.
+consumes executable proposal v1 files, verifies the caller-supplied digest
+matches the current file digest exactly, verifies an identity has authorized
+the apply, and then runs each declared operation as a journalled row. A valid
+v2 proposal is refused before checking the supplied confirmation digest,
+journal access, pending-state reads, authorization, or provider calls.
 
 ## Synopsis
 
@@ -33,7 +35,7 @@ twig proposal apply --file <path> --confirm <digest>
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`--confirm`|string|_none_|Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.|
 |`--authorize`|string|_none_|Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.|
 |`--rationale`|string|_none_|Optional reason for authorizing this apply, recorded alongside the authorization.|
@@ -51,6 +53,10 @@ identity, an optional rationale, and the current UTC timestamp
 - **Digest is a hard gate.** `--confirm` is required at the command layer;
   a mismatch against the current file digest is a lifecycle failure — you
   must re-preview (which recomputes the digest) and pass the new value.
+- **Version 2 is not executable.** Regardless of the supplied confirmation
+  digest, the lifecycle refuses it before digest comparison, journal lookup or mutation,
+  pending-state inspection, authorization recording, or provider access. No v1
+  integer identity or revision is synthesized.
 - **Authorization is required, but its absence is not a usage error.** A
   missing `--authorize` still returns exit 1, not 2: the gate resolves the
   required mode from the session (HITL vs. AFK) and refuses with the reason

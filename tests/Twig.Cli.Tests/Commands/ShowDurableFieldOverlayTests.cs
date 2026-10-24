@@ -97,9 +97,12 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
     private Task SeedAsync(ServiceProvider services, bool editLocally) =>
         SeedAsync(services, 42, "Remote title", editLocally ? "Local title" : null);
 
-    private async Task SeedAsync(ServiceProvider services, int itemId, string remoteTitle, string? localTitle)
+    private async Task SeedAsync(ServiceProvider services, int itemId, string remoteTitle, string? localTitle, int? parentId = null)
     {
-        var item = new WorkItemBuilder(itemId, remoteTitle).InState("Active").WithIterationPath(@"Project\Sprint 1").Build();
+        var builder = new WorkItemBuilder(itemId, remoteTitle).InState("Active").WithIterationPath(@"Project\Sprint 1");
+        if (parentId is not null)
+            builder = builder.WithParent(parentId.Value);
+        var item = builder.Build();
         item.MarkSynced(3);
         await services.GetRequiredService<IWorkItemRepository>().SaveAsync(item);
         if (localTitle is null) return;
@@ -331,6 +334,123 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         console.Output.ShouldContain("syncing");
         await ado.Received(1).FetchAsync(45, Arg.Any<CancellationToken>());
         (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!.IterationPath.ToString().ShouldBe(@"Project\Sprint 1");
+    }
+
+    private async Task SeedHierarchyAsync(ServiceProvider services, bool editLocally)
+    {
+        await SeedAsync(services, 40, "Remote parent", editLocally ? "Local parent" : null);
+        await SeedAsync(services, 42, "Remote title", localTitle: null, parentId: 40);
+        await SeedAsync(services, 43, "Untouched child", localTitle: null, parentId: 42);
+        await SeedAsync(services, 44, "Remote child", editLocally ? "Local child" : null, parentId: 42);
+        await SeedAsync(services, 46, "Remote grandchild", editLocally ? "Local grandchild" : null, parentId: 44);
+    }
+
+    private static int TotalChildren(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("totalChildren").GetInt32();
+    }
+
+    [Fact]
+    public async Task OptedIn_ShowTreeParentChainAndDescendantsDisplayDurableValues_WithoutWritingBack()
+    {
+        using var services = Compose(optedIn: true);
+        await SeedHierarchyAsync(services, editLocally: true);
+        var before = DurableRows();
+
+        var json = await ShowTreeJsonAsync(services);
+        (await ShowTreeJsonAsync(services)).ShouldBe(json);
+
+        var titles = BatchTitles(json);
+        titles[40].ShouldBe("Local parent");
+        titles[42].ShouldBe("Remote title");
+        titles[43].ShouldBe("Untouched child");
+        titles[44].ShouldBe("Local child");
+        titles[46].ShouldBe("Local grandchild");
+        TotalChildren(json).ShouldBe(2);
+        _provider.Calls.ShouldBe(1);
+        DurableRows().ShouldBe(before);
+        var mirror = services.GetRequiredService<IWorkItemRepository>();
+        foreach (var (id, remote) in new[] { (40, "Remote parent"), (44, "Remote child"), (46, "Remote grandchild") })
+        {
+            var stored = (await mirror.GetByIdAsync(id))!;
+            stored.Title.ShouldBe(remote);
+            stored.IsDirty.ShouldBeFalse();
+        }
+        (await mirror.GetChildrenAsync(42)).Select(child => child.Id).OrderBy(id => id).ShouldBe(new[] { 43, 44 });
+    }
+
+    [Fact]
+    public async Task OptedOut_ShowTreeHierarchyIsByteIdenticalToTheUneditedMirror_AndNeverResolvesTheProvider()
+    {
+        using var optedOut = Compose(optedIn: false);
+        await SeedHierarchyAsync(optedOut, editLocally: false);
+        var optedOutOutput = await ShowTreeJsonAsync(optedOut);
+
+        BatchTitles(optedOutOutput)[44].ShouldBe("Remote child");
+        _provider.Calls.ShouldBe(0);
+        DurableRows().ShouldBeEmpty();
+
+        using var optedInUnedited = Compose(optedIn: true);
+        await SeedHierarchyAsync(optedInUnedited, editLocally: false);
+        (await ShowTreeJsonAsync(optedInUnedited)).ShouldBe(optedOutOutput);
+    }
+
+    [Fact]
+    public async Task OptedIn_NullScope_ShowTreeHierarchyFallsBackToTheMirror_WithoutProjecting()
+    {
+        _provider.ResolvedScope = null;
+        using var services = Compose(optedIn: true);
+        await SeedHierarchyAsync(services, editLocally: false);
+
+        var titles = BatchTitles(await ShowTreeJsonAsync(services));
+
+        titles[40].ShouldBe("Remote parent");
+        titles[44].ShouldBe("Remote child");
+        titles[46].ShouldBe("Remote grandchild");
+        _provider.Calls.ShouldBe(1);
+        DurableRows().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptedIn_LiveShowTreeDrawsDurableParentAndChildValues_WithoutWritingBack(bool refresh)
+    {
+        var console = new Spectre.Console.Testing.TestConsole();
+        console.Profile.Width = 200;
+        using var services = Compose(optedIn: true, liveConsole: console);
+        await SeedHierarchyAsync(services, editLocally: true);
+        if (refresh)
+        {
+            // The sync rewrites the mirror child, so a revised view that skips the overlay shows "Fetched child".
+            services.GetRequiredService<IAdoWorkItemService>()
+                .FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+                .Returns(new[]
+                {
+                    new WorkItemBuilder(43, "Untouched child").InState("Active").WithParent(42).Build(),
+                    new WorkItemBuilder(44, "Fetched child").InState("Active").WithParent(42).Build(),
+                });
+        }
+        var before = DurableRows();
+
+        var command = services.GetRequiredService<ShowCommand>();
+        var (exit, stderr) = await StderrCapture.RunAsync(() => command.ExecuteAsync(42, "human", tree: true, refresh: refresh));
+
+        exit.ShouldBe(0, stderr);
+        if (refresh)
+        {
+            console.Output.ShouldContain("syncing");
+            console.Output.ShouldContain("updated");
+            console.Output.ShouldNotContain("Fetched child");
+        }
+        console.Output.ShouldContain("Local parent");
+        console.Output.ShouldContain("Local child");
+        console.Output.ShouldNotContain("Remote parent");
+        console.Output.ShouldNotContain("Remote child");
+        DurableRows().ShouldBe(before);
+        (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(44))!.Title
+            .ShouldBe(refresh ? "Fetched child" : "Remote child");
     }
 
     [Fact]

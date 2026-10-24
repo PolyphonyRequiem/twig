@@ -28,14 +28,24 @@ public sealed class TreeRenderingService(
     RendererFactory rendererFactory)
 {
     /// <summary>
-    /// Durable local composition of the focused item (Epic #1168); a pass-through unless the
-    /// neutral store is opted in. Display only: sync, sibling counts and child reads keep the
-    /// mirror item, and the composed copy is never saved.
+    /// Durable local composition of every displayed node (Epic #1168): the focused item, its
+    /// parent chain, children and descendants. A pass-through unless the neutral store is opted
+    /// in. Display only: sync, sibling counts, hierarchy and child totals keep the mirror items,
+    /// and the composed copies are never saved.
     /// </summary>
     internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
 
     private Task<Domain.Aggregates.WorkItem> OverlayAsync(Domain.Aggregates.WorkItem item, CancellationToken ct) =>
         FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
+    private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> OverlayAllAsync(
+        IReadOnlyList<Domain.Aggregates.WorkItem> items, CancellationToken ct)
+    {
+        if (FieldOverlay is null || items.Count == 0) return items;
+        var shown = new Domain.Aggregates.WorkItem[items.Count];
+        for (var i = 0; i < items.Count; i++) shown[i] = await FieldOverlay.ApplyAsync(items[i], ct);
+        return shown;
+    }
 
     /// <summary>
     /// Builds and renders a work-item tree, matching the behaviour of <c>twig tree</c>.
@@ -95,8 +105,8 @@ public sealed class TreeRenderingService(
                 getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(shownItem),
                 getParentChain: async () => resolvedItem?.ParentId is null
                     ? Array.Empty<Domain.Aggregates.WorkItem>()
-                    : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct),
-                getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value, ct),
+                    : await OverlayAllAsync(await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct), ct),
+                getChildren: async () => await OverlayAllAsync(await workItemRepo.GetChildrenAsync(activeId.Value, ct), ct),
                 maxDepth: maxDepth,
                 activeId: activeId,
                 ct: ct,
@@ -115,6 +125,8 @@ public sealed class TreeRenderingService(
                         ? Array.Empty<Domain.Aggregates.WorkItem>()
                         : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct);
                     var cachedChildren = await workItemRepo.GetChildrenAsync(activeId.Value, ct);
+                    var shownCachedParentChain = await OverlayAllAsync(cachedParentChain, ct);
+                    var shownCachedChildren = await OverlayAllAsync(cachedChildren, ct);
 
                     IReadOnlyList<WorkItemLink> cachedLinks = Array.Empty<WorkItemLink>();
                     try { cachedLinks = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
@@ -125,8 +137,8 @@ public sealed class TreeRenderingService(
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => spectreRenderer.BuildTreeViewAsync(
                             shownItem,
-                            cachedParentChain,
-                            cachedChildren,
+                            shownCachedParentChain,
+                            shownCachedChildren,
                             maxDepth,
                             activeId,
                             getSiblingCount,
@@ -145,8 +157,8 @@ public sealed class TreeRenderingService(
 
                             return await spectreRenderer.BuildTreeViewAsync(
                                 await OverlayAsync(freshItem, ct),
-                                freshParentChain,
-                                freshChildren,
+                                await OverlayAllAsync(freshParentChain, ct),
+                                await OverlayAllAsync(freshChildren, ct),
                                 maxDepth,
                                 activeId,
                                 MakeSiblingCounter(freshItem, ct),
@@ -234,7 +246,17 @@ public sealed class TreeRenderingService(
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
         }
 
-        var tree = WorkTree.Build(await OverlayAsync(item, ct), parentChain, children, siblingCounts, links, descendantsByParentId);
+        var shownDescendants = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>(descendantsByParentId.Count);
+        foreach (var (parentId, descendants) in descendantsByParentId)
+            shownDescendants[parentId] = await OverlayAllAsync(descendants, ct);
+
+        var tree = WorkTree.Build(
+            await OverlayAsync(item, ct),
+            await OverlayAllAsync(parentChain, ct),
+            await OverlayAllAsync(children, ct),
+            siblingCounts,
+            links,
+            shownDescendants);
 
         RenderWorkTree(tree, outputFormat);
 

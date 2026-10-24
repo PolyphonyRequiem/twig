@@ -97,6 +97,7 @@ public class WorkspaceCommandTests
         var benches = Substitute.For<IBenchRepository>();
         benches.GetCurrentAsync(Arg.Any<CancellationToken>()).Returns(bench);
         benches.GetByNameAsync(bench.Name, Arg.Any<CancellationToken>()).Returns(bench);
+        benches.GetAllAsync(Arg.Any<CancellationToken>()).Returns([bench]);
         var calendar = Substitute.For<IIterationCalendar>();
         calendar.GetCurrentIterationsAsync(Arg.Any<CancellationToken>())
             .Returns([IterationPath.Parse("Project\\Sprint 1").Value]);
@@ -113,6 +114,45 @@ public class WorkspaceCommandTests
                 "C:/checkout", "checkout-binding-pin", 1,
                 new ConnectionOperationSnapshot("org", "Project", "Team", "fingerprint", 1, "portable", "preferences", "unicode", "portable"))),
         };
+    }
+
+    [Fact]
+    public async Task BrowserV2_ExplicitBenchIsRawMirrorWithUnknownSourceTotalAndNeverClaimsCompleteness()
+    {
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var stderr = new StringWriter();
+        var priorError = Console.Error;
+        Console.SetError(stderr);
+        int exit; string output;
+        try
+        {
+            (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+                view: "tree", includeBrowser: true, browserVersion: 2, bench: "Empty", expectBench: "7"));
+        }
+        finally { Console.SetError(priorError); }
+
+        exit.ShouldBe(0, stderr.ToString());
+        using var doc = JsonDocument.Parse(output);
+        var root = doc.RootElement.GetProperty("browser");
+        root.GetProperty("benchId").GetString().ShouldBe("7");
+        root.GetProperty("observation").GetString().ShouldBe("raw-mirror");
+        var completeness = root.GetProperty("completeness");
+        completeness.GetProperty("sourceComplete").GetBoolean().ShouldBeFalse();
+        (completeness.TryGetProperty("sourceChildCount", out var sourceTotal) ? sourceTotal.ValueKind : JsonValueKind.Null)
+            .ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task BrowserV2_MismatchedExpectedBenchIsRefusedWithEmptyStdout()
+    {
+        var bench = new Bench { Id = 7, Name = "Empty" };
+        var command = CreateBrowserCommand(bench, Substitute.For<IPendingChangeStore>());
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync("json",
+            view: "tree", includeBrowser: true, browserVersion: 2, bench: "Empty", expectBench: "8"));
+
+        exit.ShouldBe(1);
+        output.ShouldBeEmpty();
     }
 
     [Fact]

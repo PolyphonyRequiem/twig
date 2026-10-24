@@ -293,6 +293,7 @@ test("actual extension wiring registers both canvases and routes workbench actio
         createCanvasServer,
         createNativeDetailReader: () => { throw new Error("Detail should not be read by a workbench action"); },
         createNativeBenchReader: () => reader(fixture, calls),
+        createNativeBenchDetailReader: () => async () => { throw new Error("Bench detail should not be read by a workbench action"); },
     });
     // Only SDK/import boundaries are replaced; the production declaration and callbacks run unchanged.
     const script = source.replace(/^import .*;$/gm, "")

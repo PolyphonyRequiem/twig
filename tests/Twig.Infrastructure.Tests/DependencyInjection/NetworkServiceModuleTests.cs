@@ -145,6 +145,31 @@ public sealed class NetworkServiceModuleTests
     }
 
     [Fact]
+    public void ProviderWorkItemReadService_GitHubCompositionDoesNotEagerlyResolveAdoOrCredentials()
+    {
+        var tokens = new GitHub.GitHubReadOnlyAuthHandlerTests.FakeTokenSource();
+        var transport = new GitHub.GitHubWorkItemProviderTests.RecordingTransport();
+        var identities = Substitute.For<IExternalIdentityMap>();
+        var localStore = Substitute.For<ILocalWorkItemStore>();
+        using var provider = BuildWithProvider("github", new GitHubConfig { Host = "github.com", Repository = "new/repo" },
+            services =>
+            {
+                services.AddSingleton<IGitHubTokenSource>(tokens);
+                services.AddSingleton(new GitHubTransportOverride(() => transport));
+                services.AddSingleton<IExternalIdentityMap>(identities);
+                services.AddSingleton<ILocalWorkItemStore>(localStore);
+            });
+
+        provider.GetRequiredService<IProviderWorkItemReadService>()
+            .ShouldBeOfType<Twig.Infrastructure.Providers.ProviderWorkItemReadService>();
+
+        tokens.Calls.ShouldBe(0);
+        transport.Requests.ShouldBeEmpty();
+        Should.Throw<TwigConfigurationException>(() => provider.GetRequiredService<IAdoWorkItemService>())
+            .Message.ShouldStartWith("provider-unavailable:");
+    }
+
+    [Fact]
     public void ProcessRuleProvider_GitHubSetting_IsExplicitEmptyWithoutTouchingAdo()
     {
         using var provider = BuildWithProvider("github");

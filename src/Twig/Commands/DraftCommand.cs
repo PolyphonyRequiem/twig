@@ -31,7 +31,7 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
 
             var read = await browser.ReadDetailAsync(new(id, Ansi: false, Document: true), ct);
             if (read.Failure is { } readFailure)
-                throw new BrowserReadException(readFailure.Kind, readFailure.Message);
+                throw FailureException(readFailure, ct);
             var observation = read.Observation
                 ?? throw new InvalidOperationException("The native detail read returned no observation.");
             var semantic = observation.Document
@@ -42,7 +42,7 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
                 throw new InvalidOperationException("The native detail identity does not match the requested work item.");
             var opened = await editing.OpenAsync(id, observation.Capture, ct);
             if (opened.Failure is { } editFailure)
-                throw new BrowserReadException(editFailure.Kind, editFailure.Message);
+                throw FailureException(editFailure, ct);
             var session = opened.Value
                 ?? throw new InvalidOperationException("The native editor returned no observation session.");
             if (session.WorkItemId != id || session.Revision != observation.Revision)
@@ -70,7 +70,7 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
                 return new Inspection(observed, session);
             }, ct);
             if (result.Failure is { } refused)
-                throw new BrowserReadException(refused.Kind, refused.Message);
+                throw FailureException(refused, ct);
             var inspection = result.Value
                 ?? throw new InvalidOperationException("The native draft inspection returned no document.");
             Render(inspection.Draft, inspection.Session, format, document);
@@ -82,7 +82,7 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
             CommandError.Write(renderers, ctx.StderrWriter, format ?? "human", ex.Message);
             return exit;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             exit = ex is BrowserReadException { Kind: BrowserReadFailureKind.Usage } ? 2 : 1;
             CommandError.Write(renderers, ctx.StderrWriter, format ?? "human", ex.Message);
@@ -98,13 +98,19 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
     {
         if (session.HasLocalChanges)
             return draft.Observe(session.Revision, draft.Conflicts);
-        var conflicts = draft.Changes.Select(change =>
-            TryGetObservedValue(session.Snapshot, change.FieldRef, out var value)
-                && !string.Equals(change.BaselineValue, value, StringComparison.Ordinal)
-                    ? new DraftFieldConflict(change.FieldRef, change.BaselineValue, value, change.ProposedValue)
-                    : null)
-            .OfType<DraftFieldConflict>().OrderBy(conflict => conflict.FieldRef, StringComparer.Ordinal).ToArray();
-        return draft.Observe(session.Revision, conflicts);
+        var conflicts = new List<DraftFieldConflict>();
+        foreach (var change in draft.Changes)
+        {
+            if (!TryGetObservedValue(session.Snapshot, change.FieldRef, out var value))
+            {
+                conflicts.AddRange(draft.Conflicts.Where(conflict =>
+                    string.Equals(conflict.FieldRef, change.FieldRef, StringComparison.OrdinalIgnoreCase)));
+            }
+            else if (!string.Equals(change.BaselineValue, value, StringComparison.Ordinal))
+                conflicts.Add(new DraftFieldConflict(change.FieldRef, change.BaselineValue, value, change.ProposedValue));
+        }
+        var ordered = conflicts.OrderBy(conflict => conflict.FieldRef, StringComparer.Ordinal).ToArray();
+        return draft.Observe(session.Revision, ordered);
     }
 
     private static bool TryGetObservedValue(WorkItemSnapshot snapshot, string fieldRef, out string? value)
@@ -236,5 +242,9 @@ internal sealed class DraftCommand(CommandContext ctx, BrowserReadModule browser
     private static RenderCell ArrayCell(IEnumerable<RenderCell> cells) => new(string.Empty, new RenderValue.Array(cells.ToArray()));
     private static RenderCell NullableCell(string? value) => value is null ? new(string.Empty, new RenderValue.Null()) : RenderCell.String(value);
     private static string Display(string? value) => value is null ? "(null)" : value;
+    private static Exception FailureException(BrowserReadFailure failure, CancellationToken ct)
+        => failure.Kind == BrowserReadFailureKind.Canceled
+            ? new OperationCanceledException(failure.Message, ct)
+            : new BrowserReadException(failure.Kind, failure.Message);
     private sealed record Inspection(RecoverableWorkItemDraft Draft, BrowserEditingSession Session);
 }

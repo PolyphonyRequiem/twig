@@ -72,7 +72,11 @@ Observation may advance generation and record revision drift or field conflicts
 through the existing admission/operation gate and durable CAS. The original
 baseline and proposed changes survive. Pending local work blocks value
 observation and retains existing conflicts rather than treating local overlays as
-remote facts. Unrelated pending rows, seeds, and proposal journals are untouched.
+remote facts. An unavailable field also retains its previously observed conflict;
+only an actual field observation can replace or clear that conflict. Unrelated
+pending rows, seeds, and proposal journals are untouched. Cancellation propagates
+to the native CLI cancellation handler rather than becoming a successful document
+or a generic draft error.
 
 A missing draft returns exit 1 and a format-aware error, not an empty successful
 document. Native admission and stale observation/CAS refusals return exit 1;

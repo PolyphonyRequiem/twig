@@ -113,6 +113,24 @@ public static class NetworkServiceModule
         services.AddSingleton<IAdoAssignedIdentityReader>(sp =>
             (IAdoAssignedIdentityReader)sp.GetRequiredService<IAdoWorkItemService>());
 
+        // Feature #1177: the provider read boundary that show, query, refresh and sync resolve.
+        // The provider switch runs BEFORE any ADO factory, so a non-ADO workspace refuses here
+        // without constructing an ADO client. Under ADO it is the same AdoRestClient instance.
+        services.AddSingleton<IProviderWorkItemReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider read boundary for these reads");
+            return sp.GetRequiredService<IAdoWorkItemService>();
+        });
+        // Authoritative revision-bound pre-operation reads (#1169 / #1178), keyed by neutral
+        // identity and opaque revision token rather than ADO integers.
+        services.AddSingleton<IAuthoritativeWorkItemReader>(sp =>
+        {
+            RequireAdoBoundary(sp, "authoritative revision-bound read");
+            return new AdoAuthoritativeWorkItemReader(
+                sp.GetRequiredService<IRevisionBoundAdoWorkItemService>(),
+                sp.GetRequiredService<IWorkItemProvider>());
+        });
+
         // IAdoGitService — conditional registration; only requires git project.
         // Repository is optional — when null, GetRepositoryIdAsync returns null
         // but GetRepositoryIdByNameAsync still works for --repo flag support.
@@ -187,6 +205,21 @@ public static class NetworkServiceModule
         var cfg = sp.GetRequiredService<TwigConfiguration>();
         WorkItemProviderSetting.RequireAdo(cfg.Provider);
         return cfg;
+    }
+
+    /// <summary>
+    /// Provider switch for boundaries only ADO implements so far. Resolves the kind from the
+    /// setting alone (unknown tokens still fail <c>provider-unknown</c>) and refuses any other
+    /// provider before an ADO factory or <see cref="AdoConfiguration"/> is touched.
+    /// </summary>
+    private static void RequireAdoBoundary(IServiceProvider sp, string surface)
+    {
+        var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+        if (kind == ProviderCapabilityCatalog.AdoProviderKind)
+            return;
+        throw new TwigConfigurationException(
+            $"{WorkItemProviderSetting.UnavailableReasonCode}: workspace provider '{kind}' has no {surface} yet.",
+            new NotSupportedException(WorkItemProviderSetting.UnavailableReasonCode));
     }
 
     /// <summary>

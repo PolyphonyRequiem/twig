@@ -25,7 +25,10 @@ public sealed class CommandServiceModuleTests
 
         services.AddSingleton(Substitute.For<IContextStore>());
         services.AddSingleton(Substitute.For<IWorkItemRepository>());
-        services.AddSingleton(Substitute.For<IAdoWorkItemService>());
+        // Mirrors NetworkServiceModule: under ADO the read boundary is the same instance.
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        services.AddSingleton(adoService);
+        services.AddSingleton<IProviderWorkItemReader>(adoService);
         services.AddSingleton(Substitute.For<IPendingChangeStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<IProcessConfigurationProvider>());

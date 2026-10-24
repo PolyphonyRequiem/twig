@@ -35,38 +35,38 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     public async Task<LocalRelationshipResult> AddAsync(
-        ProviderCapabilityDescriptor descriptor, LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default)
+        ProviderCapabilityDescriptor descriptor, LocalWorkItemId source, LocalWorkItemId target, LinkKind kind,
+        CancellationToken ct = default)
     {
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
             return new(LocalRelationshipStatus.NotEmulated, null, route, route.ReasonCode);
-        if (sourceId == targetId)
+        if (source == target)
             return new(LocalRelationshipStatus.Invalid, null, route, SelfEdgeReason);
 
-        (sourceId, targetId) = Canonicalize(kind, sourceId, targetId);
+        (source, target) = LocalRelationship.Normalize(kind, source, target);
 
-        var existing = await repository.GetAsync(sourceId, targetId, kind, ct).ConfigureAwait(false);
-        if (existing is { Deleted: false })
+        var existing = await repository.GetAsync(source, target, kind, ct).ConfigureAwait(false);
+        if (existing is { IsDeleted: false })
             return new(LocalRelationshipStatus.AlreadyPresent, existing, route);
 
         if (kind == LinkKind.ParentChild)
         {
-            var edges = await repository.GetForItemsAsync([targetId], includeDeleted: false, ct).ConfigureAwait(false);
-            if (edges.Any(e => e.Kind == LinkKind.ParentChild && e.TargetId == targetId))
+            var edges = await repository.GetForItemsAsync([target], includeDeleted: false, ct).ConfigureAwait(false);
+            if (edges.Any(e => e.Kind == LinkKind.ParentChild && e.Target == target))
                 return new(LocalRelationshipStatus.Invalid, null, route, SecondParentReason);
         }
 
         var now = _clock.GetUtcNow();
         var candidate = new LocalRelationship(
-            sourceId,
-            targetId,
+            source,
+            target,
             kind,
             route.Storage,
             route.Storage == EmulationStorage.LocalWithProviderProjection ? PublicationState.Pending : PublicationState.NotApplicable,
             Revision: 0,
             CreatedAt: now,
-            UpdatedAt: now,
-            DeletedAt: null);
+            UpdatedAt: now);
 
         var write = await repository.UpsertAsync(candidate, existing?.Revision, ct).ConfigureAwait(false);
         return write.Status == LocalRelationshipWriteStatus.Written
@@ -75,28 +75,22 @@ internal sealed class LocalRelationshipService(ILocalRelationshipRepository repo
     }
 
     public async Task<LocalRelationshipResult> RemoveAsync(
-        ProviderCapabilityDescriptor descriptor, LocalWorkItemId sourceId, LocalWorkItemId targetId, LinkKind kind, CancellationToken ct = default)
+        ProviderCapabilityDescriptor descriptor, LocalWorkItemId source, LocalWorkItemId target, LinkKind kind,
+        CancellationToken ct = default)
     {
         var route = RelationshipRouting.Decide(descriptor, kind);
         if (route.Kind != RelationshipRouteKind.Emulated)
             return new(LocalRelationshipStatus.NotEmulated, null, route, route.ReasonCode);
 
-        (sourceId, targetId) = Canonicalize(kind, sourceId, targetId);
+        (source, target) = LocalRelationship.Normalize(kind, source, target);
 
-        var existing = await repository.GetAsync(sourceId, targetId, kind, ct).ConfigureAwait(false);
-        if (existing is null or { Deleted: true })
+        var existing = await repository.GetAsync(source, target, kind, ct).ConfigureAwait(false);
+        if (existing is null or { IsDeleted: true })
             return new(LocalRelationshipStatus.NotPresent, existing, route);
 
-        var write = await repository.TombstoneAsync(sourceId, targetId, kind, existing.Revision, _clock.GetUtcNow(), ct).ConfigureAwait(false);
+        var write = await repository.TombstoneAsync(source, target, kind, existing.Revision, _clock.GetUtcNow(), ct).ConfigureAwait(false);
         return write.Status == LocalRelationshipWriteStatus.Written
             ? new(LocalRelationshipStatus.Removed, write.Current, route)
             : new(LocalRelationshipStatus.Conflict, write.Current, route);
     }
-
-    /// <summary>Related is symmetric: store it once, lower stable ID as source.</summary>
-    internal static (LocalWorkItemId Source, LocalWorkItemId Target) Canonicalize(
-        LinkKind kind, LocalWorkItemId sourceId, LocalWorkItemId targetId) =>
-        kind == LinkKind.Related && string.CompareOrdinal(sourceId.ToString(), targetId.ToString()) > 0
-            ? (targetId, sourceId)
-            : (sourceId, targetId);
 }

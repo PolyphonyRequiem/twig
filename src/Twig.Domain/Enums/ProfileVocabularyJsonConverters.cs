@@ -129,15 +129,7 @@ internal static class RoleTokens
 /// </summary>
 internal sealed class LinkKindJsonConverter : CanonicalEnumConverter<LinkKind>
 {
-    internal static readonly (LinkKind, string)[] Tokens =
-    [
-        (LinkKind.ParentChild, "parent-child"),
-        (LinkKind.PredecessorSuccessor, "predecessor-successor"),
-        (LinkKind.Related, "related"),
-        (LinkKind.Artifact, "artifact"),
-    ];
-
-    protected override (LinkKind, string)[] Mapping => Tokens;
+    protected override (LinkKind, string)[] Mapping => LinkKindNames.Mapping;
 }
 
 /// <summary>
@@ -149,7 +141,7 @@ internal static class LinkKindTokens
 {
     public static string ToToken(LinkKind kind)
     {
-        foreach (var (value, token) in LinkKindJsonConverter.Tokens)
+        foreach (var (value, token) in LinkKindNames.Mapping)
         {
             if (value == kind)
                 return token;
@@ -161,7 +153,7 @@ internal static class LinkKindTokens
     /// <summary>Resolves a canonical token. Ordinal — see <see cref="CanonicalEnumConverter{TEnum}"/>.</summary>
     public static bool TryResolve(string? token, out LinkKind kind)
     {
-        foreach (var (value, canonical) in LinkKindJsonConverter.Tokens)
+        foreach (var (value, canonical) in LinkKindNames.Mapping)
         {
             if (string.Equals(token, canonical, StringComparison.Ordinal))
             {

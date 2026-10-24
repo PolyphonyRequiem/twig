@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -19,13 +21,21 @@ namespace Twig.Commands;
 /// success outcomes emit a Document with the result message plus a links Table on
 /// machine formats; human format emits the success message followed by a list of
 /// links. <see cref="OutputFormatterFactory"/> is retained only for stderr errors.
+/// <para>
+/// AB#1170: every mutation is routed from the active provider's capability descriptor before
+/// any item is resolved or written. A kind the provider declares unsupported is refused with
+/// <c>relationship-unsupported</c>; an emulated kind is refused too until its local route is
+/// wired, so a write never silently falls through to a native call. Each reported link row
+/// carries an <c>origin</c> derived from the same descriptor.
+/// </para>
 /// </remarks>
-public sealed class LinkCommand(
+internal sealed class LinkCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
     IWorkItemLinkRepository linkRepo,
     SyncCoordinatorFactory syncCoordinatorFactory,
     OutputFormatterFactory formatterFactory,
+    IWorkItemProvider workItemProvider,
     RendererFactory? rendererFactory = null,
     ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
@@ -64,6 +74,7 @@ public sealed class LinkCommand(
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+        if (RefuseUnroutable(fmt, LinkKind.ParentChild) is int refused) return refused;
 
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
@@ -121,6 +132,7 @@ public sealed class LinkCommand(
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+        if (RefuseUnroutable(fmt, LinkKind.ParentChild) is int refused) return refused;
 
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
@@ -170,6 +182,7 @@ public sealed class LinkCommand(
         CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+        if (RefuseUnroutable(fmt, LinkKind.ParentChild) is int refused) return refused;
 
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
@@ -337,6 +350,12 @@ public sealed class LinkCommand(
             return 1;
         }
 
+        if (RelationshipProvenance.TryGetKind(friendly, out var linkKind)
+            && RefuseUnroutable(fmt, linkKind) is int refused)
+        {
+            return refused;
+        }
+
         var adoLinkType = LinkTypeMapper.Resolve(friendly);
 
         var resolved = id.HasValue
@@ -468,8 +487,37 @@ public sealed class LinkCommand(
         return null;
     }
 
+    /// <summary>
+    /// Routes <paramref name="kind"/> through the active provider's capability descriptor.
+    /// Returns an exit code when the mutation must not proceed, or <c>null</c> for a native route.
+    /// </summary>
+    private int? RefuseUnroutable(IOutputFormatter fmt, LinkKind kind)
+    {
+        var descriptor = workItemProvider.Capabilities;
+        var route = RelationshipRouting.Decide(descriptor, kind);
+        var kindToken = LinkKindTokens.ToToken(kind);
+        switch (route.Kind)
+        {
+            case RelationshipRouteKind.Native:
+                return null;
+            case RelationshipRouteKind.Emulated:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"{EmulationUnwiredReason}: provider '{descriptor.ProviderKind}' emulates '{kindToken}' relationships, "
+                    + "but the Twig-local route is not available yet. Nothing was changed."));
+                return 1;
+            default:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"{route.ReasonCode}: provider '{descriptor.ProviderKind}' does not support '{kindToken}' relationships. "
+                    + "Nothing was changed."));
+                return 1;
+        }
+    }
+
+    internal const string EmulationUnwiredReason = "relationship-emulation-unavailable";
+
     private void RenderLinkResult(string kind, string message, IReadOnlyList<WorkItemLink> links, string outputFormat)
     {
+        var descriptor = workItemProvider.Capabilities;
         var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
         if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
@@ -478,6 +526,7 @@ public sealed class LinkCommand(
                 new("sourceId", "Source"),
                 new("targetId", "Target"),
                 new("linkType", "Type"),
+                new("origin", "Origin"),
             };
             var rows = new List<RenderRow>(links.Count);
             foreach (var link in links)
@@ -487,6 +536,7 @@ public sealed class LinkCommand(
                     ["sourceId"] = RenderCell.Integer(link.SourceId),
                     ["targetId"] = RenderCell.Integer(link.TargetId),
                     ["linkType"] = RenderCell.String(link.LinkType),
+                    ["origin"] = LinkOriginCell.For(descriptor, link.LinkType),
                 }));
             }
             var fields = new List<DocumentField>(3)
@@ -516,7 +566,12 @@ public sealed class LinkCommand(
             new RenderNode.Text(message, Severity.Success),
         };
         foreach (var link in links)
-            nodes.Add(new RenderNode.Text($"  #{link.SourceId} ──{link.LinkType}──▶ #{link.TargetId}", Severity.Info));
+        {
+            var marker = RelationshipProvenance.OfProviderObservation(descriptor, link.LinkType) is null
+                ? " [origin unknown]"
+                : string.Empty;
+            nodes.Add(new RenderNode.Text($"  #{link.SourceId} ──{link.LinkType}──▶ #{link.TargetId}{marker}", Severity.Info));
+        }
         _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(nodes));
     }
 

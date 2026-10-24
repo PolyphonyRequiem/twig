@@ -20,9 +20,10 @@ namespace Twig.Domain.Services.ChangeProposals;
 /// <see cref="ModelVersion"/>, MUST fail closed on an unknown version rather than partially
 /// render, and MUST preserve every entry of <see cref="Operations"/>,
 /// <see cref="ReviewOperation.Preconditions"/>, <see cref="ReviewOperation.Consequences"/>
-/// and <see cref="AuthorizationChoices"/> in the canonical structured model. Human review
-/// shows every material operation, consequence, warning and blocker, but no approval controls;
-/// raw operation identity, preconditions and observation provenance remain structured. Apply
+/// <see cref="ProviderAffectedItems"/>, and <see cref="AuthorizationChoices"/> in the canonical
+/// structured model. Human review shows every material operation, affected item, consequence,
+/// warning, and blocker, but no approval controls; raw operation identity, preconditions, and
+/// observation provenance remain structured. Apply
 /// still enforces those exact values. Brief views may elide description bodies only while naming
 /// the field, effect, available metric and full-detail access. Enrichment is additive only: an
 /// adapter may never add or remove an authorization choice, and never alter the digest.
@@ -63,10 +64,16 @@ public sealed record ChangeProposalReviewModel
     public ChangeRecipeReference? Recipe { get; init; }
 
     /// <summary>
-    /// Every work item the proposal touches: operation targets plus link peers, enriched
-    /// with the type/title/state known locally.
+    /// Every legacy integer-identified work item the proposal touches: operation targets
+    /// plus link peers, enriched with the type/title/state known locally.
     /// </summary>
     public required IReadOnlyList<ReviewAffectedItem> AffectedItems { get; init; }
+
+    /// <summary>
+    /// Provider-qualified work items touched by provider-bound operations. Null when the
+    /// proposal has no provider-qualified items, preserving the version-1 review JSON shape.
+    /// </summary>
+    public IReadOnlyList<ReviewProviderAffectedItem>? ProviderAffectedItems { get; init; }
 
     /// <summary>Immediate parent context only; never counted as affected mutation targets.</summary>
     public IReadOnlyList<ReviewAffectedItem> ContextItems { get; init; } = [];
@@ -121,6 +128,16 @@ public sealed record ReviewAffectedItem
     public int? Revision { get; init; }
 }
 
+/// <summary>A provider-qualified work item touched by a proposal, without fabricated cache metadata.</summary>
+public sealed record ReviewProviderAffectedItem
+{
+    /// <summary>Canonical local and provider-qualified identity.</summary>
+    public required ProviderWorkItemReference Item { get; init; }
+
+    /// <summary><c>target</c> for a direct operation target; <c>peer</c> for a link endpoint only.</summary>
+    public required string Role { get; init; }
+}
+
 /// <summary>One operation, described semantically rather than as raw payload.</summary>
 public sealed record ReviewOperation
 {
@@ -161,12 +178,15 @@ public sealed record ReviewTarget
 
     /// <summary>Unverified local staged display context; never a published identity.</summary>
     public ReviewSeedDisplay? Seed { get; init; }
+
+    /// <summary>Canonical local and provider-qualified identity for a provider-bound target.</summary>
+    public ProviderWorkItemReference? ProviderWorkItem { get; init; }
 }
 
 /// <summary>A condition checked at apply time; a mismatch refuses the operation.</summary>
 public sealed record ReviewPrecondition
 {
-    /// <summary><c>expectedRevision</c> or <c>expectedFingerprint</c>.</summary>
+    /// <summary><c>expectedRevision</c>, <c>expectedProviderRevision</c>, or <c>expectedFingerprint</c>.</summary>
     public required string Kind { get; init; }
 
     /// <summary>The exact value the operation is bound to.</summary>
@@ -206,6 +226,9 @@ public sealed record ReviewConsequence
 
     /// <summary>The far end of a link, or the item being deleted.</summary>
     public int? OtherId { get; init; }
+
+    /// <summary>Provider-qualified far end of a version 2 link or deleted item.</summary>
+    public ProviderWorkItemReference? OtherProviderWorkItem { get; init; }
 }
 
 /// <summary>Something preventing this proposal from applying right now.</summary>

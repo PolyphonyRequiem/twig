@@ -47,7 +47,7 @@ public sealed class ChangeRecipeRenderer(PlanDocumentParser parser)
     /// unchanged — the caller learns exactly which input failed.
     /// </exception>
     /// <exception cref="ChangeRecipeRenderException">
-    /// The recipe produced no documents, or produced one that is not a valid Plan v1
+    /// The recipe produced no documents, or produced one that is not a valid versioned plan
     /// document.
     /// </exception>
     public IReadOnlyList<ChangeProposal> Render(
@@ -94,7 +94,7 @@ public sealed class ChangeRecipeRenderer(PlanDocumentParser parser)
                     : string.Join("; ", parsed.Issues.Select(issue => $"{issue.Code} at {Describe(issue.Path)}: {issue.Message}"));
 
                 throw new ChangeRecipeRenderException(
-                    $"Change Recipe '{recipe.RecipeId}' rendered an invalid Plan v1 document at index {i}: {detail}.");
+                    $"Change Recipe '{recipe.RecipeId}' rendered an invalid plan document at index {i}: {detail}.");
             }
 
             proposals.Add(new ChangeProposal

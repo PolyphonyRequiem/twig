@@ -411,6 +411,161 @@ public sealed class ChangeProposalReviewModelBuilderTests
         model.Model.ShouldBe("twig.change-proposal.review");
         model.ModelVersion.ShouldBe(1);
         model.Workspace.Organization.ShouldBe("acme");
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        json.RootElement.TryGetProperty("providerAffectedItems", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Model_ProjectsV2ProviderIdentityAndOpaquePreconditionWithoutAdoAlias()
+    {
+        var source = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:7"),
+        };
+        var peer = new ProviderWorkItemReference
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", "issue:8"),
+        };
+        var definition = new PlanDefinition
+        {
+            Version = 2,
+            Workspace = Workspace,
+            Operations =
+            [
+                new ProviderMutationOperation
+                {
+                    Id = "edit",
+                    OperationKind = PlanOperationKind.Batch,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("etag:\"opaque\""),
+                    },
+                    Fields = new Dictionary<string, string?> { ["System.Title"] = "Updated" },
+                },
+                new ProviderMutationOperation
+                {
+                    Id = "link",
+                    OperationKind = PlanOperationKind.AddLink,
+                    Target = new ProviderWorkItemMutationTarget
+                    {
+                        Item = source,
+                        ExpectedProviderRevision = new ProviderRevisionToken("opaque:next"),
+                    },
+                    Relation = "related",
+                    Other = peer,
+                },
+            ],
+        };
+
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+
+        model.AuthorizationChoices.ShouldBe(["revise", "decline"]);
+        model.Operations.Select(operation => operation.Target.ProviderWorkItem)
+            .ShouldBe(new ProviderWorkItemReference?[] { source, source });
+        model.Operations[0].Preconditions.Single().ShouldBe(new ReviewPrecondition
+        {
+            Kind = "expectedProviderRevision",
+            Value = "etag:\"opaque\"",
+        });
+        model.Operations[0].Consequences.Single().Field.ShouldBe("System.Title");
+        model.Operations[1].Consequences.Single().OtherProviderWorkItem.ShouldBe(peer);
+        model.Operations.Select(operation => operation.Summary).ShouldAllBe(summary =>
+            summary.Contains(source.ExternalIdentity.NativeId) && summary.Contains(source.LocalId.ToString()));
+        _workItems.ReceivedCalls().ShouldBeEmpty();
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var target = json.RootElement.GetProperty("operations")[0].GetProperty("target").GetProperty("providerWorkItem");
+        target.GetProperty("localId").GetString().ShouldBe(source.LocalId.ToString());
+        target.GetProperty("externalIdentity").GetProperty("nativeId").GetString().ShouldBe("issue:7");
+        json.RootElement.GetProperty("operations")[0].GetProperty("preconditions")[0]
+            .GetProperty("value").GetString().ShouldBe("etag:\"opaque\"");
+        json.RootElement.GetProperty("operations")[1].GetProperty("consequences")[0]
+            .GetProperty("otherProviderWorkItem").GetProperty("externalIdentity")
+            .GetProperty("nativeId").GetString().ShouldBe("issue:8");
+    }
+
+    [Fact]
+    public async Task Model_ListsV2TargetsAndPeersByCanonicalIdentityWithTargetRolePrecedence()
+    {
+        static ProviderWorkItemReference Reference(string nativeId) => new()
+        {
+            LocalId = LocalWorkItemId.New(),
+            ExternalIdentity = new ExternalWorkItemIdentity("github", "repo:acme/widgets", nativeId),
+        };
+
+        var shared = Reference("issue:7");
+        var source = Reference("issue:8");
+        var peer = Reference("issue:9");
+        ProviderMutationOperation Batch(string id, ProviderWorkItemReference item) => new()
+        {
+            Id = id,
+            OperationKind = PlanOperationKind.Batch,
+            Target = new ProviderWorkItemMutationTarget
+            {
+                Item = item,
+                ExpectedProviderRevision = new ProviderRevisionToken($"revision:{id}"),
+            },
+            Fields = new Dictionary<string, string?> { ["System.Title"] = id },
+        };
+        ProviderMutationOperation Link(string id, ProviderWorkItemReference target, ProviderWorkItemReference other) => new()
+        {
+            Id = id,
+            OperationKind = PlanOperationKind.AddLink,
+            Target = new ProviderWorkItemMutationTarget
+            {
+                Item = target,
+                ExpectedProviderRevision = new ProviderRevisionToken($"revision:{id}"),
+            },
+            Relation = "related",
+            Other = other,
+        };
+        var definition = new PlanDefinition
+        {
+            Version = 2,
+            Workspace = Workspace,
+            Operations =
+            [
+                Link("link-shared", source, shared),
+                Batch("batch", shared),
+                Link("link-peer", source, peer),
+            ],
+        };
+
+        var model = await Builder().BuildAsync(definition, "digest-v2", [], [], canApply: false);
+
+        var affected = model.ProviderAffectedItems!;
+        affected.Count.ShouldBe(3);
+        affected.Select(item => item.Item).ToHashSet().SetEquals([shared, source, peer]).ShouldBeTrue();
+        affected.Single(item => item.Item == shared).Role.ShouldBe("target");
+        affected.Single(item => item.Item == source).Role.ShouldBe("target");
+        affected.Single(item => item.Item == peer).Role.ShouldBe("peer");
+        model.AffectedItems.ShouldBeEmpty();
+        _workItems.ReceivedCalls().ShouldBeEmpty();
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var providerItems = json.RootElement.GetProperty("providerAffectedItems").EnumerateArray().ToArray();
+        providerItems.Length.ShouldBe(3);
+        providerItems.ShouldContain(item =>
+            item.GetProperty("item").GetProperty("localId").GetString() == shared.LocalId.ToString()
+            && item.GetProperty("item").GetProperty("externalIdentity").GetProperty("providerKind").GetString() == "github"
+            && item.GetProperty("item").GetProperty("externalIdentity").GetProperty("resourceScope").GetString() == "repo:acme/widgets"
+            && item.GetProperty("role").GetString() == "target");
+        providerItems.ShouldContain(item =>
+            item.GetProperty("item").GetProperty("externalIdentity").GetProperty("nativeId").GetString() == "issue:9"
+            && item.GetProperty("role").GetString() == "peer");
+        foreach (var providerItem in providerItems)
+        {
+            var item = providerItem.GetProperty("item");
+            item.TryGetProperty("title", out var title).ShouldBeFalse();
+            item.TryGetProperty("type", out var type).ShouldBeFalse();
+            item.TryGetProperty("state", out var state).ShouldBeFalse();
+            title.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            type.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+            state.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Undefined);
+        }
     }
 
     [Fact]

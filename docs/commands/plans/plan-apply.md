@@ -37,7 +37,7 @@ twig plan apply --file <path> --confirm <digest>
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`--confirm`|string|_none_|Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.|
 |`--authorize`|string|_none_|Identity authorizing this apply. Recorded in the journal audit trail; without it the apply is refused.|
 |`--rationale`|string|_none_|Optional reason for authorizing this apply, recorded alongside the authorization.|

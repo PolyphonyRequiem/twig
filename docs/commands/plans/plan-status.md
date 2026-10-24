@@ -35,7 +35,7 @@ twig plan status --file <path> [-o human|json|minimal]
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`.|
 
 ## Behavior

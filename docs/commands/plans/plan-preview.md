@@ -36,7 +36,7 @@ twig plan preview --file <path> [--full] [--interactive] [--include-rendering --
 |---|---|---|---|
 | `-h`, `--help` | flag | — | Show command help and exit. |
 | `--version` | flag | — | Print the twig version and exit. |
-|`--file`|string|_none_|Path to the proposal v1 JSON file. Must resolve inside the current workspace root.|
+|`--file`|string|_none_|Path to the proposal JSON file. Must resolve inside the current workspace root.|
 |`-o`, `--output`|string|`human`|Output format: `human`, `json`, `minimal`; native rendering requires `json`.|
 |`--full`|flag|`false`|Expand description bodies from the captured review. JSON is always exact.|
 |`--interactive`|flag|`false`|Opt into a human-terminal Details/Back/Cancel review loop. Never authorizes or applies.|

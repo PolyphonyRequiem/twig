@@ -37,7 +37,6 @@ Twig.Domain.Enums.Role.Feature = 2 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Initiative = 0 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Investigation = 1 -> Twig.Domain.Enums.Role
 Twig.Domain.Enums.Role.Task = 4 -> Twig.Domain.Enums.Role
-Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAdoWorkItemService.ClearPublishMetadataAsync(int id, Twig.Domain.ValueObjects.SeedPublishCorrelation! correlation, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Twig.Domain.Interfaces.IAttachmentStatusProjection
 Twig.Domain.Interfaces.IAttachmentStatusProjection.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.StatusProjection!>!
@@ -1685,3 +1684,15 @@ Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Rea
 Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.Reason.init -> void
 Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ToState.get -> string!
 Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessRulesUnavailable.ToState.init -> void
+*REMOVED*Twig.Domain.Interfaces.IAdoWorkItemService.AddCommentAsync(int id, string! text, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Domain.Interfaces.IAdoWorkItemService.AddLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Domain.Interfaces.IAdoWorkItemService.PatchAsync(int id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+*REMOVED*Twig.Domain.Interfaces.IAdoWorkItemService.RemoveLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+*REMOVED*Twig.Domain.Services.Navigation.ParentStatePropagationService.ParentStatePropagationService(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IProcessConfigurationProvider! processConfigProvider, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter) -> void
+Twig.Domain.Interfaces.IProviderWorkItemWriter
+Twig.Domain.Interfaces.IProviderWorkItemWriter.AddCommentAsync(int id, string! text, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IProviderWorkItemWriter.AddLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IProviderWorkItemWriter.AddLinkWithCommentAsync(int sourceId, int targetId, string! adoLinkType, string? comment, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Interfaces.IProviderWorkItemWriter.PatchAsync(int id, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! changes, int expectedRevision, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+Twig.Domain.Interfaces.IProviderWorkItemWriter.RemoveLinkAsync(int sourceId, int targetId, string! adoLinkType, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Domain.Services.Navigation.ParentStatePropagationService.ParentStatePropagationService(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IProviderWorkItemWriter! adoService, Twig.Domain.Interfaces.IProcessConfigurationProvider! processConfigProvider, Twig.Domain.Services.Sync.ProtectedCacheWriter! protectedCacheWriter) -> void

@@ -32,7 +32,7 @@ public static class StateTransitionExecutor
     /// <param name="expectedRevision">The current ADO revision (caller-supplied to honor optimistic concurrency).</param>
     /// <param name="ct">Cancellation token.</param>
     public static async Task<StateTransitionResult> ExecuteAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         WorkItem item,
         string targetState,
         TypeConfig typeConfig,
@@ -48,7 +48,7 @@ public static class StateTransitionExecutor
             additionalChangesFactory: null);
 
     internal static async Task<StateTransitionResult> ExecuteAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         WorkItem item,
         string targetState,
         TypeConfig typeConfig,
@@ -165,7 +165,7 @@ public static class StateTransitionExecutor
     }
 
     private static async Task<PatchAttempt> TryPatchStateAsync(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         WorkItem currentItem,
         string fromState,
         string toState,

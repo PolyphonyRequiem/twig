@@ -123,6 +123,15 @@ public static class NetworkServiceModule
             RequireAdoBoundary(sp, "provider read boundary for these reads");
             return sp.GetRequiredService<IAdoWorkItemService>();
         });
+        // Feature #1178: the provider mutation boundary that update, state, note, link, patch,
+        // edit, batch, the pending-change flusher and proposal apply resolve. Same ordering
+        // as the read boundary: a non-ADO workspace refuses here, before any ADO client exists.
+        // GitHub stays read-only — no non-ADO writer is registered until #1183.
+        services.AddSingleton<IProviderWorkItemWriter>(sp =>
+        {
+            RequireAdoBoundary(sp, "provider mutation boundary");
+            return sp.GetRequiredService<IAdoWorkItemService>();
+        });
         // Authoritative revision-bound pre-operation reads (#1169 / #1178), keyed by neutral
         // identity and opaque revision token rather than ADO integers.
         services.AddSingleton<IAuthoritativeWorkItemReader>(sp =>

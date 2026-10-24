@@ -63,7 +63,7 @@ public static class CommandServiceModule
         // names the surface. MCP has its own headless McpPendingChangeFlusher.
         services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProviderWorkItemWriter>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>()));

@@ -32,7 +32,9 @@ public sealed class PlanLifecycleServiceTests : IDisposable
     private readonly SqlitePlanJournalRepository _journal;
     private readonly IPendingChangeReader _pending = Substitute.For<IPendingChangeReader>();
     private readonly IFieldDefinitionStore _fieldDefinitions = Substitute.For<IFieldDefinitionStore>();
-    private readonly IAdoWorkItemService _ado = Substitute.For<IAdoWorkItemService>();
+    // Feature #1178: the fixture is the provider-neutral mutation port, not the ADO client, so every
+    // journal, partial-failure and readback pin here proves proposal apply needs nothing ADO-only.
+    private readonly IProviderWorkItemWriter _ado = Substitute.For<IProviderWorkItemWriter>();
     private readonly IRevisionBoundAdoWorkItemService _revisionBound = Substitute.For<IRevisionBoundAdoWorkItemService>();
     private readonly IWorkItemRepository _workItems = Substitute.For<IWorkItemRepository>();
     private readonly ISeedLinkRepository _seedLinks = Substitute.For<ISeedLinkRepository>();

@@ -26,7 +26,7 @@ public sealed class EditCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IConsoleInput consoleInput,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,

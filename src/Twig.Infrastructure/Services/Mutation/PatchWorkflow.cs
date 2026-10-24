@@ -32,7 +32,7 @@ namespace Twig.Infrastructure.Services.Mutation;
 /// </remarks>
 public sealed class PatchWorkflow(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IPendingChangeStore pendingChangeStore,
     IPromptStateWriter? promptStateWriter = null)
 {

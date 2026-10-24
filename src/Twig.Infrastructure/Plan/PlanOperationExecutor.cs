@@ -30,7 +30,7 @@ namespace Twig.Infrastructure.Plan;
 /// </remarks>
 internal sealed class PlanOperationExecutor
 {
-    private readonly IAdoWorkItemService _adoService;
+    private readonly IProviderWorkItemWriter _adoService;
     private readonly IRevisionBoundAdoWorkItemService _revisionBound;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly PlanSeedPublisher _seedPublisher;
@@ -43,7 +43,7 @@ internal sealed class PlanOperationExecutor
     /// collaborators so callers keep passing the domain interfaces they already own.
     /// </summary>
     internal PlanOperationExecutor(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         SeedPublishOrchestrator seedPublish,
@@ -78,7 +78,7 @@ internal sealed class PlanOperationExecutor
     /// graph. Callers outside the test project should prefer the production constructor.
     /// </summary>
     internal PlanOperationExecutor(
-        IAdoWorkItemService adoService,
+        IProviderWorkItemWriter adoService,
         IRevisionBoundAdoWorkItemService revisionBound,
         IFieldDefinitionStore fieldDefinitionStore,
         PlanSeedPublisher seedPublisher)

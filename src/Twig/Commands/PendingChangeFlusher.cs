@@ -45,7 +45,7 @@ public sealed record FlushItemFailure(int ItemId, string Error);
 /// </remarks>
 public sealed class PendingChangeFlusher(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
+    IProviderWorkItemWriter adoService,
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,

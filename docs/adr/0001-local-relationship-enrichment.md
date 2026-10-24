@@ -1,5 +1,6 @@
 ---
 status: proposed
+tracked_in: [1190]
 ---
 
 # Local relationship enrichment is declared per provider, native-first, and never silent
@@ -8,7 +9,7 @@ Twig offers one relationship model (hierarchy, predecessor/successor, related) a
 
 ## Decisions
 
-1. **Storage engine.** SQLite stays until it is shown not to scale. Local-owned relationships live in the durable store (`pending.local_relationships`, v14 `storage` and `publication` columns), never in the rebuildable mirror (`work_item_links`). Refresh replaces only provider observations. Daniel, with #1168's durable-file plus rebuildable-mirror split; no crash-safety claim spans the two files.
+1. **Storage engine.** SQLite stays until it is shown not to scale. Local-owned relationships live in the durable store, never in the rebuildable mirror (`work_item_links`). Landed on main: capability contracts only. Design that depends on prerequisite branches, not yet on main: `pending.local_relationships` with v14 `storage` and `publication` columns (Epic #1170 branch), and #1168's durable-file split. Refresh replaces only provider observations. Daniel, with #1168's durable-file plus rebuildable-mirror split; no crash-safety claim spans the two files.
 2. **Storage ownership is per provider, not global.** Each adapter declares, per emulated capability, `LocalOnly` or `LocalWithProviderProjection` as static versioned descriptor data. Native capabilities declare no emulation storage. Unsupported capabilities are refused explicitly.
 3. **Implementation kind and runtime availability are separate.** `Native | Emulated | Unsupported` is descriptor data. `Available | Unavailable | Unknown` is per-connection evidence. Denied, throttled, failed or unprobed discovery is Unknown or Unavailable, never absence, and never changes the declared kind.
 4. **GitHub and ADO both support hierarchy and blocking dependencies natively.** Neither declares emulation for them. The GitHub acceptance criterion is met by native operations, labelled native.

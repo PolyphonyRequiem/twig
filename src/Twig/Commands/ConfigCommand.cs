@@ -166,6 +166,7 @@ public sealed class ConfigCommand(
             "organization" => config.Organization,
             "project" => config.Project,
             "team" => config.Team,
+            "provider" => config.Provider ?? WorkItemProviderSetting.Default,
             "auth.method" => config.Auth.Method,
             "defaults.areapath" => config.Defaults.AreaPath,
             "defaults.iterationpath" => config.Defaults.IterationPath,

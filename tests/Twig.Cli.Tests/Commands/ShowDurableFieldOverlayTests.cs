@@ -9,6 +9,9 @@ using Twig.DependencyInjection;
 using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure;
@@ -77,11 +80,11 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         }
     }
 
-    private ServiceProvider Compose()
+    private ServiceProvider Compose(TwigConfiguration? configuration = null)
     {
         var twigDir = Path.Combine(_root, ".twig");
         Directory.CreateDirectory(twigDir);
-        var config = new TwigConfiguration();
+        var config = configuration ?? new TwigConfiguration();
         var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
 
         var services = new ServiceCollection();
@@ -168,6 +171,23 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         return output;
     }
 
+    private static ShowCommand ShowWithoutOverlay(IServiceProvider sp) => new(
+        sp.GetRequiredService<CommandContext>(),
+        sp.GetRequiredService<IWorkItemRepository>(),
+        sp.GetRequiredService<IWorkItemLinkRepository>(),
+        sp.GetRequiredService<SyncCoordinatorFactory>(),
+        sp.GetRequiredService<StatusFieldConfigReader>(),
+        fieldDefinitionStore: sp.GetService<IFieldDefinitionStore>(),
+        processConfigProvider: sp.GetService<IProcessConfigurationProvider>(),
+        contextStore: sp.GetService<IContextStore>(),
+        activeItemResolver: sp.GetService<ActiveItemResolver>(),
+        pendingChangeStore: sp.GetService<IPendingChangeStore>(),
+        workingSetService: sp.GetService<WorkingSetService>(),
+        twigPaths: sp.GetService<TwigPaths>(),
+        adoGitService: sp.GetService<IAdoGitService>(),
+        treeRenderingService: sp.GetService<TreeRenderingService>(),
+        rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>());
+
     private static string Title(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -241,6 +261,98 @@ public sealed class ShowDurableFieldOverlayTests : IDisposable
         output.ShouldNotContain("Remote title");
         output.IndexOf("Untouched remote", StringComparison.Ordinal)
             .ShouldBeLessThan(output.IndexOf("Local title", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("human")]
+    [InlineData("markdown")]
+    public async Task ShowWithoutLocalOverridesIsByteIdenticalWithoutOverlay(string format)
+    {
+        using var services = Compose();
+        await SeedAsync(services, 41, "Remote parent");
+        await SeedAsync(services, 42, "Remote title", parentId: 41);
+        await SeedAsync(services, 43, "Remote child", parentId: 42);
+
+        var composed = await ShowAsync(services, 42, format);
+        var (exit, optedOut) = await StdoutCapture.RunAsync(() =>
+            ShowWithoutOverlay(services).ExecuteAsync(42, format));
+
+        exit.ShouldBe(0);
+        optedOut.ShouldBe(composed);
+    }
+
+    [Fact]
+    public async Task ShowIncludeFieldsExportStaysRawMirror()
+    {
+        using var services = Compose(new TwigConfiguration { Organization = "example-org", Project = "ExampleProject" });
+        await SeedAsync(services, 42, "Remote title", "Local title");
+
+        var (exit, output) = await StdoutCapture.RunAsync(() =>
+            services.GetRequiredService<ShowCommand>().ExecuteBatchAsync("42", "json", includeFields: true));
+
+        exit.ShouldBe(0);
+        output.ShouldContain("\"exportVersion\"");
+        output.ShouldContain("Remote title");
+        output.ShouldNotContain("Local title");
+    }
+
+    [Fact]
+    public void ProductionCompositionResolvesShowWithTheDurableOverlay()
+    {
+        using var services = Compose();
+
+        services.GetRequiredService<ShowCommand>().FieldOverlay
+            .ShouldBeSameAs(services.GetRequiredService<DurableFieldOverlay>());
+    }
+
+    [Fact]
+    public async Task ShowWithoutIdResolvesTheActiveItemAndDisplaysTheDurableTitle()
+    {
+        using var services = Compose();
+        await SeedAsync(services, 42, "Remote title", "Local title");
+        await services.GetRequiredService<IContextStore>().SetActiveWorkItemIdAsync(42);
+
+        var (exit, output) = await StdoutCapture.RunAsync(() =>
+            services.GetRequiredService<ShowCommand>().ExecuteAsync(outputFormat: "json"));
+
+        exit.ShouldBe(0);
+        Title(output).ShouldBe("Local title");
+    }
+
+    [Fact]
+    public async Task ShowRefreshUpdatesTheMirrorButStillDisplaysTheDurableTitleWithoutPersistingIt()
+    {
+        using var services = Compose();
+        await SeedAsync(services, 42, "Remote title", "Local title");
+        var fresh = new WorkItemBuilder(42, "Fresh remote title").InState("Active").WithIterationPath(@"Project\Sprint 1").Build();
+        fresh.MarkSynced(4);
+        _reader.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((fresh, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
+        var command = services.GetRequiredService<ShowCommand>();
+        var localId = (await services.GetRequiredService<IExternalIdentityMap>()
+            .FindAsync(new ExternalWorkItemIdentity("ado", Scope, "42")))!.Value;
+        var localStore = services.GetRequiredService<ILocalWorkItemStore>();
+        var before = (await localStore.GetAsync(localId))!;
+
+        var (exit, output) = await StdoutCapture.RunAsync(() => command.ExecuteAsync(42, "json", refresh: true));
+        var (projectedExit, projected) = await StdoutCapture.RunAsync(() =>
+            command.ExecuteAsync(42, "json", refresh: true, sections: "parent,children"));
+
+        exit.ShouldBe(0);
+        projectedExit.ShouldBe(0);
+        Title(output).ShouldBe("Local title");
+        projected.ShouldContain("Local title");
+        projected.ShouldNotContain("Fresh remote title");
+        await _reader.Received().FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+        (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!.Title.ShouldBe("Fresh remote title");
+
+        var after = (await localStore.GetAsync(localId))!;
+        after.Revision.ShouldBe(before.Revision);
+        after.Fields.ShouldBe(before.Fields);
+
+        // A later cache-only read still sees the durable title, so the refresh neither lost nor rewrote it.
+        Title(await ShowAsync(services, 42)).ShouldBe("Local title");
     }
 
     [Fact]

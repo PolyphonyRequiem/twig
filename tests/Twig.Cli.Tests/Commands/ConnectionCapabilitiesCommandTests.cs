@@ -178,6 +178,33 @@ public sealed class ConnectionCapabilitiesCommandTests
         }
     }
 
+    // The repository's established contract (RendererFactory) maps json, json-full and json-compact to
+    // one indented JSON renderer; json-compact is not single-line anywhere. Pin that this command
+    // agrees, so a compact alias cannot drift into a different shape than the other JSON aliases.
+    [Theory]
+    [InlineData("json-full")]
+    [InlineData("json-compact")]
+    public async Task JsonAliases_ProduceIdenticalOutputToJson(string alias)
+    {
+        var (_, baseline) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => Provider(ProviderCapabilityCatalog.GitHub)).ExecuteAsync("json"));
+        var (exit, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => Provider(ProviderCapabilityCatalog.GitHub)).ExecuteAsync(alias));
+
+        exit.ShouldBe(0);
+        output.ShouldBe(baseline);
+        ByKind(output, out _).Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Minimal_IsPlainText_WithoutAnsiEscapes()
+    {
+        var (_, output) = await StdoutCapture.RunAsync(
+            () => CreateCommand(() => Provider(ProviderCapabilityCatalog.GitHub)).ExecuteAsync("minimal"));
+
+        output.ShouldNotContain("\u001b");
+    }
+
     [Fact]
     public async Task Minimal_EmitsOneTabSeparatedLinePerKind()
     {

@@ -70,7 +70,8 @@ public static class CommandRegistrationModule
         services.AddSingleton<ShowLocalIdCommand>(sp => new ShowLocalIdCommand(
             sp.GetService<IProviderWorkItemReadService>(),
             sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
-            sp.GetService<ITelemetryClient>()));
+            sp.GetService<ITelemetryClient>(),
+            sp.GetService<TextWriter>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<Twig.Commands.SetTree.WorkingSetTreeCommand>(sp =>

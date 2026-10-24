@@ -128,7 +128,7 @@ public sealed class ShowLocalIdTests
         exitCode.ShouldBe(2);
         output.ShouldBeEmpty();
         JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
-            .ShouldContain("canonical lowercase GUIDv7");
+            .ShouldNotBeNull().ShouldContain("canonical lowercase GUIDv7");
         await _reader.DidNotReceive().ReadByLocalIdAsync(Arg.Any<LocalWorkItemId>(), Arg.Any<CancellationToken>());
     }
 
@@ -145,7 +145,7 @@ public sealed class ShowLocalIdTests
         exitCode.ShouldBe(1);
         output.ShouldBeEmpty();
         JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
-            .ShouldContain("not found or has no identity");
+            .ShouldNotBeNull().ShouldContain("not found or has no identity");
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class ShowLocalIdTests
         exitCode.ShouldBe(1);
         output.ShouldBeEmpty();
         JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
-            .ShouldContain("provider snapshot failed");
+            .ShouldNotBeNull().ShouldContain("provider snapshot failed");
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public sealed class ShowLocalIdTests
         exitCode.ShouldBe(1);
         output.ShouldBeEmpty();
         JsonDocument.Parse(_stderr.ToString()).RootElement.GetProperty("error").GetString()
-            .ShouldContain("not available in this composition");
+            .ShouldNotBeNull().ShouldContain("not available in this composition");
     }
 
     private ShowLocalIdCommand CreateCommand() =>

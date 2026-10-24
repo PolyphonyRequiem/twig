@@ -51,6 +51,7 @@ public sealed class ShowCommand(
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
+        int exitCode;
         var request = ShowProjection.Request.Parse(fields, sections);
         if (request.IsActive && (tree || OutputFormats.Normalize(outputFormat) is not ("json" or "json-full" or "json-compact")))
         {

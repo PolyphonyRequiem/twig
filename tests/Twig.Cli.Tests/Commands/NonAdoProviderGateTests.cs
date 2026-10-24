@@ -209,6 +209,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     {
         var githubToken = new FixtureGitHubTokenSource();
         using var githubTransport = new FixtureGitHubSnapshotHandler();
+        var stderr = new StringWriter();
         var adoConstructions = 0;
         var authConstructions = 0;
         var httpConstructions = 0;
@@ -220,6 +221,7 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
                 services.AddSingleton<IGitHubTokenSource>(githubToken);
                 services.AddSingleton(new GitHubTransportOverride(() => githubTransport));
                 services.AddSingleton(Substitute.For<ITelemetryClient>());
+                services.AddSingleton<TextWriter>(stderr);
                 services.AddSingleton<IAdoWorkItemService>(_ =>
                 {
                     Interlocked.Increment(ref adoConstructions);
@@ -251,7 +253,8 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         var (exitCode, output) = await StdoutCapture.RunAsync(
             () => commands.Show(output: "json", localId: resolution.Id.ToString()));
 
-        exitCode.ShouldBe(0);
+        exitCode.ShouldBe(0, $"stderr: {stderr}");
+        stderr.ToString().ShouldBeEmpty();
         using var document = JsonDocument.Parse(output);
         var result = document.RootElement;
         result.GetProperty("localId").GetString().ShouldBe(resolution.Id.ToString());
@@ -528,7 +531,9 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         }
 
         private static string EmptyConnection(string field) =>
-            $$"""{"data":{"node":{"__typename":"Issue","id":"I_canonical","{{field}}":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}""";
+            "{\"data\":{\"node\":{\"__typename\":\"Issue\",\"id\":\"I_canonical\",\""
+            + field
+            + "\":{\"nodes\":[],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null}}}}}";
 
         private const string Snapshot = """
             {"data":{"node":{"__typename":"Issue","id":"I_canonical","number":42,

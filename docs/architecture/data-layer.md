@@ -42,6 +42,32 @@ missing, all tables are dropped and re-created from the DDL string. The
 
 ### Database Tables
 
+#### Recoverable native drafts (durable storage)
+
+`pending.recoverable_work_item_drafts` lives in the sibling durable `pending.db`,
+not the disposable mirror. Durable migration 15 adds this table without replacing
+migrations 1-14 or rebuilding existing seed, pending-change, or proposal-journal
+records. Durable migrations and the schema-version stamp run transactionally.
+
+`IRecoverableWorkItemDraftStore` owns one draft per canonical native checkout,
+connection, binding, and integer work-item identity. Callers obtain that identity
+through native admission; constructing a key is not admission. Revision and panel
+identity are not key components. The baseline and observed revisions are native
+ADO item revisions, distinct from provider-owned opaque revision tokens and the
+provider-neutral local-record CAS counter. Field-change and conflict records
+retain string-or-null values, including the distinction between null and empty.
+
+The store uses the existing cache operation gate for reads and transactional
+generation compare-and-swap for writes. A stale generation refuses without
+retrying. Observation/conflict reconciliation may advance draft generation, but
+must retain baseline and proposed intent. This is **local metadata CAS**, not a
+strict zero-local-write inspection contract. No draft operation flushes unrelated
+pending edits, creates a proposal journal, or authorizes remote mutation.
+
+This foundation provides no draft edit, capture, apply, or Save endpoint. A later
+admitted read envelope must independently acquire native observation and advisory
+edit capability; a provider reader result alone is not a draft or authority.
+
 | Table | Purpose |
 |-------|---------|
 | `metadata` | Key-value store (schema version, process config data) |

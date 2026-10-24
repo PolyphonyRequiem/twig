@@ -3,6 +3,7 @@ import { createCanvasServer } from "./canvas-server.mjs";
 import { createNativeDetailReader } from "./native-detail.mjs";
 import { createNativeBenchReader } from "./native-bench.mjs";
 import { createNativeBenchDetailReader } from "./native-bench-detail.mjs";
+import { createNativeDraftReader } from "./native-draft.mjs";
 
 const instances = new Map();
 const workbenchInstances = new Map();
@@ -14,8 +15,17 @@ let session;
 const canvas = createCanvas({
     id: "twig-item-companion",
     displayName: "Twig item companion",
-    description: "Read one item's admitted, cached Twig detail without changing work-item or workspace state.",
+    description: "Browse cached native item detail; explicit draft inspection may update local observation/conflict metadata, never proposed intent.",
     actions: [
+        {
+            name: "inspect_draft",
+            description: "Explicitly inspect the loaded item's native draft. May write local observation/conflict metadata; not zero-write or guaranteed offline. Reopen the panel for the retained result. No edit, capture, Save or apply authority.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+            handler: async (ctx) => {
+                try { return await getInstance(ctx.instanceId).inspectDraft(); }
+                catch (error) { throw asCanvasError(error); }
+            },
+        },
         {
             name: "load_detail",
             description: "Load one work item's read-only semantic detail from the current admitted Twig workspace.",
@@ -69,6 +79,7 @@ const canvas = createCanvas({
             instance = await createCanvasServer({
                 workspacePath: session.workspacePath,
                 readNativeDetail,
+                readNativeDraft: createNativeDraftReader(),
             });
             instances.set(ctx.instanceId, instance);
         }
@@ -76,7 +87,7 @@ const canvas = createCanvas({
         return {
             url: instance.url,
             title: "Twig item companion",
-            status: "Read-only item detail",
+            status: "Cached detail; draft inspection is explicit and may update metadata",
         };
     },
     onClose: async (ctx) => {

@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { renderPage } from "./render.mjs";
 import { captureBench } from "./native-bench.mjs";
+import { validateDraftDocument } from "./draft-document.mjs";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 
-export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, workbench = false }) {
+export async function createCanvasServer({ workspacePath, readNativeDetail, readNativeBench, readNativeBenchDetail, readNativeDraft, workbench = false }) {
     const token = randomBytes(32).toString("base64url");
     const state = {
         observation: null,
@@ -14,9 +15,23 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         busy: false,
         closed: false,
         controller: null,
+        draftDocument: null,
+        draftError: null,
+        draftGeneration: 0,
+        draftController: null,
     };
 
+    function clearDraft() {
+        state.draftGeneration++;
+        state.draftDocument = null;
+        state.draftError = null;
+        if (state.draftController) {
+            state.draftController.abort();
+        }
+    }
+
     const load = async (workItemId, expected) => {
+        clearDraft();
         if (state.closed) throw new Error("This Twig item companion is closed.");
         if (state.busy) throw new HttpError(409, "A Twig detail read is already in progress.");
 
@@ -42,7 +57,10 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
     };
 
     const refresh = async () => {
-        if (!state.observation) throw new Error("Load an item before refreshing detail.");
+        if (!state.observation) {
+            clearDraft();
+            throw new Error("Load an item before refreshing detail.");
+        }
         const current = state.observation;
         return load(current.itemKey.workItemId, {
             benchId: current.benchId,
@@ -50,6 +68,41 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             identityId: current.identityId,
             connectionId: current.itemKey.connectionId,
         });
+    };
+
+    const inspectDraft = async () => {
+        clearDraft();
+        const generation = state.draftGeneration;
+        let controller;
+        try {
+            if (state.closed) throw new Error("This Twig item companion is closed.");
+            if (workbench || !readNativeDraft) throw new Error("Native draft inspection is unavailable.");
+            if (state.busy) throw new HttpError(409, "A Twig read is already in progress.");
+            if (!state.observation) throw new Error("Load native item detail before explicitly inspecting its draft.");
+            const observation = state.observation;
+            const expectedKey = { ...observation.itemKey };
+            controller = new AbortController();
+            state.draftController = state.controller = controller;
+            state.busy = true;
+            const document = await readNativeDraft({
+                workItemId: expectedKey.workItemId, workspacePath, expectedKey, signal: controller.signal,
+            });
+            if (state.closed || controller.signal.aborted || generation !== state.draftGeneration ||
+                state.observation !== observation) throw new Error("Draft inspection was superseded or closed.");
+            state.draftDocument = validateDraftDocument(document, expectedKey);
+            return state.draftDocument;
+        } catch (error) {
+            if (!state.closed && generation === state.draftGeneration) {
+                state.draftDocument = null;
+                state.draftError = error instanceof Error ? error.message : "Native draft inspection failed.";
+            }
+            throw error;
+        } finally {
+            if (controller && state.controller === controller) {
+                state.controller = state.draftController = null;
+                state.busy = false;
+            }
+        }
     };
 
     const loadBench = async (bench, expected) => {
@@ -159,6 +212,7 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
             sendJson(response, 200, {
                 observation: state.observation,
                 ...(workbench ? { benchObservation: state.benchObservation } : {}),
+                ...(!workbench ? { draftDocument: state.draftDocument, draftError: state.draftError } : {}),
                 error: state.error,
                 busy: state.busy,
             });
@@ -207,9 +261,11 @@ export async function createCanvasServer({ workspacePath, readNativeDetail, read
         loadBench,
         refreshBench,
         loadBenchDetail,
+        inspectDraft,
         close: async () => {
             if (state.closed) return;
             state.closed = true;
+            clearDraft();
             state.controller?.abort();
             await closeServer(server);
         },

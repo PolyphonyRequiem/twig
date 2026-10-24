@@ -1,4 +1,6 @@
 import { workbenchClient, workbenchMarkup } from "./workbench-client.mjs";
+import { validateDraftDocument } from "./draft-document.mjs";
+import { renderDraftInspection } from "./draft-inspection.mjs";
 
 export function renderPage({ token, nonce, workbench = false }) {
     return `<!doctype html>
@@ -127,7 +129,13 @@ export function renderPage({ token, nonce, workbench = false }) {
     </form>
     <p id="id-help" class="muted">The read runs through Twig in this session's workspace; a rejected admission or native read is shown as an error.</p>
     <div id="status" class="notice" role="status" aria-live="polite">Enter an ID to load cached detail.</div>
-    <div id="observation"></div>`}
+    <div id="observation"></div>
+    <section aria-label="Explicit native draft inspection">
+      <p>Draft inspection runs only through an explicit inspect_draft action after native detail is loaded.
+      It may write local observation/conflict metadata; it is not zero-write and has no offline guarantee.
+      Reopen this panel to view a retained result. No edit, capture, Save or apply authority.</p>
+      <div id="draft-inspection"></div>
+    </section>`}
   </main>
   <script nonce="${nonce}">
     const token = ${JSON.stringify(token)};
@@ -185,6 +193,10 @@ export function renderPage({ token, nonce, workbench = false }) {
     const refreshButton = document.querySelector("#refresh-button");
     const status = document.querySelector("#status");
     const output = document.querySelector("#observation");
+    const draftOutput = document.querySelector("#draft-inspection");
+    let detailGeneration = 0;
+    ${validateDraftDocument.toString()}
+    ${renderDraftInspection.toString()}
 
     function addPair(list, label, value) {
       list.append(text("dt", label));
@@ -318,6 +330,8 @@ export function renderPage({ token, nonce, workbench = false }) {
     }
 
     async function perform(action, workItemId) {
+      detailGeneration++;
+      draftOutput.replaceChildren();
       setBusy(true);
       status.classList.remove("error");
       status.textContent = action === "refresh" ? "Refreshing native detail…" : "Loading native detail…";
@@ -353,7 +367,9 @@ export function renderPage({ token, nonce, workbench = false }) {
     });
     refreshButton.addEventListener("click", () => void perform("refresh"));
 
+    const restoreGeneration = detailGeneration;
     void request("/api/state").then((state) => {
+      if (restoreGeneration !== detailGeneration) return;
       if (state.observation) {
         renderObservation(state.observation);
         input.value = String(state.observation.itemKey.workItemId);
@@ -366,6 +382,11 @@ export function renderPage({ token, nonce, workbench = false }) {
       } else if (state.error) {
         status.classList.add("error");
         status.textContent = state.error;
+      }
+      if (state.draftError) {
+        draftOutput.replaceChildren(text("p", state.draftError, "notice error"));
+      } else if (state.draftDocument && state.observation) {
+        renderDraftInspection(draftOutput, state.draftDocument, state.observation.itemKey);
       }
       setBusy(state.busy);
     }).catch((error) => {

@@ -16,9 +16,10 @@ namespace Twig.Domain.Interfaces;
 /// it is Feature #1178's mutation contract, not this boundary.
 /// </para>
 /// <para>
-/// Reads are keyed by the local integer work-item id the cache uses. A provider whose native
-/// identity is not that id (GitHub) cannot satisfy this contract until the neutral store
-/// (#1168) maps local to external identity, so composition refuses it with
+/// Reads are keyed by the integer id in the legacy work-item mirror. The #1168 identity map
+/// relates provider identities to <see cref="LocalWorkItemId"/>, not to this mirror's integer
+/// ids, so it does not by itself adapt a provider-native snapshot to this contract. A provider
+/// without a proven mirror projection (currently GitHub) is refused with
 /// <c>provider-unavailable</c> instead of guessing.
 /// </para>
 /// <para>

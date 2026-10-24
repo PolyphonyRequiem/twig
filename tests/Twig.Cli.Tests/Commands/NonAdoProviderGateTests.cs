@@ -169,6 +169,38 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         adoReads.ShouldBeEmpty($"{command} bypassed the boundary: {string.Join(", ", adoReads)}");
     }
 
+    [Theory]
+    [InlineData("show")]
+    [InlineData("query")]
+    [InlineData("refresh")]
+    [InlineData("sync")]
+    public async Task CommandReads_UnderGitHub_RefuseBeforeConstructingAdoOrSendingHttp(string command)
+    {
+        var adoConstructions = 0;
+        var runtime = await AttachAsync("github", gitProject: "Project", overrides: services =>
+            services.AddSingleton<IAdoWorkItemService>(_ =>
+            {
+                Interlocked.Increment(ref adoConstructions);
+                throw new InvalidOperationException("ADO reader must not be constructed");
+            }));
+        var commands = new TwigCommands(runtime);
+
+        Func<Task<int>> run = command switch
+        {
+            "show" => () => commands.Show(42, output: "json", refresh: true),
+            "query" => () => commands.Query("Fixture", output: "json"),
+            "refresh" => () => commands.Refresh("json"),
+            _ => () => commands.Sync("json", pullOnly: true),
+        };
+        var caught = await CaptureAsync(run);
+
+        caught.ShouldBeOfType<TwigConfigurationException>()
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        adoConstructions.ShouldBe(0, $"{command} must refuse before constructing an ADO reader");
+        _transport.Requests.ShouldBeEmpty(
+            $"{command} must refuse before ADO HTTP; observed: {string.Join(", ", _transport.Requests)}");
+    }
+
     /// <summary>
     /// Feature #1177: under a non-ADO provider both read boundaries refuse at resolution and the
     /// ADO client is never constructed — the alias does not fall through to ADO.

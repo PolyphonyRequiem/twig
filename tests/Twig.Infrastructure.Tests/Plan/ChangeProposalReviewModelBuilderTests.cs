@@ -4,6 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Plan;
 using Xunit;
@@ -360,6 +361,39 @@ public sealed class ChangeProposalReviewModelBuilderTests
         var pendingBlocker = model.Blockers.Single(b => b.Kind == "pending");
         pendingBlocker.WorkItemId.ShouldBe(742);
         pendingBlocker.Detail.ShouldContain("System.State");
+    }
+
+    [Fact]
+    public async Task Model_PreservesPolicyDecisionsAndProjectsBlockingReasonsToReview()
+    {
+        var decisions = new PolicyDecision[]
+        {
+            new() { RuleId = "label", Kind = "label-applicability", Outcome = PolicyOutcome.Warn, Reason = "Existing violation is not worsened.", WorkItemId = 742, OpId = "op-1" },
+            new() { RuleId = "parent", Kind = "parent-type", Outcome = PolicyOutcome.Refuse, Reason = "The parent type is not allowed.", WorkItemId = 729, OpId = "op-2" },
+        };
+
+        var model = await Builder().BuildAsync(
+            AllKindsDocument(), "d".PadLeft(64, 'a'), [], [], canApply: true, policyDecisions: decisions);
+
+        model.PolicyDecisions.ShouldBe(decisions);
+        model.AuthorizationChoices.ShouldNotContain("apply");
+        var blocker = model.Blockers.ShouldHaveSingleItem();
+        blocker.Kind.ShouldBe("policy");
+        blocker.WorkItemId.ShouldBe(729);
+        blocker.Detail.ShouldContain("[parent]");
+        blocker.Detail.ShouldContain("refuse");
+        blocker.Detail.ShouldContain("The parent type is not allowed.");
+
+        using var json = System.Text.Json.JsonDocument.Parse(ChangeProposalReviewModelJson.Serialize(model));
+        var policyDecisions = json.RootElement.GetProperty("policyDecisions");
+        policyDecisions.GetArrayLength().ShouldBe(2);
+        policyDecisions[0].GetProperty("outcome").GetString().ShouldBe("warn");
+        policyDecisions[0].GetProperty("blocking").GetBoolean().ShouldBeFalse();
+        policyDecisions[0].GetProperty("reason").GetString().ShouldBe("Existing violation is not worsened.");
+        policyDecisions[1].GetProperty("outcome").GetString().ShouldBe("refuse");
+        policyDecisions[1].GetProperty("blocking").GetBoolean().ShouldBeTrue();
+        policyDecisions[1].GetProperty("workItemId").GetInt32().ShouldBe(729);
+        policyDecisions[1].GetProperty("opId").GetString().ShouldBe("op-2");
     }
 
     // ── model identity ────────────────────────────────────────────────────

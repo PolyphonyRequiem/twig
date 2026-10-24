@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
@@ -59,7 +60,7 @@ public class StateCommandTests
         _cmd = new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
     }
 
@@ -400,7 +401,7 @@ public class StateCommandTests
         return new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
             _consoleInput, _seedMutationProvider,
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
     }
 
@@ -724,7 +725,11 @@ public class StateCommandTests
     {
         var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
         SetupActiveItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        // With a rule provider registered (always true in production) the executor re-reads
+        // the item between hops, so the fetch must track each landed state.
+        var current = item;
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(_ => current);
+        void Landed(string state) => current = CreateWorkItem(1, "Story", state, WorkItemType.UserStory);
 
         // Direct New → Closed: rejected
         _adoService.PatchAsync(1,
@@ -735,17 +740,17 @@ public class StateCommandTests
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
                 0, Arg.Any<CancellationToken>())
-            .Returns(1);
+            .Returns(_ => { Landed("Active"); return 1; });
         // Active → Resolved
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
                 1, Arg.Any<CancellationToken>())
-            .Returns(2);
+            .Returns(_ => { Landed("Resolved"); return 2; });
         // Resolved → Closed
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
                 2, Arg.Any<CancellationToken>())
-            .Returns(3);
+            .Returns(_ => { Landed("Closed"); return 3; });
 
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
@@ -762,7 +767,9 @@ public class StateCommandTests
     {
         var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
         SetupActiveItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        var current = item;
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(_ => current);
+        void Landed(string state) => current = CreateWorkItem(1, "Story", state, WorkItemType.UserStory);
 
         // Direct New → Closed: rejected
         _adoService.PatchAsync(1,
@@ -773,7 +780,7 @@ public class StateCommandTests
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
                 0, Arg.Any<CancellationToken>())
-            .Returns(1);
+            .Returns(_ => { Landed("Active"); return 1; });
         // Active → Resolved: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),

@@ -56,6 +56,11 @@ public sealed class StateTransitionWorkflow
     private readonly IPromptStateWriter? promptStateWriter;
     private readonly IProcessRuleProvider? processRuleProvider;
 
+    /// <summary>
+    /// Public overload without a process-rule provider. Transitions built through it return
+    /// <see cref="StateTransitionOutcome.ProcessRulesUnavailable"/> before any write, because an
+    /// absent rule source cannot vouch for close gates (AB#1169).
+    /// </summary>
     public StateTransitionWorkflow(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
@@ -150,55 +155,53 @@ public sealed class StateTransitionWorkflow
             return new StateTransitionOutcome.TransitionNotAllowed(item.State, newState);
 
         Func<WorkItem, string, IReadOnlyList<FieldChange>>? dependentFieldPlanner = null;
-        if (processRuleProvider is not null)
-        {
-            // Refuse a transition the process itself will not accept, BEFORE touching the wire.
-            // `twig state` writes System.State and nothing else, so a caller-owned gate field
-            // (an authored `when State = X -> makeRequired Y` with no paired supplier) can never
-            // be satisfied through this command; emitting the PATCH would spend a round trip to
-            // be told so, and under bypassRules could walk straight past the gate instead.
-            // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
-            // have exactly one implementation.
-            var gate = new PlanProcessRuleGate(processRuleProvider);
-            var gateOutcome = await gate.EvaluateAsync(
-                new BatchOperation
+        // Refuse a transition the process itself will not accept, BEFORE touching the wire.
+        // `twig state` writes System.State and nothing else, so a caller-owned gate field
+        // (an authored `when State = X -> makeRequired Y` with no paired supplier) can never
+        // be satisfied through this command; emitting the PATCH would spend a round trip to
+        // be told so, and under bypassRules could walk straight past the gate instead.
+        // Reuses the plan surface's evaluator so the AB#803 supplied-requirement semantics
+        // have exactly one implementation. A missing provider is not a permit: the gate
+        // reports it as unavailable, so no PATCH is emitted without a rule source (AB#1169).
+        var gate = new PlanProcessRuleGate(processRuleProvider);
+        var gateOutcome = await gate.EvaluateAsync(
+            new BatchOperation
+            {
+                Id = StateTransitionGateOperationId,
+                WorkItemId = item.Id,
+                ExpectedRevision = expectedRevision,
+                Fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
                 {
-                    Id = StateTransitionGateOperationId,
-                    WorkItemId = item.Id,
-                    ExpectedRevision = expectedRevision,
-                    Fields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        [SystemStateField] = newState,
-                    },
+                    [SystemStateField] = newState,
                 },
-                item,
-                ct);
+            },
+            item,
+            ct);
 
-            if (gateOutcome.IsRefused)
-            {
-                return new StateTransitionOutcome.RequiredFieldsMissing(
-                    item.Id,
-                    item.Type.Value,
-                    newState,
-                    gateOutcome.Fields ?? []);
-            }
-
-            if (gateOutcome.IsRefreshRequired)
-            {
-                return new StateTransitionOutcome.ProcessRulesUnavailable(
-                    item.Id,
-                    newState,
-                    gateOutcome.Message ?? "Process rules could not be loaded.");
-            }
-
-            var rules = await processRuleProvider.GetRulesAsync(item.Type.Value, ct);
-            dependentFieldPlanner = (currentItem, targetState) =>
-                DependentFieldReconciler.GetSafeClears(
-                    rules,
-                    currentItem.State,
-                    targetState,
-                    currentItem.Fields);
+        if (gateOutcome.IsRefused)
+        {
+            return new StateTransitionOutcome.RequiredFieldsMissing(
+                item.Id,
+                item.Type.Value,
+                newState,
+                gateOutcome.Fields ?? []);
         }
+
+        if (gateOutcome.IsRefreshRequired)
+        {
+            return new StateTransitionOutcome.ProcessRulesUnavailable(
+                item.Id,
+                newState,
+                gateOutcome.Message ?? "Process rules could not be loaded.");
+        }
+
+        var rules = await processRuleProvider!.GetRulesAsync(item.Type.Value, ct);
+        dependentFieldPlanner = (currentItem, targetState) =>
+            DependentFieldReconciler.GetSafeClears(
+                rules,
+                currentItem.State,
+                targetState,
+                currentItem.Fields);
 
         var execution = await StateTransitionExecutor.ExecuteAsync(
             adoService,

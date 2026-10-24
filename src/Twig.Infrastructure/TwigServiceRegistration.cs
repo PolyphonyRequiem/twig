@@ -640,9 +640,9 @@ public static class TwigServiceRegistration
                 sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<Twig.Domain.Services.ChangeProposals.ISessionSteeringModeProvider>(),
                 sp.GetRequiredService<IPlanOriginProvider>(),
-                // Runtime process-rule gate (AB#673). Optional in the object graph — if the
-                // network module has not registered a rule provider the gate no-ops and the
-                // executor's strict-CAS remains the sole enforcement, as before.
+                // Runtime process-rule gate (AB#673). Resolved optionally so the graph still
+                // builds without the network module, but an absent provider is NOT a permit:
+                // the gate reports process rules unavailable and blocks the write (AB#1169).
                 sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
                 sp.GetRequiredService<IUnitOfWork>(),
                 // Declared repository policy (AB#1169): twig.policy.json at the repo root,

@@ -52,8 +52,15 @@ def worker(binary, directory):
                 'operations': [{'id': 'offline-smoke', 'kind': 'batch', 'workItemId': 42, 'expectedRevision': 1, 'fields': {'System.Title': 'Reviewed smoke item'}}]}
     (workspace / 'smoke.json').write_text(json.dumps(proposal))
     preview = json.loads(run('proposal', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)
-    if not preview.get('canApply') or len(preview.get('operations', [])) != 1:
-        raise RuntimeError('Offline native proposal preview failed')
+    if len(preview.get('operations', [])) != 1:
+        raise RuntimeError('Offline native proposal preview lost its operation')
+    decisions = preview.get('reviewModel', {}).get('policyDecisions', [])
+    if preview.get('canApply') or not any(
+            decision.get('kind') == 'process-required-fields'
+            and decision.get('outcome') == 'unavailable'
+            and decision.get('blocking') is True
+            for decision in decisions):
+        raise RuntimeError('Offline native proposal preview did not fail closed on unavailable process rules')
     token_cache = home / 'metadata/credentials/cred-cccccccccccccccccccccccccccccccc.token-cache'
     expiry, token = token_cache.read_text().splitlines()[:2]
     header, payload, signature = token.split('.')
@@ -68,7 +75,7 @@ def worker(binary, directory):
     with sqlite3.connect(workspace / '.twig/cache/pending.db') as db:
         if db.execute('SELECT state,confirmed_at FROM proposal_journals').fetchall() != [('Planned', None)]:
             raise RuntimeError('Smoke must leave its proposal unconfirmed and never apply')
-    print('SMOKE PASSED: startup/help, current schema/binding, offline proposal, wrong-account refusal; no work HTTP or apply')
+    print('SMOKE PASSED: startup/help, current schema/binding, offline fail-closed proposal preview, wrong-account refusal; no work HTTP or apply')
     return 0
 
 

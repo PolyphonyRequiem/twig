@@ -2,6 +2,7 @@ using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
@@ -152,7 +153,7 @@ public class PromptStateIntegrationTests : IDisposable
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, promptStateWriter: writer),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: writer, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("Resolved");

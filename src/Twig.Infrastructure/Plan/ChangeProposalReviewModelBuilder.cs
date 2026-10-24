@@ -2,6 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.ChangeProposals;
 using Twig.Domain.Services.Plan;
+using Twig.Domain.Services.Policy;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 
@@ -55,9 +56,13 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
         bool canApply,
         string? rationale = null,
         ChangeRecipeReference? recipe = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<PolicyDecision>? policyDecisions = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
+        policyDecisions ??= [];
+        if (policyDecisions.Any(static d => d.IsBlocking))
+            canApply = false;
         ArgumentException.ThrowIfNullOrWhiteSpace(digest);
 
         var operations = new List<ReviewOperation>(definition.Operations.Count);
@@ -143,7 +148,8 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
             ContextItems = context,
             Operations = operations,
             AuthorizationChoices = canApply ? ApplicableChoices : BlockedChoices,
-            Blockers = ProjectBlockers(issues, pendingChanges),
+            Blockers = ProjectBlockers(issues, pendingChanges, policyDecisions),
+            PolicyDecisions = policyDecisions,
         };
     }
 
@@ -338,9 +344,10 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
 
     private static IReadOnlyList<ReviewBlocker> ProjectBlockers(
         IReadOnlyList<PlanValidationIssue> issues,
-        IReadOnlyList<PendingChangeDetail> pendingChanges)
+        IReadOnlyList<PendingChangeDetail> pendingChanges,
+        IReadOnlyList<PolicyDecision> policyDecisions)
     {
-        if (issues.Count == 0 && pendingChanges.Count == 0)
+        if (issues.Count == 0 && pendingChanges.Count == 0 && !policyDecisions.Any(static d => d.IsBlocking))
             return [];
 
         var blockers = new List<ReviewBlocker>(issues.Count + pendingChanges.Count);
@@ -365,6 +372,16 @@ public sealed class ChangeProposalReviewModelBuilder(IWorkItemRepository workIte
                 Detail = pending.Field is { Length: > 0 } field
                     ? $"staged {pending.Kind} on {field}"
                     : $"staged {pending.Kind}",
+            });
+        }
+
+        foreach (var decision in policyDecisions.Where(static d => d.IsBlocking))
+        {
+            blockers.Add(new ReviewBlocker
+            {
+                Kind = "policy",
+                WorkItemId = decision.WorkItemId,
+                Detail = $"[{decision.RuleId}] {decision.OutcomeName}: {decision.Reason}",
             });
         }
 

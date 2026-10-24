@@ -641,7 +641,10 @@ public static class TwigServiceRegistration
                 // network module has not registered a rule provider the gate no-ops and the
                 // executor's strict-CAS remains the sole enforcement, as before.
                 sp.GetService<Twig.Domain.Interfaces.IProcessRuleProvider>(),
-                sp.GetRequiredService<IUnitOfWork>()));
+                sp.GetRequiredService<IUnitOfWork>(),
+                // Declared repository policy (AB#1169): twig.policy.json at the repo root,
+                // judged against cached links for dependency integrity.
+                sp.GetService<IWorkItemLinkRepository>()));
 
         return services;
     }

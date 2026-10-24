@@ -139,6 +139,13 @@ public sealed class MutationTools(ConnectionResolver resolver)
                             + $"these fields together in one operation: {missingRendered}.",
                     });
 
+            case StateTransitionOutcome.ProcessRulesUnavailable x:
+                return await EnvelopeBuilder.ErrorAsync(
+                    McpErrorCode.AdoUnreachable,
+                    $"Not moved to '{x.ToState}': {x.Reason}",
+                    ctx,
+                    ct);
+
             case StateTransitionOutcome.ChainFailed x:
                 var pathRendered = string.Join(" → ", x.Path);
                 var failureMsg = x.Path.Count > 1

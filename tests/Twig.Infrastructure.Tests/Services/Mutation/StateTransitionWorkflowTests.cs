@@ -377,6 +377,35 @@ public sealed class StateTransitionWorkflowTests
         outcome.ShouldBeOfType<StateTransitionOutcome.Succeeded>();
     }
 
+    [Fact]
+    public async Task ExecuteAsync_NoProcessRuleProvider_RefusesBeforePatch()
+    {
+        // AB#1169: a composition with no rule provider cannot vouch for close gates, so it
+        // must not emit the PATCH. A provider that genuinely has no rules registers an
+        // explicit empty provider instead.
+        var item = new WorkItemBuilder(42, "issue")
+            .AsIssue()
+            .InState("Doing")
+            .Build();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var processConfig = Substitute.For<IProcessConfigurationProvider>();
+        processConfig.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        var workflow = new StateTransitionWorkflow(
+            Substitute.For<IWorkItemRepository>(),
+            adoService,
+            Substitute.For<IPendingChangeStore>(),
+            processConfig,
+            parentPropagation: null,
+            promptStateWriter: null,
+            processRuleProvider: null);
+
+        var outcome = await workflow.ExecuteAsync(item, "Done", 10);
+
+        var unavailable = outcome.ShouldBeOfType<StateTransitionOutcome.ProcessRulesUnavailable>();
+        unavailable.Reason.ShouldContain("No process-rule provider");
+        await adoService.DidNotReceiveWithAnyArgs().PatchAsync(default, default!, default, default);
+    }
+
     private sealed class FakeProcessRuleProvider(IReadOnlyList<ProcessRule> rules) : IProcessRuleProvider
     {
         public Task<IReadOnlyList<ProcessRule>> GetRulesAsync(

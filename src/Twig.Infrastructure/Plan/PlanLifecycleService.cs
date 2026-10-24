@@ -118,7 +118,8 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     /// Composition-root overload that additionally accepts the process-rule provider used
     /// to evaluate enabled <c>makeRequired</c> gates before a batch PATCH — see
     /// <see cref="IProcessRuleProvider"/> is a Domain-internal type; the public constructor
-    /// delegates in with a null provider, which the gate treats as permit-all.
+    /// delegates in with a null provider, which the gate treats as unavailable (AB#1169), so
+    /// proposals built through it preview and apply as blocked until a provider is supplied.
     /// </summary>
     internal PlanLifecycleService(
         PlanDocumentParser parser,
@@ -358,19 +359,142 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
     }
 
     /// <summary>
-    /// Evaluates the repository's declared policy (AB#1169) against the proposal. No policy
-    /// file means no decisions; a policy that cannot be loaded yields a blocking
-    /// <c>unavailable</c> decision rather than a silent permit.
+    /// Evaluates repository-declared rules and runtime process-rule gates against the
+    /// proposal. No policy file means no repository-policy decisions; a policy or process
+    /// precondition that cannot be evaluated yields a blocking <c>unavailable</c> decision.
     /// </summary>
     private async Task<IReadOnlyList<PolicyDecision>> EvaluatePolicyAsync(PlanDefinition plan, CancellationToken ct)
     {
+        var decisions = new List<PolicyDecision>(
+            await EvaluateDeclaredPolicyAsync(plan, ct).ConfigureAwait(false));
+        decisions.AddRange(await EvaluateProcessRuleDecisionsAsync(plan, ct).ConfigureAwait(false));
+        return decisions;
+    }
+
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluateDeclaredPolicyAsync(
+        PlanDefinition plan, CancellationToken ct)
+    {
+        var decisions = new List<PolicyDecision>();
         var loaded = await _policyLoader.LoadAsync(ct).ConfigureAwait(false);
         if (loaded.Failure is { } failure)
-            return [failure];
-        if (loaded.Policy is not { } policy)
-            return [];
-        return await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false);
+            decisions.Add(failure);
+        else if (loaded.Policy is { } policy)
+            decisions.AddRange(await _policyEvaluator.EvaluateAsync(policy, plan, ct).ConfigureAwait(false));
+        return decisions;
     }
+
+    private async Task<IReadOnlyList<PolicyDecision>> EvaluateProcessRuleDecisionsAsync(
+        PlanDefinition plan, CancellationToken ct)
+    {
+        var decisions = new List<PolicyDecision>();
+        var carry = new Dictionary<int, WorkItemSnapshot>();
+        var carryFailures = new Dictionary<int, string>();
+        for (var index = 0; index < plan.Operations.Count; index++)
+        {
+            switch (plan.Operations[index])
+            {
+                case BatchOperation batch:
+                    if (carryFailures.TryGetValue(batch.WorkItemId, out var carryFailure))
+                    {
+                        decisions.Add(ProcessRuleDecision(
+                            batch, PolicyOutcome.Unavailable, carryFailure));
+                        continue;
+                    }
+
+                    var evaluation = await EvaluateProcessRuleGateAsync(batch, carry, ct).ConfigureAwait(false);
+                    if (!evaluation.Outcome.IsOk)
+                    {
+                        var fields = evaluation.Outcome.Fields;
+                        var reason = evaluation.Outcome.Message
+                            ?? "Process required-field rules could not be evaluated.";
+                        if (fields is { Count: > 0 })
+                            reason += $" Required fields: {string.Join(", ", fields)}.";
+
+                        decisions.Add(ProcessRuleDecision(
+                            batch,
+                            evaluation.Outcome.IsRefused ? PolicyOutcome.Refuse : PolicyOutcome.Unavailable,
+                            reason));
+                        continue;
+                    }
+
+                    if (evaluation.Snapshot is { } snapshot)
+                    {
+                        carry[batch.WorkItemId] = _workItemMapper.ProjectFields(
+                            snapshot, batch.Fields, batch.ExpectedRevision + 1);
+                        carryFailures.Remove(batch.WorkItemId);
+                    }
+                    break;
+
+                case AddLinkOperation add when HasLaterBatch(plan, index, add.WorkItemId):
+                    await ProjectLinkAsync(
+                        add.WorkItemId, add.ExpectedRevision, add.Relation, add.OtherId, added: true)
+                        .ConfigureAwait(false);
+                    break;
+
+                case RemoveLinkOperation remove when HasLaterBatch(plan, index, remove.WorkItemId):
+                    await ProjectLinkAsync(
+                        remove.WorkItemId, remove.ExpectedRevision, remove.Relation, remove.OtherId, added: false)
+                        .ConfigureAwait(false);
+                    break;
+            }
+        }
+
+        return decisions;
+
+        async Task ProjectLinkAsync(
+            int workItemId,
+            int expectedRevision,
+            string relation,
+            int otherId,
+            bool added)
+        {
+            WorkItemSnapshot source;
+            if (TryGetCarriedPreOp(carry, workItemId, expectedRevision, out var carried))
+            {
+                source = carried;
+            }
+            else
+            {
+                try
+                {
+                    source = await _revisionBound.FetchAtRevisionAsync(
+                        workItemId, expectedRevision, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    carryFailures[workItemId] =
+                        $"Unable to load authoritative snapshot for work item {workItemId} at revision "
+                        + $"{expectedRevision}: {ex.Message}";
+                    return;
+                }
+            }
+
+            carry[workItemId] = ProjectPostLinkSnapshot(
+                source, relation, otherId, expectedRevision + 1, added);
+            carryFailures.Remove(workItemId);
+        }
+    }
+
+    private static bool HasLaterBatch(PlanDefinition plan, int operationIndex, int workItemId) =>
+        plan.Operations.Skip(operationIndex + 1)
+            .OfType<BatchOperation>()
+            .Any(batch => batch.WorkItemId == workItemId);
+
+    private static PolicyDecision ProcessRuleDecision(
+        BatchOperation batch, PolicyOutcome outcome, string reason) =>
+        new()
+        {
+            RuleId = "process-rule-gate",
+            Kind = "process-required-fields",
+            Outcome = outcome,
+            Reason = reason,
+            WorkItemId = batch.WorkItemId,
+            OpId = batch.Id,
+        };
 
     /// <inheritdoc />
     public async Task<PlanApplyResult> ApplyAsync(
@@ -433,7 +557,7 @@ public sealed partial class PlanLifecycleService : IPlanLifecycleService
         IReadOnlyList<PolicyDecision> policyDecisions = [];
         if (journal.State == PlanOperationState.Planned)
         {
-            policyDecisions = await EvaluatePolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
+            policyDecisions = await EvaluateDeclaredPolicyAsync(parsed.Plan, ct).ConfigureAwait(false);
             var blocking = policyDecisions.Where(static d => d.IsBlocking).ToArray();
             if (blocking.Length > 0)
                 return TopLevelApplyFailure(

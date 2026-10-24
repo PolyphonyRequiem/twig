@@ -1,6 +1,7 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Services.Plan;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
@@ -80,7 +81,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -108,7 +109,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -137,7 +138,7 @@ public class ConflictUxTests
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService,
             _consoleInput, new SeedMutationProvider(_workItemRepo),
-            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: null, promptStateWriter: null, processRuleProvider: EmptyProcessRuleProvider.Instance),
             _pendingChangeStore);
 
         var result = await cmd.ExecuteAsync("c");

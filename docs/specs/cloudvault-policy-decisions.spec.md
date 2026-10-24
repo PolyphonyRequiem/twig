@@ -55,7 +55,7 @@ Category key: **Native** — enforced by Twig; **Existing** — already enforced
 | 2 | No self-dependency, duplicate dependency, or dependency cycle within scope | `relationships.md` *Validate within scope* | Native | `dependency-integrity` rule kind |
 | 3 | `orchestration:` labels only on User Story / Bug, one value | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind |
 | 4 | `execution:` labels only on Task, one value; labels do not inherit | `task-creation.md` *Orchestration and execution* | Native | `label-applicability` rule kind (evaluated per item, never inherited) |
-| 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate` blocks a batch or state write when rules cannot be loaded; process-rule preview decisions and null-provider fail-closed behavior are a separate follow-up slice |
+| 5 | Close-gate fields must be supplied with the Done transition | `closeout.md`, `enforcement.md` | Existing | `PlanProcessRuleGate`; unavailable rules block writes and surface as blocking preview decisions |
 | 6 | Unknown/unverifiable state is distinct from violated | `enforcement.md` | Native | `unavailable` outcome, blocking (D3) |
 | 7 | Exact digest, expected revision, journaled apply | `publication.md`, `enforcement.md` | Existing | proposal digest, revision guards, journal |
 | 8 | Human vs model authorization mode | `publication.md` | Existing | `ProposalAuthorizationGate` |
@@ -91,15 +91,14 @@ violations that the proposal does not worsen are reported as `warn` (D4).
 
 ### Surfacing
 
-* **Declared repository policy preview** — decisions appear in the review model (`policyDecisions`), in JSON, human,
-  table and browser renderings. Each blocking decision is also a `policy` blocker, and a
-  proposal with a blocking decision cannot be applied.
-* **Declared repository policy apply** — policy is re-evaluated immediately before authorization; a blocking
-  decision refuses the apply before any write.
+* **Preview** — declared policy and process-rule decisions appear in the review model
+  (`policyDecisions`), in JSON, human, table and browser renderings. Each blocking decision
+  is also a `policy` blocker, and a proposal with a blocking decision cannot be applied.
+* **Apply** — declared policy is re-evaluated immediately before authorization; a blocking
+  decision refuses the apply before any write. Process rules are re-evaluated at the
+  per-operation pre-write gate.
 
 Evaluation is over the **whole proposal's post-change state**, not operation order.
-These preview decisions cover `twig.policy.json`; this slice does not add process-rule
-decisions to proposal previews.
 
 ### Policy file
 
@@ -157,15 +156,28 @@ not a subset of the pre-change ones (D4).
 ## Process-rule gate change (D3)
 
 `PlanProcessRuleGate` previously returned *permit* when the process rule set could not be
-loaded. It now returns *refresh required*: plan apply leaves the operation confirmed and
-returns a retryable refusal, and `twig state` refuses with an explanation. This slice does
-not surface process-rule outcomes in proposal previews. A null provider (no process-rule
-support configured) still permits; null-provider fail-closed handling is added by the
-subsequent gate-hardening slice.
+loaded. It now returns *refresh required*: plan preview reports an `unavailable` decision,
+and the per-operation pre-write gate re-evaluates before an ADO write while preserving its
+retryable or terminal journal outcome. `twig state` also refuses with an explanation. An
+unknown work-item type or a missing rule set is `unavailable` because required-field gates
+cannot be evaluated. A null provider (no process-rule provider registered) is also
+`unavailable`: an absent provider is indistinguishable from a forgotten registration, so it
+fails closed rather than permitting. A provider whose process has no rules must say so
+explicitly by registering `EmptyProcessRuleProvider.Instance` (or any provider returning an
+empty rule set), which permits.
 
 ## Boundaries
 
 * **#1171** audits historical policy/process work and journal reconciliation. #1169 does not
   re-close, re-scope or reassign #726, #674, #727 or #850.
 * **#729** owns authorizer authenticity. Nothing here claims to prove who authorized.
+* **#1167 / #1170** provide provider capability contracts, a read-only GitHub adapter, and
+  a durable local relationship overlay. Those capabilities do not themselves provide policy
+  facts. The evaluator consumes cached local work-item and link repositories, while process
+  rules arrive through `IProcessRuleProvider` (work-item type → `ProcessRule` list). A provider
+  with no process rules must register `EmptyProcessRuleProvider.Instance` (or another provider
+  returning an empty rule set); an unregistered provider fails closed. Provider-native
+  revision-bound reads and provider-gated write composition remain outside this slice and are
+  owned by #1189, which depends on #1177 and #1178. Relationship overlay facts are not treated
+  as native policy facts here.
 * Host skills keep every **Host** row above; Twig reports mechanical facts they can rely on.

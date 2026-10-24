@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Twig.Domain.Services.ChangeProposals;
+using Twig.Domain.Services.Policy;
 using Twig.RenderTree;
 
 namespace Twig.Rendering;
@@ -91,6 +92,19 @@ public static class ChangeProposalReviewRenderer
                 lines.Add(new RenderNode.Text(DescribeBlocker(blocker), Severity.Warning));
         }
 
+        if (model.PolicyDecisions.Count > 0)
+        {
+            lines.Add(Text($"policy decisions ({model.PolicyDecisions.Count}):"));
+            foreach (var decision in model.PolicyDecisions)
+            {
+                var target = decision.WorkItemId is { } id ? $" for #{id}" : string.Empty;
+                var operation = decision.OpId is { } opId ? $" (operation {opId})" : string.Empty;
+                lines.Add(new RenderNode.Text(
+                    $"[{decision.OutcomeName}] {Safe(decision.RuleId)}{target}{operation}: {Safe(decision.Reason)}",
+                    DecisionSeverity(decision.Outcome)));
+            }
+        }
+
         lines.Add(Text("Legend: → = field change; (clear) = remove field; absent = known null; unknown = unavailable baseline; \"\" = empty string. Context and peers are not mutation targets."));
         if (!full && model.Operations.SelectMany(o => o.Consequences)
             .Any(c => string.Equals(c.Field, "System.Description", StringComparison.OrdinalIgnoreCase)))
@@ -130,6 +144,14 @@ public static class ChangeProposalReviewRenderer
             ? $"{prefix}{target}"
             : $"{prefix}{target}: {Safe(blocker.Detail)}";
     }
+
+    private static Severity DecisionSeverity(PolicyOutcome outcome) => outcome switch
+    {
+        PolicyOutcome.Permit => Severity.Success,
+        PolicyOutcome.Warn => Severity.Warning,
+        PolicyOutcome.Refuse or PolicyOutcome.Unavailable => Severity.Error,
+        _ => Severity.Error,
+    };
 
     // Only the last-descendant chain can accept another child without moving an earlier op.
     private static RenderTreeBranch? AttachToTail(RenderTreeBranch root, int parent, RenderTreeBranch child)

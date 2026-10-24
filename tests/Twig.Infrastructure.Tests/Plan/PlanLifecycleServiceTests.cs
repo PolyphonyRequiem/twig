@@ -431,8 +431,9 @@ public sealed class PlanLifecycleServiceTests : IDisposable
         var result = await service.ApplyAsync(file, "unconfirmed-digest", authorization: null);
 
         result.Failed.ShouldBeTrue();
-        result.Error.ShouldContain("cannot be applied");
-        result.Error.ShouldContain("No confirmation");
+        var error = result.Error ?? throw new InvalidOperationException("Expected the apply to report an error.");
+        error.ShouldContain("cannot be applied");
+        error.ShouldContain("No confirmation");
         journal.ReceivedCalls().ShouldBeEmpty();
         await _pending.DidNotReceive().GetAllChangesAsync(Arg.Any<CancellationToken>());
         _ado.ReceivedCalls().ShouldBeEmpty();

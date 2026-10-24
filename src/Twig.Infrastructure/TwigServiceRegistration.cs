@@ -161,6 +161,10 @@ public static class TwigServiceRegistration
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
         services.AddReferenceProfileSeam();
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton(sp => DurableFieldOverlay.Create(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<SqliteCacheStore>(),
+            sp.GetRequiredService<IFieldDefinitionStore>()));
         services.AddSingleton(sp => new DetailDocumentSource(sp.GetService<IFormLayoutProvider>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));

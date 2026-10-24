@@ -22,6 +22,12 @@ public sealed class NavigationHistoryCommands(
     RenderingPipelineFactory? pipelineFactory = null,
     IPromptStateWriter? promptStateWriter = null)
 {
+    /// <summary>Composes displayed labels without changing history identity or targets.</summary>
+    internal Twig.Infrastructure.Persistence.DurableFieldOverlay? FieldOverlay { get; init; }
+
+    private Task<Domain.Aggregates.WorkItem> ComposeAsync(Domain.Aggregates.WorkItem item, CancellationToken ct) =>
+        FieldOverlay is null ? Task.FromResult(item) : FieldOverlay.ApplyAsync(item, ct);
+
     /// <summary>Navigate backward in the navigation history.</summary>
     public async Task<int> BackAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -41,6 +47,8 @@ public sealed class NavigationHistoryCommands(
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
         var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
+        if (item is not null)
+            item = await ComposeAsync(item, ct).ConfigureAwait(false);
         Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
@@ -73,6 +81,8 @@ public sealed class NavigationHistoryCommands(
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
         var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
+        if (item is not null)
+            item = await ComposeAsync(item, ct).ConfigureAwait(false);
         Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
@@ -107,6 +117,10 @@ public sealed class NavigationHistoryCommands(
 
         var distinctIds = resolvedIds.Select(r => r.ResolvedId).Distinct();
         var items = await workItemRepo.GetByIdsAsync(distinctIds, ct);
+        var composeLabels = !string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase);
+        if (composeLabels && FieldOverlay is not null)
+            items = await FieldOverlay.ApplyAsync(items, ct).ConfigureAwait(false);
         var itemMap = items.ToDictionary(i => i.Id);
 
         var enriched = new List<(NavigationHistoryEntry Entry, int ResolvedId, string? TypeName, string? Title, string? State)>(entries.Count);
@@ -177,6 +191,8 @@ public sealed class NavigationHistoryCommands(
                 await historyStore.RecordVisitAsync(selectedId, ct);
 
                 var selectedItem = await workItemRepo.GetByIdAsync(selectedId, ct);
+                if (selectedItem is not null)
+                    selectedItem = await ComposeAsync(selectedItem, ct).ConfigureAwait(false);
                 Console.WriteLine(FormatNavTarget(selectedItem, selectedId));
 
                 if (promptStateWriter is not null)

@@ -35,6 +35,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         _projection = projection;
     }
 
+    internal bool HasDurableIdentityProjection => _projection is not null;
+
+    internal string? DurableScope => _projection?.KnownResourceScope;
+
     public IDisposable? AcquireOperation() => _store.AcquireOperation();
 
     // Browser callers lend only the origin from their still-live admitted provider lease.

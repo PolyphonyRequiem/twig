@@ -1465,3 +1465,37 @@ Twig.Domain.ValueObjects.LocalWorkItemId.Equals(Twig.Domain.ValueObjects.LocalWo
 Twig.Domain.ValueObjects.LocalWorkItemId.IsEmpty.get -> bool
 Twig.Domain.ValueObjects.LocalWorkItemId.LocalWorkItemId() -> void
 Twig.Domain.ValueObjects.LocalWorkItemId.Value.get -> System.Guid
+override Twig.Domain.Interfaces.ExternalIdentityResolution.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.ExternalIdentityResolution.GetHashCode() -> int
+override Twig.Domain.Interfaces.ExternalIdentityResolution.ToString() -> string!
+override Twig.Domain.Interfaces.ObservedProviderToken.Equals(object? obj) -> bool
+override Twig.Domain.Interfaces.ObservedProviderToken.GetHashCode() -> int
+override Twig.Domain.Interfaces.ObservedProviderToken.ToString() -> string!
+static Twig.Domain.Interfaces.ExternalIdentityResolution.operator !=(Twig.Domain.Interfaces.ExternalIdentityResolution? left, Twig.Domain.Interfaces.ExternalIdentityResolution? right) -> bool
+static Twig.Domain.Interfaces.ExternalIdentityResolution.operator ==(Twig.Domain.Interfaces.ExternalIdentityResolution? left, Twig.Domain.Interfaces.ExternalIdentityResolution? right) -> bool
+static Twig.Domain.Interfaces.ObservedProviderToken.operator !=(Twig.Domain.Interfaces.ObservedProviderToken? left, Twig.Domain.Interfaces.ObservedProviderToken? right) -> bool
+static Twig.Domain.Interfaces.ObservedProviderToken.operator ==(Twig.Domain.Interfaces.ObservedProviderToken? left, Twig.Domain.Interfaces.ObservedProviderToken? right) -> bool
+Twig.Domain.Interfaces.ExternalIdentityResolution
+Twig.Domain.Interfaces.ExternalIdentityResolution.<Clone>$() -> Twig.Domain.Interfaces.ExternalIdentityResolution!
+Twig.Domain.Interfaces.ExternalIdentityResolution.Created.get -> bool
+Twig.Domain.Interfaces.ExternalIdentityResolution.Created.init -> void
+Twig.Domain.Interfaces.ExternalIdentityResolution.Deconstruct(out Twig.Domain.ValueObjects.LocalWorkItemId Id, out bool Created) -> void
+Twig.Domain.Interfaces.ExternalIdentityResolution.Equals(Twig.Domain.Interfaces.ExternalIdentityResolution? other) -> bool
+Twig.Domain.Interfaces.ExternalIdentityResolution.ExternalIdentityResolution(Twig.Domain.ValueObjects.LocalWorkItemId Id, bool Created) -> void
+Twig.Domain.Interfaces.ExternalIdentityResolution.Id.get -> Twig.Domain.ValueObjects.LocalWorkItemId
+Twig.Domain.Interfaces.ExternalIdentityResolution.Id.init -> void
+Twig.Domain.Interfaces.IExternalIdentityMap
+Twig.Domain.Interfaces.IExternalIdentityMap.FindAsync(Twig.Domain.ValueObjects.ExternalWorkItemIdentity! identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.ValueObjects.LocalWorkItemId?>!
+Twig.Domain.Interfaces.IExternalIdentityMap.GetExternalIdentitiesAsync(Twig.Domain.ValueObjects.LocalWorkItemId id, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.ExternalWorkItemIdentity!>!>!
+Twig.Domain.Interfaces.IExternalIdentityMap.GetObservedTokenAsync(Twig.Domain.ValueObjects.ExternalWorkItemIdentity! identity, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.ObservedProviderToken?>!
+Twig.Domain.Interfaces.IExternalIdentityMap.RecordObservedTokenAsync(Twig.Domain.ValueObjects.ExternalWorkItemIdentity! identity, Twig.Domain.ValueObjects.ProviderRevisionToken? token, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+Twig.Domain.Interfaces.IExternalIdentityMap.ResolveAsync(Twig.Domain.ValueObjects.ExternalWorkItemIdentity! identity, Twig.Domain.ValueObjects.ProviderRevisionToken? observedToken, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Interfaces.ExternalIdentityResolution!>!
+Twig.Domain.Interfaces.ObservedProviderToken
+Twig.Domain.Interfaces.ObservedProviderToken.<Clone>$() -> Twig.Domain.Interfaces.ObservedProviderToken!
+Twig.Domain.Interfaces.ObservedProviderToken.Deconstruct(out Twig.Domain.ValueObjects.ProviderRevisionToken? Token, out System.DateTimeOffset ObservedAt) -> void
+Twig.Domain.Interfaces.ObservedProviderToken.Equals(Twig.Domain.Interfaces.ObservedProviderToken? other) -> bool
+Twig.Domain.Interfaces.ObservedProviderToken.ObservedAt.get -> System.DateTimeOffset
+Twig.Domain.Interfaces.ObservedProviderToken.ObservedAt.init -> void
+Twig.Domain.Interfaces.ObservedProviderToken.ObservedProviderToken(Twig.Domain.ValueObjects.ProviderRevisionToken? Token, System.DateTimeOffset ObservedAt) -> void
+Twig.Domain.Interfaces.ObservedProviderToken.Token.get -> Twig.Domain.ValueObjects.ProviderRevisionToken?
+Twig.Domain.Interfaces.ObservedProviderToken.Token.init -> void

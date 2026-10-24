@@ -11,11 +11,11 @@ namespace Twig.Browser;
 
 internal sealed record BrowserDetailRequest(int Id, int Width = 80, bool Ansi = true,
     string? ExpectedBench = null, string? ExpectedBinding = null, string? ExpectedIdentity = null,
-    bool Sync = false, BrowserCapture? Captured = null, bool Document = false);
+    bool Sync = false, BrowserCapture? Captured = null, bool Document = false, string? ExplicitBench = null);
 
 /// <summary>Opaque selection and admitted native origin evidence, never credentials.</summary>
 internal sealed record BrowserCapture(string BenchId, string BenchName, ResolvedConnectionBinding Origin,
-    string BenchContentsDigest)
+    string BenchContentsDigest, string? ExplicitTarget = null)
 {
     internal string BindingId => Origin.Binding.BindingId;
     internal string IdentityId => Origin.Identity.IdentityId;

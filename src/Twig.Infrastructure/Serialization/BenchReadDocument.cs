@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Twig.Infrastructure.Auth;
 
 namespace Twig.Infrastructure.Serialization;
 
@@ -20,7 +21,14 @@ internal sealed record BenchReadOrigin(
     string ConnectionRef, string Organization, string Project, string Team,
     string BindingId, long BindingRevision, string IdentityId,
     string WorktreeRoot, string WorktreeFingerprint, long AttachmentRevision,
-    string SelectionSource, long SelectionRevision, string? StorageGeneration);
+    string SelectionSource, long SelectionRevision, string? StorageGeneration)
+{
+    /// <summary>Single construction site so every explicit Bench read reports one origin shape.</summary>
+    internal static BenchReadOrigin From(ResolvedConnectionBinding origin) => new(origin.Binding.ConnectionRef,
+        origin.Operation.Organization, origin.Operation.Project, origin.Operation.Team, origin.Binding.BindingId,
+        origin.Binding.Revision, origin.Identity.IdentityId, origin.WorktreeRoot, origin.Operation.WorktreeFingerprint,
+        origin.Operation.AttachmentRevision, origin.SelectionSource, origin.SelectionRevision, origin.StorageGeneration);
+}
 
 internal sealed record BenchReadMember(
     int Id, bool Loaded, bool Selected, bool Seed, bool Pending,
@@ -40,3 +48,15 @@ internal sealed record BenchReadCompleteness(
 
 internal sealed record BenchReadEnvelope(BenchReadDocument Browser);
 internal sealed record BenchReadError(string Error);
+
+/// <summary>Why the requested item belongs to the explicitly selected Bench; flags mirror <see cref="BenchReadMember"/>.</summary>
+internal sealed record BenchDetailMembership(bool Selected, bool Seed, bool Pending);
+
+/// <summary>
+/// Honest single-item coverage. The item total is never claimed: a null source child count means unknown,
+/// and a cached child count only describes the mirror.
+/// </summary>
+internal sealed record BenchDetailCompleteness(
+    bool SourceComplete,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? SourceChildCount,
+    int CachedChildCount, bool? ParentCached, bool LinksVerified, IReadOnlyList<string> Reasons);

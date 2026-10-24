@@ -90,10 +90,7 @@ public sealed partial class WorkspaceCommand
                     item?.Title, item?.Type.Value, item?.State, item?.ParentId);
             }).ToArray();
             var document = new BenchReadDocument(2, target, stored.Id.ToString(CultureInfo.InvariantCulture), stored.Name,
-                new BenchReadOrigin(origin.Binding.ConnectionRef, origin.Operation.Organization,
-                    origin.Operation.Project, origin.Operation.Team, origin.Binding.BindingId, origin.Binding.Revision,
-                    origin.Identity.IdentityId, origin.WorktreeRoot, origin.Operation.WorktreeFingerprint,
-                    origin.Operation.AttachmentRevision, origin.SelectionSource, origin.SelectionRevision, origin.StorageGeneration),
+                BenchReadOrigin.From(origin),
                 "raw-mirror", members,
                 new BenchReadCompleteness(ids.Length, loaded.Count, ids.Length - loaded.Count, null, null, false,
                     omitted.Length == 0 && missingAncestors.Count == 0 && prunedAncestors.Length == 0

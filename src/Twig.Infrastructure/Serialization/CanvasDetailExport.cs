@@ -26,7 +26,11 @@ internal sealed record CanvasDetailExport(
     string LayoutSource,
     string? LockedTypeReferenceName,
     WorkItemDetailDocument Document,
-    WorkItemTypeAppearance? Appearance)
+    WorkItemTypeAppearance? Appearance,
+    BenchReadOrigin? Origin = null,
+    string? Observation = null,
+    BenchDetailMembership? Membership = null,
+    BenchDetailCompleteness? Completeness = null)
 {
     public string Editing => "unavailable";
     public string RelatedItemsCoverage => "not-exported";

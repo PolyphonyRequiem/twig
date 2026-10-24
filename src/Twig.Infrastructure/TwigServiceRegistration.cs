@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Mutation;
@@ -150,6 +151,8 @@ public static class TwigServiceRegistration
         services.AddSingleton(sp => new DetailDocumentSource(sp.GetService<IFormLayoutProvider>()));
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ILocalRelationshipRepository>(sp => new SqliteLocalRelationshipRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton(sp => new LocalRelationshipService(sp.GetRequiredService<ILocalRelationshipRepository>()));
         services.AddSingleton<IStagedIdentityRegistry>(sp => new SqliteStagedIdentityRegistry(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>(), sp.GetRequiredService<IStagedIdentityRegistry>()));
         services.AddSingleton<IPublishIntentRepository>(sp => new SqlitePublishIntentRepository(sp.GetRequiredService<SqliteCacheStore>()));

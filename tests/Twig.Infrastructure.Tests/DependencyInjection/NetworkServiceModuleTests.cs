@@ -1,6 +1,9 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Shouldly;
+using Twig.Domain.Capabilities;
+using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Xunit;
@@ -50,6 +53,31 @@ public sealed class NetworkServiceModuleTests
         var client2 = provider.GetRequiredService<HttpClient>();
 
         client1.ShouldBeSameAs(client2);
+    }
+
+    [Fact]
+    public async Task WorkItemProvider_UsesAdoDescriptorAndDefaultsToNotProbed()
+    {
+        var services = new ServiceCollection();
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+        };
+        services.AddSingleton(config);
+        services.AddTwigNetworkServices(config);
+        services.AddSingleton(Substitute.For<IAuthenticationProvider>());
+
+        using var provider = services.BuildServiceProvider();
+        var adapter = provider.GetRequiredService<IWorkItemProvider>();
+
+        adapter.Capabilities.ShouldBe(ProviderCapabilityCatalog.Ado);
+        adapter.ShouldBeSameAs(provider.GetRequiredService<IAdoWorkItemService>());
+
+        var evidence = await adapter.ProbeCapabilitiesAsync();
+        evidence.ShouldBeEmpty();
+        CapabilityReport.Create(adapter.Capabilities, evidence).Relationships
+            .ShouldAllBe(entry => entry.Availability == CapabilityAvailability.Unknown);
     }
 
     [Fact]

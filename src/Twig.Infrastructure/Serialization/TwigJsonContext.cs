@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
@@ -200,6 +201,16 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ExternalWorkItemIdentity))]
 [JsonSerializable(typeof(ProviderRevisionToken))]
 [JsonSerializable(typeof(ProviderWorkItemRelationship))]
+[JsonSerializable(typeof(ProviderCapabilityDescriptor))]
+[JsonSerializable(typeof(RelationshipCapability))]
+[JsonSerializable(typeof(CapabilityAvailabilityEvidence))]
+[JsonSerializable(typeof(CapabilityReportEntry))]
+[JsonSerializable(typeof(CapabilityReport))]
+[JsonSerializable(typeof(CapabilityImplementation))]
+[JsonSerializable(typeof(CapabilityAvailability))]
+[JsonSerializable(typeof(EmulationStorage))]
+[JsonSerializable(typeof(RelationshipOrigin))]
+[JsonSerializable(typeof(PublicationState))]
 // Worktree attachment storage documents (AB#736 §4.2, consumed by AB#738)
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.LayoutMarkerDocument))]
 [JsonSerializable(typeof(Twig.Infrastructure.Persistence.WorktreeFingerprintDocument))]

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -18,7 +19,7 @@ namespace Twig.Infrastructure.Ado;
 /// Each route names its own pinned api-version from <see cref="AdoApiVersions"/>, which
 /// records what that version buys. Never inline a version literal here.
 /// </remarks>
-internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader
+internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWorkItemService, IAdoAssignedIdentityReader, IWorkItemProvider
 {
     private const string JsonPatchMediaType = "application/json-patch+json";
 
@@ -30,6 +31,28 @@ internal sealed class AdoRestClient : IAdoWorkItemService, IRevisionBoundAdoWork
     private readonly IFieldDefinitionStore? _fieldDefStore;
     private readonly AdoConcurrencyThrottle? _throttle;
     private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
+    private string? _resourceScope;
+
+    public ProviderCapabilityDescriptor Capabilities => ProviderCapabilityCatalog.Ado;
+
+    public async Task<string?> ResolveResourceScopeAsync(CancellationToken ct = default)
+    {
+        if (_resourceScope is not null)
+            return _resourceScope;
+
+        using var bindingOperation = await Twig.Infrastructure.Auth.ConnectionOperationAdmission.AcquireAsync(_authProvider, ct).ConfigureAwait(false);
+        var url = $"{_orgUrl}/_apis/connectionData?api-version={AdoApiVersions.ConnectionData}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct).ConfigureAwait(false);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var data = await JsonSerializer.DeserializeAsync(
+            stream, TwigJsonContext.Default.AdoConnectionDataResponse, ct).ConfigureAwait(false);
+
+        if (!Guid.TryParse(data?.InstanceId, out var instanceId) || instanceId == Guid.Empty)
+            return null;
+
+        _resourceScope = instanceId.ToString("D").ToLowerInvariant();
+        return _resourceScope;
+    }
 
     public AdoRestClient(
         HttpClient httpClient,

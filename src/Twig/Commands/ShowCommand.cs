@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Spectre.Console.Rendering;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
@@ -46,6 +47,14 @@ public sealed class ShowCommand(
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
     private readonly WorkingSetService? _workingSetService = workingSetService;
     private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
+    /// <summary>
+    /// The active provider adapter (AB#1170). Its capability descriptor derives each link row's
+    /// <c>origin</c>; when absent (test compositions) origin is reported as unknown.
+    /// </summary>
+    internal IWorkItemProvider? WorkItemProvider { get; init; }
+
+    private ProviderCapabilityDescriptor? Descriptor => WorkItemProvider?.Capabilities;
 
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool refresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false, string? fields = null, string? sections = null)
     {
@@ -512,7 +521,7 @@ public sealed class ShowCommand(
         {
             "ids" or "json-compact" => BuildCompactRecord(item),
             "minimal" => BuildFullRecord(item),
-            _ => BuildFullDocument(item, links, linksVerifiedAt, parent, children, gitContext, pendingChanges),
+            _ => BuildFullDocument(item, links, linksVerifiedAt, parent, children, gitContext, pendingChanges, Descriptor),
         };
 
         var tree = new Twig.RenderTree.RenderTree([root]);
@@ -543,7 +552,8 @@ public sealed class ShowCommand(
         Domain.Aggregates.WorkItem? parent,
         IReadOnlyList<Domain.Aggregates.WorkItem> children,
         GitContext gitContext,
-        (int FieldCount, int NoteCount)? pendingChanges)
+        (int FieldCount, int NoteCount)? pendingChanges,
+        ProviderCapabilityDescriptor? descriptor)
     {
         var coreCells = BuildCoreCells(item);
 
@@ -591,7 +601,7 @@ public sealed class ShowCommand(
         if (links is { Count: > 0 })
         {
             foreach (var link in links)
-                linkNodes.Add(BuildLinkRecord(link));
+                linkNodes.Add(BuildLinkRecord(link, descriptor));
         }
         fields.Add(new DocumentField("links", new RenderNode.Section(null, linkNodes)));
 
@@ -712,9 +722,9 @@ public sealed class ShowCommand(
         });
     }
 
-    private static RenderNode BuildLinkRecord(WorkItemLink link)
+    private static RenderNode BuildLinkRecord(WorkItemLink link, ProviderCapabilityDescriptor? descriptor)
     {
-        return new RenderNode.Record("workItemLink", BuildLinkCells(link));
+        return new RenderNode.Record("workItemLink", BuildLinkCells(link, descriptor));
     }
 
     /// <summary>
@@ -748,13 +758,14 @@ public sealed class ShowCommand(
     /// The <c>links</c> wire shape for one edge, shared by the single-item document and the
     /// per-row <c>links</c> array of <c>show-batch</c> (ADO #154) so the two cannot drift.
     /// </summary>
-    private static Dictionary<string, RenderCell> BuildLinkCells(WorkItemLink link)
+    private static Dictionary<string, RenderCell> BuildLinkCells(WorkItemLink link, ProviderCapabilityDescriptor? descriptor)
     {
         return new Dictionary<string, RenderCell>(StringComparer.Ordinal)
         {
             ["sourceId"] = RenderCell.Integer(link.SourceId),
             ["targetId"] = RenderCell.Integer(link.TargetId),
             ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
+            ["origin"] = LinkOriginCell.For(descriptor, link.LinkType),
         };
     }
 
@@ -856,7 +867,7 @@ public sealed class ShowCommand(
             var itemLinks = graph.GetLinks(item.Id);
             var linkCells = new List<RenderCell>(itemLinks.Count);
             foreach (var link in itemLinks)
-                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
+                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link, Descriptor))));
 
             var freshness = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
             {
@@ -1022,7 +1033,8 @@ public sealed class ShowCommand(
                 connection: ShowProjection.FormatConnection(ctx.Config),
                 route: ShowProjection.ReadRoute.Cache,
                 hasLocalChanges: protectedIds?.Contains(item.Id),
-                fieldDefinitions: projectedDefinitions));
+                fieldDefinitions: projectedDefinitions,
+                descriptor: Descriptor));
         }
 
         var envelope = ShowProjection.BuildBatch(
@@ -1124,7 +1136,8 @@ public sealed class ShowCommand(
             ShowProjection.FormatConnection(ctx.Config),
             refresh ? ShowProjection.ReadRoute.Refresh : ShowProjection.ReadRoute.Cache,
             (await ReadProjectionProtectedIdsAsync(ct))?.Contains(item.Id),
-            projectedDefinitions);
+            projectedDefinitions,
+            Descriptor);
 
         var tree = new Twig.RenderTree.RenderTree([doc]);
         _rendererFactory.GetRenderer(outputFormat).Render(tree);
@@ -1179,7 +1192,7 @@ public sealed class ShowCommand(
             var relationCells = new List<RenderCell>(itemLinks.Count);
             foreach (var link in itemLinks)
             {
-                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link))));
+                linkCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildLinkCells(link, Descriptor))));
                 relationCells.Add(new RenderCell(string.Empty, new RenderValue.Object(BuildRelationCells(link))));
             }
 

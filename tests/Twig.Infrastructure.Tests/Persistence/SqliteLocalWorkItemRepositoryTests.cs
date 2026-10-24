@@ -217,7 +217,7 @@ public sealed class LocalWorkItemDurabilityTests
                 using (var cmd = store.GetConnection().CreateCommand())
                 {
                     cmd.CommandText = "PRAGMA pending.user_version;";
-                    Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(13);
+                    Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(SqliteCacheStore.DurableSchemaVersion);
                     cmd.CommandText = "SELECT new_value FROM pending.pending_changes WHERE work_item_id = -1;";
                     cmd.ExecuteScalar().ShouldBe("keep me");
                 }

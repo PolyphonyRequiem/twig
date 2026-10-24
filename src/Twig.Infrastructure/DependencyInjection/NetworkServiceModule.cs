@@ -85,8 +85,22 @@ public static class NetworkServiceModule
                 sp.GetService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
+        // Epic #1167: the active provider follows the explicit workspace `provider` setting
+        // (absent => ado). A selected provider without a registered adapter fails closed
+        // rather than silently falling back to ADO.
         services.AddSingleton<IWorkItemProvider>(sp =>
-            (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>());
+        {
+            var kind = sp.GetRequiredService<TwigConfiguration>().ResolveWorkItemProviderKind();
+            return kind switch
+            {
+                WorkItemProviderSetting.Default =>
+                    (IWorkItemProvider)sp.GetRequiredService<IAdoWorkItemService>(),
+                _ => throw new TwigConfigurationException(
+                    $"{WorkItemProviderSetting.UnavailableReasonCode}: workspace provider '{kind}' " +
+                    "has no adapter in this build.",
+                    new NotSupportedException(WorkItemProviderSetting.UnavailableReasonCode)),
+            };
+        });
 
         // IRevisionBoundAdoWorkItemService and IAdoAssignedIdentityReader alias the
         // same AdoRestClient instance so interface-segregated consumers (plan

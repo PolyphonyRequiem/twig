@@ -1,7 +1,7 @@
 // SYNTHETIC fixtures pinned to the explicit-Bench detail contract authored in twig 06cb33b2
 // (`bench detail <id> --bench <target> --document -o json`). These tests exercise client ->
 // loopback -> reader composition across a fake process boundary. They are NOT native-binary
-// integration; that waits until the native contract reaches main.
+// integration; native-integration.test.mjs covers the separately opted-in real binary.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -69,6 +69,11 @@ test("origin change mid-session is refused rather than rendered as the captured 
     ]) {
         await assert.rejects(read(detailReader(detailPayload(change))), /origin or captured target changed/);
     }
+});
+
+test("native serializer omits unknown parentCached without implying a cached parent", async () => {
+    const value = await read(detailReader(detailPayload((v) => { delete v.completeness.parentCached; })));
+    assert.equal(value.completeness.parentCached, undefined);
 });
 
 test("reader refuses unsupported, unqualified, non-member and source-claiming detail", async () => {

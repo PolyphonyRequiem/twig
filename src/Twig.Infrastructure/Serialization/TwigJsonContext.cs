@@ -116,6 +116,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
 [JsonSerializable(typeof(AdoProcessConfigurationResponse))]
@@ -259,6 +260,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(AreaPathEntry))]

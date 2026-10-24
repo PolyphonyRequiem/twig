@@ -20,6 +20,7 @@ twig connection status [-o <format>]
 twig auth identities [-o <format>]
 twig connection list [--org <organization> --project <project>] [-o <format>]
 twig connection check [-o <format>]
+twig connection capabilities [-o <format>]
 twig connection migrate --identity <alias> [--method aad|pat] [--confirm <digest>] [-o <format>]
 twig connection pin --binding <binding-id> [--confirm <digest>] [-o <format>]
 twig connection unpin [--confirm <digest>] [-o <format>]
@@ -175,6 +176,20 @@ requests outside a valid attachment. Preview output includes `state`, `digest`,
 `canApply`, source versions, every blocker and separate next steps. Eligible
 previews/active results return `0`; blocked/runtime failures return `1`; invalid
 method arguments return `2`.
+
+### Relationship capabilities
+
+`twig connection capabilities` reports, for each relationship kind
+(`parent-child`, `predecessor-successor`, `related`), the active provider's
+declared implementation (`native`, `emulated` or `unsupported`), where any
+emulated edge is stored (`none`, `local-only` or
+`local-with-provider-projection`), and runtime availability (`available`,
+`unavailable` or `unknown`) with a reason. Declaration and availability are
+separate: a denied or failed probe never downgrades a native declaration, and a
+provider that offers no probe evidence reports `unknown` with reason
+`not-probed`. The command is read-only, performs no work-item mutation and does
+not enable emulation. It returns `1` when no provider can be resolved or the
+provider's evidence is invalid.
 
 ## Exit codes and failure modes
 

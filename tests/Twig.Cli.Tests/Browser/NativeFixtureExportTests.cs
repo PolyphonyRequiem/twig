@@ -14,7 +14,10 @@ namespace Twig.Cli.Tests.Browser;
 // Inert unless TWIG_EXPORT_NATIVE_FIXTURE names an empty or absent directory; never touches a real workspace or the network.
 //   TWIG_EXPORT_NATIVE_FIXTURE  target root (receives home/, checkout/, manifest.json)
 //   TWIG_NATIVE_EXE_DIR         directory containing the built twig executable
-//   TWIG_NATIVE_SHA             source commit the binary was built from
+//   TWIG_NATIVE_SHA             source commit the binary was built from (recorded verbatim; not verified against the binary)
+// Run (bounded, no twig process may be running): dotnet test tests/Twig.Cli.Tests --no-build --filter "FullyQualifiedName~NativeFixtureExportTests"
+// Consumers must run twig with cwd=workspacePath, env.TWIG_USER_HOME, and a PATH that still contains git:
+// checkout identity is discovered by shelling to `git`, so a PATH of only the exe directory is refused as migration-fingerprint-mismatch.
 [Trait("Category", "HostInventory")]
 public sealed class NativeFixtureExportTests
 {
@@ -63,6 +66,7 @@ public sealed class NativeFixtureExportTests
                 w.WriteEndObject();
                 w.WriteString("workspacePath", fixture.Paths.StartDir);
                 w.WriteString("home", fixture.Home);
+                w.WriteBoolean("gitRequiredOnPath", true);
                 w.WriteString("bench", BenchName);
                 w.WriteString("benchId", benchId);
                 w.WriteString("currentBenchIdAtExport", currentId);

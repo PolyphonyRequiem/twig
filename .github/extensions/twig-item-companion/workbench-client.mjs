@@ -44,6 +44,9 @@ export const workbenchClient = `
     let returnButton = null;
     let browseScroll = 0;
     let benchBusy = false;
+    let generation = 0;
+    let detailInFlight = false;
+    let wantedDetail = null;
     benchView.value = "results";
 
     function matches(row) {
@@ -58,6 +61,7 @@ export const workbenchClient = `
       return "#" + row.id + " " + (row.loaded === false ? "Not cached" : row.type + " - " + row.title + " - " + row.state);
     }
     function showSelection(row, button) {
+      generation++;
       selectedId = row.id;
       returnButton = button;
       browseScroll = window.scrollY;
@@ -86,7 +90,7 @@ export const workbenchClient = `
       const detailNote = text("p", seam, "muted");
       benchSelection.append(facts, detailNote);
       benchSelection.focus();
-      if (member && member.loaded) void showDetail(row.id, detailNote, seam);
+      if (member && member.loaded) requestDetail({ gen: generation, obs: observation, id: row.id, note: detailNote, seam });
     }
     function renderNativeValue(value) {
       if (!value) return "No field value was carried.";
@@ -95,13 +99,27 @@ export const workbenchClient = `
       if (value.state === 2) return "Not carried by Twig.";
       return "Unknown native value state.";
     }
-    async function showDetail(id, note, seam) {
+    function stale(job) {
+      return job.gen !== generation || job.obs !== observation || selectedId !== job.id;
+    }
+    function requestDetail(job) {
+      if (detailInFlight) {
+        wantedDetail = job;
+        job.note.textContent = job.seam + " Waiting for the previous detail read to finish; no second read is started.";
+        return;
+      }
+      void showDetail(job);
+    }
+    async function showDetail(job) {
+      const { id, note, seam } = job;
+      detailInFlight = true;
+      applyBusy();
       try {
         const result = await request("/api/bench", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "detail", workItemId: id }),
         });
-        if (selectedId !== id) return;
+        if (stale(job)) return;
         const detail = result.benchDetail;
         const box = document.createElement("section");
         const c = detail.completeness;
@@ -126,11 +144,18 @@ export const workbenchClient = `
         note.textContent = "Native explicit-Bench detail loaded. Displayed as inert text; no edit, save or apply authority.";
         benchSelection.append(box);
       } catch (error) {
-        if (selectedId !== id) return;
+        if (stale(job)) return;
         note.textContent = seam + " Explicit-Bench detail failed: " + (error instanceof Error ? error.message : "unavailable") + ".";
+      } finally {
+        detailInFlight = false;
+        const next = wantedDetail;
+        wantedDetail = null;
+        applyBusy();
+        if (next && !stale(next)) void showDetail(next);
       }
     }
     function returnToBench() {
+      generation++;
       benchSelection.hidden = true;
       benchBrowse.hidden = false;
       if (returnButton) returnButton.focus();
@@ -184,6 +209,7 @@ export const workbenchClient = `
     }
     function renderBench(value) {
       observation = value;
+      generation++;
       selectedId = null;
       returnButton = null;
       benchSelection.hidden = true;
@@ -209,6 +235,10 @@ export const workbenchClient = `
     }
     function setBenchBusy(busy) {
       benchBusy = busy;
+      applyBusy();
+    }
+    function applyBusy() {
+      const busy = benchBusy || detailInFlight;
       benchLoad.disabled = benchInput.disabled = busy;
       benchRefresh.disabled = busy || !observation;
       benchFilter.disabled = benchView.disabled = busy;

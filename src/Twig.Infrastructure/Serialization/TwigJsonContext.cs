@@ -33,6 +33,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DisplayColumnsConfig))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(GitHubIssueGraphQlRequest))]
+[JsonSerializable(typeof(GitHubIssueGraphQlResponse))]
+[JsonSerializable(typeof(GitHubIssueAssignee[]))]
 // ADO REST DTOs (EPIC-006)
 [JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
 [JsonSerializable(typeof(AdoWorkItemResponse))]
@@ -113,6 +116,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
 [JsonSerializable(typeof(AdoProcessConfigurationResponse))]
@@ -256,6 +260,7 @@ internal sealed partial class TwigJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(GitHubConfig))]
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(AreaPathEntry))]

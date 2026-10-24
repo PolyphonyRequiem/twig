@@ -19,6 +19,12 @@ public static class WorkItemProviderSetting
 
     public const string UnavailableReasonCode = "provider-unavailable";
 
+    /// <summary>
+    /// The selected provider is recognized and has an adapter, but its explicit workspace
+    /// configuration is missing or malformed, so it refuses rather than guessing.
+    /// </summary>
+    public const string UnconfiguredReasonCode = "provider-unconfigured";
+
     public static IReadOnlyList<string> KnownKinds { get; } =
     [
         ProviderCapabilityCatalog.AdoProviderKind,
@@ -63,7 +69,7 @@ public static class WorkItemProviderSetting
         if (kind == Default)
             return;
         throw new TwigConfigurationException(
-            $"{UnavailableReasonCode}: workspace provider '{kind}' has no adapter in this build.",
+            $"{UnavailableReasonCode}: workspace provider '{kind}' cannot use this Azure DevOps service.",
             new NotSupportedException(UnavailableReasonCode));
     }
 }

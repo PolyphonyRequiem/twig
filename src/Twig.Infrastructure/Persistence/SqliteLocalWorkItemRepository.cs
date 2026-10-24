@@ -19,12 +19,11 @@ namespace Twig.Infrastructure.Persistence;
 /// open, so it commits or rolls back with the proposal journal.
 /// </para>
 /// <para>
-/// The external-identity methods take the provider key as plain strings until the shared
-/// <c>ExternalWorkItemIdentity</c> type (Epic #1167) lands on main; the columns are already
-/// that type's shape.
+/// The <see cref="IExternalIdentityMap"/> columns are exactly the components of Epic #1167's
+/// <see cref="ExternalWorkItemIdentity"/> plus its opaque <see cref="ProviderRevisionToken"/>.
 /// </para>
 /// </remarks>
-internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : ILocalWorkItemStore
+internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : ILocalWorkItemStore, IExternalIdentityMap
 {
     private const string Columns = "local_id, revision, fields_json, created_at, updated_at, deleted_at";
 
@@ -55,18 +54,13 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
     public Task<LocalWriteResult> DeleteAsync(LocalWorkItemId id, long expectedRevision, CancellationToken ct = default)
         => CompareAndSwapAsync(id, expectedRevision, "deleted_at = @now", static _ => { }, ct);
 
-    /// <summary>
-    /// Returns the local identity mapped to a provider key, minting a new local item and the
-    /// mapping atomically when none exists. Idempotent: the same key always yields the same id.
-    /// </summary>
-    internal Task<(LocalWorkItemId Id, bool Created)> ResolveExternalAsync(
-        string providerKind, string resourceScope, string nativeId, string? providerToken, CancellationToken ct = default)
+    public Task<ExternalIdentityResolution> ResolveAsync(
+        ExternalWorkItemIdentity identity, ProviderRevisionToken? observedToken, CancellationToken ct = default)
     {
-        ValidateKey(providerKind, resourceScope, nativeId);
+        ArgumentNullException.ThrowIfNull(identity);
         return InTransactionAsync(async conn =>
         {
             var candidate = LocalWorkItemId.New();
-            var now = Now();
 
             // The mapping row decides the race: whoever inserts it owns the identity, and a loser
             // reads the winner's id back without leaving an orphan local item behind.
@@ -77,68 +71,77 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
                 RETURNING local_id;
                 """))
             {
-                AddKey(insert, providerKind, resourceScope, nativeId);
+                AddKey(insert, identity);
                 insert.Parameters.AddWithValue("@local", candidate.ToString());
-                insert.Parameters.AddWithValue("@token", (object?)providerToken ?? DBNull.Value);
-                insert.Parameters.AddWithValue("@now", now);
+                insert.Parameters.AddWithValue("@token", (object?)observedToken?.Value ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@now", Now());
                 if (await insert.ExecuteScalarAsync(ct) is not null)
                 {
                     await InsertAsync(conn, candidate, FieldValues.Empty, ct);
-                    return (candidate, true);
+                    return new ExternalIdentityResolution(candidate, Created: true);
                 }
             }
 
-            var existing = await FindExternalCoreAsync(conn, providerKind, resourceScope, nativeId, ct)
+            var existing = await FindCoreAsync(conn, identity, ct)
                 ?? throw new InvalidOperationException("The external identity mapping vanished inside its own transaction.");
-            return (existing, false);
+            return new ExternalIdentityResolution(existing, Created: false);
         }, ct);
     }
 
-    /// <summary>Returns the local identity mapped to a provider key, or <see langword="null"/>.</summary>
-    internal async Task<LocalWorkItemId?> FindExternalAsync(
-        string providerKind, string resourceScope, string nativeId, CancellationToken ct = default)
+    public async Task<LocalWorkItemId?> FindAsync(ExternalWorkItemIdentity identity, CancellationToken ct = default)
     {
-        ValidateKey(providerKind, resourceScope, nativeId);
+        ArgumentNullException.ThrowIfNull(identity);
         using var operation = store.AcquireOperation();
-        return await FindExternalCoreAsync(store.GetConnection(), providerKind, resourceScope, nativeId, ct);
+        return await FindCoreAsync(store.GetConnection(), identity, ct);
     }
 
-    /// <summary>
-    /// Records the latest observed opaque provider token for a mapped key. Returns
-    /// <see langword="false"/> when the key is unmapped; nothing is minted here.
-    /// </summary>
-    internal async Task<bool> RecordObservedTokenAsync(
-        string providerKind, string resourceScope, string nativeId, string? providerToken, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ExternalWorkItemIdentity>> GetExternalIdentitiesAsync(LocalWorkItemId id, CancellationToken ct = default)
     {
-        ValidateKey(providerKind, resourceScope, nativeId);
+        RequireId(id);
+        using var operation = store.AcquireOperation();
+        using var cmd = Command(store.GetConnection(), """
+            SELECT provider_kind, resource_scope, native_id FROM external_identities
+            WHERE local_id = @local
+            ORDER BY provider_kind COLLATE BINARY, resource_scope COLLATE BINARY, native_id COLLATE BINARY;
+            """);
+        cmd.Parameters.AddWithValue("@local", id.ToString());
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        var identities = new List<ExternalWorkItemIdentity>();
+        while (await reader.ReadAsync(ct))
+            identities.Add(Corrupt(() => new ExternalWorkItemIdentity(reader.GetString(0), reader.GetString(1), reader.GetString(2))));
+        return identities;
+    }
+
+    public async Task<bool> RecordObservedTokenAsync(
+        ExternalWorkItemIdentity identity, ProviderRevisionToken? token, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
         using var operation = store.AcquireOperation();
         using var cmd = Command(store.GetConnection(), """
             UPDATE external_identities SET provider_token = @token, observed_at = @now
             WHERE provider_kind = @kind AND resource_scope = @scope AND native_id = @native;
             """);
-        AddKey(cmd, providerKind, resourceScope, nativeId);
-        cmd.Parameters.AddWithValue("@token", (object?)providerToken ?? DBNull.Value);
+        AddKey(cmd, identity);
+        cmd.Parameters.AddWithValue("@token", (object?)token?.Value ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@now", Now());
         return await cmd.ExecuteNonQueryAsync(ct) == 1;
     }
 
-    /// <summary>Returns the last observed provider token for a mapped key.</summary>
-    internal async Task<(bool Mapped, string? Token)> GetObservedTokenAsync(
-        string providerKind, string resourceScope, string nativeId, CancellationToken ct = default)
+    public async Task<ObservedProviderToken?> GetObservedTokenAsync(ExternalWorkItemIdentity identity, CancellationToken ct = default)
     {
-        ValidateKey(providerKind, resourceScope, nativeId);
+        ArgumentNullException.ThrowIfNull(identity);
         using var operation = store.AcquireOperation();
         using var cmd = Command(store.GetConnection(), """
-            SELECT provider_token FROM external_identities
+            SELECT provider_token, observed_at FROM external_identities
             WHERE provider_kind = @kind AND resource_scope = @scope AND native_id = @native;
             """);
-        AddKey(cmd, providerKind, resourceScope, nativeId);
+        AddKey(cmd, identity);
         using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
-            return (false, null);
-        return (true, reader.IsDBNull(0) ? null : reader.GetString(0));
+            return null;
+        var token = reader.IsDBNull(0) ? null : Corrupt(() => new ProviderRevisionToken(reader.GetString(0)));
+        return new ObservedProviderToken(token, ParseTime(reader.GetString(1)));
     }
-
     private async Task<LocalWriteResult> CompareAndSwapAsync(
         LocalWorkItemId id, long expectedRevision, string assignment, Action<SqliteCommand> bind, CancellationToken ct)
     {
@@ -199,14 +202,13 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
         return await reader.ReadAsync(ct) ? Materialize(reader) : null;
     }
 
-    private async Task<LocalWorkItemId?> FindExternalCoreAsync(
-        SqliteConnection conn, string providerKind, string resourceScope, string nativeId, CancellationToken ct)
+    private async Task<LocalWorkItemId?> FindCoreAsync(SqliteConnection conn, ExternalWorkItemIdentity identity, CancellationToken ct)
     {
         using var cmd = Command(conn, """
             SELECT local_id FROM external_identities
             WHERE provider_kind = @kind AND resource_scope = @scope AND native_id = @native;
             """);
-        AddKey(cmd, providerKind, resourceScope, nativeId);
+        AddKey(cmd, identity);
         return await cmd.ExecuteScalarAsync(ct) is string text ? ParseId(text) : null;
     }
 
@@ -266,17 +268,22 @@ internal sealed class SqliteLocalWorkItemRepository(SqliteCacheStore store) : IL
         => JsonSerializer.Deserialize(json, TwigJsonContext.Default.FieldValues)
             ?? throw new InvalidDataException("The durable store holds a null field-value map.");
 
-    private static void AddKey(SqliteCommand cmd, string providerKind, string resourceScope, string nativeId)
+    private static void AddKey(SqliteCommand cmd, ExternalWorkItemIdentity identity)
     {
-        cmd.Parameters.AddWithValue("@kind", providerKind);
-        cmd.Parameters.AddWithValue("@scope", resourceScope);
-        cmd.Parameters.AddWithValue("@native", nativeId);
+        cmd.Parameters.AddWithValue("@kind", identity.ProviderKind);
+        cmd.Parameters.AddWithValue("@scope", identity.ResourceScope);
+        cmd.Parameters.AddWithValue("@native", identity.NativeId);
     }
 
-    private static void ValidateKey(string providerKind, string resourceScope, string nativeId)
+    private static void RequireId(LocalWorkItemId id)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(providerKind);
-        ArgumentException.ThrowIfNullOrWhiteSpace(resourceScope);
-        ArgumentException.ThrowIfNullOrWhiteSpace(nativeId);
+        if (id.IsEmpty)
+            throw new ArgumentException("A local work item id must not be empty.", nameof(id));
+    }
+
+    private static T Corrupt<T>(Func<T> construct)
+    {
+        try { return construct(); }
+        catch (ArgumentException ex) { throw new InvalidDataException("The durable store holds a malformed external identity row.", ex); }
     }
 }

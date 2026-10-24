@@ -87,26 +87,31 @@ public sealed class SqliteLocalWorkItemRepositoryTests : IDisposable
         (await _repo.DeleteAsync(unknown, 1)).Value.ShouldBe(new LocalWorkItemNotFound(unknown));
     }
 
-    [Fact]
-    public async Task ResolveExternal_IsIdempotent_AndKeyedOnAllThreeParts()
-    {
-        var (first, created) = await _repo.ResolveExternalAsync("ado", "org-guid", "42", "7");
-        var (again, createdAgain) = await _repo.ResolveExternalAsync("ado", "org-guid", "42", "8");
+    private static ExternalWorkItemIdentity Ext(string kind, string scope, string native) => new(kind, scope, native);
+    private static ProviderRevisionToken Tok(string value) => new(value);
 
-        created.ShouldBeTrue();
-        createdAgain.ShouldBeFalse();
-        again.ShouldBe(first);
-        (await _repo.GetAsync(first))!.Fields.ShouldBe(FieldValues.Empty);
+    [Fact]
+    public async Task Resolve_IsIdempotent_AndKeyedOnAllThreeParts()
+    {
+        var first = await _repo.ResolveAsync(Ext("ado", "org-guid", "42"), Tok("7"));
+        var again = await _repo.ResolveAsync(Ext("ado", "org-guid", "42"), Tok("8"));
+
+        first.Created.ShouldBeTrue();
+        again.ShouldBe(new ExternalIdentityResolution(first.Id, Created: false));
+        (await _repo.GetAsync(first.Id))!.Fields.ShouldBe(FieldValues.Empty);
+        (await _repo.GetObservedTokenAsync(Ext("ado", "org-guid", "42")))!.Token.ShouldBe(Tok("7"));
 
         // Each part of the key distinguishes; native ids are case-preserving.
-        (await _repo.ResolveExternalAsync("github", "org-guid", "42", null)).Id.ShouldNotBe(first);
-        (await _repo.ResolveExternalAsync("ado", "other-org", "42", null)).Id.ShouldNotBe(first);
-        var lower = (await _repo.ResolveExternalAsync("github", "https://api.github.com", "i_abc", null)).Id;
-        var upper = (await _repo.ResolveExternalAsync("github", "https://api.github.com", "I_ABC", null)).Id;
+        (await _repo.ResolveAsync(Ext("github", "org-guid", "42"), null)).Id.ShouldNotBe(first.Id);
+        (await _repo.ResolveAsync(Ext("ado", "other-org", "42"), null)).Id.ShouldNotBe(first.Id);
+        var lower = (await _repo.ResolveAsync(Ext("github", "https://api.github.com", "i_abc"), null)).Id;
+        var upper = (await _repo.ResolveAsync(Ext("github", "https://api.github.com", "I_ABC"), null)).Id;
         lower.ShouldNotBe(upper);
 
-        (await _repo.FindExternalAsync("ado", "org-guid", "42")).ShouldBe(first);
-        (await _repo.FindExternalAsync("ado", "org-guid", "43")).ShouldBeNull();
+        (await _repo.FindAsync(Ext("ado", "org-guid", "42"))).ShouldBe(first.Id);
+        (await _repo.FindAsync(Ext("ado", "org-guid", "43"))).ShouldBeNull();
+        (await _repo.GetExternalIdentitiesAsync(first.Id)).ShouldBe([Ext("ado", "org-guid", "42")]);
+        (await _repo.GetExternalIdentitiesAsync(LocalWorkItemId.New())).ShouldBeEmpty();
         CountRows("local_work_items").ShouldBe(5);
         CountRows("external_identities").ShouldBe(5);
     }
@@ -114,22 +119,23 @@ public sealed class SqliteLocalWorkItemRepositoryTests : IDisposable
     [Fact]
     public async Task ObservedToken_IsOpaque_Nullable_AndNeverMintsAMapping()
     {
-        await _repo.ResolveExternalAsync("ado", "org", "1", "7");
-        (await _repo.GetObservedTokenAsync("ado", "org", "1")).ShouldBe((true, "7"));
+        await _repo.ResolveAsync(Ext("ado", "org", "1"), Tok("7"));
 
-        (await _repo.RecordObservedTokenAsync("ado", "org", "1", "W/\"etag\"")).ShouldBeTrue();
-        (await _repo.GetObservedTokenAsync("ado", "org", "1")).ShouldBe((true, "W/\"etag\""));
+        (await _repo.RecordObservedTokenAsync(Ext("ado", "org", "1"), Tok("W/\"etag\""))).ShouldBeTrue();
+        (await _repo.GetObservedTokenAsync(Ext("ado", "org", "1")))!.Token.ShouldBe(Tok("W/\"etag\""));
 
-        (await _repo.RecordObservedTokenAsync("ado", "org", "1", null)).ShouldBeTrue();
-        (await _repo.GetObservedTokenAsync("ado", "org", "1")).ShouldBe((true, (string?)null));
+        (await _repo.RecordObservedTokenAsync(Ext("ado", "org", "1"), null)).ShouldBeTrue();
+        var cleared = await _repo.GetObservedTokenAsync(Ext("ado", "org", "1"));
+        cleared.ShouldNotBeNull();
+        cleared.Token.ShouldBeNull();
 
-        (await _repo.RecordObservedTokenAsync("ado", "org", "2", "1")).ShouldBeFalse();
-        (await _repo.GetObservedTokenAsync("ado", "org", "2")).ShouldBe((false, (string?)null));
+        (await _repo.RecordObservedTokenAsync(Ext("ado", "org", "2"), Tok("1"))).ShouldBeFalse();
+        (await _repo.GetObservedTokenAsync(Ext("ado", "org", "2"))).ShouldBeNull();
         CountRows("external_identities").ShouldBe(1);
     }
 
     [Fact]
-    public async Task ResolveExternal_JoinsAmbientTransaction_AndRollsBackWithIt()
+    public async Task Resolve_JoinsAmbientTransaction_AndRollsBackWithIt()
     {
         var conn = _store.GetConnection();
         using (var tx = conn.BeginTransaction())
@@ -137,7 +143,7 @@ public sealed class SqliteLocalWorkItemRepositoryTests : IDisposable
             _store.ActiveTransaction = tx;
             try
             {
-                await _repo.ResolveExternalAsync("ado", "org", "1", null);
+                await _repo.ResolveAsync(Ext("ado", "org", "1"), null);
                 tx.Rollback();
             }
             finally { _store.ActiveTransaction = null; }
@@ -146,7 +152,6 @@ public sealed class SqliteLocalWorkItemRepositoryTests : IDisposable
         CountRows("local_work_items").ShouldBe(0);
         CountRows("external_identities").ShouldBe(0);
     }
-
     [Fact]
     public async Task FieldsJson_IsTheCanonicalConverterForm()
     {
@@ -165,12 +170,12 @@ public sealed class SqliteLocalWorkItemRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void Validation_RejectsBlankKeyPartsAndEmptyIds()
+    public async Task Validation_RejectsNullKeysAndEmptyIds()
     {
-        Should.Throw<ArgumentException>(() => _repo.ResolveExternalAsync(" ", "s", "n", null));
-        Should.Throw<ArgumentException>(() => _repo.ResolveExternalAsync("ado", "", "n", null));
-        Should.Throw<ArgumentException>(() => _repo.FindExternalAsync("ado", "s", " "));
-        Should.ThrowAsync<ArgumentException>(() => _repo.UpdateAsync(default, 1, FieldValues.Empty));
+        await Should.ThrowAsync<ArgumentNullException>(() => _repo.ResolveAsync(null!, null));
+        await Should.ThrowAsync<ArgumentNullException>(() => _repo.FindAsync(null!));
+        await Should.ThrowAsync<ArgumentException>(() => _repo.GetExternalIdentitiesAsync(default));
+        await Should.ThrowAsync<ArgumentException>(() => _repo.UpdateAsync(default, 1, FieldValues.Empty));
     }
 
     private long CountRows(string table)
@@ -243,7 +248,7 @@ public sealed class LocalWorkItemDurabilityTests
             {
                 var repo = new SqliteLocalWorkItemRepository(store);
                 created = await repo.CreateAsync(FieldValues.Empty.Set("x", new IntegerValue(3)));
-                mapped = (await repo.ResolveExternalAsync("ado", "org", "9", "4")).Id;
+                mapped = (await repo.ResolveAsync(new("ado", "org", "9"), new("4"))).Id;
 
                 // Force the next open to see a stale mirror schema and rebuild it.
                 using var cmd = store.GetConnection().CreateCommand();
@@ -256,8 +261,8 @@ public sealed class LocalWorkItemDurabilityTests
                 store.SchemaWasRebuilt.ShouldBeTrue();
                 var repo = new SqliteLocalWorkItemRepository(store);
                 (await repo.GetAsync(created.Id)).ShouldBe(created);
-                (await repo.FindExternalAsync("ado", "org", "9")).ShouldBe(mapped);
-                (await repo.GetObservedTokenAsync("ado", "org", "9")).ShouldBe((true, "4"));
+                (await repo.FindAsync(new("ado", "org", "9"))).ShouldBe(mapped);
+                (await repo.GetObservedTokenAsync(new("ado", "org", "9")))!.Token.ShouldBe(new ProviderRevisionToken("4"));
             }
         }
         finally

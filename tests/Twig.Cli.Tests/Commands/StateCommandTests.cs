@@ -745,7 +745,6 @@ public class StateCommandTests
         // New → Active
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-<<<<<<< HEAD
                 0, Arg.Any<CancellationToken>())
             .Returns(_ => { Landed("Active"); return 1; });
         // Active → Resolved
@@ -755,23 +754,9 @@ public class StateCommandTests
             .Returns(_ => { Landed("Resolved"); return 2; });
         // Resolved → Closed
         _adoService.PatchAsync(1,
-                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
-                2, Arg.Any<CancellationToken>())
-            .Returns(_ => { Landed("Closed"); return 3; });
-=======
-                1, Arg.Any<CancellationToken>())
-            .Returns(2);
-        // Active → Resolved
-        _adoService.PatchAsync(1,
-                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
-                2, Arg.Any<CancellationToken>())
-            .Returns(3);
-        // Resolved → Closed
-        _adoService.PatchAsync(1,
-                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
-                3, Arg.Any<CancellationToken>())
-            .Returns(4);
->>>>>>> f8ee4469 (Bind provider writes to an opaque revision precondition (AB#1178 AC a))
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
+            2, Arg.Any<CancellationToken>())
+        .Returns(_ => { Landed("Closed"); return 3; });
 
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
@@ -800,13 +785,8 @@ public class StateCommandTests
         // New → Active: succeeds
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
-<<<<<<< HEAD
                 0, Arg.Any<CancellationToken>())
             .Returns(_ => { Landed("Active"); return 1; });
-=======
-                1, Arg.Any<CancellationToken>())
-            .Returns(2);
->>>>>>> f8ee4469 (Bind provider writes to an opaque revision precondition (AB#1178 AC a))
         // Active → Resolved: rejected
         _adoService.PatchAsync(1,
                 Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),

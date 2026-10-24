@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Twig.Browser;
 using Twig.Formatters;
+using Twig.Infrastructure.Serialization;
 using Twig.RenderTree;
 using Twig.Rendering;
 
@@ -14,7 +16,7 @@ internal sealed class BenchDetailCommand(CommandContext ctx, BrowserReadModule b
     internal async Task<int> ExecuteAsync(int id, int width = 80,
         string output = OutputFormatterFactory.DefaultFormat,
         string? expectBench = null, string? expectBinding = null, string? expectIdentity = null,
-        bool sync = false, CancellationToken ct = default)
+        bool sync = false, CancellationToken ct = default, bool document = false)
     {
         var started = Stopwatch.GetTimestamp();
         var exit = 1;
@@ -23,8 +25,10 @@ internal sealed class BenchDetailCommand(CommandContext ctx, BrowserReadModule b
             if (output.Equals("ids", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("A single-item detail supports human, json, and minimal output, not ids.");
             var json = output.ToLowerInvariant() is "json" or "json-full" or "json-compact";
+            if (document && !json)
+                throw new ArgumentException("--document requires JSON output (-o json). It may read server form metadata; item refresh still requires --sync.");
             var ansi = !output.Equals("minimal", StringComparison.OrdinalIgnoreCase) && (json || !Console.IsOutputRedirected);
-            var result = await browser.ReadDetailAsync(new(id, width, ansi, expectBench, expectBinding, expectIdentity, sync), ct);
+            var result = await browser.ReadDetailAsync(new(id, width, ansi, expectBench, expectBinding, expectIdentity, sync, Document: document), ct);
             if (result.Failure is { } failure)
             {
                 if (failure.Kind == BrowserReadFailureKind.Canceled) throw new OperationCanceledException(failure.Message, ct);
@@ -33,7 +37,11 @@ internal sealed class BenchDetailCommand(CommandContext ctx, BrowserReadModule b
                 return exit;
             }
             var observation = result.Observation!;
-            if (json)
+            if (document)
+                Console.WriteLine(JsonSerializer.Serialize(
+                    observation.Document ?? throw new InvalidOperationException("Semantic detail was not captured."),
+                    TwigJsonContext.Default.CanvasDetailExport));
+            else if (json)
             {
                 renderers.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchDetail",
                     new Dictionary<string, RenderCell>(StringComparer.Ordinal)

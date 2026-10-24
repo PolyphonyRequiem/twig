@@ -97,6 +97,57 @@ JSON carries `version: 1`, captured Bench/binding/identity IDs, `workItemId`,
 `--expect-binding`, and `--expect-identity` refuse retargeting. Minimal output is
 complete unstyled detail; `ids` is not meaningful for this single-item view.
 
+### Semantic detail export
+
+```powershell
+twig bench detail 42 --document -o json --expect-bench 7 --expect-binding <binding-id> --expect-identity <identity-id>
+twig bench detail 42 --document --sync -o json
+```
+
+`--document` opts into **version 2**, a read-only semantic document for native
+canvas consumers. It requires `json`, `json-full` or `json-compact` output and
+replaces the ANSI envelope, not the existing default version-1 contract. No ANSI
+parsing is needed. The flag explicitly permits a native form-metadata read for a
+published item's actual type; it does **not** refresh that item. `--sync` remains
+the only selected-item pull. Local seeds use the labelled fallback without a
+server layout read; combining seed detail with `--sync` refuses as before.
+
+The export carries:
+
+- `itemKey`: checkout root, admitted connection ID, binding ID and work-item ID.
+  Revision is not part of the key. A later revision keeps the same item identity
+  but changes the observation baseline; it grants no automatic draft rebase.
+- `item`: the full cached snapshot, including revision, last sync time, fields
+  and local dirty state. `hasLocalChanges` also accounts for pending notes and
+  pending-change records. These may be local values, not current server values.
+- Captured Bench/identity IDs, binding and selection revisions, and storage
+  generation when available. These qualify the observation, not a Save or Apply.
+- `layoutStatus`: `served`, `locked`, or `unavailable`. `layoutSource` is `server`
+  only for served layouts; otherwise it is `twig-fallback`. Locked results also
+  retain `lockedTypeReferenceName`. An empty served layout remains empty, never
+  synthesized. Provider failures refuse output rather than becoming a fallback.
+- `document`: the native page/section/group/control order, visibility,
+  contributions, system controls, server read-only flags and full values.
+  Value `state` retains native codes: `0` HasValue, `1` EmptyOnServer, and `2`
+  NotCarriedByTwig. Missing transport is not a blank server field. Non-custom
+  pages are structure only, not fetched history, links or attachments.
+- `appearance`, when cached native type metadata exists: actual type name, color
+  and icon ID, never inferred from a type-name table. `appearanceSource` identifies
+  cached metadata or its absence. `iconAssetAuthority: "unavailable"` means that
+  metadata grants no permission to fetch an arbitrary URL or claim a supported asset.
+
+`editing: "unavailable"` is intentional. A server control's `readOnly: false`
+does not authorize editing. This increment does not export persistable-field
+capabilities, mutation captures, discussion/files or a draft owner.
+`relatedItemsCoverage: "not-exported"` means no conclusion about absent
+dependencies is possible; `linksVerifiedAt`, when present, does not change that.
+Consumers must treat raw HTML/text as untrusted content and render it inertly.
+
+The complete metadata acquisition and projection run inside the existing native
+operation guard. Origin or Bench drift and cancellation emit no observation.
+No active item, binding, default, proposal or journal is changed by this export.
+This is a native read foundation for Epic #1172, not an installed Copilot extension.
+
 ### Native Bench Browser
 
 `twig bench browser --cwd <workspace> --view tree` opens the shared native terminal

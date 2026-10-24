@@ -2,8 +2,12 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Projections;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Serialization;
 using Twig.Rendering;
 
 namespace Twig.Browser;
@@ -12,7 +16,8 @@ namespace Twig.Browser;
 internal sealed class BrowserReadModule(CommandContext ctx, BrowserOperationModule operations,
     IWorkItemRepository repository, IFieldDefinitionStore fieldDefinitions,
     IWorkItemLinkRepository links, IPendingChangeStore pendingChanges, StatusFieldConfigReader statusFields,
-    SyncCoordinatorFactory syncCoordinators, IProcessConfigurationProvider processConfiguration, SpectreTheme theme)
+    SyncCoordinatorFactory syncCoordinators, IProcessConfigurationProvider processConfiguration, SpectreTheme theme,
+    IFormLayoutProvider? formLayouts = null)
 {
     internal async Task<BrowserDetailResult> ReadDetailAsync(BrowserDetailRequest request, CancellationToken ct = default)
     {
@@ -48,9 +53,38 @@ internal sealed class BrowserReadModule(CommandContext ctx, BrowserOperationModu
             var changes = (await pendingChanges.GetChangesAsync(item.Id, token)).ToArray();
             var snapshot = new BrowserDetailSnapshot(item, parent, children, definitions, entries, cachedLinks,
                 changes, processConfiguration.ComputeChildProgress(children), ctx.Config.Display.CacheStaleMinutes, theme.Snapshot());
-            return new BrowserDetailObservation(capture, snapshot, verifiedAt, await snapshot.RenderAsync(request.Width, request.Ansi));
+            var document = request.Document ? await ReadDocumentAsync(capture, snapshot, verifiedAt, token) : null;
+            return new BrowserDetailObservation(capture, snapshot, verifiedAt,
+                document is null ? await snapshot.RenderAsync(request.Width, request.Ansi) : new(string.Empty, item.Title), document);
         }, ct, request.ExpectedBench, request.ExpectedBinding, request.ExpectedIdentity);
         return new(result.Value, result.Failure, result.Capture);
+    }
+
+    private async Task<CanvasDetailExport> ReadDocumentAsync(BrowserCapture capture, BrowserDetailSnapshot snapshot,
+        DateTimeOffset? linksVerifiedAt, CancellationToken ct)
+    {
+        var item = new WorkItemMapper().ToSnapshot(snapshot.Item);
+        var result = formLayouts is null || item.IsSeed
+            ? new FormLayoutResult.Unavailable()
+            : await formLayouts.GetFormLayoutAsync(item.TypeName, ct);
+        var (status, layout) = result switch
+        {
+            FormLayoutResult.Served served => ("served", served.Layout),
+            FormLayoutResult.Locked => ("locked", FallbackFormLayout.For(item)),
+            FormLayoutResult.Unavailable => ("unavailable", FallbackFormLayout.For(item)),
+            _ => throw new InvalidOperationException("Unsupported form-layout result."),
+        };
+        var appearance = ctx.Config.TypeAppearances?.FirstOrDefault(
+            type => string.Equals(type.Name, item.TypeName, StringComparison.OrdinalIgnoreCase));
+        return new(2, new(capture.Origin.WorktreeRoot, capture.Origin.Binding.ConnectionRef, capture.BindingId, item.Id),
+            capture.BenchId, capture.BenchName, capture.IdentityId, capture.BindingRevision, capture.SelectionRevision,
+            capture.StorageGeneration, item,
+            item.IsDirty || snapshot.Item.PendingNotes.Count > 0 || snapshot.Changes.Count > 0, linksVerifiedAt,
+            status, result is FormLayoutResult.Served ? "server" : "twig-fallback",
+            (result as FormLayoutResult.Locked)?.TypeReferenceName,
+            WorkItemDetailProjector.Project(layout, item,
+                snapshot.Definitions.ToDictionary(field => field.ReferenceName, StringComparer.OrdinalIgnoreCase)),
+            appearance is null ? null : new(appearance.Name, appearance.Color, appearance.IconId));
     }
 
     private static WorkItem Copy(WorkItem source)

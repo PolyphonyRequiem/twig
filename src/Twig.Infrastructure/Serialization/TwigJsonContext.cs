@@ -226,6 +226,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
+[JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     Converters = [typeof(StagedIdentityJsonConverter)],

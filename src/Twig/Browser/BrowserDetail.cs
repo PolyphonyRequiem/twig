@@ -4,13 +4,14 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Serialization;
 using Twig.Rendering;
 
 namespace Twig.Browser;
 
 internal sealed record BrowserDetailRequest(int Id, int Width = 80, bool Ansi = true,
     string? ExpectedBench = null, string? ExpectedBinding = null, string? ExpectedIdentity = null,
-    bool Sync = false, BrowserCapture? Captured = null);
+    bool Sync = false, BrowserCapture? Captured = null, bool Document = false);
 
 /// <summary>Opaque selection and admitted native origin evidence, never credentials.</summary>
 internal sealed record BrowserCapture(string BenchId, string BenchName, ResolvedConnectionBinding Origin,
@@ -65,7 +66,7 @@ internal sealed class BrowserDetailObservation
 {
     private readonly BrowserDetailSnapshot _snapshot;
     internal BrowserDetailObservation(BrowserCapture capture, BrowserDetailSnapshot snapshot,
-        DateTimeOffset? linksVerifiedAt, BrowserRenderedDetail initialPresentation)
+        DateTimeOffset? linksVerifiedAt, BrowserRenderedDetail initialPresentation, CanvasDetailExport? document = null)
     {
         Capture = capture;
         _snapshot = snapshot;
@@ -76,6 +77,7 @@ internal sealed class BrowserDetailObservation
         HasLocalChanges = snapshot.Item.IsDirty || snapshot.Item.PendingNotes.Count > 0 || snapshot.Changes.Count > 0;
         LinksVerifiedAt = linksVerifiedAt;
         InitialPresentation = initialPresentation;
+        Document = document;
     }
 
     internal BrowserCapture Capture { get; }
@@ -86,6 +88,7 @@ internal sealed class BrowserDetailObservation
     internal bool HasLocalChanges { get; }
     internal DateTimeOffset? LinksVerifiedAt { get; }
     internal BrowserRenderedDetail InitialPresentation { get; }
+    internal CanvasDetailExport? Document { get; }
     internal Task<BrowserRenderedDetail> RenderAsync(int width, bool ansi = true)
         => _snapshot.RenderAsync(width, ansi);
     internal Task<IReadOnlyList<BrowserSourceRow>> RenderRowsAsync(int width) => _snapshot.RenderRowsAsync(width);

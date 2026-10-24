@@ -1,8 +1,15 @@
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Shouldly;
+using Twig.Domain.Aggregates;
+using Twig.Domain.Capabilities;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests;
@@ -13,6 +20,85 @@ namespace Twig.Infrastructure.Tests;
 /// </summary>
 public sealed class TwigServiceRegistrationTests
 {
+    [Fact]
+    public async Task AddConnectionServices_RegistersDurableStores_AndProjectsAdoMirrorWrites()
+    {
+        var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        var twigDir = Path.Combine(repoRoot, ".twig");
+        Directory.CreateDirectory(repoRoot);
+        File.WriteAllText(Path.Combine(repoRoot, WorkspaceDiscovery.RepoManifestFileName), "{}");
+
+        try
+        {
+            var config = new TwigConfiguration { Organization = "acme", Project = "durable" };
+            var providerAdapter = Substitute.For<IAdoWorkItemService, IWorkItemProvider>();
+            providerAdapter.Capabilities.Returns(ProviderCapabilityCatalog.Ado);
+            providerAdapter.ResolveResourceScopeAsync(Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<string?>("ado-resource-scope"));
+
+            var services = new ServiceCollection();
+            services.AddConnectionServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+            services.AddTwigNetworkServices(config);
+            services.AddSingleton<IAdoWorkItemService>(providerAdapter);
+
+            using var provider = services.BuildServiceProvider();
+            var localStore = provider.GetRequiredService<ILocalWorkItemStore>();
+            var identityMap = provider.GetRequiredService<IExternalIdentityMap>();
+            localStore.ShouldBeSameAs(provider.GetRequiredService<SqliteLocalWorkItemRepository>());
+            identityMap.ShouldBeSameAs(localStore);
+
+            var item = new WorkItemBuilder(42, "ADO item").Build();
+            item.MarkSynced(8);
+            await provider.GetRequiredService<IWorkItemRepository>().SaveAsync(item);
+
+            var identity = new ExternalWorkItemIdentity("ado", "ado-resource-scope", "42");
+            var localId = await identityMap.FindAsync(identity);
+            localId.ShouldNotBeNull();
+            (await identityMap.GetObservedTokenAsync(identity))!.Token.ShouldBe(new ProviderRevisionToken("8"));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AddConnectionServices_NonAdoProviderKeepsMirrorWritesUnprojected()
+    {
+        var repoRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        var twigDir = Path.Combine(repoRoot, ".twig");
+        Directory.CreateDirectory(repoRoot);
+        File.WriteAllText(Path.Combine(repoRoot, WorkspaceDiscovery.RepoManifestFileName), "{}");
+
+        try
+        {
+            var config = new TwigConfiguration { Organization = "acme", Project = "durable", Provider = "github" };
+            var providerAdapter = Substitute.For<IWorkItemProvider>();
+            providerAdapter.Capabilities.Returns(ProviderCapabilityCatalog.GitHub);
+
+            var services = new ServiceCollection();
+            services.AddConnectionServices(preloadedConfig: config, twigDir: twigDir, startDir: repoRoot);
+            services.AddSingleton<IWorkItemProvider>(providerAdapter);
+
+            using var provider = services.BuildServiceProvider();
+            var item = new WorkItemBuilder(42, "GitHub item").Build();
+            item.MarkSynced(8);
+            await provider.GetRequiredService<IWorkItemRepository>().SaveAsync(item);
+
+            (await provider.GetRequiredService<IExternalIdentityMap>()
+                .FindAsync(new ExternalWorkItemIdentity("ado", "ado-resource-scope", "42"))).ShouldBeNull();
+            await providerAdapter.DidNotReceive().ResolveResourceScopeAsync(Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public void AddConnectionServices_ResolvesPlanJournalRepository_AsSqliteSingleton()
     {

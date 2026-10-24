@@ -220,6 +220,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOrigin))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanOutcomeReceipt))]
 [JsonSerializable(typeof(Twig.Domain.Services.Plan.PlanReconciliationResult))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.QualifiedWorkItemKey))]
+[JsonSerializable(typeof(Twig.Domain.ValueObjects.RecoverableWorkItemDraft))]
 [JsonSerializable(typeof(CanvasDetailExport))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

@@ -138,7 +138,14 @@ The export carries:
 
 `editing: "unavailable"` is intentional. A server control's `readOnly: false`
 does not authorize editing. This increment does not export persistable-field
-capabilities, mutation captures, discussion/files or a draft owner.
+capabilities, mutation captures, discussion/files or a draft owner. The native
+shared-contract layer now provides one durable draft per qualified `itemKey`,
+with its original baseline revision kept separate from newer observations,
+monotonic generations, typed field changes and explicit conflicts. A native
+capture binds the exact canonical proposal digest, effects, authority context and
+draft generation; stale captures are invalidated without discarding intent. This
+is not exposed by the detail export and does not make editing or Save available
+through this command.
 `relatedItemsCoverage: "not-exported"` means no conclusion about absent
 dependencies is possible; `linksVerifiedAt`, when present, does not change that.
 Consumers must treat raw HTML/text as untrusted content and render it inertly.

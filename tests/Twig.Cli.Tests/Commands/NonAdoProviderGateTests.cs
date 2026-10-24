@@ -15,7 +15,9 @@ using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.DependencyInjection;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
@@ -130,22 +132,116 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         _transport.Requests.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// Epic #1167 activation: <c>provider=github</c> without a complete, well-formed Repo-scoped
+    /// <c>github.host</c> + <c>github.repository</c> must refuse as unconfigured — never fall back
+    /// to ADO, never start <c>gh</c>, never touch either network.
+    /// </summary>
+    [Theory]
+    [InlineData(false, null, null)]
+    [InlineData(true, null, null)]
+    [InlineData(false, "github.com", null)]
+    [InlineData(false, null, "owner/name")]
+    [InlineData(true, "github.com", "owner")]
+    [InlineData(false, "https://github.com", "owner/name")]
+    public async Task GitHubWithoutUsableScope_RefusesUnconfigured_WithNoProcessOrHttp(
+        bool neutralStoreOptedIn, string? host, string? repository)
+    {
+        var gh = new RecordingProcessRunner();
+        var github = new RecordingGitHubTransport();
+        var scope = host is null && repository is null ? null : new GitHubConfig { Host = host, Repository = repository };
+        var runtime = await AttachAsync("github", neutralStoreOptedIn: neutralStoreOptedIn, gitHub: scope,
+            seams: s => RegisterGitHubBoundaries(s, gh, github));
+
+        var refusal = Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IWorkItemProvider>());
+        refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+        using var stderr = new StringWriter();
+        ExceptionHandler.Handle(refusal, stderr).ShouldBe(1);
+        stderr.ToString().ShouldStartWith("error: " + WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IWorkItemSnapshotReader>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnconfiguredReasonCode + ":");
+
+        gh.Calls.ShouldBeEmpty("an unconfigured workspace must not consult gh");
+        github.Requests.ShouldBeEmpty();
+        _transport.Requests.ShouldBeEmpty("provider refusal must happen before any HTTP");
+    }
+
+    /// <summary>
+    /// Configured GitHub resolves the provider and the snapshot reader as one instance, scoped to
+    /// the API origin, without consulting <c>gh</c> or either network during composition. ADO-only
+    /// services keep refusing: activation does not make ADO clients reachable under GitHub.
+    /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task GitHubSnapshotTransport_DoesNotActivateTheCliProviderFactory(bool neutralStoreOptedIn)
+    public async Task GitHubWithScope_ResolvesProviderAndReaderWithoutCredentialOrHttp(bool neutralStoreOptedIn)
     {
-        var runtime = await AttachAsync("github", neutralStoreOptedIn: neutralStoreOptedIn);
+        var gh = new RecordingProcessRunner();
+        var github = new RecordingGitHubTransport();
+        var runtime = await AttachAsync("github", neutralStoreOptedIn: neutralStoreOptedIn, gitHub: ConfiguredGitHub,
+            seams: s => RegisterGitHubBoundaries(s, gh, github));
 
-        runtime.GetService<IWorkItemSnapshotReader>().ShouldBeNull(
-            "the standalone GitHub snapshot transport is not an activated CLI adapter");
-        var refusal = Should.Throw<TwigConfigurationException>(
-            () => runtime.GetRequiredService<IWorkItemProvider>());
-        refusal.Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
-        using var stderr = new StringWriter();
-        ExceptionHandler.Handle(refusal, stderr).ShouldBe(1);
-        stderr.ToString().ShouldStartWith("error: " + WorkItemProviderSetting.UnavailableReasonCode + ":");
-        _transport.Requests.ShouldBeEmpty("provider refusal must happen before any HTTP");
+        var provider = runtime.GetRequiredService<IWorkItemProvider>().ShouldBeOfType<GitHubWorkItemProvider>();
+        runtime.GetRequiredService<IWorkItemSnapshotReader>().ShouldBeSameAs(provider);
+        (await provider.ResolveResourceScopeAsync()).ShouldBe("https://api.github.com");
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<IAdoWorkItemService>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+        Should.Throw<TwigConfigurationException>(() => runtime.GetRequiredService<AdoIterationService>())
+            .Message.ShouldStartWith(WorkItemProviderSetting.UnavailableReasonCode + ":");
+
+        gh.Calls.ShouldBeEmpty("composition must not consult gh");
+        github.Requests.ShouldBeEmpty("composition must not touch GitHub");
+        _transport.Requests.ShouldBeEmpty("composition must not touch ADO");
+    }
+
+    /// <summary>
+    /// <c>gh</c> is consulted only when a read is requested, through the production token source
+    /// over a fake process boundary; the read goes only to the configured GraphQL endpoint and
+    /// persists nothing to the mirror (GitHub snapshot persistence is not delivered here).
+    /// </summary>
+    [Fact]
+    public async Task GitHubRead_ConsultsGhOnceAndOnlyTheGitHubEndpoint_PersistingNothing()
+    {
+        var gh = new RecordingProcessRunner(new BoundedProcessResult(BoundedProcessOutcome.Exited, 0, "fixture-gh-token\n"));
+        var github = new RecordingGitHubTransport();
+        var runtime = await AttachAsync("github", gitHub: ConfiguredGitHub,
+            seams: s => RegisterGitHubBoundaries(s, gh, github));
+        var reader = runtime.GetRequiredService<IWorkItemSnapshotReader>();
+
+        await Should.ThrowAsync<Exception>(() => reader.FetchSnapshotAsync(
+            new ExternalWorkItemIdentity("github", "https://api.github.com", "I_fixture")));
+
+        gh.Calls.ShouldBe(["gh auth token --hostname github.com"]);
+        github.Requests.ShouldBe(["POST https://api.github.com/graphql Bearer fixture-gh-token"]);
+        _transport.Requests.ShouldBeEmpty();
+        (await runtime.GetRequiredService<IWorkItemRepository>().GetRootItemsAsync()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GitHubRead_WithoutGhCredential_FailsClosedWithLoginHintAndNoHttp()
+    {
+        var gh = new RecordingProcessRunner(new BoundedProcessResult(BoundedProcessOutcome.NotStarted, -1, ""));
+        var github = new RecordingGitHubTransport();
+        var runtime = await AttachAsync("github", gitHub: ConfiguredGitHub,
+            seams: s => RegisterGitHubBoundaries(s, gh, github));
+
+        var failure = await Should.ThrowAsync<GitHubCredentialUnavailableException>(() =>
+            runtime.GetRequiredService<IWorkItemSnapshotReader>().FetchSnapshotAsync(
+                new ExternalWorkItemIdentity("github", "https://api.github.com", "I_fixture")));
+
+        failure.Message.ShouldContain("gh auth login --hostname github.com");
+        gh.Calls.Count.ShouldBe(1);
+        github.Requests.ShouldBeEmpty("no credential means no request");
+        _transport.Requests.ShouldBeEmpty();
+    }
+
+    private static GitHubConfig ConfiguredGitHub => new() { Host = "github.com", Repository = "owner/name" };
+
+    private static void RegisterGitHubBoundaries(
+        IServiceCollection services, RecordingProcessRunner gh, RecordingGitHubTransport github)
+    {
+        services.AddSingleton<IBoundedProcessRunner>(gh);
+        services.AddSingleton(new GitHubTransportOverride(() => github));
     }
 
     /// <summary>
@@ -308,11 +404,13 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
     }
 
     private async Task<ServiceProvider> AttachAsync(
-        string? provider, string? gitProject = null, string checkout = "checkout", bool neutralStoreOptedIn = false)
+        string? provider, string? gitProject = null, string checkout = "checkout", bool neutralStoreOptedIn = false,
+        GitHubConfig? gitHub = null, Action<IServiceCollection>? seams = null)
     {
-        var (config, paths) = await PrepareAsync(provider, checkout);
+        var (config, paths) = await PrepareAsync(provider, checkout, gitHub);
         _transport.Reset();
         var services = new ServiceCollection();
+        seams?.Invoke(services);
         Compose(services, config, paths, gitProject);
         if (neutralStoreOptedIn)
             services.AddSingleton<IWorkItemRepository>(sp => TwigServiceRegistration.CreateMirrorRepository(sp, true));
@@ -321,12 +419,15 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         return runtime;
     }
 
-    private async Task<(TwigConfiguration Config, TwigPaths Paths)> PrepareAsync(string? provider, string checkout)
+    private async Task<(TwigConfiguration Config, TwigPaths Paths)> PrepareAsync(
+        string? provider, string checkout, GitHubConfig? gitHub = null)
     {
         var root = Path.Combine(_temp, checkout);
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         var config = new TwigConfiguration { Organization = "fixture", Project = "Project", Provider = provider };
+        if (gitHub is not null)
+            config.GitHub = gitHub;
         config.Display.Hints = false;
         var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);
         var paths = new TwigPaths(defaults.TwigDir, defaults.ConfigPath, defaults.DbPath, root, Path.Combine(Home, "display.json"));
@@ -358,6 +459,42 @@ public sealed class NonAdoProviderGateTests : IAsyncLifetime
         services.AddTwigRenderingServices();
         services.AddTwigCommandServices();
         services.AddTwigCommands();
+    }
+
+    /// <summary>Fake process boundary: records every launch and never starts a real <c>gh</c>.</summary>
+    private sealed class RecordingProcessRunner(BoundedProcessResult? result = null) : IBoundedProcessRunner
+    {
+        private readonly List<string> _calls = [];
+
+        public IReadOnlyList<string> Calls
+        {
+            get { lock (_calls) return _calls.ToList(); }
+        }
+
+        public Task<BoundedProcessResult> RunAsync(
+            string fileName, IReadOnlyList<string> arguments, TimeSpan timeout, int maxOutputChars, CancellationToken ct)
+        {
+            lock (_calls) _calls.Add(string.Join(' ', [fileName, .. arguments]));
+            return Task.FromResult(result ?? new BoundedProcessResult(BoundedProcessOutcome.NotStarted, -1, ""));
+        }
+    }
+
+    /// <summary>Fake GitHub transport: records each request with its auth scheme and token, answers 503.</summary>
+    private sealed class RecordingGitHubTransport : HttpMessageHandler
+    {
+        private readonly List<string> _requests = [];
+
+        public IReadOnlyList<string> Requests
+        {
+            get { lock (_requests) return _requests.ToList(); }
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var auth = request.Headers.Authorization;
+            lock (_requests) _requests.Add($"{request.Method} {request.RequestUri} {auth?.Scheme} {auth?.Parameter}");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
     }
 
     /// <summary>Answers like ADO and records every request it sees.</summary>

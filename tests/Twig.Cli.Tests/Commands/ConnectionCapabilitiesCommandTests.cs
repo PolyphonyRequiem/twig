@@ -191,7 +191,7 @@ public sealed class ConnectionCapabilitiesCommandTests
     // CommandRegistrationModule wires the command. An explicitly configured provider without an
     // adapter must fail closed with its reason code; it must never fall back to ADO's report.
     [Theory]
-    [InlineData("github", "provider-unavailable:")]
+    [InlineData("github", "provider-unconfigured:")]
     [InlineData("jira", "provider-unknown:")]
     public async Task ConfiguredProviderWithoutAdapter_FailsClosed_WithReasonCode(string stored, string reason)
     {

@@ -75,22 +75,22 @@ internal sealed class DurableFieldReader
     private readonly SqliteLocalWorkItemRepository _local;
     private readonly IWorkItemRepository _mirror;
     private readonly IFieldDefinitionStore _definitions;
-    private readonly Func<CancellationToken, Task<string?>> _resolveMirrorScope;
+    private readonly Func<string?> _getKnownMirrorScope;
 
     private DurableFieldReader(
         SqliteLocalWorkItemRepository local,
         IWorkItemRepository mirror,
         IFieldDefinitionStore definitions,
-        Func<CancellationToken, Task<string?>> resolveMirrorScope)
+        Func<string?> getKnownMirrorScope)
     {
         _local = local;
         _mirror = mirror;
         _definitions = definitions;
-        _resolveMirrorScope = resolveMirrorScope;
+        _getKnownMirrorScope = getKnownMirrorScope;
     }
 
     /// <summary>
-    /// Returns a reader when the neutral store is opted in and a mirror scope source exists;
+    /// Returns a reader when the neutral store is opted in and a known-scope source exists;
     /// otherwise <see langword="null"/>, and callers keep the legacy read path.
     /// </summary>
     public static DurableFieldReader? Create(
@@ -98,13 +98,13 @@ internal sealed class DurableFieldReader
         SqliteLocalWorkItemRepository local,
         IWorkItemRepository mirror,
         IFieldDefinitionStore definitions,
-        Func<CancellationToken, Task<string?>>? resolveMirrorScope)
+        Func<string?>? getKnownMirrorScope)
     {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(mirror);
         ArgumentNullException.ThrowIfNull(definitions);
-        return neutralStoreOptedIn && resolveMirrorScope is not null
-            ? new DurableFieldReader(local, mirror, definitions, resolveMirrorScope)
+        return neutralStoreOptedIn && getKnownMirrorScope is not null
+            ? new DurableFieldReader(local, mirror, definitions, getKnownMirrorScope)
             : null;
     }
 
@@ -118,7 +118,7 @@ internal sealed class DurableFieldReader
         if (local is null || local.IsDeleted)
             return await ComposeAsync(local, scope: null, ct).ConfigureAwait(false);
 
-        var scope = await _resolveMirrorScope(ct).ConfigureAwait(false);
+        var scope = _getKnownMirrorScope();
         return await ComposeAsync(local, scope, ct).ConfigureAwait(false);
     }
 
@@ -139,7 +139,7 @@ internal sealed class DurableFieldReader
 
         var nativeId = string.IsNullOrWhiteSpace(scope)
             ? null
-            : await FindMirroredNativeIdAsync(id, scope, ct);
+            : await FindMirroredNativeIdAsync(local.Id, scope, ct);
         if (nativeId is null)
             return new ComposedWorkItemFields(local, local.Fields, RemoteFieldSource.NotRead);
 

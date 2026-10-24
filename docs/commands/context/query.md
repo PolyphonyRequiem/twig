@@ -76,6 +76,12 @@ twig query [<text>] [--title <s>] [--description <s>] [--type <s>]
    (`src/Twig/Commands/QueryCommand.cs:153-183`,
    `185-222`). Hints are emitted for human formats and suppressed for
    `json` / `minimal` by `HintEngine`.
+8. **Durable field display** — rendered cells may overlay durable local
+   fields only when the ADO mirror projection already has a resolved scope.
+   The overlay does not issue a scope, authentication, or network request;
+   if the scope is not cached, it displays the mirror values. Selection,
+   order, count, truncation, and `ids` output remain unchanged. This is
+   display-only and does not edit fields or change the default storage mode.
 
 ## Examples
 

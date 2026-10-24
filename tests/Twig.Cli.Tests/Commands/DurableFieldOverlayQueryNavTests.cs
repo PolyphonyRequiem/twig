@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
@@ -10,6 +11,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Domain.ValueObjects.Fields;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
 using Xunit;
@@ -50,6 +52,30 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
         }
     }
 
+    private sealed class ThrowingAuthenticationProvider : IAuthenticationProvider
+    {
+        public int Calls { get; private set; }
+
+        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
+        {
+            Calls++;
+            throw new InvalidOperationException("Display-only navigation must not acquire an ADO token.");
+        }
+
+        public void InvalidateToken() { }
+    }
+
+    private sealed class ThrowingHttpHandler : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            throw new HttpRequestException("Display-only navigation must not send an ADO request.");
+        }
+    }
+
     private ServiceProvider Compose()
     {
         var twigDir = Path.Combine(_root, ".twig");
@@ -67,6 +93,28 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
         services.AddTwigCommandServices();
         services.AddTwigCommands();
         return services.BuildServiceProvider();
+    }
+
+    private (ServiceProvider Services, ThrowingAuthenticationProvider Auth, ThrowingHttpHandler Http) ComposeColdAdo()
+    {
+        var twigDir = Path.Combine(_root, ".twig-cold-ado");
+        Directory.CreateDirectory(twigDir);
+        var config = new TwigConfiguration { Organization = "example-org", Project = "ExampleProject" };
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+        var auth = new ThrowingAuthenticationProvider();
+        var http = new ThrowingHttpHandler();
+
+        var services = new ServiceCollection();
+        services.AddConnectionServices(config, twigDir, _root);
+        services.AddSingleton(paths);
+        services.AddSingleton(_store);
+        services.AddTwigNetworkServices(config);
+        services.Replace(ServiceDescriptor.Singleton<IAuthenticationProvider>(auth));
+        services.Replace(ServiceDescriptor.Singleton(new HttpClient(http)));
+        services.AddTwigRenderingServices();
+        services.AddTwigCommandServices();
+        services.AddTwigCommands();
+        return (services.BuildServiceProvider(), auth, http);
     }
 
     private static Twig.Domain.Aggregates.WorkItem Remote(int id, string title, int? parentId = null)
@@ -98,6 +146,23 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
         if (localState is not null)
             fields = fields.Set("System.State", new TextValue(localState));
         (await localStore.UpdateAsync(localId, current.Revision, fields)).Value.ShouldBeOfType<LocalWriteApplied>();
+    }
+
+    private async Task SeedWithoutResolvingScopeAsync(
+        IServiceProvider services, int itemId, string remoteTitle, string? localTitle = null, int? parentId = null)
+    {
+        await new SqliteWorkItemRepository(_store, new WorkItemMapper())
+            .SaveAsync(Remote(itemId, remoteTitle, parentId));
+        if (localTitle is null)
+            return;
+
+        var identity = new ExternalWorkItemIdentity(
+            "ado", Scope, itemId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var localId = (await services.GetRequiredService<IExternalIdentityMap>()
+            .ResolveAsync(identity, observedToken: null)).Id;
+        (await services.GetRequiredService<ILocalWorkItemStore>().UpdateAsync(
+            localId, 1, FieldValues.Empty.Set("System.Title", new TextValue(localTitle))))
+            .Value.ShouldBeOfType<LocalWriteApplied>();
     }
 
     private void ReturnFromWiql()
@@ -281,16 +346,16 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
     }
 
     [Fact]
-    public async Task OverlayFallsBackToTheMirrorWhenScopeResolutionReturnsNull()
+    public async Task OverlayFallsBackToTheMirrorWhenScopeIsNotAlreadyKnown()
     {
         using var services = Compose();
-        await SeedAsync(services, 42, "Remote title", "Local title");
-        _provider.ResolvedScope = null;
+        await SeedWithoutResolvingScopeAsync(services, 42, "Remote title", "Local title");
 
         var remote = (await services.GetRequiredService<IWorkItemRepository>().GetByIdAsync(42))!;
         var shown = await services.GetRequiredService<DurableFieldOverlay>().ApplyAsync(remote);
 
         shown.Title.ShouldBe("Remote title");
+        _provider.Calls.ShouldBe(0);
     }
 
     [Fact]
@@ -383,14 +448,13 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
     }
 
     [Fact]
-    public async Task NavigationFallsBackToMirrorLabelsWhenScopeResolutionReturnsNull()
+    public async Task NavigationFallsBackToMirrorLabelsWhenScopeIsNotAlreadyKnown()
     {
         using var services = Compose();
-        await SeedAsync(services, 42, "Parent");
-        await SeedAsync(services, 43, "Remote child one", "Local child one", parentId: 42);
-        await SeedAsync(services, 44, "Remote child two", parentId: 42);
+        await SeedWithoutResolvingScopeAsync(services, 42, "Parent");
+        await SeedWithoutResolvingScopeAsync(services, 43, "Remote child one", "Local child one", parentId: 42);
+        await SeedWithoutResolvingScopeAsync(services, 44, "Remote child two", parentId: 42);
         await services.GetRequiredService<IContextStore>().SetActiveWorkItemIdAsync(42);
-        _provider.ResolvedScope = null;
 
         var (exit, output) = await StderrCapture.RunAsync(() =>
             services.GetRequiredService<NavigationCommands>().DownAsync(outputFormat: "human"));
@@ -399,5 +463,36 @@ public sealed class DurableFieldOverlayQueryNavTests : IDisposable
         output.ShouldContain("Remote child one");
         output.ShouldNotContain("Local child one");
         output.ShouldContain("Remote child two");
+        _provider.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ColdProductionAdoCompositionDoesNotAcquireAuthOrSendHttpForNavigationLabels()
+    {
+        var (services, auth, http) = ComposeColdAdo();
+        using (services)
+        {
+            await SeedWithoutResolvingScopeAsync(services, 42, "Parent");
+            await SeedWithoutResolvingScopeAsync(services, 43, "Remote child one", "Local child one", parentId: 42);
+            await SeedWithoutResolvingScopeAsync(services, 44, "Remote child two", parentId: 42);
+
+            await services.GetRequiredService<IContextStore>().SetActiveWorkItemIdAsync(42);
+            var (navigationExit, navigationOutput) = await StderrCapture.RunAsync(() =>
+                services.GetRequiredService<NavigationCommands>().DownAsync(outputFormat: "human"));
+            navigationExit.ShouldBe(1);
+            navigationOutput.ShouldContain("Remote child one");
+
+            var history = services.GetRequiredService<INavigationHistoryStore>();
+            await history.RecordVisitAsync(42);
+            await history.RecordVisitAsync(43);
+            var (historyExit, historyOutput) = await StdoutCapture.RunAsync(() =>
+                services.GetRequiredService<NavigationHistoryCommands>()
+                    .HistoryAsync(nonInteractive: true, outputFormat: "human"));
+            historyExit.ShouldBe(0);
+            historyOutput.ShouldContain("Remote child one");
+
+            auth.Calls.ShouldBe(0);
+            http.Calls.ShouldBe(0);
+        }
     }
 }

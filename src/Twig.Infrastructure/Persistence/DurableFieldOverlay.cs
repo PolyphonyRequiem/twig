@@ -17,16 +17,16 @@ internal sealed class DurableFieldOverlay
 
     private readonly SqliteLocalWorkItemRepository? _local;
     private readonly DurableFieldReader? _reader;
-    private readonly Func<CancellationToken, Task<string?>>? _resolveScope;
+    private readonly Func<string?>? _getKnownScope;
 
     private DurableFieldOverlay(
         SqliteLocalWorkItemRepository? local,
         DurableFieldReader? reader,
-        Func<CancellationToken, Task<string?>>? resolveScope)
+        Func<string?>? getKnownScope)
     {
         _local = local;
         _reader = reader;
-        _resolveScope = resolveScope;
+        _getKnownScope = getKnownScope;
     }
 
     /// <summary>Builds a display overlay only when the mirror has an ADO identity projection.</summary>
@@ -38,12 +38,13 @@ internal sealed class DurableFieldOverlay
         ArgumentNullException.ThrowIfNull(mirror);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(definitions);
-        if (mirror is not SqliteWorkItemRepository { DurableScope: { } scope })
+        if (mirror is not SqliteWorkItemRepository repository || !repository.HasDurableIdentityProjection)
             return Disabled;
 
         var local = new SqliteLocalWorkItemRepository(store);
-        var reader = DurableFieldReader.Create(neutralStoreOptedIn: true, local, mirror, definitions, scope)!;
-        return new DurableFieldOverlay(local, reader, scope);
+        Func<string?> getKnownScope = () => repository.DurableScope;
+        var reader = DurableFieldReader.Create(neutralStoreOptedIn: true, local, mirror, definitions, getKnownScope)!;
+        return new DurableFieldOverlay(local, reader, getKnownScope);
     }
 
     /// <summary>Applies durable fields to one mirrored item for display.</summary>
@@ -54,7 +55,7 @@ internal sealed class DurableFieldOverlay
         return results[0];
     }
 
-    /// <summary>Applies durable fields while resolving the ADO scope at most once for the batch.</summary>
+    /// <summary>Applies durable fields only when the projection already knows the mirror scope.</summary>
     public async Task<IReadOnlyList<WorkItem>> ApplyAsync(
         IReadOnlyList<WorkItem> items,
         CancellationToken ct = default)
@@ -63,7 +64,7 @@ internal sealed class DurableFieldOverlay
         if (_reader is null || !items.Any(item => item.Id > 0))
             return items;
 
-        var scope = await _resolveScope!(ct).ConfigureAwait(false);
+        var scope = _getKnownScope!();
         if (string.IsNullOrWhiteSpace(scope))
             return items;
 

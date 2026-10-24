@@ -33,7 +33,7 @@ public sealed class DurableFieldReaderTests : IDisposable
 
     public void Dispose() => _store.Dispose();
 
-    private static Func<CancellationToken, Task<string?>> Returns(string? scope) => _ => Task.FromResult(scope);
+    private static Func<string?> Returns(string? scope) => () => scope;
 
     private DurableFieldReader Reader(string? scope = Scope)
         => DurableFieldReader.Create(neutralStoreOptedIn: true, _local, _mirror, _definitions, Returns(scope))!;

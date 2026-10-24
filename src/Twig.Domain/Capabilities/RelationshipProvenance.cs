@@ -45,6 +45,26 @@ internal static class RelationshipProvenance
     public static RelationshipOrigin? OfProviderObservation(ProviderCapabilityDescriptor? descriptor, string? friendlyLinkType)
         => TryGetKind(friendlyLinkType, out var kind) ? OfProviderObservation(descriptor, kind) : null;
 
+    /// <summary>
+    /// Origin of a canonical relationship taken from a provider snapshot. Call only on relationships
+    /// read from the provider (<c>ProviderWorkItemReadResult.Relationships</c>), never on cached or
+    /// Twig-local edges, and pass the active connection's descriptor, not a catalog fallback.
+    /// Returns <c>null</c> (unknown) unless the descriptor's provider owns both endpoints and
+    /// declares the kind native.
+    /// </summary>
+    public static RelationshipOrigin? OfProviderObservation(
+        ProviderCapabilityDescriptor? descriptor, ProviderWorkItemRelationship relationship)
+    {
+        ArgumentNullException.ThrowIfNull(relationship);
+
+        if (descriptor is null
+            || !string.Equals(descriptor.ProviderKind, relationship.Source.ProviderKind, StringComparison.Ordinal)
+            || !string.Equals(descriptor.ProviderKind, relationship.Target.ProviderKind, StringComparison.Ordinal))
+            return null;
+
+        return OfProviderObservation(descriptor, relationship.Kind);
+    }
+
     /// <summary>Canonical origin token, or <c>null</c> when the origin is unknown.</summary>
     public static string? ToToken(RelationshipOrigin? origin)
         => origin is { } value ? CapabilityTokens.ToToken(CapabilityTokens.Origin, value) : null;

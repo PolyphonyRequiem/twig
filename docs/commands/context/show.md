@@ -22,6 +22,12 @@ nullable provider revision token, provider identity, provider fields, and
 locally overlaid fields distinct. A missing provider token is reported as
 `null`; it is not inferred from the local revision.
 
+Each `relationships` row may carry an optional `origin` (currently
+`provider-native`). It is emitted only when the row came from the active
+provider's snapshot, both endpoints belong to that provider, and the provider's
+capability descriptor declares the relationship kind native. Otherwise `origin`
+is omitted (unknown), never guessed from the legacy cache or a default catalog.
+
 ## Synopsis
 
 ```

@@ -39,10 +39,12 @@ The internal `GitHubWorkItemProvider` implements `IWorkItemSnapshotReader` using
 GraphQL **queries only**. It is registered as `IWorkItemProvider` and
 `IWorkItemSnapshotReader` only when the workspace explicitly sets
 `provider=github`; an absent setting still means ADO and an unknown provider
-still fails closed. This increment registers the provider transport only; it
-does not dispatch CLI read commands through it. Writes, write readiness,
-device sign-in, alias resolution and GitHub persistence are not part of this
-increment.
+still fails closed. The show/query/refresh/sync CLI paths resolve the
+`IProviderWorkItemReader` boundary, but its current adapter supports ADO only:
+under `provider=github` those paths fail closed before constructing an ADO
+client. They do not yet dispatch through the GitHub snapshot transport. Writes,
+write readiness, device sign-in, alias resolution and GitHub persistence are not
+part of this increment.
 
 ### Activation (`provider=github`)
 
@@ -78,6 +80,14 @@ lowercase HTTPS API origin without a trailing slash (for example
 repository names and user logins are not item identities. A custom GraphQL
 endpoint may use `/graphql` or `/api/graphql`; its authority supplies the scope.
 No local ID or revision is minted, and the read-only revision token is null.
+The durable #1168 identity map resolves provider identities to `LocalWorkItemId`;
+it does not map them to the legacy integer IDs used by the current mirror and
+`IProviderWorkItemReader`. A real CLI adapter therefore still needs an explicit,
+lossless projection between those models. GitHub also has no implementation of
+the non-null revision-bound `IAuthoritativeWorkItemReader` contract: do not
+substitute a synthetic revision or nullable fallback where an authoritative
+revision is required. That projection and revision contract are prerequisites
+for GitHub CLI read dispatch, not behavior this snapshot transport claims.
 
 Snapshots contain typed `FieldValues`, not the integer-ID ADO mirror shape:
 `System.Title`/`System.State` preserve native text, `System.Description` carries

@@ -184,7 +184,7 @@ public sealed class PlanDocumentParserTests
         operation.Target.Item.LocalId.ToString().ShouldBe(LocalId);
         operation.Target.Item.ExternalIdentity.ShouldBe(new ExternalWorkItemIdentity(
             "github", "https://github.com/acme/widgets", "issue:7"));
-        operation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"abc\"");
+        operation.Target.ExpectedProviderRevision.Value.ShouldBe("opaque:rev/42");
         operation.Relation.ShouldBe("related");
         operation.Other!.LocalId.ToString().ShouldBe("0190f1f0-7b12-7abc-8abc-1234567890ab");
         operation.Other.ExternalIdentity.ShouldBe(new ExternalWorkItemIdentity(
@@ -198,7 +198,7 @@ public sealed class PlanDocumentParserTests
         var writtenOperation = roundTripped.Plan!.Operations.Single().ShouldBeOfType<ProviderMutationOperation>();
         writtenOperation.Kind.ShouldBe(PlanOperationKind.RemoveLink);
         writtenOperation.Target.Item.ExternalIdentity.NativeId.ShouldBe("issue:7");
-        writtenOperation.Target.ExpectedProviderRevision.Value.ShouldBe("etag:\"abc\"");
+        writtenOperation.Target.ExpectedProviderRevision.Value.ShouldBe("opaque:rev/42");
         writtenOperation.Other!.ExternalIdentity.NativeId.ShouldBe("issue:8");
     }
 

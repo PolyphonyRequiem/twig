@@ -78,7 +78,7 @@ export function validateBenchDetail(value, workItemId, cwd, expected) {
     if (value.layoutStatus !== "unavailable" ||
         !record(c) || c.sourceComplete !== false || c.sourceChildCount !== null ||
         !Number.isSafeInteger(c.cachedChildCount) || c.cachedChildCount < 0 ||
-        !(c.parentCached === null || typeof c.parentCached === "boolean") ||
+        !(c.parentCached == null || typeof c.parentCached === "boolean") ||
         typeof c.linksVerified !== "boolean" ||
         !Array.isArray(c.reasons) || !c.reasons.every(nonempty) ||
         !["source-unknown", "cache-only"].every((reason) => c.reasons.includes(reason))) {

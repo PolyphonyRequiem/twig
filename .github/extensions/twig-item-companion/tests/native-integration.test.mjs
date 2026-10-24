@@ -7,8 +7,9 @@
 //   { "nativeSha": "<git sha>", "binary": { "file": "twig.exe", "sha256": "<hex>" },
 //     "workspacePath": "<bound checkout>", "bench": "<saved name or id>",
 //     "memberId": <id>, "nonMemberId": <id>,
-//     "currentBenchProbeArgs": ["<read-only twig args whose stdout names the current Bench>"] }
-// Env for the child (checkout/home) is the fixture's responsibility: TWIG_NATIVE_ENV is an optional JSON object merged in.
+//     "currentBenchProbeArgs": ["<read-only twig args whose stdout names the current Bench>"],
+//     "env": { "TWIG_USER_HOME": "<fixture home>" } }
+// TWIG_NATIVE_ENV is an optional JSON object merged over the manifest environment.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";

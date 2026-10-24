@@ -335,6 +335,35 @@ public sealed class DraftCaptureEvidenceTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("missing")]
+    [InlineData("malformed")]
+    public async Task ExplicitNativeInspectionRefusesUnknownRulePayloadRatherThanObservingEmpty(string payload)
+    {
+        using var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/projects/",
+            """{"capabilities":{"processTemplate":{"templateTypeId":"observed-process"}}}""");
+        handler.SetProcessWorkItemTypesResponse(("FixtureType", "Observed.Type"));
+        handler.SetRawResponse("/layout", """{"pages":[]}""");
+        handler.SetRawResponse("/rules", payload == "null" ? """{"value":null}"""
+            : payload == "missing" ? "{}" : "broken");
+        var provider = FakeHandler.CreateService(handler);
+        (await provider.GetFormLayoutAsync("FixtureType")).ShouldBeOfType<FormLayoutResult.Served>();
+        var error = await Record.ExceptionAsync(() => provider.InspectFormAsync("FixtureType", default));
+        error.ShouldNotBeNull();
+        if (payload == "malformed")
+        {
+            error.ShouldBeAssignableTo<JsonException>();
+            error.Message.ShouldContain("'b' is an invalid start of a value");
+        }
+        else
+        {
+            error.ShouldBeOfType<InvalidOperationException>();
+            error.Message.ShouldBe("metadata-unavailable: explicit process rules response has no rule set.");
+        }
+    }
+
     [Fact]
     public async Task LegacyCaptureRemainsInspectableWithoutEvidencePromotion()
     {
